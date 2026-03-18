@@ -101,6 +101,21 @@ python3 scheduler.py
 
 수동 실행만 원하면 [run_once.py](run_once.py)만 사용하세요.
 
+Ubuntu에서 systemd 서비스로 백그라운드 실행이 필요하면 관리 스크립트를 사용할 수 있습니다.
+
+```bash
+./scripts/manage_scheduler_systemd.sh install
+./scripts/manage_scheduler_systemd.sh status
+./scripts/manage_scheduler_systemd.sh logs
+```
+
+중지/제거:
+
+```bash
+./scripts/manage_scheduler_systemd.sh stop
+./scripts/manage_scheduler_systemd.sh uninstall
+```
+
 ## 생성 산출물
 
 리포트 결과는 [report](report) 디렉토리에 JSON 캐시로 저장됩니다.
