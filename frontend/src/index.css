@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0b1628;
+  --card-bg: #111f38;
+  --surface-alt: #162040;
+  --border: rgba(255,255,255,.1);
+  --border-light: rgba(255,255,255,.06);
+  --text-1: #f0f4ff;
+  --text-2: #c8d4f0;
+  --text-3: #8898bb;
+  --text-4: #4e6080;
+  --up: #22c55e;
+  --up-bg: rgba(34,197,94,.12);
+  --up-border: rgba(34,197,94,.3);
+  --down: #ef4444;
+  --down-bg: rgba(239,68,68,.12);
+  --down-border: rgba(239,68,68,.3);
+  --blue-light: rgba(59,130,246,.08);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: 'Noto Sans KR', 'Inter', sans-serif;
+  margin: 0;
+  min-height: 100vh;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.shimmer-line {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer-line::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 25%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.15), transparent);
+  animation: shimmer 2s infinite;
+}
+
+.analysis-content h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-1);
+  margin: 1.4rem 0 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.analysis-content h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 1rem 0 0.3rem;
+}
+.analysis-content p {
+  color: var(--text-2);
+  line-height: 1.7;
+  margin: 0.4rem 0;
+  font-size: 0.9rem;
+}
+.analysis-content ul {
+  padding-left: 1.4rem;
+  margin: 0.4rem 0;
+}
+.analysis-content li {
+  color: var(--text-2);
+  line-height: 1.7;
+  margin: 0.2rem 0;
+  font-size: 0.9rem;
+}
+.analysis-content strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.analysis-content em {
+  color: #60a5fa;
+}
+.analysis-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.8rem 0;
+  font-size: 0.85rem;
+}
+.analysis-content th {
+  background: var(--surface-alt);
+  color: var(--text-3);
+  padding: 6px 10px;
+  text-align: left;
+  border: 1px solid var(--border-light);
+  font-weight: 600;
+}
+.analysis-content td {
+  padding: 6px 10px;
+  border: 1px solid var(--border-light);
+  color: var(--text-2);
+}
+.analysis-content tr:nth-child(even) td {
+  background: rgba(255,255,255,.02);
+}
