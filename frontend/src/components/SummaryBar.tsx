@@ -31,65 +31,29 @@ function getNextScheduleLabel(now = new Date()) {
 export function SummaryBar({ summaryLines, generatedAt, onRefresh }: Props) {
   const lines = summaryLines.length > 0
     ? summaryLines
-    : ['AI 분석 요약을 불러오는 중...', '', ''];
-  const nextSchedule = getNextScheduleLabel();
+    : ['핵심 요약을 준비하는 중입니다.', '시장 신호를 모으는 중입니다.', '리포트 본문이 곧 정리됩니다.'];
 
   return (
-    <div style={{
-      background: 'linear-gradient(135deg, #0a1628 0%, #111f38 50%, #0a1628 100%)',
-      borderBottom: '1px solid rgba(255,255,255,.06)',
-      padding: '16px 24px',
-    }}>
-      {/* Shimmer top line */}
-      <div className="shimmer-line" style={{
-        height: 2,
-        background: 'linear-gradient(90deg, transparent, rgba(59,130,246,.6), transparent)',
-        marginBottom: 14,
-        borderRadius: 1,
-      }} />
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {lines.slice(0, 3).map((line, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <span style={{
-                flexShrink: 0,
-                width: 22, height: 22,
-                borderRadius: '50%',
-                background: 'rgba(59,130,246,.2)',
-                border: '1px solid rgba(59,130,246,.4)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 11, fontWeight: 700, color: '#93c5fd',
-              }}>{i + 1}</span>
-              <span style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>{line}</span>
-            </div>
-          ))}
-          <div style={{ fontSize: 11, color: 'var(--text-4)', marginLeft: 32, marginTop: 2 }}>오늘 판단 전에 먼저 봐야 할 3가지 신호</div>
-          <div style={{ fontSize: 11, color: 'var(--text-4)', marginLeft: 32 }}>
-            리포트 생성: {generatedAt || '데이터 없음'}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-4)', marginLeft: 32 }}>
-            다음 자동 생성(스케줄러 기준): {nextSchedule}
+    <div className="summary-shell">
+      <div className="summary-head">
+        <div>
+          <div className="summary-title">Quick Brief</div>
+          <div className="summary-meta">
+            리포트 생성 {generatedAt || '데이터 없음'} · 다음 자동 생성 {getNextScheduleLabel()}
           </div>
         </div>
+        <button className="ghost-button" onClick={onRefresh} title="최신 리포트 다시 불러오기">
+          최신 리포트 불러오기
+        </button>
+      </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-          <span style={{ fontSize: 11, color: 'var(--text-4)' }}>읽기 모드</span>
-          <button
-            onClick={onRefresh}
-            style={{
-              background: 'rgba(59,130,246,.12)',
-              border: '1px solid rgba(59,130,246,.3)',
-              borderRadius: 8,
-              color: '#93c5fd',
-              cursor: 'pointer',
-              fontSize: 16,
-              padding: '4px 10px',
-              transition: 'background .2s',
-            }}
-            title="최신 리포트 다시 불러오기"
-          >↻</button>
-        </div>
+      <div className="summary-grid">
+        {lines.slice(0, 3).map((line, i) => (
+          <div key={i} className="summary-card">
+            <span className="summary-index">{i + 1}</span>
+            <div className="summary-copy">{line}</div>
+          </div>
+        ))}
       </div>
     </div>
   );

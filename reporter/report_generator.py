@@ -1,5 +1,5 @@
 """Jinja2 템플릿으로 HTML/Markdown 리포트 생성"""
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 import json
 import re
 from datetime import datetime
@@ -164,3 +164,35 @@ def save_market_context_cache(context, date: str) -> None:
     cache_path.write_text(json.dumps(
         payload, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info(f"시장 컨텍스트 캐시 저장: {cache_path}")
+
+
+def _json_default(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if is_dataclass(value):
+        return asdict(value)
+    raise TypeError(f"JSON serializable unsupported type: {type(value)!r}")
+
+
+def save_news_cache(items: list, date: str) -> None:
+    """수집한 뉴스 원문 메타데이터를 JSON으로 저장한다."""
+    payload = {
+        "date": date,
+        "items": items,
+    }
+    cache_path = REPORT_OUTPUT_DIR / f"{date}_news.json"
+    cache_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default),
+        encoding="utf-8",
+    )
+    logger.info(f"뉴스 캐시 저장: {cache_path}")
+
+
+def save_today_picks_cache(payload: dict, date: str) -> None:
+    """오늘의 추천 종목 결과를 JSON으로 저장한다."""
+    out = dict(payload)
+    out["date"] = date
+    cache_path = REPORT_OUTPUT_DIR / f"{date}_today_picks.json"
+    cache_path.write_text(json.dumps(
+        out, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.info(f"오늘의 추천 캐시 저장: {cache_path}")

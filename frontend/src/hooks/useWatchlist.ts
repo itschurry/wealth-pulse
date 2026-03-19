@@ -23,7 +23,7 @@ export function useWatchlist() {
     let change_pct: number | undefined;
     let resolvedName = name;
     try {
-      const res = await fetch(`/api/stock/${code}`, { cache: 'no-store' });
+      const res = await fetch(`/api/stock/${code}?market=${encodeURIComponent(market)}`, { cache: 'no-store' });
       const d = await res.json();
       if (!d.error) { price = d.price; change_pct = d.change_pct; resolvedName = d.name || name; }
     } catch {}
@@ -39,7 +39,7 @@ export function useWatchlist() {
     if (!current.length) return;
     const updated = await Promise.all(current.map(async item => {
       try {
-        const res = await fetch(`/api/stock/${item.code}`, { cache: 'no-store' });
+        const res = await fetch(`/api/stock/${item.code}?market=${encodeURIComponent(item.market)}`, { cache: 'no-store' });
         const d = await res.json();
         if (!d.error) return { ...item, price: d.price, change_pct: d.change_pct };
       } catch {}

@@ -7,22 +7,38 @@ from loguru import logger
 
 from config.settings import LOGS_DIR, DELIVERY_METHOD
 from analyzer.market_context_builder import build_market_context
+from analyzer.today_picks_engine import generate_today_picks
 from collectors.market_collector import collect_market
 from collectors.macro_collector import collect_macro
 from collectors.news_collector import collect_news
 from collectors.models import DailyData
 from analyzer.openai_analyzer import analyze
 from analyzer.recommendation_engine import generate_recommendations
-from reporter.report_generator import save_analysis_cache, save_recommendations_cache, save_macro_cache, save_market_context_cache
+from reporter.report_generator import (
+    save_analysis_cache,
+    save_macro_cache,
+    save_market_context_cache,
+    save_news_cache,
+    save_recommendations_cache,
+    save_today_picks_cache,
+)
 from reporter.telegram_sender import send_report as send_telegram
 from reporter.email_sender import send_report as send_email
 
+_log_handler_id: int | None = None
+
 
 def _setup_logging():
-    """loguru 로그 설정"""
+    """loguru 로그 설정 (중복 핸들러 방지)"""
+    global _log_handler_id
+    if _log_handler_id is not None:
+        try:
+            logger.remove(_log_handler_id)
+        except Exception:
+            pass
     log_file = LOGS_DIR / f"daily_report_{datetime.now():%Y-%m-%d}.log"
-    logger.add(str(log_file), rotation="1 day",
-               retention="30 days", level="INFO", encoding="utf-8")
+    _log_handler_id = logger.add(str(log_file), rotation="1 day",
+                                 retention="30 days", level="INFO", encoding="utf-8")
 
 
 async def run_daily_report():
@@ -56,12 +72,15 @@ async def run_daily_report():
 
     logger.info("[6/6] 투자 추천 계산 및 저장...")
     recommendations = generate_recommendations(daily_data)
+    today_picks = generate_today_picks(daily_data)
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     save_analysis_cache(analysis, date_str)
+    save_news_cache(daily_data.news, date_str)
     save_macro_cache(daily_data.macro, date_str)
     save_market_context_cache(daily_data.market_context, date_str)
     save_recommendations_cache(recommendations, date_str)
+    save_today_picks_cache(today_picks, date_str)
 
     delivery = DELIVERY_METHOD
     if delivery in ("telegram", "both"):

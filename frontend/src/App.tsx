@@ -26,30 +26,36 @@ export default function App() {
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return (
-    <div>
-      <Header reportDate={today} />
-      <SummaryBar
-        summaryLines={analysis.summary_lines || []}
-        generatedAt={analysis.generated_at}
-        onRefresh={refreshAnalysis}
-      />
-      <TabBar activeTab={activeTab} onChange={handleTabChange} />
-      <div style={{ maxWidth: 960, margin: '0 auto', padding: '20px 16px' }}>
-        {activeTab === 'assistant' && <AssistantTab />}
-        {activeTab === 'market' && <MarketTab />}
-        {activeTab === 'holdings' && <WatchlistTab />}
-        {activeTab === 'analysis' && (
-          <AnalysisTab
-            data={analysis}
-            status={analysisStatus}
-            onRefresh={refreshAnalysis}
-          />
-        )}
-        {activeTab === 'recommendations' && (
-          <RecommendationTab
-            onRefresh={refreshAnalysis}
-          />
-        )}
+    <div className="app-shell">
+      <div className="page-frame">
+        <Header
+          reportDate={today}
+          generatedAt={analysis.generated_at}
+          headline={analysis.summary_lines?.[0]}
+        />
+        <SummaryBar
+          summaryLines={analysis.summary_lines || []}
+          generatedAt={analysis.generated_at}
+          onRefresh={refreshAnalysis}
+        />
+        <TabBar activeTab={activeTab} onChange={handleTabChange} />
+        <div className="content-shell">
+          {activeTab === 'assistant' && <AssistantTab />}
+          {activeTab === 'market' && <MarketTab />}
+          {activeTab === 'holdings' && <WatchlistTab />}
+          {activeTab === 'analysis' && (
+            <AnalysisTab
+              data={analysis}
+              status={analysisStatus}
+              onRefresh={refreshAnalysis}
+            />
+          )}
+          {activeTab === 'recommendations' && (
+            <RecommendationTab
+              onRefresh={refreshAnalysis}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -53,6 +53,13 @@ export interface MarketContextData {
   error?: string;
 }
 
+export interface MarketDashboardData {
+  market?: MarketData;
+  macro?: MacroData;
+  context?: MarketContextData;
+  error?: string;
+}
+
 export interface RecommendationItem {
   rank: number;
   name: string;
@@ -87,8 +94,31 @@ export interface WatchlistItem {
   code: string;
   name: string;
   market: string;
-  price?: number;
-  change_pct?: number;
+  price?: number | null;
+  change_pct?: number | null;
+}
+
+export interface TechnicalSnapshot {
+  current_price?: number | null;
+  change_pct?: number | null;
+  sma20?: number | null;
+  sma60?: number | null;
+  volume?: number | null;
+  volume_avg20?: number | null;
+  volume_ratio?: number | null;
+  rsi14?: number | null;
+  macd?: number | null;
+  macd_signal?: number | null;
+  macd_hist?: number | null;
+  trend?: 'bullish' | 'bearish' | 'neutral';
+}
+
+export interface InvestorFlowSnapshot {
+  date?: string;
+  foreign_net_1d?: number | null;
+  foreign_net_5d?: number | null;
+  institution_net_1d?: number | null;
+  institution_net_5d?: number | null;
 }
 
 export interface StockSearchResult {
@@ -123,4 +153,90 @@ export interface AssistantRiskSignal {
   title: string;
   detail: string;
   level: 'high' | 'medium';
+}
+
+export interface RelatedNewsItem {
+  title: string;
+  url: string;
+  source: string;
+  published: string;
+  summary?: string;
+}
+
+export interface TodayPickItem {
+  name: string;
+  code?: string;
+  market?: string;
+  sector?: string;
+  signal: string;
+  score: number;
+  confidence: number;
+  reasons: string[];
+  risks: string[];
+  catalysts: string[];
+  related_news: RelatedNewsItem[];
+}
+
+export interface TodayPicksData {
+  generated_at?: string;
+  date?: string;
+  market_tone?: string;
+  strategy?: string;
+  picks: TodayPickItem[];
+  error?: string;
+}
+
+export interface WatchlistActionItem extends WatchlistItem {
+  action: 'buy' | 'hold' | 'sell' | 'watch';
+  signal: string;
+  score: number;
+  confidence: number;
+  reasons: string[];
+  risks: string[];
+  related_news: RelatedNewsItem[];
+  technicals?: TechnicalSnapshot | null;
+  investor_flow?: InvestorFlowSnapshot | null;
+  changed_from_yesterday?: {
+    previous_signal?: string;
+    score_diff?: number;
+  } | null;
+}
+
+export interface WatchlistActionsData {
+  generated_at?: string;
+  date?: string;
+  actions: WatchlistActionItem[];
+  error?: string;
+}
+
+export interface CompareChangeItem {
+  name: string;
+  ticker?: string;
+  status?: 'new' | 'changed';
+  current_signal?: string;
+  previous_signal?: string;
+  score_diff: number;
+}
+
+export interface CompareData {
+  base_date?: string;
+  prev_date?: string;
+  summary_lines?: {
+    base: string[];
+    prev: string[];
+  };
+  signal_counts?: {
+    base: Record<string, number>;
+    prev: Record<string, number>;
+  };
+  recommendation_changes?: CompareChangeItem[];
+  today_pick_changes?: CompareChangeItem[];
+  context_changes?: Array<{
+    field: string;
+    previous?: string;
+    current?: string;
+  }>;
+  new_risks?: string[];
+  resolved_risks?: string[];
+  error?: string;
 }

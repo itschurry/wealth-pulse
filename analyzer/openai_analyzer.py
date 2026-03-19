@@ -1,6 +1,5 @@
 """OpenAI API를 이용한 경제 리포트 분석"""
 import asyncio
-import time
 from loguru import logger
 from openai import OpenAI, RateLimitError, APIError
 from analyzer.market_context_builder import summarize_macro_for_prompt, summarize_market_context_for_prompt
@@ -93,15 +92,15 @@ async def analyze(data: DailyData) -> str:
             logger.warning(
                 f"OpenAI RateLimit (시도 {attempt+1}): {e} — {wait}초 대기")
             if attempt < 2:
-                time.sleep(wait)
+                await asyncio.sleep(wait)
         except APIError as e:
             logger.error(f"OpenAI APIError (시도 {attempt+1}): {e}")
             if attempt < 2:
-                time.sleep(5)
+                await asyncio.sleep(5)
         except Exception as e:
             logger.error(f"OpenAI 예상 외 오류 (시도 {attempt+1}): {e}")
             if attempt < 2:
-                time.sleep(5)
+                await asyncio.sleep(5)
 
     logger.error("OpenAI API 3회 모두 실패. 폴백 리포트 생성.")
     return _fallback_report(data)

@@ -5,45 +5,29 @@ interface Props {
   onChange: (tab: TabId) => void;
 }
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'analysis', label: '📰 오늘 리포트' },
-  { id: 'assistant', label: '🧭 의사결정 보드' },
-  { id: 'market', label: '📈 실시간 참고' },
-  { id: 'holdings', label: '⭐ 관심 종목' },
-  { id: 'recommendations', label: '🎯 추천 허브' },
+const TABS: { id: TabId; label: string; help: string }[] = [
+  { id: 'analysis', label: '오늘 리포트', help: '시장 맥락 읽기' },
+  { id: 'assistant', label: '액션 보드', help: '오늘 할 일 정리' },
+  { id: 'recommendations', label: '오늘의 추천', help: '뉴스 기반 아이디어' },
+  { id: 'holdings', label: '관심종목 판단', help: '매수·매도 시그널' },
+  { id: 'market', label: '실시간 참고', help: '보조 지표 확인' },
 ];
 
 export function TabBar({ activeTab, onChange }: Props) {
   return (
-    <div style={{
-      position: 'sticky',
-      top: 0,
-      zIndex: 100,
-      background: 'var(--card-bg)',
-      borderBottom: '1px solid var(--border)',
-      display: 'flex',
-    }}>
-      {TABS.map(tab => (
-        <button
-          key={tab.id}
-          onClick={() => onChange(tab.id)}
-          style={{
-            flex: 1,
-            padding: '14px 8px',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === tab.id ? '2px solid #3b82f6' : '2px solid transparent',
-            color: activeTab === tab.id ? '#f0f4ff' : 'var(--text-3)',
-            cursor: 'pointer',
-            fontSize: 13,
-            fontWeight: activeTab === tab.id ? 700 : 400,
-            fontFamily: 'inherit',
-            transition: 'all .2s',
-          }}
-        >
-          {tab.label}
-        </button>
-      ))}
+    <div className="tab-shell">
+      <div className="tab-strip">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => onChange(tab.id)}
+            className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
+          >
+            <span className="tab-label">{tab.label}</span>
+            <span className="tab-help">{tab.help}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

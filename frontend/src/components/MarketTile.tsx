@@ -4,6 +4,7 @@ interface Props {
   pct?: number;
   badgeText?: string;
   isLive?: boolean;
+  metaText?: string;
   formatValue?: (v: number) => string;
 }
 
@@ -11,7 +12,7 @@ function defaultFormat(v: number) {
   return v.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
 }
 
-export function MarketTile({ label, value, pct, badgeText, isLive, formatValue }: Props) {
+export function MarketTile({ label, value, pct, badgeText, isLive, metaText, formatValue }: Props) {
   const isUp = pct !== undefined && pct >= 0;
   const color = pct !== undefined ? (isUp ? 'var(--up)' : 'var(--down)') : 'var(--text-2)';
   const bgColor = pct !== undefined ? (isUp ? 'var(--up-bg)' : 'var(--down-bg)') : 'transparent';
@@ -64,6 +65,12 @@ export function MarketTile({ label, value, pct, badgeText, isLive, formatValue }
           fontSize: 12, fontWeight: 600, color, width: 'fit-content',
         }}>
           {isUp ? '▲' : '▼'} {Math.abs(pct).toFixed(2)}%
+        </div>
+      )}
+
+      {metaText && (
+        <div style={{ fontSize: 11, color: 'var(--text-4)', lineHeight: 1.5 }}>
+          {metaText}
         </div>
       )}
     </div>

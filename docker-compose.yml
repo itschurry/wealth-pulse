@@ -6,4 +6,6 @@ services:
       - "8080:80"
     volumes:
       - ./report:/reports:ro   # 리포트 디렉토리를 읽기전용으로 마운트
+    environment:
+      - TZ=Asia/Seoul
     restart: unless-stopped

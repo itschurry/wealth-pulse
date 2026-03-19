@@ -170,7 +170,7 @@ function buildAutoRecommendation(params: {
   };
 }
 
-function calculateWatchlistScore(item: { code: string; name: string; market: string; price?: number; change_pct?: number }, analysisText: string): RecommendedWatchlistItem {
+function calculateWatchlistScore(item: { code: string; name: string; market: string; price?: number | null; change_pct?: number | null }, analysisText: string): RecommendedWatchlistItem {
   const context = getCompanyContext(analysisText, [item.name, item.code]);
   const positiveCount = context.positiveCount;
   const negativeCount = context.negativeCount;
@@ -179,7 +179,7 @@ function calculateWatchlistScore(item: { code: string; name: string; market: str
   const sentiment = positiveCount - negativeCount;
   baseScore = Math.min(100, Math.max(30, baseScore + sentiment * 3));
 
-  if (item.change_pct !== undefined) {
+  if (item.change_pct !== undefined && item.change_pct !== null) {
     if (item.change_pct > 1.5) baseScore += 5;
     if (item.change_pct < -1.5) baseScore -= 5;
   }
@@ -196,7 +196,7 @@ function calculateWatchlistScore(item: { code: string; name: string; market: str
   if (positiveCount > 0) reasons.push(`긍정 신호 ${positiveCount}건`);
   if (negativeCount > 0) reasons.push(`부정 신호 ${negativeCount}건`);
   if (context.matchedSegments.length > 0) reasons.push(`관련 문장 ${context.matchedSegments.length}개`);
-  if (item.change_pct && Math.abs(item.change_pct) > 1) reasons.push(`당일 ${item.change_pct > 0 ? '상승' : '하락'} ${Math.abs(item.change_pct)}%`);
+  if (item.change_pct !== undefined && item.change_pct !== null && Math.abs(item.change_pct) > 1) reasons.push(`당일 ${item.change_pct > 0 ? '상승' : '하락'} ${Math.abs(item.change_pct)}%`);
   if (!reasons.length) reasons.push('중립적 시장 상황');
 
   let riskLevel = '낮음';
