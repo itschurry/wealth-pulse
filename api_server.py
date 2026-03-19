@@ -55,6 +55,7 @@ _auto_trader_state: dict = {
     "last_summary": {},
     "config": {},
 }
+WATCHLIST_PATH = LOGS_DIR / "watchlist.json"
 
 _KST = datetime.timezone(datetime.timedelta(hours=9))
 
@@ -130,6 +131,77 @@ def _resolve_reports_dir() -> str:
 
 
 REPORTS_DIR = _resolve_reports_dir()
+
+
+def _sanitize_watchlist_item(item: dict) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    code = str(item.get("code") or "").strip().upper()
+    name = str(item.get("name") or "").strip()
+    market = str(item.get("market") or "").strip().upper()
+    if not code or not name or not market:
+        return None
+    sanitized = {
+        "code": code,
+        "name": name,
+        "market": market,
+    }
+    price = item.get("price")
+    change_pct = item.get("change_pct")
+    try:
+        if price not in (None, ""):
+            sanitized["price"] = float(price)
+    except (TypeError, ValueError):
+        pass
+    try:
+        if change_pct not in (None, ""):
+            sanitized["change_pct"] = float(change_pct)
+    except (TypeError, ValueError):
+        pass
+    return sanitized
+
+
+def _load_watchlist() -> list[dict]:
+    try:
+        if not WATCHLIST_PATH.exists():
+            return []
+        raw = json.loads(WATCHLIST_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    items: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in raw:
+        sanitized = _sanitize_watchlist_item(entry)
+        if not sanitized:
+            continue
+        key = (sanitized["market"], sanitized["code"])
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(sanitized)
+    return items
+
+
+def _save_watchlist(items: list[dict]) -> list[dict]:
+    sanitized_items: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in items:
+        sanitized = _sanitize_watchlist_item(entry)
+        if not sanitized:
+            continue
+        key = (sanitized["market"], sanitized["code"])
+        if key in seen:
+            continue
+        seen.add(key)
+        sanitized_items.append(sanitized)
+    WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    WATCHLIST_PATH.write_text(
+        json.dumps(sanitized_items, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return sanitized_items
 
 
 # ──────────────────────────────────────────
@@ -1657,6 +1729,8 @@ class Handler(BaseHTTPRequestHandler):
             code = parsed.path[len("/api/stock/"):]
             market = parse_qs(parsed.query).get("market", [""])[0]
             self._serve_stock_price(code, market)
+        elif parsed.path == "/api/watchlist":
+            self._serve_watchlist()
         elif parsed.path == "/api/paper/account":
             query = parse_qs(parsed.query)
             refresh_quotes = (query.get("refresh", ["1"])[0] or "1").strip() != "0"
@@ -1670,6 +1744,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/api/watchlist-actions":
             self._serve_watchlist_actions()
+            return
+        if self.path == "/api/watchlist/save":
+            self._serve_watchlist_save()
             return
         if self.path == "/api/paper/order":
             self._serve_paper_order()
@@ -1833,6 +1910,24 @@ class Handler(BaseHTTPRequestHandler):
             self._json_resp(200, result)
         except Exception as e:
             self._json_resp(500, {"error": str(e), "actions": []})
+
+    def _serve_watchlist(self):
+        try:
+            self._json_resp(200, {"items": _load_watchlist()})
+        except Exception as exc:
+            self._json_resp(500, {"error": str(exc), "items": []})
+
+    def _serve_watchlist_save(self):
+        try:
+            payload = self._read_json_body()
+            items = payload.get("items", [])
+            if not isinstance(items, list):
+                self._json_resp(400, {"ok": False, "error": "items 형식이 올바르지 않습니다.", "items": _load_watchlist()})
+                return
+            saved = _save_watchlist(items)
+            self._json_resp(200, {"ok": True, "items": saved})
+        except Exception as exc:
+            self._json_resp(500, {"ok": False, "error": str(exc), "items": _load_watchlist()})
 
     def _serve_stock_price(self, code: str, market: str = ""):
         try:
