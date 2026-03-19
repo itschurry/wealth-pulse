@@ -25,8 +25,8 @@
   --accent-border: rgba(31, 77, 95, 0.18);
   --shadow-sm: 0 12px 28px rgba(25, 33, 44, 0.06);
   --shadow-md: 0 26px 56px rgba(25, 33, 44, 0.1);
-  --font-sans: 'IBM Plex Sans KR', 'Noto Sans KR', sans-serif;
-  --font-serif: 'Noto Serif KR', Georgia, serif;
+  --font-sans: 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -69,6 +69,15 @@ input {
 .page-frame {
   max-width: 1240px;
   margin: 0 auto;
+}
+
+.hero-grid > *,
+.summary-grid > *,
+.tab-shell-row > *,
+.tab-strip > *,
+.report-masthead > *,
+.report-layout > * {
+  min-width: 0;
 }
 
 .hero-banner {
@@ -146,9 +155,9 @@ input {
 .hero-title {
   margin: 16px 0 12px;
   max-width: 860px;
-  font-family: var(--font-serif);
-  font-size: clamp(2.3rem, 4.5vw, 4rem);
-  line-height: 1.02;
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 4.1vw, 3.65rem);
+  line-height: 1.08;
   letter-spacing: -0.04em;
   color: #fffaf2;
 }
@@ -177,6 +186,7 @@ input {
   background: rgba(255, 255, 255, 0.09);
   font-size: 12px;
   color: rgba(255, 250, 242, 0.88);
+  white-space: normal;
 }
 
 .hero-sidecard {
@@ -200,9 +210,9 @@ input {
 
 .hero-sidecard-value {
   margin-top: 14px;
-  font-family: var(--font-serif);
-  font-size: 30px;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
   line-height: 1.1;
 }
 
@@ -305,6 +315,7 @@ input {
   font-size: 15px;
   line-height: 1.74;
   color: var(--text-2);
+  overflow-wrap: anywhere;
 }
 
 .ghost-button {
@@ -394,6 +405,7 @@ input {
   grid-column: 2;
   font-size: 13px;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .tab-help {
@@ -403,6 +415,7 @@ input {
   font-size: 11px;
   color: inherit;
   opacity: 0.68;
+  overflow-wrap: anywhere;
 }
 
 .tab-launch-button {
@@ -541,9 +554,9 @@ input {
 
 .report-title {
   margin-top: 8px;
-  font-family: var(--font-serif);
-  font-size: clamp(1.9rem, 3vw, 2.8rem);
-  line-height: 1.12;
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 2.8vw, 2.55rem);
+  line-height: 1.16;
   letter-spacing: -0.03em;
   color: var(--text-1);
 }
@@ -585,10 +598,11 @@ input {
 
 .report-stat-value {
   margin-top: 10px;
-  font-family: var(--font-serif);
-  font-size: 28px;
-  line-height: 1.08;
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 2.2vw, 1.9rem);
+  line-height: 1.18;
   color: var(--text-1);
+  overflow-wrap: anywhere;
 }
 
 .report-stat-value.is-up { color: var(--up); }
@@ -727,13 +741,13 @@ input {
 }
 
 .analysis-content h2 {
-  font-family: var(--font-serif);
-  font-size: 1.52rem;
+  font-family: var(--font-display);
+  font-size: 1.32rem;
   font-weight: 700;
   color: var(--text-1);
-  margin: 2.4rem 0 0.95rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .analysis-content h3 {
@@ -819,6 +833,52 @@ input {
   margin-top: 0;
 }
 
+.report-section-block {
+  padding: 22px 24px;
+  border-radius: 26px;
+  border: 1px solid rgba(31, 77, 95, 0.1);
+  background: linear-gradient(180deg, rgba(255,255,255,0.82), rgba(247,242,234,0.9));
+  box-shadow: 0 10px 26px rgba(25, 33, 44, 0.04);
+}
+
+.report-section-block + .report-section-block {
+  margin-top: 22px;
+}
+
+.report-section-block:nth-of-type(odd) {
+  background: linear-gradient(180deg, rgba(31,77,95,0.05), rgba(255,255,255,0.88));
+}
+
+.report-section-heading {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.report-section-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(31,77,95,0.16), rgba(31,77,95,0.06));
+  border: 1px solid rgba(31,77,95,0.16);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.report-section-title-text {
+  display: block;
+  font-size: 1.3rem;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
 .report-disclaimer {
   padding: 16px 18px;
   background: rgba(255,253,248,0.72);
@@ -890,5 +950,26 @@ input {
 
   .analysis-content {
     padding: 24px 20px 30px;
+  }
+
+  .report-section-block {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .report-section-heading {
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .report-section-number {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    font-size: 13px;
+  }
+
+  .report-section-title-text {
+    font-size: 1.14rem;
   }
 }

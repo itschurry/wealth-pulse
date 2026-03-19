@@ -20,13 +20,47 @@ export function AnalysisTab({ data, status, onRefresh }: Props) {
     doc.body.querySelectorAll('h2, h3').forEach((node, index) => {
       const level = node.tagName === 'H2' ? 2 : 3;
       const id = `report-section-${index + 1}`;
+      const rawTitle = node.textContent?.trim() || `섹션 ${index + 1}`;
+      const match = rawTitle.match(/^(\d+)\.\s*(.+)$/);
+      const title = match?.[2]?.trim() || rawTitle;
+      const number = match?.[1]?.padStart(2, '0') || String(outline.filter((item) => item.level === 2).length + 1).padStart(2, '0');
+
       node.id = id;
+      if (level === 2) {
+        node.classList.add('report-section-heading');
+        node.innerHTML = `<span class="report-section-number">${number}</span><span class="report-section-title-text">${title}</span>`;
+      } else {
+        node.textContent = title;
+      }
+
       outline.push({
         id,
-        title: node.textContent?.trim() || `섹션 ${index + 1}`,
+        title,
         level,
       });
     });
+
+    const groupedBody = doc.createElement('div');
+    let activeSection: HTMLElement | null = null;
+
+    Array.from(doc.body.childNodes).forEach((node) => {
+      if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === 'H2') {
+        const section = doc.createElement('section');
+        section.className = 'report-section-block';
+        section.appendChild(node);
+        groupedBody.appendChild(section);
+        activeSection = section;
+        return;
+      }
+
+      if (activeSection) {
+        activeSection.appendChild(node);
+      } else {
+        groupedBody.appendChild(node);
+      }
+    });
+
+    doc.body.innerHTML = groupedBody.innerHTML;
 
     const text = (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
     const readMinutes = text ? Math.max(1, Math.round(text.split(' ').length / 240)) : 0;
