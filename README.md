@@ -40,6 +40,8 @@
 
 선택
 
+- KIS_APP_KEY, KIS_APP_SECRET
+- KIS_ACCOUNT_CANO, KIS_ACCOUNT_ACNT_PRDT_CD
 - TELEGRAM_BOT_TOKEN
 - TELEGRAM_CHAT_ID
 - SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, REPORT_RECIPIENT
@@ -78,6 +80,73 @@ python3 api_server.py
 ```
 
 별도 터미널에서 정적 웹은 nginx/docker 기준으로 제공됩니다. 로컬 단독 개발 시에는 frontend dev 서버를 사용해도 됩니다.
+
+### 5) 한국투자증권 Open API 연결 테스트
+
+`.env`에 아래 값을 넣은 뒤 테스트할 수 있습니다.
+
+- `KIS_APP_KEY`
+- `KIS_APP_SECRET`
+- `KIS_ACCOUNT_CANO`, `KIS_ACCOUNT_ACNT_PRDT_CD`
+- `KIS_ACCOUNT_ACNT_PRDT_CD`를 비워두면 기본값 `01`로 처리합니다.
+- 현재 KIS 연동 코드는 실전 투자 서버만 사용합니다.
+
+토큰 발급만 확인:
+
+```bash
+.venv/bin/python scripts/test_kis_connection.py --token-only
+```
+
+토큰 발급 + 국내 현재가 조회 테스트:
+
+```bash
+.venv/bin/python scripts/test_kis_connection.py --symbol 005930
+```
+
+관련 코드:
+
+- [broker/kis_client.py](broker/kis_client.py)
+- [scripts/test_kis_connection.py](scripts/test_kis_connection.py)
+
+잔고 조회:
+
+```bash
+.venv/bin/python scripts/test_kis_account.py balance
+```
+
+주문 가능 금액/수량 조회:
+
+```bash
+.venv/bin/python scripts/test_kis_account.py orderable --symbol 005930 --price 70000
+```
+
+실전 지정가 매수 주문:
+
+```bash
+.venv/bin/python scripts/test_kis_account.py buy --symbol 005930 --qty 1 --price 70000 --confirm
+```
+
+관련 코드:
+
+- [scripts/test_kis_account.py](scripts/test_kis_account.py)
+
+## KOSPI + NASDAQ 가상 백테스트
+
+최근 3년 KOSPI와 NASDAQ 주요 종목 일봉을 바탕으로, 미국 종목은 USD/KRW 환율을 반영해 원화 기준으로 가상 자금 백테스트를 돌릴 수 있습니다.
+
+```bash
+.venv/bin/python scripts/run_kospi_backtest.py
+```
+
+옵션 예시:
+
+```bash
+.venv/bin/python scripts/run_kospi_backtest.py --initial-cash 10000000 --max-positions 5 --max-holding-days 30
+```
+
+결과 파일:
+
+- [report/kospi_backtest_latest.json](report/kospi_backtest_latest.json)
 
 ## Docker 실행
 

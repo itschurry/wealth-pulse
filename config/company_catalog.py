@@ -37,7 +37,16 @@ _BASE_ENTRIES = [
     CompanyCatalogEntry("한국전력", "015760", "KOSPI", "유틸리티", ("한전", "한국전력")),
     CompanyCatalogEntry("삼성바이오로직스", "207940", "KOSPI", "바이오", ("삼성바이오로직스", "삼성 바이오로직스")),
     CompanyCatalogEntry("LG전자", "066570", "KOSPI", "가전", ("lg전자", "lg 전자")),
+    CompanyCatalogEntry("Apple", "AAPL", "NASDAQ", "플랫폼", ("apple", "aapl", "애플")),
+    CompanyCatalogEntry("Microsoft", "MSFT", "NASDAQ", "플랫폼", ("microsoft", "msft", "마이크로소프트")),
+    CompanyCatalogEntry("Amazon", "AMZN", "NASDAQ", "플랫폼", ("amazon", "amzn", "아마존")),
+    CompanyCatalogEntry("Alphabet", "GOOGL", "NASDAQ", "플랫폼", ("alphabet", "google", "googl", "구글")),
+    CompanyCatalogEntry("Meta", "META", "NASDAQ", "플랫폼", ("meta", "메타")),
     CompanyCatalogEntry("NVIDIA", "NVDA", "NASDAQ", "반도체", ("nvidia", "nvda", "엔비디아")),
+    CompanyCatalogEntry("AMD", "AMD", "NASDAQ", "반도체", ("amd",)),
+    CompanyCatalogEntry("Broadcom", "AVGO", "NASDAQ", "반도체", ("broadcom", "avgo", "브로드컴")),
+    CompanyCatalogEntry("Micron", "MU", "NASDAQ", "반도체", ("micron", "mu", "마이크론")),
+    CompanyCatalogEntry("Qualcomm", "QCOM", "NASDAQ", "반도체", ("qualcomm", "qcom", "퀄컴")),
     CompanyCatalogEntry("Tesla", "TSLA", "NASDAQ", "자동차", ("tesla", "tsla", "테슬라")),
 ]
 

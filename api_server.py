@@ -17,7 +17,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qs, quote, urlparse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from analyzer.kospi_backtest import BacktestConfig, run_kospi_backtest
 from analyzer.today_picks_engine import build_watchlist_actions
+from broker.kis_client import KISAPIError, KISClient, KISConfigError
 
 PORT = 8001
 CACHE_TTL = 300   # 5분
@@ -28,8 +30,12 @@ _recommendation_cache: dict = {"data": None, "mtime": 0.0}
 _macro_cache: dict = {"data": None, "mtime": 0.0}
 _market_context_cache: dict = {"data": None, "mtime": 0.0}
 _today_picks_cache: dict = {"data": None, "mtime": 0.0}
+_backtest_cache: dict = {"data": None, "mtime": 0.0}
+_backtest_run_cache: dict = {}
 _technical_cache: dict = {}
 _investor_flow_cache: dict = {}
+_kis_client: KISClient | None = None
+_kis_client_disabled = False
 
 _KST = datetime.timezone(datetime.timedelta(hours=9))
 
@@ -158,6 +164,24 @@ def _resolve_chart_symbol(code: str, market: str) -> str | None:
     return None
 
 
+def _get_kis_client() -> KISClient | None:
+    global _kis_client, _kis_client_disabled
+
+    if _kis_client_disabled:
+        return None
+    if _kis_client is not None:
+        return _kis_client
+    if not KISClient.is_configured():
+        _kis_client_disabled = True
+        return None
+    try:
+        _kis_client = KISClient.from_env(timeout=8.0)
+        return _kis_client
+    except (KISConfigError, KISAPIError):
+        _kis_client_disabled = True
+        return None
+
+
 def _ema(values: list[float], period: int) -> list[float]:
     if not values:
         return []
@@ -215,6 +239,35 @@ def _fetch_chart_history(symbol: str, range_: str = "6mo", interval: str = "1d")
     return {"history": history}
 
 
+def _fetch_kis_domestic_history(code: str, lookback_days: int = 180) -> dict | None:
+    client = _get_kis_client()
+    if client is None:
+        return None
+
+    end_date = datetime.datetime.now(_KST).strftime("%Y%m%d")
+    start_date = (datetime.datetime.now(_KST) - datetime.timedelta(days=lookback_days)).strftime("%Y%m%d")
+    try:
+        rows = client.get_domestic_daily_history(
+            code,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except Exception:
+        return None
+
+    history = []
+    for item in rows:
+        close = item.get("close")
+        volume = item.get("volume")
+        if close is None:
+            continue
+        history.append({
+            "close": float(close),
+            "volume": float(volume) if volume is not None else None,
+        })
+    return {"history": history} if history else None
+
+
 def _compute_technical_snapshot(code: str, market: str) -> dict | None:
     symbol = _resolve_chart_symbol(code, market)
     if not symbol:
@@ -226,7 +279,9 @@ def _compute_technical_snapshot(code: str, market: str) -> dict | None:
     if cached and now - cached["ts"] < TECHNICAL_CACHE_TTL:
         return cached["data"]
 
-    chart = _fetch_chart_history(symbol)
+    chart = _fetch_kis_domestic_history(code) if market.strip().upper() == "KOSPI" else None
+    if not chart:
+        chart = _fetch_chart_history(symbol)
     if not chart:
         return None
 
@@ -687,6 +742,111 @@ def _get_market_dashboard() -> dict:
     }
 
 
+def _get_kospi_backtest() -> dict:
+    path = os.path.join(REPORTS_DIR, "kospi_backtest_latest.json")
+    if not os.path.exists(path):
+        return {"error": "백테스트 결과가 없습니다. scripts/run_kospi_backtest.py를 먼저 실행하세요."}
+
+    mtime = os.path.getmtime(path)
+    if _backtest_cache["data"] is not None and mtime == _backtest_cache["mtime"]:
+        return _backtest_cache["data"]
+
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    _backtest_cache["data"] = data
+    _backtest_cache["mtime"] = mtime
+    return data
+
+
+def _parse_backtest_config(query: dict[str, list[str]]) -> BacktestConfig:
+    market_scope = (query.get("market_scope", ["all"])[0] or "all").strip().lower()
+    if market_scope == "kospi":
+        markets = ("KOSPI",)
+    elif market_scope == "nasdaq":
+        markets = ("NASDAQ",)
+    else:
+        markets = ("KOSPI", "NASDAQ")
+
+    def _parse_int(name: str, default: int, minimum: int, maximum: int) -> int:
+        raw = query.get(name, [str(default)])[0]
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
+
+    def _parse_float(name: str, default: float, minimum: float, maximum: float) -> float:
+        raw = query.get(name, [str(default)])[0]
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
+
+    def _parse_optional_float(name: str, minimum: float, maximum: float) -> float | None:
+        raw = (query.get(name, [""])[0] or "").strip()
+        if not raw:
+            return None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return max(minimum, min(maximum, value))
+
+    rsi_min = _parse_float("rsi_min", 45.0, 10.0, 90.0)
+    rsi_max = _parse_float("rsi_max", 68.0, 10.0, 90.0)
+    if rsi_min > rsi_max:
+        rsi_min, rsi_max = rsi_max, rsi_min
+
+    return BacktestConfig(
+        initial_cash=_parse_float("initial_cash", 10_000_000.0, 1_000_000.0, 500_000_000.0),
+        max_positions=_parse_int("max_positions", 5, 1, 20),
+        max_holding_days=_parse_int("max_holding_days", 30, 5, 180),
+        lookback_days=_parse_int("lookback_days", 1095, 180, 1825),
+        markets=markets,
+        rsi_min=rsi_min,
+        rsi_max=rsi_max,
+        volume_ratio_min=_parse_float("volume_ratio_min", 1.2, 0.5, 5.0),
+        stop_loss_pct=_parse_optional_float("stop_loss_pct", 1.0, 50.0),
+        take_profit_pct=_parse_optional_float("take_profit_pct", 1.0, 100.0),
+    )
+
+
+def _config_cache_key(config: BacktestConfig) -> str:
+    return json.dumps(
+        {
+            "initial_cash": config.initial_cash,
+            "max_positions": config.max_positions,
+            "max_holding_days": config.max_holding_days,
+            "lookback_days": config.lookback_days,
+            "markets": list(config.markets),
+            "rsi_min": config.rsi_min,
+            "rsi_max": config.rsi_max,
+            "volume_ratio_min": config.volume_ratio_min,
+            "stop_loss_pct": config.stop_loss_pct,
+            "take_profit_pct": config.take_profit_pct,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _run_backtest(config: BacktestConfig) -> dict:
+    cache_key = _config_cache_key(config)
+    cached = _backtest_run_cache.get(cache_key)
+    if cached:
+        return cached
+
+    result = run_kospi_backtest(config)
+    _backtest_run_cache[cache_key] = result
+    if len(_backtest_run_cache) > 12:
+        oldest_key = next(iter(_backtest_run_cache))
+        if oldest_key != cache_key:
+            _backtest_run_cache.pop(oldest_key, None)
+    return result
+
+
 # ──────────────────────────────────────────
 #  HTTP Handler
 # ──────────────────────────────────────────
@@ -716,6 +876,10 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_market_context(date or None)
         elif parsed.path == "/api/market-dashboard":
             self._serve_market_dashboard()
+        elif parsed.path == "/api/backtest/run":
+            self._serve_backtest_run(parse_qs(parsed.query))
+        elif parsed.path == "/api/backtest/kospi":
+            self._serve_kospi_backtest()
         elif parsed.path.startswith("/api/stock-search"):
             q = parse_qs(parsed.query).get("q", [""])[0]
             self._serve_stock_search(q)
@@ -798,6 +962,19 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json_resp(500, {"error": str(e)})
 
+    def _serve_kospi_backtest(self):
+        try:
+            self._json_resp(200, _get_kospi_backtest())
+        except Exception as e:
+            self._json_resp(500, {"error": str(e)})
+
+    def _serve_backtest_run(self, query: dict[str, list[str]]):
+        try:
+            config = _parse_backtest_config(query)
+            self._json_resp(200, _run_backtest(config))
+        except Exception as e:
+            self._json_resp(500, {"error": str(e)})
+
     def _serve_stock_search(self, query: str):
         if not query:
             self._json_resp(200, {"results": []})
@@ -874,6 +1051,19 @@ class Handler(BaseHTTPRequestHandler):
                     "market": market,
                 })
                 return
+
+            if market.upper() == "KOSPI":
+                client = _get_kis_client()
+                if client is not None:
+                    kis_price = client.get_domestic_price(code)
+                    self._json_resp(200, {
+                        "code": code,
+                        "name": kis_price.get("name") or code,
+                        "price": kis_price.get("price"),
+                        "change_pct": kis_price.get("change_pct"),
+                        "market": "KOSPI",
+                    })
+                    return
 
             url = f"https://m.stock.naver.com/api/stock/{code}/basic"
             d = json.loads(_get(url))

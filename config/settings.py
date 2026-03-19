@@ -27,6 +27,13 @@ ECOS_API_KEY = (
     or ""
 )
 
+# 한국투자증권 Open API
+KIS_APP_KEY = os.getenv("KIS_APP_KEY", "")
+KIS_APP_SECRET = os.getenv("KIS_APP_SECRET", "")
+KIS_ACCOUNT_CANO = os.getenv("KIS_ACCOUNT_CANO", "")
+KIS_ACCOUNT_ACNT_PRDT_CD = os.getenv("KIS_ACCOUNT_ACNT_PRDT_CD", "")
+KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"
+
 # 텔레그램
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")

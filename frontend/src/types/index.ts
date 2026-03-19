@@ -240,3 +240,85 @@ export interface CompareData {
   resolved_risks?: string[];
   error?: string;
 }
+
+export interface BacktestMetricData {
+  final_equity: number;
+  total_return_pct: number;
+  cagr_pct: number;
+  max_drawdown_pct: number;
+  trade_count: number;
+  win_rate_pct: number;
+  avg_trade_return_pct: number;
+  sharpe: number;
+}
+
+export interface BacktestTrade {
+  code: string;
+  name: string;
+  entry_date: string;
+  exit_date: string;
+  entry_price: number;
+  exit_price: number;
+  shares: number;
+  pnl: number;
+  pnl_pct: number;
+  holding_days: number;
+  reason: string;
+}
+
+export interface BacktestEquityPoint {
+  date: string;
+  cash: number;
+  market_value: number;
+  equity: number;
+  positions: Array<{
+    code: string;
+    name: string;
+    market?: string;
+    shares: number;
+    price: number;
+    value: number;
+  }>;
+}
+
+export interface BacktestQuery {
+  market_scope: 'all' | 'kospi' | 'nasdaq';
+  lookback_days: number;
+  initial_cash: number;
+  max_positions: number;
+  max_holding_days: number;
+  rsi_min: number;
+  rsi_max: number;
+  volume_ratio_min: number;
+  stop_loss_pct?: number | null;
+  take_profit_pct?: number | null;
+}
+
+export interface BacktestData {
+  generated_at?: string;
+  universe?: string;
+  strategy?: string;
+  config?: {
+    initial_cash?: number;
+    max_positions?: number;
+    buy_fee_rate?: number;
+    sell_fee_rate?: number;
+    max_holding_days?: number;
+    lookback_days?: number;
+    markets?: string[];
+    rsi_min?: number;
+    rsi_max?: number;
+    volume_ratio_min?: number;
+    stop_loss_pct?: number | null;
+    take_profit_pct?: number | null;
+  };
+  symbols?: Array<{
+    code: string;
+    name: string;
+    market?: string;
+  }>;
+  metrics?: BacktestMetricData;
+  trades?: BacktestTrade[];
+  equity_curve?: BacktestEquityPoint[];
+  error?: string;
+}

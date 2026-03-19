@@ -3,6 +3,7 @@ import type { TabId } from '../types';
 interface Props {
   activeTab: TabId;
   onChange: (tab: TabId) => void;
+  onOpenBacktest: () => void;
 }
 
 const TABS: { id: TabId; label: string; help: string }[] = [
@@ -13,20 +14,26 @@ const TABS: { id: TabId; label: string; help: string }[] = [
   { id: 'market', label: '실시간 참고', help: '보조 지표 확인' },
 ];
 
-export function TabBar({ activeTab, onChange }: Props) {
+export function TabBar({ activeTab, onChange, onOpenBacktest }: Props) {
   return (
     <div className="tab-shell">
-      <div className="tab-strip">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => onChange(tab.id)}
-            className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
-          >
-            <span className="tab-label">{tab.label}</span>
-            <span className="tab-help">{tab.help}</span>
-          </button>
-        ))}
+      <div className="tab-shell-row">
+        <div className="tab-strip">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => onChange(tab.id)}
+              className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
+            >
+              <span className="tab-label">{tab.label}</span>
+              <span className="tab-help">{tab.help}</span>
+            </button>
+          ))}
+        </div>
+        <button className="tab-launch-button" onClick={onOpenBacktest}>
+          <span className="tab-label">백테스트 실험실</span>
+          <span className="tab-help">설정 조절 · 전략 검증</span>
+        </button>
       </div>
     </div>
   );
