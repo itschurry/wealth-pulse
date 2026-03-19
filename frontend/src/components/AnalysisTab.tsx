@@ -84,25 +84,29 @@ export function AnalysisTab({ data, status, onRefresh }: Props) {
             카드식 정보 과밀도를 줄이고, 요약에서 본문으로 자연스럽게 이어지도록 문서형 레이아웃으로 정리했습니다.
           </div>
         </div>
-        <div className="report-stat-grid">
-          <div className="report-stat-card">
-            <div className="report-stat-label">상태</div>
-            <div className={`report-stat-value ${status === 'error' ? 'is-down' : status === 'loading' ? 'is-accent' : 'is-up'}`}>
-              {status === 'loading' ? '로딩 중' : status === 'error' ? '불러오기 실패' : '준비 완료'}
+        <div className="report-stat-panel">
+          <div className="report-stat-grid">
+            <div className="report-stat-card">
+              <div className="report-stat-label">상태</div>
+              <div className={`report-stat-value ${status === 'error' ? 'is-down' : status === 'loading' ? 'is-accent' : 'is-up'}`}>
+                {status === 'loading' ? '로딩 중' : status === 'error' ? '불러오기 실패' : '준비 완료'}
+              </div>
+              <div className="report-stat-note">{data.generated_at || '생성 시각 없음'}</div>
             </div>
-            <div className="report-stat-note">{data.generated_at || '생성 시각 없음'}</div>
+            <div className="report-stat-card">
+              <div className="report-stat-label">예상 읽기</div>
+              <div className="report-stat-value">{report.readMinutes ? `${report.readMinutes}분` : '대기'}</div>
+              <div className="report-stat-note">요약 포함 기준</div>
+            </div>
+            <div className="report-stat-card">
+              <div className="report-stat-label">섹션 수</div>
+              <div className="report-stat-value">{report.outline.filter((item) => item.level === 2).length || '—'}</div>
+              <div className="report-stat-note">본문 주요 구간</div>
+            </div>
           </div>
-          <div className="report-stat-card">
-            <div className="report-stat-label">예상 읽기</div>
-            <div className="report-stat-value">{report.readMinutes ? `${report.readMinutes}분` : '대기'}</div>
-            <div className="report-stat-note">요약 포함 기준</div>
+          <div className="report-stat-actions">
+            <button className="ghost-button" onClick={onRefresh}>본문 새로고침</button>
           </div>
-          <div className="report-stat-card">
-            <div className="report-stat-label">섹션 수</div>
-            <div className="report-stat-value">{report.outline.filter((item) => item.level === 2).length || '—'}</div>
-            <div className="report-stat-note">본문 주요 구간</div>
-          </div>
-          <button className="ghost-button" onClick={onRefresh}>본문 새로고침</button>
         </div>
       </div>
 
