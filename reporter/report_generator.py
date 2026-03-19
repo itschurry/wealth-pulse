@@ -157,6 +157,42 @@ def save_macro_cache(items: list, date: str) -> None:
     logger.info(f"거시 캐시 저장: {cache_path}")
 
 
+def save_calendar_cache(items: list, date: str) -> None:
+    """경제 일정을 JSON으로 저장한다."""
+    payload = {
+        "date": date,
+        "items": [asdict(item) for item in items],
+    }
+    cache_path = REPORT_OUTPUT_DIR / f"{date}_calendar.json"
+    cache_path.write_text(json.dumps(
+        payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
+    logger.info(f"일정 캐시 저장: {cache_path}")
+
+
+def save_disclosures_cache(items: list, date: str) -> None:
+    """공시 데이터를 JSON으로 저장한다."""
+    payload = {
+        "date": date,
+        "items": [asdict(item) for item in items],
+    }
+    cache_path = REPORT_OUTPUT_DIR / f"{date}_disclosures.json"
+    cache_path.write_text(json.dumps(
+        payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
+    logger.info(f"공시 캐시 저장: {cache_path}")
+
+
+def save_investor_flows_cache(items: list, date: str) -> None:
+    """수급 데이터를 JSON으로 저장한다."""
+    payload = {
+        "date": date,
+        "items": [asdict(item) for item in items],
+    }
+    cache_path = REPORT_OUTPUT_DIR / f"{date}_investor_flows.json"
+    cache_path.write_text(json.dumps(
+        payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
+    logger.info(f"수급 캐시 저장: {cache_path}")
+
+
 def save_market_context_cache(context, date: str) -> None:
     """시장 컨텍스트를 JSON으로 저장한다."""
     payload = {"date": date, "context": asdict(context) if context else {}}

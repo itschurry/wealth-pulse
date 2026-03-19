@@ -2,6 +2,24 @@
 
 NEWS_FEEDS = [
     {
+        "name": "Samsung Global Newsroom",
+        "url": "https://news.samsung.com/global/feed/rss",
+        "lang": "en",
+        "priority": 1,
+    },
+    {
+        "name": "SK hynix Newsroom",
+        "url": "https://news.skhynix.com/feed/",
+        "lang": "en",
+        "priority": 1,
+    },
+    {
+        "name": "NVIDIA Newsroom",
+        "url": "https://nvidianews.nvidia.com/rss",
+        "lang": "en",
+        "priority": 1,
+    },
+    {
         "name": "한국경제 증권",
         "url": "https://www.hankyung.com/feed/stock",
         "lang": "ko",

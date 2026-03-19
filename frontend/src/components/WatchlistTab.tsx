@@ -148,7 +148,7 @@ function ActionCard({ item, onRemove }: { item: WatchlistActionItem; onRemove: (
 
       <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 14, alignItems: 'center' }}>
         <div style={{ padding: '14px 12px', borderRadius: 18, background: 'var(--bg-soft)', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 11, color: 'var(--text-4)' }}>Action Score</div>
+          <div style={{ fontSize: 11, color: 'var(--text-4)' }}>종합점수</div>
           <div style={{ fontSize: 34, fontWeight: 800, color: actionColor[item.action], marginTop: 6 }}>{item.score}</div>
           <div style={{ fontSize: 11, color: 'var(--text-4)' }}>신뢰도 {item.confidence}%</div>
         </div>

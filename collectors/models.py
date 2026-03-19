@@ -50,6 +50,46 @@ class MacroIndicator:
 
 
 @dataclass
+class EconomicCalendarEvent:
+    name: str
+    country: str
+    scheduled_at: datetime
+    source: str
+    category: str = "macro"
+    importance: str = "중간"
+    url: str = ""
+    summary: str = ""
+
+
+@dataclass
+class DisclosureItem:
+    company_name: str
+    stock_code: str
+    corp_code: str
+    market: str
+    title: str
+    filed_at: datetime
+    source: str
+    url: str
+    category: str = "general"
+    importance: str = "중간"
+    receipt_no: str = ""
+
+
+@dataclass
+class InvestorFlowSnapshot:
+    code: str
+    name: str
+    market: str
+    as_of: str
+    source: str
+    foreign_net_1d: int = 0
+    foreign_net_5d: int = 0
+    institution_net_1d: int = 0
+    institution_net_5d: int = 0
+
+
+@dataclass
 class MarketContext:
     regime: str = "neutral"
     risk_level: str = "중간"
@@ -83,3 +123,6 @@ class DailyData:
     news: list = field(default_factory=list)
     macro: list = field(default_factory=list)
     market_context: Optional[MarketContext] = None
+    calendar_events: list = field(default_factory=list)
+    disclosures: list = field(default_factory=list)
+    investor_flows: list = field(default_factory=list)

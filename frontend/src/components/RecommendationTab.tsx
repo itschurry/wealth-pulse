@@ -1,5 +1,6 @@
+import { useWatchlist } from '../hooks/useWatchlist';
 import { useCompare } from '../hooks/useCompare';
-import { useTodayPicks } from '../hooks/useTodayPicks';
+import { useUnifiedScores } from '../hooks/useUnifiedScores';
 import type { TodayPickItem } from '../types';
 
 interface Props {
@@ -38,7 +39,7 @@ function PickCard({ item }: { item: TodayPickItem }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 14, alignItems: 'center' }}>
         <div style={{ padding: '14px 12px', borderRadius: 18, background: 'var(--bg-soft)', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 11, color: 'var(--text-4)' }}>Composite Score</div>
+          <div style={{ fontSize: 11, color: 'var(--text-4)' }}>종합점수</div>
           <div style={{ fontSize: 34, fontWeight: 800, color: 'var(--accent)', marginTop: 6 }}>{item.score}</div>
           <div style={{ fontSize: 11, color: 'var(--text-4)' }}>신뢰도 {item.confidence}%</div>
         </div>
@@ -86,14 +87,19 @@ function PickCard({ item }: { item: TodayPickItem }) {
 }
 
 export function RecommendationTab({ onRefresh }: Props) {
-  const { data: todayPicks, status: picksStatus, refresh: refreshPicks } = useTodayPicks();
+  const { items: watchlist } = useWatchlist();
+  const { todayPicks, refresh: refreshUnifiedScores, applyToPick } = useUnifiedScores(watchlist);
   const { data: compare, refresh: refreshCompare } = useCompare();
 
   function handleRefresh() {
     onRefresh();
-    refreshPicks();
+    refreshUnifiedScores();
     refreshCompare();
   }
+
+  const viewPicks = [...(todayPicks.data.picks || [])]
+    .map((item) => applyToPick(item))
+    .sort((a, b) => b.score - a.score);
 
   const baseSignals = compare.signal_counts?.base || {};
   const prevSignals = compare.signal_counts?.prev || {};
@@ -122,7 +128,7 @@ export function RecommendationTab({ onRefresh }: Props) {
           <SummaryCard title="추천 신호" value={`${prevSignals['추천'] || 0} → ${baseSignals['추천'] || 0}`} detail="전일 대비 추천 종목 수 변화" tone={recommendationShift >= 0 ? 'up' : 'down'} />
           <SummaryCard title="회피 신호" value={`${prevSignals['회피'] || 0} → ${baseSignals['회피'] || 0}`} detail="리스크가 커질수록 회피 신호가 늘어납니다." tone={avoidanceShift > 0 ? 'down' : 'neutral'} />
           <SummaryCard title="새 리스크" value={`${compare.new_risks?.length || 0}개`} detail={(compare.new_risks && compare.new_risks[0]) || '새로 추가된 리스크 없음'} tone={(compare.new_risks?.length || 0) > 0 ? 'down' : 'neutral'} />
-          <SummaryCard title="시장 톤" value={todayPicks.market_tone || '데이터 없음'} detail={todayPicks.generated_at || '생성 시각 없음'} />
+          <SummaryCard title="시장 톤" value={todayPicks.data.market_tone || '데이터 없음'} detail={todayPicks.data.generated_at || '생성 시각 없음'} />
         </div>
       </div>
 
@@ -146,22 +152,22 @@ export function RecommendationTab({ onRefresh }: Props) {
         </div>
       )}
 
-      {picksStatus === 'error' && (
+      {todayPicks.status === 'error' && (
         <div className="page-section" style={{ color: 'var(--down)' }}>
           오늘의 추천 데이터를 불러올 수 없습니다.
         </div>
       )}
 
-      {picksStatus !== 'error' && todayPicks.picks.length === 0 && (
+      {todayPicks.status !== 'error' && viewPicks.length === 0 && (
         <div className="page-section" style={{ textAlign: 'center', padding: '48px 24px' }}>
           <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-2)' }}>오늘의 추천 종목이 아직 없습니다</div>
           <div style={{ fontSize: 13, color: 'var(--text-4)', marginTop: 8 }}>다음 리포트 생성 이후 뉴스 기반 추천이 표시됩니다.</div>
         </div>
       )}
 
-      {todayPicks.picks.length > 0 && (
+      {viewPicks.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-          {todayPicks.picks.map((item) => (
+          {viewPicks.map((item) => (
             <PickCard key={`${item.code || item.name}`} item={item} />
           ))}
         </div>

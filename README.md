@@ -2,7 +2,7 @@
 
 리포트 우선(read-first) 투자 보조 앱입니다.
 
-이 프로젝트는 매크로/시장/뉴스를 수집해 하루치 분석과 추천을 생성하고, 결과를 웹앱에서 읽기 쉽게 제공합니다.
+이 프로젝트는 매크로/시장/뉴스/공시/일정/수급을 수집해 하루치 분석과 추천을 생성하고, 결과를 웹앱에서 읽기 쉽게 제공합니다.
 실시간 데이터는 보조 참고용이며, 기본 사용 흐름은 "리포트 생성 후 나중에 읽고 판단"입니다.
 
 ## 핵심 기능
@@ -10,6 +10,10 @@
 - 미국 + 한국 거시 지표 수집
   - 미국: FRED
   - 한국: ECOS
+- 핵심 경제 일정 / 공시 / 수급 수집
+  - 경제 일정: BLS 공식 캘린더
+  - 공시: DART
+  - 수급: 네이버 금융 종목별 외국인·기관 동향
 - 시장 데이터 수집
   - KOSPI, KOSDAQ, S&P100, NASDAQ, USD/KRW, WTI, Gold, BTC
 - AI 분석 및 추천 생성
@@ -25,6 +29,9 @@
 - 스케줄러 실행: [scheduler.py](scheduler.py)
 - API 서버: [api_server.py](api_server.py)
 - 거시 수집(미국+한국): [collectors/macro_collector.py](collectors/macro_collector.py), [collectors/ecos_collector.py](collectors/ecos_collector.py)
+- 경제 일정 수집: [collectors/calendar_collector.py](collectors/calendar_collector.py)
+- 공시 수집: [collectors/disclosure_collector.py](collectors/disclosure_collector.py)
+- 수급 수집: [collectors/flow_collector.py](collectors/flow_collector.py)
 - 프론트엔드: [frontend](frontend)
 - Docker 실행 진입: [Dockerfile](Dockerfile), [docker-compose.yml](docker-compose.yml), [entrypoint.sh](entrypoint.sh)
 
@@ -37,6 +44,7 @@
 - OPENAI_API_KEY
 - FRED_API_KEY
 - ECOS_API_KEY
+- DART_API_KEY
 
 선택
 
@@ -130,9 +138,9 @@ python3 api_server.py
 
 - [scripts/test_kis_account.py](scripts/test_kis_account.py)
 
-## KOSPI + NASDAQ 가상 백테스트
+## KOSPI50 + S&P50 가상 백테스트
 
-최근 3년 KOSPI와 NASDAQ 주요 종목 일봉을 바탕으로, 미국 종목은 USD/KRW 환율을 반영해 원화 기준으로 가상 자금 백테스트를 돌릴 수 있습니다.
+최근 3년 KOSPI50과 S&P50 종목 일봉을 바탕으로, 미국 종목은 USD/KRW 환율을 반영해 원화 기준으로 가상 자금 백테스트를 돌릴 수 있습니다.
 
 ```bash
 .venv/bin/python scripts/run_kospi_backtest.py
@@ -192,6 +200,9 @@ Ubuntu에서 systemd 서비스로 백그라운드 실행이 필요하면 관리 
 - *_analysis.json
 - *_recommendations.json
 - *_macro.json
+- *_calendar.json
+- *_disclosures.json
+- *_investor_flows.json
 - *_market_context.json
 
 ## API 엔드포인트

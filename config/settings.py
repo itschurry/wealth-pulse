@@ -27,6 +27,13 @@ ECOS_API_KEY = (
     or ""
 )
 
+# DART (전자공시 Open API)
+DART_API_KEY = (
+    os.getenv("DART_API_KEY")
+    or os.getenv("OPENDART_API_KEY")
+    or ""
+)
+
 # 한국투자증권 Open API
 KIS_APP_KEY = os.getenv("KIS_APP_KEY", "")
 KIS_APP_SECRET = os.getenv("KIS_APP_SECRET", "")

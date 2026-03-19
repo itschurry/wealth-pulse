@@ -31,6 +31,15 @@ DAILY_REPORT_PROMPT = """## 분석 요청
 #### 4. 시장 컨텍스트
 {market_context_summary}
 
+#### 5. 핵심 공시
+{disclosure_summary}
+
+#### 6. 주요 일정
+{calendar_summary}
+
+#### 7. 수급 신호
+{flow_summary}
+
 ---
 
 ### 리포트 작성 요청

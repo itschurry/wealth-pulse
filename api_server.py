@@ -348,7 +348,7 @@ def _parse_signed_number(text: str) -> int | None:
 
 
 def _fetch_investor_flow_snapshot(code: str, market: str) -> dict | None:
-    if market.strip().upper() != "KOSPI" or not code.strip().isdigit():
+    if market.strip().upper() not in {"KOSPI", "KOSDAQ"} or not code.strip().isdigit():
         return None
 
     cache_key = f"{market}:{code}"

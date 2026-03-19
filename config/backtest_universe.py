@@ -19,78 +19,164 @@ class BacktestUniverseEntry(TypedDict):
 _KOSPI_CACHE_TTL = 60 * 60 * 12
 _kospi_cache: dict[str, object] = {"ts": 0.0, "data": []}
 
-_SP100_NASDAQ: tuple[tuple[str, str], ...] = (
-    ("Apple", "AAPL"),
-    ("Microsoft", "MSFT"),
-    ("Amazon", "AMZN"),
-    ("Alphabet", "GOOGL"),
-    ("Meta Platforms", "META"),
-    ("NVIDIA", "NVDA"),
-    ("Broadcom", "AVGO"),
-    ("Adobe", "ADBE"),
-    ("Advanced Micro Devices", "AMD"),
-    ("Applied Materials", "AMAT"),
-    ("Analog Devices", "ADI"),
-    ("Amgen", "AMGN"),
-    ("Automatic Data Processing", "ADP"),
-    ("Booking Holdings", "BKNG"),
-    ("Cisco", "CSCO"),
-    ("Comcast", "CMCSA"),
-    ("Costco", "COST"),
-    ("Gilead Sciences", "GILD"),
-    ("Intel", "INTC"),
-    ("Intuit", "INTU"),
-    ("Intuitive Surgical", "ISRG"),
-    ("Micron", "MU"),
-    ("Mondelez", "MDLZ"),
-    ("Netflix", "NFLX"),
-    ("PepsiCo", "PEP"),
-    ("QUALCOMM", "QCOM"),
-    ("Starbucks", "SBUX"),
-    ("T-Mobile US", "TMUS"),
-    ("Texas Instruments", "TXN"),
+# KRX 전체 상장목록 다운로드는 안정적이지만, KOSPI50 구성종목 자체는 수시로 바뀌고
+# 공개 엔드포인트가 일관되지 않아 카테고리 기준으로 유지한다.
+_KOSPI50_CATEGORY: tuple[tuple[str, str], ...] = (
+    ("LG전자", "066570"),
+    ("삼성전기", "009150"),
+    ("한화에어로스페이스", "012450"),
+    ("HMM", "011200"),
+    ("삼성중공업", "010140"),
+    ("삼성화재", "000810"),
+    ("하나금융지주", "086790"),
+    ("현대글로비스", "086280"),
+    ("고려아연", "010130"),
+    ("현대모비스", "012330"),
+    ("현대차", "005380"),
+    ("SK이노베이션", "096770"),
+    ("KB금융", "105560"),
+    ("LG화학", "051910"),
+    ("삼성생명", "032830"),
+    ("SK하이닉스", "000660"),
+    ("삼성전자", "005930"),
+    ("한화오션", "042660"),
+    ("삼성SDI", "006400"),
+    ("신한지주", "055550"),
+    ("기아", "000270"),
+    ("SK텔레콤", "017670"),
+    ("삼성물산", "028260"),
+    ("KT&G", "033780"),
+    ("NAVER", "035420"),
+    ("KT", "030200"),
+    ("LG", "003550"),
+    ("SK", "034730"),
+    ("한국전력", "015760"),
+    ("POSCO홀딩스", "005490"),
+    ("HD한국조선해양", "009540"),
+    ("기업은행", "024110"),
+    ("두산에너빌리티", "034020"),
+    ("한미반도체", "042700"),
+    ("메리츠금융지주", "138040"),
+    ("현대로템", "064350"),
+    ("삼성SDS", "018260"),
+    ("포스코퓨처엠", "003670"),
+    ("카카오", "035720"),
+    ("셀트리온", "068270"),
+    ("삼성바이오로직스", "207940"),
+    ("HD현대일렉트릭", "267260"),
+    ("우리금융지주", "316140"),
+    ("하이브", "352820"),
+    ("카카오뱅크", "323410"),
+    ("크래프톤", "259960"),
+    ("HD현대중공업", "329180"),
+    ("SK스퀘어", "402340"),
+    ("LG에너지솔루션", "373220"),
+    ("포스코인터내셔널", "047050"),
+)
+
+_SP50_UNIVERSE: tuple[tuple[str, str, str], ...] = (
+    ("NVIDIA", "NVDA", "NASDAQ"),
+    ("Apple", "AAPL", "NASDAQ"),
+    ("Microsoft", "MSFT", "NASDAQ"),
+    ("Amazon", "AMZN", "NASDAQ"),
+    ("Alphabet Class A", "GOOGL", "NASDAQ"),
+    ("Broadcom", "AVGO", "NASDAQ"),
+    ("Alphabet Class C", "GOOG", "NASDAQ"),
+    ("Meta Platforms", "META", "NASDAQ"),
+    ("Tesla", "TSLA", "NASDAQ"),
+    ("Berkshire Hathaway", "BRK.B", "NYSE"),
+    ("Eli Lilly", "LLY", "NYSE"),
+    ("JPMorgan Chase", "JPM", "NYSE"),
+    ("Exxon Mobil", "XOM", "NYSE"),
+    ("Johnson & Johnson", "JNJ", "NYSE"),
+    ("Walmart", "WMT", "NYSE"),
+    ("Visa", "V", "NYSE"),
+    ("Costco", "COST", "NASDAQ"),
+    ("Mastercard", "MA", "NYSE"),
+    ("Netflix", "NFLX", "NASDAQ"),
+    ("AbbVie", "ABBV", "NYSE"),
+    ("Chevron", "CVX", "NYSE"),
+    ("Procter & Gamble", "PG", "NYSE"),
+    ("Palantir", "PLTR", "NASDAQ"),
+    ("Home Depot", "HD", "NYSE"),
+    ("Caterpillar", "CAT", "NYSE"),
+    ("GE Aerospace", "GE", "NYSE"),
+    ("Advanced Micro Devices", "AMD", "NASDAQ"),
+    ("Bank of America", "BAC", "NYSE"),
+    ("Cisco", "CSCO", "NASDAQ"),
+    ("Coca-Cola", "KO", "NYSE"),
+    ("Merck", "MRK", "NYSE"),
+    ("Philip Morris", "PM", "NYSE"),
+    ("Oracle", "ORCL", "NYSE"),
+    ("UnitedHealth", "UNH", "NYSE"),
+    ("Goldman Sachs", "GS", "NYSE"),
+    ("Wells Fargo", "WFC", "NYSE"),
+    ("McDonald's", "MCD", "NYSE"),
+    ("IBM", "IBM", "NYSE"),
+    ("Linde", "LIN", "NASDAQ"),
+    ("PepsiCo", "PEP", "NASDAQ"),
+    ("Verizon", "VZ", "NYSE"),
+    ("AT&T", "T", "NYSE"),
+    ("Salesforce", "CRM", "NYSE"),
+    ("Abbott Laboratories", "ABT", "NYSE"),
+    ("Walt Disney", "DIS", "NYSE"),
+    ("Texas Instruments", "TXN", "NASDAQ"),
+    ("Intuitive Surgical", "ISRG", "NASDAQ"),
+    ("Accenture", "ACN", "NYSE"),
+    ("Intuit", "INTU", "NASDAQ"),
+    ("ServiceNow", "NOW", "NYSE"),
 )
 
 
-def get_sp100_nasdaq_universe() -> list[BacktestUniverseEntry]:
+def _to_entries(pairs: tuple[tuple[str, str], ...]) -> list[BacktestUniverseEntry]:
+    return [{"name": name, "code": code, "market": "KOSPI"} for name, code in pairs]
+
+
+def _download_krx_kospi_listing_map() -> dict[str, BacktestUniverseEntry]:
+    response = requests.get(
+        "https://kind.krx.co.kr/corpgeneral/corpList.do",
+        params={"method": "download", "marketType": "stockMkt"},
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    text = response.content.decode("euc-kr", "replace")
+    rows = re.findall(r"<tr>(.*?)</tr>", text, re.S)
+    listing_map: dict[str, BacktestUniverseEntry] = {}
+    for row in rows:
+        cells = [
+            html.unescape(re.sub(r"<[^>]+>", "", cell)).strip()
+            for cell in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
+        ]
+        if len(cells) < 2:
+            continue
+        code = cells[1].zfill(6)
+        if not code.isdigit():
+            continue
+        listing_map[code] = {
+            "name": cells[0],
+            "code": code,
+            "market": "KOSPI",
+        }
+    return listing_map
+
+
+def get_sp50_universe() -> list[BacktestUniverseEntry]:
     deduped: dict[str, BacktestUniverseEntry] = {}
-    for name, code in _SP100_NASDAQ:
-        deduped[code] = {"name": name, "code": code, "market": "NASDAQ"}
+    for name, code, market in _SP50_UNIVERSE:
+        deduped[code] = {"name": name, "code": code, "market": market}
     return list(deduped.values())
 
 
-def get_kospi_universe() -> list[BacktestUniverseEntry]:
+def get_kospi50_universe() -> list[BacktestUniverseEntry]:
     now = time.time()
     cached_data = _kospi_cache.get("data")
     if cached_data and now - float(_kospi_cache.get("ts") or 0.0) < _KOSPI_CACHE_TTL:
         return list(cached_data)  # type: ignore[arg-type]
 
     try:
-        response = requests.get(
-            "https://kind.krx.co.kr/corpgeneral/corpList.do",
-            params={"method": "download", "marketType": "stockMkt"},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=15,
-        )
-        response.raise_for_status()
-        text = response.content.decode("euc-kr", "replace")
-        rows = re.findall(r"<tr>(.*?)</tr>", text, re.S)
-        universe: list[BacktestUniverseEntry] = []
-        for row in rows:
-            cells = [
-                html.unescape(re.sub(r"<[^>]+>", "", cell)).strip()
-                for cell in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
-            ]
-            if len(cells) < 2:
-                continue
-            code = cells[1].zfill(6)
-            if not code.isdigit():
-                continue
-            universe.append({
-                "name": cells[0],
-                "code": code,
-                "market": "KOSPI",
-            })
+        listing_map = _download_krx_kospi_listing_map()
+        universe = [listing_map.get(code) or {"name": name, "code": code, "market": "KOSPI"} for name, code in _KOSPI50_CATEGORY]
         if universe:
             _kospi_cache["ts"] = now
             _kospi_cache["data"] = universe
@@ -98,45 +184,15 @@ def get_kospi_universe() -> list[BacktestUniverseEntry]:
     except Exception:
         pass
 
-    fallback = [
-        {"name": "삼성전자", "code": "005930", "market": "KOSPI"},
-        {"name": "SK하이닉스", "code": "000660", "market": "KOSPI"},
-        {"name": "삼성바이오로직스", "code": "207940", "market": "KOSPI"},
-        {"name": "삼성SDI", "code": "006400", "market": "KOSPI"},
-        {"name": "LG에너지솔루션", "code": "373220", "market": "KOSPI"},
-        {"name": "현대차", "code": "005380", "market": "KOSPI"},
-        {"name": "기아", "code": "000270", "market": "KOSPI"},
-        {"name": "현대모비스", "code": "012330", "market": "KOSPI"},
-        {"name": "NAVER", "code": "035420", "market": "KOSPI"},
-        {"name": "카카오", "code": "035720", "market": "KOSPI"},
-        {"name": "카카오뱅크", "code": "323410", "market": "KOSPI"},
-        {"name": "LG화학", "code": "051910", "market": "KOSPI"},
-        {"name": "LG전자", "code": "066570", "market": "KOSPI"},
-        {"name": "LG이노텍", "code": "011070", "market": "KOSPI"},
-        {"name": "SK이노베이션", "code": "096770", "market": "KOSPI"},
-        {"name": "POSCO홀딩스", "code": "005490", "market": "KOSPI"},
-        {"name": "포스코퓨처엠", "code": "003670", "market": "KOSPI"},
-        {"name": "셀트리온", "code": "068270", "market": "KOSPI"},
-        {"name": "유한양행", "code": "000100", "market": "KOSPI"},
-        {"name": "녹십자", "code": "006280", "market": "KOSPI"},
-        {"name": "한미반도체", "code": "042700", "market": "KOSPI"},
-        {"name": "한화에어로스페이스", "code": "012450", "market": "KOSPI"},
-        {"name": "대한항공", "code": "003490", "market": "KOSPI"},
-        {"name": "아시아나항공", "code": "020560", "market": "KOSPI"},
-        {"name": "KT", "code": "030200", "market": "KOSPI"},
-        {"name": "SK텔레콤", "code": "017670", "market": "KOSPI"},
-        {"name": "한국전력", "code": "015760", "market": "KOSPI"},
-        {"name": "신한지주", "code": "055550", "market": "KOSPI"},
-        {"name": "KB금융", "code": "105560", "market": "KOSPI"},
-        {"name": "우리금융지주", "code": "316140", "market": "KOSPI"},
-        {"name": "하나금융지주", "code": "086790", "market": "KOSPI"},
-        {"name": "메리츠금융지주", "code": "138040", "market": "KOSPI"},
-        {"name": "미래에셋증권", "code": "006800", "market": "KOSPI"},
-        {"name": "넷마블", "code": "251270", "market": "KOSPI"},
-        {"name": "크래프톤", "code": "259960", "market": "KOSPI"},
-        {"name": "엔씨소프트", "code": "036570", "market": "KOSPI"},
-        {"name": "두산에너빌리티", "code": "034020", "market": "KOSPI"},
-    ]
+    fallback = _to_entries(_KOSPI50_CATEGORY)
     _kospi_cache["ts"] = now
     _kospi_cache["data"] = fallback
     return fallback
+
+
+def get_kospi_universe() -> list[BacktestUniverseEntry]:
+    return get_kospi50_universe()
+
+
+def get_sp100_nasdaq_universe() -> list[BacktestUniverseEntry]:
+    return get_sp50_universe()

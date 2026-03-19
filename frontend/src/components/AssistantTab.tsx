@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useMarket } from '../hooks/useMarket';
 import { useInvestmentAssistant } from '../hooks/useInvestmentAssistant';
+import { useUnifiedScores } from '../hooks/useUnifiedScores';
 
 function cardStyle(borderColor = 'var(--border)', background = 'var(--card-bg)') {
   return {
@@ -15,15 +16,49 @@ export function AssistantTab() {
   const { data: market, refresh: refreshMarket } = useMarket();
   const {
     analysisData,
+    watchlist,
     watchlistRecommendations,
     autoRecommendations,
     autoLoading,
     riskSignals,
     refreshAll,
   } = useInvestmentAssistant();
+  const { getUnifiedScore, watchlistActions, refresh: refreshUnifiedScores } = useUnifiedScores(watchlist);
 
-  const watchlistFocus = useMemo(() => [...watchlistRecommendations].sort((a, b) => b.score - a.score).slice(0, 3), [watchlistRecommendations]);
-  const topIdeas = useMemo(() => autoRecommendations.slice(0, 3), [autoRecommendations]);
+  const watchlistActionMap = useMemo(
+    () => new Map((watchlistActions.data.actions || []).map((item) => [item.code, item])),
+    [watchlistActions.data.actions],
+  );
+  const watchlistFocus = useMemo(() => (
+    watchlistRecommendations
+      .map((item) => {
+        const unified = getUnifiedScore(item);
+        const actionItem = watchlistActionMap.get(item.code);
+        const actionEvidence = actionItem?.related_news?.map((news) => news.title)?.slice(0, 2);
+        return {
+          ...item,
+          score: unified?.score ?? item.score,
+          signal: actionItem?.signal || unified?.signal || item.signal,
+          reasons: actionItem?.reasons || item.reasons,
+          evidence: actionEvidence && actionEvidence.length > 0 ? actionEvidence : item.evidence,
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+  ), [watchlistRecommendations, getUnifiedScore, watchlistActionMap]);
+  const topIdeas = useMemo(() => (
+    autoRecommendations
+      .map((item) => {
+        const unified = getUnifiedScore(item);
+        return {
+          ...item,
+          score: unified?.score ?? item.score,
+          signal: unified?.signal || item.signal,
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+  ), [autoRecommendations, getUnifiedScore]);
   const actionItems = useMemo(() => {
     const items: string[] = [];
     if (topIdeas[0]) items.push(`${topIdeas[0].name}의 근거 뉴스와 리스크를 먼저 확인하세요.`);
@@ -35,6 +70,7 @@ export function AssistantTab() {
   function handleRefresh() {
     refreshMarket();
     refreshAll();
+    refreshUnifiedScores();
   }
 
   return (
@@ -64,7 +100,7 @@ export function AssistantTab() {
           <div style={cardStyle('rgba(15,76,92,.18)', 'rgba(255,255,255,.72)')}>
             <div style={{ fontSize: 12, color: 'var(--text-3)' }}>오늘의 상위 아이디어</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-1)', marginTop: 8 }}>{topIdeas[0]?.name || '대기 중'}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>{topIdeas[0] ? `${topIdeas[0].signal} · ${topIdeas[0].score}점` : '추천 후보를 분석 중입니다.'}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>{topIdeas[0] ? `${topIdeas[0].signal} · 종합 ${topIdeas[0].score}점` : '추천 후보를 분석 중입니다.'}</div>
           </div>
           <div style={cardStyle('rgba(196,68,45,.16)', 'rgba(255,255,255,.72)')}>
             <div style={{ fontSize: 12, color: 'var(--text-3)' }}>관심종목 경고</div>
@@ -132,7 +168,7 @@ export function AssistantTab() {
               <div key={item.name} style={{ padding: '14px 16px', borderRadius: 18, background: 'var(--bg-soft)', border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
                   <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-1)' }}>{item.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{item.score}점</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>종합 {item.score}점</div>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 5 }}>{[item.code, item.market].filter(Boolean).join(' • ')}</div>
                 <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7, marginTop: 8 }}>{item.evidence[0] || item.reasons[0]}</div>

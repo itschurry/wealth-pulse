@@ -205,14 +205,14 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
                 <button className="ghost-button" style={{ background: 'rgba(255,255,255,.1)', color: '#fffaf2', borderColor: 'rgba(255,255,255,.18)' }} onClick={onBack}>
                   메인 대시보드로
                 </button>
-                <span className="hero-chip">기본 우주: KOSPI 확장 + S&amp;P100 NASDAQ</span>
+                <span className="hero-chip">기본 우주: KOSPI50 + S&amp;P50</span>
                 <span className="hero-chip">환산 기준: KRW</span>
                 <span className="hero-chip">기술 규칙 + 손절/익절</span>
               </div>
             </div>
             <div className="hero-sidecard">
               <div className="hero-sidecard-label">현재 설정</div>
-              <div className="hero-sidecard-value">{buildPresetLabel(draft.lookback_days)} · {draft.market_scope === 'all' ? '양시장' : draft.market_scope === 'kospi' ? 'KOSPI 확장' : 'S&P100 NASDAQ'}</div>
+              <div className="hero-sidecard-value">{buildPresetLabel(draft.lookback_days)} · {draft.market_scope === 'all' ? '양시장' : draft.market_scope === 'kospi' ? 'KOSPI50' : 'S&P50'}</div>
               <div className="hero-sidecard-copy">
                 초기자금 {formatMoney(draft.initial_cash)} · 최대 {draft.max_positions}종목 · 손절 {draft.stop_loss_pct ?? '없음'}% · 익절 {draft.take_profit_pct ?? '없음'}%
               </div>
@@ -240,9 +240,9 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', marginBottom: 8 }}>시장 범위</div>
               <div className="backtest-pill-row">
                 {[
-                  { value: 'all', label: 'KOSPI 확장 + S&P100 NASDAQ' },
-                  { value: 'kospi', label: 'KOSPI 확장' },
-                  { value: 'nasdaq', label: 'S&P100 NASDAQ' },
+                  { value: 'all', label: 'KOSPI50 + S&P50' },
+                  { value: 'kospi', label: 'KOSPI50' },
+                  { value: 'nasdaq', label: 'S&P50' },
                 ].map((option) => (
                   <button
                     key={option.value}
@@ -317,7 +317,7 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
                     <div style={{ fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,250,242,.64)' }}>Backtest Result</div>
                     <div style={{ fontSize: 30, fontWeight: 800, marginTop: 8 }}>실행 결과</div>
                     <div style={{ fontSize: 15, color: 'rgba(255,250,242,.82)', marginTop: 10, lineHeight: 1.7, maxWidth: 760 }}>
-                      {data.universe || 'KOSPI + S&P100 NASDAQ'} · {equity[0]?.date || '—'} ~ {equity[equity.length - 1]?.date || '—'} · 생성 시각 {data.generated_at || '없음'}
+                      {data.universe || 'KOSPI50 + S&P50'} · {equity[0]?.date || '—'} ~ {equity[equity.length - 1]?.date || '—'} · 생성 시각 {data.generated_at || '없음'}
                     </div>
                     <CountByMarket data={data} />
                   </div>

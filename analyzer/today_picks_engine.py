@@ -1,7 +1,6 @@
 """뉴스 기반 오늘의 추천 및 관심종목 액션 계산."""
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -25,6 +24,9 @@ _THEME_BOOSTS = {
     "반도체": ("반도체", "hbm", "ai", "칩", "엔비디아"),
     "가전": ("가전", "냉장고", "가정용 ai", "비스포크"),
 }
+_DISCLOSURE_POSITIVE = {"earnings", "contract", "shareholder_return", "investment"}
+_DISCLOSURE_NEGATIVE = {"capital", "governance", "restructuring"}
+_EVENT_RISK_CATEGORIES = {"inflation", "policy", "labor"}
 
 
 def _normalize(value: str) -> str:
@@ -67,6 +69,32 @@ def _signal_from_score(score: float) -> str:
     return "회피"
 
 
+def _safe_float(value: object) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _external_watchlist_score(current_pick: dict | None, current_rec: dict | None) -> tuple[float, list[str]]:
+    score = 50.0
+    notes: list[str] = []
+
+    pick_score = _safe_float((current_pick or {}).get("score"))
+    if pick_score is not None:
+        score += (pick_score - 50.0) * 0.55
+        notes.append(f"오늘의 추천 점수 {pick_score:.1f}점 반영")
+
+    recommendation_score = _safe_float((current_rec or {}).get("score"))
+    if recommendation_score is not None:
+        score += (recommendation_score - 50.0) * 0.35
+        notes.append(f"보유 추천 점수 {recommendation_score:.1f}점 반영")
+
+    return score, notes
+
+
 def _serialize_article(article: NewsArticle) -> dict:
     return {
         "title": article.title,
@@ -77,7 +105,133 @@ def _serialize_article(article: NewsArticle) -> dict:
     }
 
 
-def _build_pick(entry: CompanyCatalogEntry, articles: list[NewsArticle], data: DailyData) -> dict:
+def _serialize_disclosure(item) -> dict:
+    return {
+        "title": item.title,
+        "url": item.url,
+        "source": item.source,
+        "filed_at": item.filed_at.strftime("%Y-%m-%d"),
+        "category": item.category,
+        "importance": item.importance,
+    }
+
+
+def _serialize_calendar_event(event) -> dict:
+    return {
+        "name": event.name,
+        "country": event.country,
+        "scheduled_at": event.scheduled_at.astimezone(_KST).strftime("%Y-%m-%d %H:%M KST"),
+        "source": event.source,
+        "category": event.category,
+        "importance": event.importance,
+        "url": event.url,
+    }
+
+
+def _serialize_flow(flow) -> dict:
+    return {
+        "as_of": flow.as_of,
+        "source": flow.source,
+        "foreign_net_1d": flow.foreign_net_1d,
+        "foreign_net_5d": flow.foreign_net_5d,
+        "institution_net_1d": flow.institution_net_1d,
+        "institution_net_5d": flow.institution_net_5d,
+    }
+
+
+def _calendar_adjustment(data: DailyData, entry: CompanyCatalogEntry) -> tuple[float, list[str], list[str], list]:
+    upcoming_events = []
+    risks: list[str] = []
+    score = 0.0
+    now = datetime.now(_KST)
+
+    for event in data.calendar_events:
+        scheduled = event.scheduled_at.astimezone(_KST)
+        delta_hours = (scheduled - now).total_seconds() / 3600
+        if delta_hours < -12 or delta_hours > 36:
+            continue
+        if event.category not in _EVENT_RISK_CATEGORIES:
+            continue
+        upcoming_events.append(event)
+
+    if upcoming_events and entry.sector in {"반도체", "플랫폼", "2차전지", "자동차", "가전"}:
+        high_impact = any(event.importance == "높음" for event in upcoming_events)
+        score -= 1.5 if high_impact else 0.5
+        event_names = ", ".join(event.name for event in upcoming_events[:2])
+        risks.append(f"주요 일정({event_names}) 전후로 단기 변동성 확대 가능성")
+
+    return score, [], risks[:1], upcoming_events[:2]
+
+
+def _disclosure_adjustment(disclosures: list) -> tuple[float, list[str], list[str], list]:
+    if not disclosures:
+        return 0.0, [], [], []
+
+    score = 0.0
+    reasons: list[str] = []
+    risks: list[str] = []
+
+    for item in disclosures[:2]:
+        if item.category in _DISCLOSURE_POSITIVE:
+            score += 4.0 if item.importance == "높음" else 2.0
+            reasons.append(f"최근 공시 반영: {item.title}")
+        elif item.category in _DISCLOSURE_NEGATIVE:
+            score -= 3.0 if item.importance == "높음" else 1.5
+            risks.append(f"공시 점검 필요: {item.title}")
+        else:
+            reasons.append(f"최근 공시 확인: {item.title}")
+
+    return score, reasons[:2], risks[:2], disclosures[:2]
+
+
+def _flow_adjustment(flow) -> tuple[float, list[str], list[str], dict | None]:
+    if flow is None:
+        return 0.0, [], [], None
+
+    score = 0.0
+    reasons: list[str] = []
+    risks: list[str] = []
+    if flow.foreign_net_1d > 0 and flow.institution_net_1d > 0:
+        score += 1.5
+        reasons.append("외국인·기관이 최근 1일 동반 순매수")
+    elif flow.foreign_net_1d < 0 and flow.institution_net_1d < 0:
+        score -= 1.5
+        risks.append("외국인·기관이 최근 1일 동반 순매도")
+
+    if flow.foreign_net_5d > 0 and flow.institution_net_5d > 0:
+        score += 2.5
+        reasons.append("외국인·기관이 최근 5일 누적 순매수")
+    elif flow.foreign_net_5d < 0 and flow.institution_net_5d < 0:
+        score -= 2.5
+        risks.append("외국인·기관이 최근 5일 누적 순매도")
+    elif flow.foreign_net_5d * flow.institution_net_5d < 0:
+        score -= 0.5
+        risks.append("외국인과 기관 수급 방향이 엇갈림")
+
+    return score, reasons[:2], risks[:2], _serialize_flow(flow)
+
+
+def _has_notable_flow(flow) -> bool:
+    if flow is None:
+        return False
+    same_direction_5d = (
+        (flow.foreign_net_5d > 0 and flow.institution_net_5d > 0)
+        or (flow.foreign_net_5d < 0 and flow.institution_net_5d < 0)
+    )
+    same_direction_1d = (
+        (flow.foreign_net_1d > 0 and flow.institution_net_1d > 0)
+        or (flow.foreign_net_1d < 0 and flow.institution_net_1d < 0)
+    )
+    return same_direction_5d or same_direction_1d
+
+
+def _build_pick(
+    entry: CompanyCatalogEntry,
+    articles: list[NewsArticle],
+    data: DailyData,
+    disclosures: list,
+    investor_flow,
+) -> dict:
     texts = [_article_text(article) for article in articles]
     joined = " ".join(texts)
     positive = sum(_score_keywords(text, _POSITIVE_KEYWORDS) for text in texts)
@@ -87,6 +241,10 @@ def _build_pick(entry: CompanyCatalogEntry, articles: list[NewsArticle], data: D
 
     score = 48 + len(articles) * 8 + positive * 3 - negative * 4 + theme_boost * 2 + recent_bonus * 2
     score += _market_adjustment(data, entry.sector)
+    disclosure_score, disclosure_reasons, disclosure_risks, related_disclosures = _disclosure_adjustment(disclosures)
+    flow_score, flow_reasons, flow_risks, serialized_flow = _flow_adjustment(investor_flow)
+    calendar_score, calendar_reasons, calendar_risks, upcoming_events = _calendar_adjustment(data, entry)
+    score += disclosure_score + flow_score + calendar_score
     score = max(25, min(95, round(score, 1)))
 
     reasons = [
@@ -95,18 +253,25 @@ def _build_pick(entry: CompanyCatalogEntry, articles: list[NewsArticle], data: D
     ]
     if theme_boost:
         reasons.append(f"{entry.sector} 테마 키워드 반영")
-    if data.market_context:
-        reasons.append(f"거시 컨텍스트: {data.market_context.summary}")
 
     risks = []
     if negative > 0:
         risks.append("부정 기사 비중이 높아 변동성 확대 가능성")
     if data.market_context and data.market_context.dollar_signal == "강세":
         risks.append("달러 강세 국면으로 위험자산 변동성 확대 가능성")
+    reasons = reasons[:2] + disclosure_reasons + flow_reasons + reasons[2:]
+    reasons.extend(calendar_reasons)
+    if data.market_context:
+        reasons.append(f"거시 컨텍스트: {data.market_context.summary}")
+    risks.extend(disclosure_risks)
+    risks.extend(flow_risks)
+    risks.extend(calendar_risks)
     if not risks:
         risks.append("단기 재료 소멸 여부를 점검할 필요")
 
     catalysts = [article.title for article in articles[:2]]
+    catalysts.extend(item.title for item in related_disclosures[:1])
+    catalysts.extend(event.name for event in upcoming_events[:1])
 
     return {
         "name": entry.name,
@@ -116,10 +281,13 @@ def _build_pick(entry: CompanyCatalogEntry, articles: list[NewsArticle], data: D
         "signal": _signal_from_score(score),
         "score": score,
         "confidence": max(45, min(92, 42 + len(articles) * 9 + abs(positive - negative) * 5)),
-        "reasons": reasons,
+        "reasons": reasons[:4],
         "risks": risks[:3],
-        "catalysts": catalysts,
+        "catalysts": catalysts[:3],
         "related_news": [_serialize_article(article) for article in articles[:3]],
+        "related_disclosures": [_serialize_disclosure(item) for item in related_disclosures],
+        "upcoming_events": [_serialize_calendar_event(event) for event in upcoming_events],
+        "investor_flow": serialized_flow,
     }
 
 
@@ -127,19 +295,39 @@ def generate_today_picks(data: DailyData, limit: int = 8) -> dict:
     """뉴스에서 기업을 매칭해 오늘의 추천 종목을 생성한다."""
     now = datetime.now(_KST)
     matched: list[dict] = []
+    disclosure_map = {}
+    flow_map = {}
+
+    for item in data.disclosures:
+        disclosure_map.setdefault(item.stock_code, []).append(item)
+        disclosure_map.setdefault(item.company_name, []).append(item)
+
+    for flow in data.investor_flows:
+        flow_map[flow.code] = flow
+        flow_map[flow.name] = flow
 
     for entry in get_company_catalog():
         aliases = tuple(_normalize(alias) for alias in entry.aliases)
         related = []
+        entry_disclosures = disclosure_map.get(entry.code, []) or disclosure_map.get(entry.name, [])
+        entry_flow = flow_map.get(entry.code) or flow_map.get(entry.name)
         for article in data.news:
             text = _article_text(article)
             if any(alias in text for alias in aliases):
                 related.append(article)
 
-        if not related:
+        if not related and not entry_disclosures and not _has_notable_flow(entry_flow):
             continue
 
-        matched.append(_build_pick(entry, related, data))
+        matched.append(
+            _build_pick(
+                entry,
+                related,
+                data,
+                entry_disclosures,
+                entry_flow,
+            )
+        )
 
     matched.sort(key=lambda item: (item["score"], item["confidence"]), reverse=True)
 
@@ -198,7 +386,7 @@ def build_watchlist_actions(
         previous_pick = previous_pick_map.get(key) or previous_pick_map.get(watch.get("name"))
         previous_rec = previous_recommendation_map.get(key) or previous_recommendation_map.get(watch.get("name"))
 
-        score = 50.0
+        score, score_notes = _external_watchlist_score(current_pick, current_rec)
         reasons = []
         risks = []
         technical_reasons = []
@@ -211,14 +399,15 @@ def build_watchlist_actions(
         investor_flow = watch.get("investor_flow") or {}
 
         if current_pick:
-            score = max(score, float(current_pick.get("score", score)))
             signal = current_pick.get("signal", signal)
             reasons.extend(current_pick.get("reasons", []))
             risks.extend(current_pick.get("risks", []))
             related_news = current_pick.get("related_news", [])
+            if not investor_flow:
+                investor_flow = current_pick.get("investor_flow") or {}
         if current_rec:
-            score = (score + float(current_rec.get("score", score))) / 2
-            signal = current_rec.get("signal", signal)
+            if not current_pick:
+                signal = current_rec.get("signal", signal)
             reasons.extend(current_rec.get("reasons", []))
             risks.extend(current_rec.get("risks", []))
 
@@ -325,10 +514,8 @@ def build_watchlist_actions(
 
         changed_from_yesterday = None
         previous_score = None
-        if previous_pick:
-            previous_score = float(previous_pick.get("score", 0))
-        elif previous_rec:
-            previous_score = float(previous_rec.get("score", 0))
+        if previous_pick or previous_rec:
+            previous_score, _ = _external_watchlist_score(previous_pick, previous_rec)
         if previous_signal is not None or previous_score is not None:
             changed_from_yesterday = {
                 "previous_signal": previous_signal,
@@ -351,7 +538,7 @@ def build_watchlist_actions(
             "signal": signal,
             "score": score,
             "confidence": confidence,
-            "reasons": (technical_reasons + flow_reasons + reasons)[:4] or ["오늘 기준 뚜렷한 추가 재료는 제한적입니다."],
+            "reasons": (score_notes + technical_reasons + flow_reasons + reasons)[:4] or ["오늘 기준 뚜렷한 추가 재료는 제한적입니다."],
             "risks": (technical_risks + flow_risks + risks)[:3] or ["단기 변동성 관리가 필요합니다."],
             "related_news": related_news[:2],
             "technicals": technicals or None,

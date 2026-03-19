@@ -7,6 +7,8 @@ from config.settings import OPENAI_API_KEY, OPENAI_MODEL
 from config.prompts import SYSTEM_PROMPT, DAILY_REPORT_PROMPT
 from collectors.models import DailyData
 
+_DISCLOSURE_POSITIVE = {"earnings", "contract", "shareholder_return", "investment"}
+
 
 def _format_daily_data(data: DailyData) -> dict:
     """DailyData를 프롬프트용 텍스트로 변환"""
@@ -42,11 +44,44 @@ def _format_daily_data(data: DailyData) -> dict:
         )
     news_summary = "\n\n".join(n_lines) if n_lines else "뉴스 수집 실패"
 
+    disclosure_lines = []
+    for item in data.disclosures[:8]:
+        filed_at = item.filed_at.strftime("%Y-%m-%d")
+        disclosure_lines.append(
+            f"- [{item.company_name}] {item.title} ({filed_at}, {item.source}, 중요도 {item.importance})\n"
+            f"  URL: {item.url}"
+        )
+    disclosure_summary = "\n".join(disclosure_lines) if disclosure_lines else "주요 공시 없음"
+
+    calendar_lines = []
+    for event in data.calendar_events[:8]:
+        scheduled = event.scheduled_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        calendar_lines.append(
+            f"- [{event.country}] {event.name} ({scheduled}, 중요도 {event.importance})\n"
+            f"  URL: {event.url or event.source}"
+        )
+    calendar_summary = "\n".join(calendar_lines) if calendar_lines else "향후 7일 내 핵심 일정 없음"
+
+    flow_lines = []
+    for flow in sorted(
+        data.investor_flows,
+        key=lambda item: abs(item.foreign_net_5d) + abs(item.institution_net_5d),
+        reverse=True,
+    )[:8]:
+        flow_lines.append(
+            f"- [{flow.name}] 외국인 5일 {flow.foreign_net_5d:+,} / 기관 5일 {flow.institution_net_5d:+,}"
+            f" (1일 외국인 {flow.foreign_net_1d:+,}, 기관 {flow.institution_net_1d:+,})"
+        )
+    flow_summary = "\n".join(flow_lines) if flow_lines else "수급 데이터 없음"
+
     return {
         "market_data":    market_data,
         "news_summary":   news_summary,
         "macro_summary": summarize_macro_for_prompt(data.macro),
         "market_context_summary": summarize_market_context_for_prompt(data.market_context),
+        "disclosure_summary": disclosure_summary,
+        "calendar_summary": calendar_summary,
+        "flow_summary": flow_summary,
     }
 
 
@@ -70,6 +105,9 @@ async def analyze(data: DailyData) -> str:
         news_summary=formatted["news_summary"],
         macro_summary=formatted["macro_summary"],
         market_context_summary=formatted["market_context_summary"],
+        disclosure_summary=formatted["disclosure_summary"],
+        calendar_summary=formatted["calendar_summary"],
+        flow_summary=formatted["flow_summary"],
     )
 
     for attempt in range(3):
@@ -126,6 +164,26 @@ def _fallback_report(data: DailyData) -> str:
         lines.append("\n## 거시 환경")
         lines.append(f"- 시장 국면: {data.market_context.regime}")
         lines.append(f"- 요약: {data.market_context.summary}")
+    if data.disclosures:
+        lines.append("\n## 핵심 공시")
+        for item in data.disclosures[:5]:
+            prefix = "호재" if item.category in _DISCLOSURE_POSITIVE else "점검"
+            lines.append(f"- [{prefix}] {item.company_name}: {item.title} — {item.url}")
+    if data.calendar_events:
+        lines.append("\n## 주요 일정")
+        for event in data.calendar_events[:5]:
+            scheduled = event.scheduled_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+            lines.append(f"- [{event.country}] {event.name} ({scheduled})")
+    if data.investor_flows:
+        lines.append("\n## 수급 신호")
+        for flow in sorted(
+            data.investor_flows,
+            key=lambda item: abs(item.foreign_net_5d) + abs(item.institution_net_5d),
+            reverse=True,
+        )[:5]:
+            lines.append(
+                f"- {flow.name}: 외국인 5일 {flow.foreign_net_5d:+,}, 기관 5일 {flow.institution_net_5d:+,}"
+            )
     lines.append("\n## 주요 뉴스 (원본)")
     for a in data.news[:10]:
         lines.append(f"- [{a.source}] {a.title} — {a.url}")
