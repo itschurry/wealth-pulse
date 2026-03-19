@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { useWatchlistActions } from '../hooks/useWatchlistActions';
 import { COMPANY_CATALOG } from '../data/companyCatalog';
 import type { StockSearchResult, WatchlistActionItem } from '../types';
+import { getMarketBucket, getMarketSectionCaption, getMarketSectionLabel, getMarketSessions, getPreferredMarketOrder, type MarketBucket, type MarketSessionInfo } from '../utils/marketSession';
 
 const actionLabel: Record<WatchlistActionItem['action'], string> = {
   buy: '매수',
@@ -17,6 +18,24 @@ const actionColor: Record<WatchlistActionItem['action'], string> = {
   sell: 'var(--down)',
   watch: '#b7791f',
 };
+
+function MarketStatusPill({ session }: { session: MarketSessionInfo }) {
+  const color = session.isOpen ? 'var(--up)' : 'var(--text-3)';
+  const background = session.isOpen ? 'rgba(24,121,78,.12)' : 'rgba(69,81,96,.08)';
+  const border = session.isOpen ? 'rgba(24,121,78,.2)' : 'var(--border)';
+
+  return (
+    <div style={{ padding: '12px 14px', borderRadius: 16, border: `1px solid ${border}`, background, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-1)' }}>{session.label}</div>
+        <span style={{ fontSize: 11, fontWeight: 800, color, padding: '5px 8px', borderRadius: 999, border: `1px solid ${border}`, background: '#fff' }}>
+          {session.statusLabel}
+        </span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-4)' }}>{session.marketsLabel} · {session.scheduleLabel}</div>
+    </div>
+  );
+}
 
 function normalizeText(value: string) {
   return value.trim().toLowerCase();
@@ -267,6 +286,34 @@ function SummaryCard({ title, value, detail, tone = 'neutral' }: { title: string
   );
 }
 
+function MarketActionSection({ bucket, items, session, onRemove }: { bucket: MarketBucket; items: WatchlistActionItem[]; session?: MarketSessionInfo; onRemove: (code: string) => void }) {
+  return (
+    <div className="page-section" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-1)' }}>{getMarketSectionLabel(bucket)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 6 }}>{getMarketSectionCaption(bucket)} · {items.length}종목</div>
+        </div>
+        {session ? (
+          <span style={{ fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '6px 10px', color: session.isOpen ? 'var(--up)' : 'var(--text-3)', border: `1px solid ${session.isOpen ? 'rgba(24,121,78,.2)' : 'var(--border)'}`, background: session.isOpen ? 'rgba(24,121,78,.12)' : 'rgba(69,81,96,.08)' }}>
+            {session.statusLabel}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '6px 10px', color: 'var(--text-3)', border: '1px solid var(--border)', background: 'rgba(69,81,96,.08)' }}>
+            시장 구분
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+        {items.map((item) => (
+          <ActionCard key={item.code} item={item} onRemove={onRemove} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function WatchlistTab() {
   const { items, add, remove, refreshPrices } = useWatchlist();
   const { data: actionsData, status: actionsStatus, refresh: refreshActions } = useWatchlistActions(items);
@@ -316,10 +363,30 @@ export function WatchlistTab() {
     return () => window.removeEventListener('scroll', onScroll);
   }, [dropdownPos]);
 
-  const sortedActions = [...actionsData.actions].sort((a, b) => {
-    const priority = { sell: 0, buy: 1, hold: 2, watch: 3 } as const;
-    return priority[a.action] - priority[b.action] || b.score - a.score;
-  });
+  const marketSessions = getMarketSessions();
+  const sortedActions = useMemo(() => (
+    [...actionsData.actions].sort((a, b) => {
+      const priority = { sell: 0, buy: 1, hold: 2, watch: 3 } as const;
+      return priority[a.action] - priority[b.action] || b.score - a.score;
+    })
+  ), [actionsData.actions]);
+  const groupedActions = useMemo(() => {
+    const buckets: Record<MarketBucket, WatchlistActionItem[]> = {
+      domestic: [],
+      us: [],
+      other: [],
+    };
+
+    sortedActions.forEach((item) => {
+      buckets[getMarketBucket(item.market)].push(item);
+    });
+
+    return getPreferredMarketOrder().map((bucket) => ({
+      bucket,
+      items: buckets[bucket],
+      session: bucket === 'domestic' ? marketSessions.domestic : bucket === 'us' ? marketSessions.us : undefined,
+    })).filter((group) => group.items.length > 0);
+  }, [marketSessions, sortedActions]);
   const buyCount = sortedActions.filter((item) => item.action === 'buy').length;
   const sellCount = sortedActions.filter((item) => item.action === 'sell').length;
   const holdCount = sortedActions.filter((item) => item.action === 'hold').length;
@@ -381,6 +448,11 @@ export function WatchlistTab() {
         </div>
       </div>
 
+      <div className="page-section" style={{ padding: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        <MarketStatusPill session={marketSessions.domestic} />
+        <MarketStatusPill session={marketSessions.us} />
+      </div>
+
       {dropdownPos && results.length > 0 && (
         <div style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 16, zIndex: 200, maxHeight: 320, overflowY: 'auto', boxShadow: 'var(--shadow-md)' }}>
           {results.map(r => (
@@ -415,9 +487,9 @@ export function WatchlistTab() {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-            {sortedActions.map((item) => (
-              <ActionCard key={item.code} item={item} onRemove={remove} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {groupedActions.map((group) => (
+              <MarketActionSection key={group.bucket} bucket={group.bucket} items={group.items} session={group.session} onRemove={remove} />
             ))}
           </div>
         </>

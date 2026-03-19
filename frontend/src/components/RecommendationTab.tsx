@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { useCompare } from '../hooks/useCompare';
 import { useUnifiedScores } from '../hooks/useUnifiedScores';
 import type { TodayPickItem } from '../types';
+import { getMarketBucket, getMarketSectionCaption, getMarketSectionLabel, getMarketSessions, getPreferredMarketOrder, type MarketBucket, type MarketSessionInfo } from '../utils/marketSession';
 
 interface Props {
   onRefresh: () => void;
@@ -20,6 +22,52 @@ function SummaryCard({ title, value, detail, tone = 'neutral' }: { title: string
       <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{title}</div>
       <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)', marginTop: 8 }}>{value}</div>
       <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 6, lineHeight: 1.6 }}>{detail}</div>
+    </div>
+  );
+}
+
+function MarketStatusPill({ session }: { session: MarketSessionInfo }) {
+  const color = session.isOpen ? 'var(--up)' : 'var(--text-3)';
+  const background = session.isOpen ? 'rgba(24,121,78,.12)' : 'rgba(69,81,96,.08)';
+  const border = session.isOpen ? 'rgba(24,121,78,.2)' : 'var(--border)';
+
+  return (
+    <div style={{ padding: '12px 14px', borderRadius: 16, border: `1px solid ${border}`, background, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-1)' }}>{session.label}</div>
+        <span style={{ fontSize: 11, fontWeight: 800, color, padding: '5px 8px', borderRadius: 999, border: `1px solid ${border}`, background: '#fff' }}>
+          {session.statusLabel}
+        </span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-4)' }}>{session.marketsLabel} · {session.scheduleLabel}</div>
+    </div>
+  );
+}
+
+function MarketSection({ bucket, items, session }: { bucket: MarketBucket; items: TodayPickItem[]; session?: MarketSessionInfo }) {
+  return (
+    <div className="page-section" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-1)' }}>{getMarketSectionLabel(bucket)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 6 }}>{getMarketSectionCaption(bucket)} · {items.length}종목</div>
+        </div>
+        {session ? (
+          <span style={{ fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '6px 10px', color: session.isOpen ? 'var(--up)' : 'var(--text-3)', border: `1px solid ${session.isOpen ? 'rgba(24,121,78,.2)' : 'var(--border)'}`, background: session.isOpen ? 'rgba(24,121,78,.12)' : 'rgba(69,81,96,.08)' }}>
+            {session.statusLabel}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '6px 10px', color: 'var(--text-3)', border: '1px solid var(--border)', background: 'rgba(69,81,96,.08)' }}>
+            시장 구분
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+        {items.map((item) => (
+          <PickCard key={`${item.code || item.name}`} item={item} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -97,9 +145,29 @@ export function RecommendationTab({ onRefresh }: Props) {
     refreshCompare();
   }
 
-  const viewPicks = [...(todayPicks.data.picks || [])]
-    .map((item) => applyToPick(item))
-    .sort((a, b) => b.score - a.score);
+  const viewPicks = useMemo(() => (
+    [...(todayPicks.data.picks || [])]
+      .map((item) => applyToPick(item))
+      .sort((a, b) => b.score - a.score)
+  ), [todayPicks.data.picks, applyToPick]);
+  const marketSessions = getMarketSessions();
+  const groupedPicks = useMemo(() => {
+    const buckets: Record<MarketBucket, TodayPickItem[]> = {
+      domestic: [],
+      us: [],
+      other: [],
+    };
+
+    viewPicks.forEach((item) => {
+      buckets[getMarketBucket(item.market)].push(item);
+    });
+
+    return getPreferredMarketOrder().map((bucket) => ({
+      bucket,
+      items: buckets[bucket],
+      session: bucket === 'domestic' ? marketSessions.domestic : bucket === 'us' ? marketSessions.us : undefined,
+    })).filter((group) => group.items.length > 0);
+  }, [marketSessions, viewPicks]);
 
   const baseSignals = compare.signal_counts?.base || {};
   const prevSignals = compare.signal_counts?.prev || {};
@@ -130,6 +198,11 @@ export function RecommendationTab({ onRefresh }: Props) {
           <SummaryCard title="새 리스크" value={`${compare.new_risks?.length || 0}개`} detail={(compare.new_risks && compare.new_risks[0]) || '새로 추가된 리스크 없음'} tone={(compare.new_risks?.length || 0) > 0 ? 'down' : 'neutral'} />
           <SummaryCard title="시장 톤" value={todayPicks.data.market_tone || '데이터 없음'} detail={todayPicks.data.generated_at || '생성 시각 없음'} />
         </div>
+      </div>
+
+      <div className="page-section" style={{ padding: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        <MarketStatusPill session={marketSessions.domestic} />
+        <MarketStatusPill session={marketSessions.us} />
       </div>
 
       {compare.today_pick_changes && compare.today_pick_changes.length > 0 && (
@@ -166,9 +239,9 @@ export function RecommendationTab({ onRefresh }: Props) {
       )}
 
       {viewPicks.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-          {viewPicks.map((item) => (
-            <PickCard key={`${item.code || item.name}`} item={item} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {groupedPicks.map((group) => (
+            <MarketSection key={group.bucket} bucket={group.bucket} items={group.items} session={group.session} />
           ))}
         </div>
       )}
