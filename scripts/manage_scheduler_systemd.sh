@@ -32,11 +32,31 @@ resolve_python() {
 
 PYTHON_BIN="$(resolve_python)"
 
+resolve_pip() {
+  if [[ -x "$REPO_DIR/.venv/bin/pip" ]]; then
+    printf '%s\n' "$REPO_DIR/.venv/bin/pip"
+    return
+  fi
+
+  printf '%s -m pip\n' "$PYTHON_BIN"
+}
+
+PIP_BIN="$(resolve_pip)"
+
 run_root() {
   if [[ $(id -u) -eq 0 ]]; then
     "$@"
   else
     sudo "$@"
+  fi
+}
+
+ensure_requirements() {
+  echo "Syncing Python dependencies from requirements.txt"
+  if [[ "$PIP_BIN" == *" -m pip" ]]; then
+    $PYTHON_BIN -m pip install -r "$REPO_DIR/requirements.txt"
+  else
+    "$PIP_BIN" install -r "$REPO_DIR/requirements.txt"
   fi
 }
 
@@ -69,6 +89,7 @@ EOF
 }
 
 install_service() {
+  ensure_requirements
   write_unit
   run_root systemctl daemon-reload
   run_root systemctl enable --now "$SERVICE_NAME"
@@ -77,6 +98,7 @@ install_service() {
   echo "Unit: $UNIT_PATH"
   echo "Stdout log: $LOG_DIR/scheduler.systemd.out.log"
   echo "Stderr log: $LOG_DIR/scheduler.systemd.err.log"
+  echo "Schedule policy: KR 09:00-15:30 KST every 30m, US 09:30-16:00 ET every 30m, off-session every 3h"
 }
 
 uninstall_service() {
@@ -87,6 +109,7 @@ uninstall_service() {
 }
 
 start_service() {
+  ensure_requirements
   run_root systemctl start "$SERVICE_NAME"
   echo "Started: $SERVICE_NAME"
 }
@@ -97,6 +120,7 @@ stop_service() {
 }
 
 restart_service() {
+  ensure_requirements
   run_root systemctl restart "$SERVICE_NAME"
   echo "Restarted: $SERVICE_NAME"
 }

@@ -172,9 +172,15 @@ docker compose up --build -d
 
 ## 스케줄러 사용
 
-현재 [scheduler.py](scheduler.py)는 KST 기준 3시간 간격(06/09/12/15/18/21시)으로 실행되도록 설정되어 있습니다.
+현재 [scheduler.py](scheduler.py)는 아래 규칙으로 실행됩니다.
+
+- 한국장 정규장: `09:00-15:30 KST`, 30분 간격
+- 미국장 정규장: `09:30-16:00 ET`, 30분 간격
+- 장외 시간: `06/09/12/15/18/21시 KST`, 3시간 간격
+- 한국/미국 모두 주말과 공휴일은 장중 슬롯에서 제외
 
 ```bash
+pip install -r requirements.txt
 python3 scheduler.py
 ```
 
