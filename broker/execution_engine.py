@@ -47,6 +47,7 @@ class EngineConfig:
     default_paper_days: int = 7
     buy_fee_rate: float = 0.00015
     sell_fee_rate: float = 0.00015
+    order_notifier: Callable[[dict[str, Any], dict[str, Any]], None] | None = None
 
 
 class PaperExecutionEngine:
@@ -243,7 +244,17 @@ class PaperExecutionEngine:
             state["orders"] = state["orders"][:300]
             state["updated_at"] = now
             self._persist(state)
-            return {"ok": True, "event": event, "account": self._build_snapshot(state)}
+            snapshot = self._build_snapshot(state)
+
+        notifier = self.config.order_notifier
+        if notifier is not None:
+            try:
+                notifier(event, snapshot)
+            except Exception:
+                # 체결 자체는 성공 처리하고, 알림 장애만 격리한다.
+                pass
+
+        return {"ok": True, "event": event, "account": snapshot}
 
     def _can_fill(
         self,
