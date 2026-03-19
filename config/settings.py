@@ -45,6 +45,7 @@ KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"
 # 텔레그램
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+REPORT_WEB_URL = os.getenv("REPORT_WEB_URL", "http://175.123.74.19:8081")
 
 # 이메일
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
