@@ -37,7 +37,7 @@ export function SummaryBar({ summaryLines, generatedAt, onRefresh }: Props) {
     <div className="summary-shell">
       <div className="summary-head">
         <div>
-          <div className="summary-title">Quick Brief</div>
+          <div className="summary-title">Opening Brief</div>
           <div className="summary-meta">
             리포트 생성 {generatedAt || '데이터 없음'} · 다음 자동 생성 {getNextScheduleLabel()}
           </div>
@@ -49,8 +49,11 @@ export function SummaryBar({ summaryLines, generatedAt, onRefresh }: Props) {
 
       <div className="summary-grid">
         {lines.slice(0, 3).map((line, i) => (
-          <div key={i} className="summary-card">
-            <span className="summary-index">{i + 1}</span>
+          <div key={i} className={`summary-card ${i === 0 ? 'primary' : ''}`}>
+            <div className="summary-card-topline">
+              <span className="summary-index">{i + 1}</span>
+              <span className="summary-step-label">{i === 0 ? '시장 요지' : i === 1 ? '핵심 이슈' : '행동 포인트'}</span>
+            </div>
             <div className="summary-copy">{line}</div>
           </div>
         ))}

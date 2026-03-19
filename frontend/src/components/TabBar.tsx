@@ -19,12 +19,13 @@ export function TabBar({ activeTab, onChange, onOpenBacktest }: Props) {
     <div className="tab-shell">
       <div className="tab-shell-row">
         <div className="tab-strip">
-          {TABS.map((tab) => (
+          {TABS.map((tab, index) => (
             <button
               key={tab.id}
               onClick={() => onChange(tab.id)}
               className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
             >
+              <span className="tab-step">{String(index + 1).padStart(2, '0')}</span>
               <span className="tab-label">{tab.label}</span>
               <span className="tab-help">{tab.help}</span>
             </button>
