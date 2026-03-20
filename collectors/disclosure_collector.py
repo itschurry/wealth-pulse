@@ -97,7 +97,7 @@ def collect_disclosures(lookback_days: int = 3, per_company_limit: int = 6, tota
         logger.warning(f"공시 corpCode 수집 실패: {exc}")
         return []
 
-    catalog = [entry for entry in get_company_catalog() if entry.code.isdigit()]
+    catalog = [entry for entry in get_company_catalog(scope="core") if entry.code.isdigit()]
     targets = []
     for entry in catalog:
         corp_code = corp_code_map.get(entry.code)

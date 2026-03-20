@@ -96,7 +96,7 @@ def _fetch_flow(entry) -> InvestorFlowSnapshot | None:
 def collect_investor_flows(limit: int = 16) -> list[InvestorFlowSnapshot]:
     """추적 종목 중 국내 종목의 최근 수급 스냅샷을 수집한다."""
     targets = []
-    for entry in get_company_catalog():
+    for entry in get_company_catalog(scope="core"):
         if entry.market in {"KOSPI", "KOSDAQ"} and entry.code.isdigit():
             targets.append(entry)
         if len(targets) >= limit:

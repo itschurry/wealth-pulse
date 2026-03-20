@@ -1,6 +1,7 @@
 """추천 및 뉴스 매핑에 사용하는 공통 종목 카탈로그."""
 from dataclasses import dataclass
 
+from config.backtest_universe import get_kospi100_universe, get_sp100_nasdaq_universe
 from config.portfolio import HOLDINGS
 
 
@@ -37,6 +38,7 @@ _BASE_ENTRIES = [
     CompanyCatalogEntry("한국전력", "015760", "KOSPI", "유틸리티", ("한전", "한국전력")),
     CompanyCatalogEntry("삼성바이오로직스", "207940", "KOSPI", "바이오", ("삼성바이오로직스", "삼성 바이오로직스")),
     CompanyCatalogEntry("LG전자", "066570", "KOSPI", "가전", ("lg전자", "lg 전자")),
+    CompanyCatalogEntry("두산로보틱스", "454910", "KOSPI", "로봇", ("두산로보틱스", "두산 로보틱스", "협동로봇")),
     CompanyCatalogEntry("Apple", "AAPL", "NASDAQ", "플랫폼", ("apple", "aapl", "애플")),
     CompanyCatalogEntry("Microsoft", "MSFT", "NASDAQ", "플랫폼", ("microsoft", "msft", "마이크로소프트")),
     CompanyCatalogEntry("Amazon", "AMZN", "NASDAQ", "플랫폼", ("amazon", "amzn", "아마존")),
@@ -48,13 +50,45 @@ _BASE_ENTRIES = [
     CompanyCatalogEntry("Micron", "MU", "NASDAQ", "반도체", ("micron", "mu", "마이크론")),
     CompanyCatalogEntry("Qualcomm", "QCOM", "NASDAQ", "반도체", ("qualcomm", "qcom", "퀄컴")),
     CompanyCatalogEntry("Tesla", "TSLA", "NASDAQ", "자동차", ("tesla", "tsla", "테슬라")),
+    CompanyCatalogEntry("Symbotic", "SYM", "NASDAQ", "로봇", ("symbotic", "sym", "심보틱", "물류로봇")),
+    CompanyCatalogEntry("Intuitive Surgical", "ISRG", "NASDAQ", "로봇", ("intuitive surgical", "isrg", "인튜이티브 서지컬", "수술로봇")),
+    CompanyCatalogEntry("Teradyne", "TER", "NASDAQ", "로봇", ("teradyne", "ter", "테라다인", "산업용 로봇")),
+    CompanyCatalogEntry("Serve Robotics", "SERV", "NASDAQ", "로봇", ("serve robotics", "serv", "서브 로보틱스", "배달로봇")),
 ]
 
 _ALLOWED_MARKETS = {"KOSPI", "NASDAQ"}
+_CATALOG_CACHE: dict[str, list[CompanyCatalogEntry]] = {}
 
 
-def get_company_catalog() -> list[CompanyCatalogEntry]:
-    """프론트/포트폴리오와 겹치는 종목을 합쳐서 반환한다."""
+def _catalog_aliases(name: str, code: str) -> tuple[str, ...]:
+    lowered = name.lower()
+    aliases = [name, lowered, code, code.lower()]
+    deduped: list[str] = []
+    for alias in aliases:
+        value = str(alias).strip()
+        if value and value not in deduped:
+            deduped.append(value)
+    return tuple(deduped)
+
+
+def _guess_sector(name: str, market: str) -> str:
+    lowered = name.lower()
+    if any(keyword in lowered for keyword in ("semiconductor", "chip", "반도체")):
+        return "반도체"
+    if any(keyword in lowered for keyword in ("robot", "로봇", "automation")):
+        return "로봇"
+    if any(keyword in lowered for keyword in ("auto", "vehicle", "자동차", "mobility")):
+        return "자동차"
+    if any(keyword in lowered for keyword in ("bank", "financial", "insurance", "금융")):
+        return "금융"
+    if any(keyword in lowered for keyword in ("bio", "pharma", "health", "바이오")):
+        return "바이오"
+    if any(keyword in lowered for keyword in ("energy", "oil", "gas", "전력", "에너지")):
+        return "에너지"
+    return "국내주식" if market == "KOSPI" else "미국주식"
+
+
+def _build_core_catalog() -> list[CompanyCatalogEntry]:
     seen_codes = {entry.code for entry in _BASE_ENTRIES if entry.code}
     merged = list(_BASE_ENTRIES)
 
@@ -74,3 +108,71 @@ def get_company_catalog() -> list[CompanyCatalogEntry]:
         seen_codes.add(code)
 
     return [entry for entry in merged if entry.market in _ALLOWED_MARKETS]
+
+
+def _build_live_catalog(core_catalog: list[CompanyCatalogEntry]) -> list[CompanyCatalogEntry]:
+    merged = list(core_catalog)
+    seen_codes = {entry.code for entry in merged if entry.code}
+    sector_by_code = {entry.code: entry.sector for entry in merged}
+
+    for item in get_kospi100_universe():
+        code = str(item.get("code") or "").strip().upper()
+        market = str(item.get("market") or "").strip().upper()
+        name = str(item.get("name") or "").strip()
+        if not code or code in seen_codes or market != "KOSPI":
+            continue
+        merged.append(
+            CompanyCatalogEntry(
+                name=name or code,
+                code=code,
+                market="KOSPI",
+                sector=sector_by_code.get(code) or _guess_sector(name or code, "KOSPI"),
+                aliases=_catalog_aliases(name or code, code),
+            )
+        )
+        seen_codes.add(code)
+
+    for item in get_sp100_nasdaq_universe():
+        code = str(item.get("code") or "").strip().upper()
+        market = str(item.get("market") or "").strip().upper()
+        name = str(item.get("name") or "").strip()
+        if not code or code in seen_codes or market != "NASDAQ":
+            continue
+        merged.append(
+            CompanyCatalogEntry(
+                name=name or code,
+                code=code,
+                market="NASDAQ",
+                sector=sector_by_code.get(code) or _guess_sector(name or code, "NASDAQ"),
+                aliases=_catalog_aliases(name or code, code),
+            )
+        )
+        seen_codes.add(code)
+
+    return [entry for entry in merged if entry.market in _ALLOWED_MARKETS]
+
+
+def get_company_catalog(scope: str = "core") -> list[CompanyCatalogEntry]:
+    """공통 카탈로그를 반환한다.
+
+    scope:
+    - core: 공시/수급 수집에 쓰는 핵심 종목군
+    - live: 오늘의픽/자동매매 후보 확장 종목군
+    """
+    normalized_scope = str(scope or "core").strip().lower()
+    if normalized_scope not in {"core", "live"}:
+        normalized_scope = "core"
+
+    cached = _CATALOG_CACHE.get(normalized_scope)
+    if cached is not None:
+        return list(cached)
+
+    core_catalog = _build_core_catalog()
+    if normalized_scope == "core":
+        _CATALOG_CACHE["core"] = core_catalog
+        return list(core_catalog)
+
+    live_catalog = _build_live_catalog(core_catalog)
+    _CATALOG_CACHE["core"] = core_catalog
+    _CATALOG_CACHE["live"] = live_catalog
+    return list(live_catalog)

@@ -140,9 +140,9 @@ python3 api_server.py
 
 - [scripts/test_kis_account.py](scripts/test_kis_account.py)
 
-## KOSPI50 + S&P50 가상 백테스트
+## KOSPI100 + S&P100 가상 백테스트
 
-최근 3년 KOSPI50과 S&P50 종목 일봉을 바탕으로, 미국 종목은 USD/KRW 환율을 반영해 원화 기준으로 가상 자금 백테스트를 돌릴 수 있습니다.
+최근 3년 KOSPI100과 S&P100 종목 일봉을 바탕으로, 미국 종목은 USD/KRW 환율을 반영해 원화 기준으로 가상 자금 백테스트를 돌릴 수 있습니다.
 
 ```bash
 .venv/bin/python scripts/run_kospi_backtest.py

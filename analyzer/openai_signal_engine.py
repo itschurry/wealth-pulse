@@ -71,7 +71,7 @@ def _collect_candidates(data: DailyData, limit: int) -> list[dict]:
         flow_map[flow.code] = flow_payload
         flow_map[flow.name] = flow_payload
 
-    for entry in get_company_catalog():
+    for entry in get_company_catalog(scope="core"):
         aliases = tuple(_normalize(alias) for alias in entry.aliases)
         related_articles = []
         for article in data.news:

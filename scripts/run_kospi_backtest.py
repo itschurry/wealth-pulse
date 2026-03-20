@@ -1,4 +1,4 @@
-"""KOSPI50 + S&P50 3년 가상 매매 백테스트 실행."""
+"""KOSPI100 + S&P100 3년 가상 매매 백테스트 실행."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def main() -> int:
 
     metrics = result["metrics"]
     print(
-        "[KOSPI50+SP50 backtest]",
+        "[KOSPI100+SP100 backtest]",
         f"final_equity={metrics['final_equity']}",
         f"total_return_pct={metrics['total_return_pct']}",
         f"cagr_pct={metrics['cagr_pct']}",

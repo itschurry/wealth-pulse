@@ -1,4 +1,4 @@
-"""KOSPI50 + S&P50 가상 매매 백테스트 엔진."""
+"""KOSPI100 + S&P100 가상 매매 백테스트 엔진."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 import requests
 
 from broker.kis_client import KISClient
-from config.backtest_universe import get_kospi50_universe, get_sp50_universe
+from config.backtest_universe import get_kospi100_universe, get_sp100_universe
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
         code: rows for code, rows in histories.items() if len(rows) >= 80
     }
     if not available_histories:
-        raise RuntimeError("백테스트에 사용할 KOSPI50/S&P50 히스토리를 불러오지 못했습니다.")
+        raise RuntimeError("백테스트에 사용할 KOSPI100/S&P100 히스토리를 불러오지 못했습니다.")
 
     all_dates = sorted(
         {
@@ -205,9 +205,9 @@ def _universe_label(markets: tuple[str, ...]) -> str:
     labels = []
     for market in markets:
         if market == "KOSPI":
-            labels.append("KOSPI50")
+            labels.append("KOSPI100")
         elif market == "NASDAQ":
-            labels.append("S&P50")
+            labels.append("S&P100")
         else:
             labels.append(market)
     return " + ".join(labels)
@@ -217,10 +217,10 @@ def _get_backtest_universe(markets: tuple[str, ...]) -> list[tuple[str, str, str
     universe = []
     allowed_markets = set(markets)
     if "KOSPI" in allowed_markets:
-        for entry in get_kospi50_universe():
+        for entry in get_kospi100_universe():
             universe.append((entry["code"], entry["name"], entry["market"], _ticker_for_entry(entry["code"], entry["market"])))
     if "NASDAQ" in allowed_markets:
-        for entry in get_sp50_universe():
+        for entry in get_sp100_universe():
             universe.append((entry["code"], entry["name"], entry["market"], _ticker_for_entry(entry["code"], entry["market"])))
     return universe
 
