@@ -4,15 +4,30 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from math import sqrt
 from typing import Any
 
 import requests
 
+from analyzer.candidate_selector import (
+    CandidateSelectionConfig,
+    load_historical_candidates,
+    serialize_candidate_selection_config,
+)
 from broker.kis_client import KISClient
 from config.backtest_universe import get_kospi100_universe, get_sp100_universe
+from analyzer.shared_strategy import (
+    StrategyProfile,
+    build_strategy_profile,
+    entry_score_from_snapshot,
+    normalize_strategy_market,
+    profiles_by_market,
+    serialize_strategy_profiles,
+    should_enter_from_snapshot,
+    should_exit_from_snapshot,
+)
 
 
 @dataclass(frozen=True)
@@ -22,19 +37,24 @@ class BacktestConfig:
     max_positions: int = 5
     buy_fee_rate: float = 0.00015
     sell_fee_rate: float = 0.00015
-    max_holding_days: int = 30
+    max_holding_days: int = 15
     lookback_days: int = 1095
     markets: tuple[str, ...] = ("KOSPI",)
     rsi_min: float = 45.0
-    rsi_max: float = 68.0
+    rsi_max: float = 62.0
     volume_ratio_min: float = 1.2
-    stop_loss_pct: float | None = None
+    stop_loss_pct: float | None = 5.0
     take_profit_pct: float | None = None
+    market_profiles: tuple[StrategyProfile, ...] = ()
+    candidate_selection_enabled: bool = True
+    candidate_selection: CandidateSelectionConfig = field(default_factory=CandidateSelectionConfig)
 
 
 def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
     cfg = config or BacktestConfig()
     base_currency = (cfg.base_currency or "KRW").upper()
+    market_profiles = _resolve_backtest_profiles(cfg)
+    candidate_cache: dict[str, dict[str, dict[str, Any]]] = {}
     universe = _get_backtest_universe(cfg.markets)
     histories = _load_histories(universe, cfg.lookback_days, base_currency)
 
@@ -73,7 +93,15 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
 
             holding = positions[code]
             holding_days = (current_date - holding["entry_date"]).days
-            exit_reason = _should_exit(row, holding, holding_days, cfg)
+            profile = market_profiles.get(normalize_strategy_market(holding["market"]))
+            if profile is None:
+                continue
+            exit_reason = should_exit_from_snapshot(
+                row,
+                entry_price=holding.get("entry_price"),
+                holding_days=holding_days,
+                profile=profile,
+            )
             if not exit_reason:
                 continue
 
@@ -102,20 +130,36 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             del positions[code]
 
         # 2) 매수 후보 선정
-        slots = cfg.max_positions - len(positions)
-        if slots > 0 and cash > 0:
+        market_slots = _available_market_slots(market_profiles, positions)
+        total_slots = sum(max(0, value) for value in market_slots.values())
+        if total_slots > 0 and cash > 0:
             candidates = []
             for code, rows in row_maps.items():
                 if code in positions:
                     continue
                 row = rows.get(current_date)
-                if not row or not _should_enter(row, cfg):
+                if not row:
                     continue
-                candidates.append((code, _entry_score(row), row))
+                market = normalize_strategy_market(str(row.get("market") or ""))
+                profile = market_profiles.get(market)
+                if profile is None or market_slots.get(market, 0) <= 0:
+                    continue
+                candidate_info = _historical_candidate_info(candidate_cache, current_date.isoformat(), market, cfg)
+                if candidate_info["has_report"] and str(row.get("code") or "").strip().upper() not in candidate_info["codes"]:
+                    continue
+                if not should_enter_from_snapshot(row, profile):
+                    continue
+                candidates.append((code, entry_score_from_snapshot(row, profile), row, profile))
 
             candidates.sort(key=lambda item: item[1], reverse=True)
-            for code, _, row in candidates[:slots]:
-                budget = cash / max(1, (cfg.max_positions - len(positions)))
+            for code, _, row, profile in candidates:
+                market = normalize_strategy_market(str(row.get("market") or ""))
+                if market_slots.get(market, 0) <= 0:
+                    continue
+                remaining_slots = sum(max(0, value) for value in market_slots.values())
+                if remaining_slots <= 0:
+                    break
+                budget = cash / remaining_slots
                 price = float(row["trade_price"])
                 if price <= 0:
                     continue
@@ -131,12 +175,14 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
                 positions[code] = {
                     "name": row["name"],
                     "market": row["market"],
+                    "market_key": market,
                     "shares": shares,
                     "entry_price": float(row["trade_price"]),
                     "last_trade_price": float(row["trade_price"]),
                     "entry_date": current_date,
                     "buy_fee": fee,
                 }
+                market_slots[market] = max(0, market_slots.get(market, 0) - 1)
 
         market_value = 0.0
         open_positions = []
@@ -172,21 +218,21 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "universe": universe_label,
-        "strategy": "trend-momentum-volume-v3",
+        "strategy": "trend-momentum-volume-v4-shared-daily",
         "config": {
             "initial_cash": cfg.initial_cash,
             "base_currency": base_currency,
-            "max_positions": cfg.max_positions,
             "buy_fee_rate": cfg.buy_fee_rate,
             "sell_fee_rate": cfg.sell_fee_rate,
-            "max_holding_days": cfg.max_holding_days,
             "lookback_days": cfg.lookback_days,
             "markets": list(cfg.markets),
-            "rsi_min": cfg.rsi_min,
-            "rsi_max": cfg.rsi_max,
-            "volume_ratio_min": cfg.volume_ratio_min,
-            "stop_loss_pct": cfg.stop_loss_pct,
-            "take_profit_pct": cfg.take_profit_pct,
+            "market_profiles": serialize_strategy_profiles(market_profiles),
+            "candidate_selection": {
+                "enabled": cfg.candidate_selection_enabled,
+                **serialize_candidate_selection_config(cfg.candidate_selection),
+                **_candidate_coverage_summary(candidate_cache),
+            },
+            **_single_market_profile_config(market_profiles),
         },
         "symbols": [
             {"code": code, "name": rows[-1]["name"], "market": rows[-1]["market"]}
@@ -201,6 +247,54 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
     }
 
 
+def _historical_candidate_info(
+    cache: dict[str, dict[str, dict[str, Any]]],
+    date: str,
+    market: str,
+    cfg: BacktestConfig,
+) -> dict[str, Any]:
+    day_cache = cache.setdefault(date, {})
+    normalized_market = normalize_strategy_market(market)
+    if normalized_market not in day_cache:
+        if not cfg.candidate_selection_enabled:
+            day_cache[normalized_market] = {
+                "date": date,
+                "market": normalized_market,
+                "source": "disabled",
+                "codes": set(),
+                "candidates": [],
+                "has_report": False,
+            }
+        else:
+            day_cache[normalized_market] = load_historical_candidates(
+                date=date,
+                market=normalized_market,
+                cfg=cfg.candidate_selection,
+            )
+    return day_cache[normalized_market]
+
+
+def _candidate_coverage_summary(cache: dict[str, dict[str, dict[str, Any]]]) -> dict[str, Any]:
+    total_market_dates = 0
+    covered_market_dates = 0
+    source_counts: dict[str, int] = {}
+    for day_cache in cache.values():
+        for candidate_info in day_cache.values():
+            total_market_dates += 1
+            if candidate_info.get("has_report"):
+                covered_market_dates += 1
+            source = str(candidate_info.get("source") or "none")
+            source_counts[source] = source_counts.get(source, 0) + 1
+    coverage_pct = (covered_market_dates / total_market_dates * 100) if total_market_dates else 0.0
+    return {
+        "report_coverage_pct": round(coverage_pct, 2),
+        "covered_market_dates": covered_market_dates,
+        "total_market_dates": total_market_dates,
+        "source_counts": source_counts,
+        "fallback_mode": "indicator_only_when_reports_missing",
+    }
+
+
 def _universe_label(markets: tuple[str, ...]) -> str:
     labels = []
     for market in markets:
@@ -211,6 +305,54 @@ def _universe_label(markets: tuple[str, ...]) -> str:
         else:
             labels.append(market)
     return " + ".join(labels)
+
+
+def _resolve_backtest_profiles(cfg: BacktestConfig) -> dict[str, StrategyProfile]:
+    if cfg.market_profiles:
+        return profiles_by_market(cfg.market_profiles, cfg.markets)
+    return {
+        normalize_strategy_market(market): build_strategy_profile(
+            market,
+            max_positions=cfg.max_positions,
+            max_holding_days=cfg.max_holding_days,
+            rsi_min=cfg.rsi_min,
+            rsi_max=cfg.rsi_max,
+            volume_ratio_min=cfg.volume_ratio_min,
+            stop_loss_pct=cfg.stop_loss_pct,
+            take_profit_pct=cfg.take_profit_pct,
+        )
+        for market in cfg.markets
+    }
+
+
+def _single_market_profile_config(market_profiles: dict[str, StrategyProfile]) -> dict[str, Any]:
+    if len(market_profiles) != 1:
+        return {}
+    profile = next(iter(market_profiles.values()))
+    return {
+        "max_positions": profile.max_positions,
+        "max_holding_days": profile.max_holding_days,
+        "rsi_min": profile.rsi_min,
+        "rsi_max": profile.rsi_max,
+        "volume_ratio_min": profile.volume_ratio_min,
+        "stop_loss_pct": profile.stop_loss_pct,
+        "take_profit_pct": profile.take_profit_pct,
+    }
+
+
+def _available_market_slots(
+    market_profiles: dict[str, StrategyProfile],
+    positions: dict[str, dict[str, Any]],
+) -> dict[str, int]:
+    counts = {market: 0 for market in market_profiles}
+    for holding in positions.values():
+        market = normalize_strategy_market(str(holding.get("market") or holding.get("market_key") or ""))
+        if market in counts:
+            counts[market] += 1
+    return {
+        market: max(0, profile.max_positions - counts.get(market, 0))
+        for market, profile in market_profiles.items()
+    }
 
 
 def _get_backtest_universe(markets: tuple[str, ...]) -> list[tuple[str, str, str, str]]:
@@ -598,30 +740,9 @@ def _ticker_for_entry(code: str, market: str) -> str:
 
 
 def _should_enter(row: dict[str, Any], cfg: BacktestConfig) -> bool:
-    close = row.get("close")
-    sma20 = row.get("sma20")
-    sma60 = row.get("sma60")
-    volume_ratio = row.get("volume_ratio")
-    rsi14 = row.get("rsi14")
-    macd = row.get("macd")
-    macd_signal = row.get("macd_signal")
-    macd_hist = row.get("macd_hist")
-
-    return bool(
-        close is not None
-        and sma20 is not None
-        and sma60 is not None
-        and volume_ratio is not None
-        and rsi14 is not None
-        and macd is not None
-        and macd_signal is not None
-        and macd_hist is not None
-        and close > sma20 > sma60
-        and volume_ratio >= cfg.volume_ratio_min
-        and cfg.rsi_min <= rsi14 <= cfg.rsi_max
-        and macd_hist > 0
-        and macd > macd_signal
-    )
+    market = normalize_strategy_market(str(row.get("market") or ""))
+    profile = _resolve_backtest_profiles(cfg).get(market)
+    return should_enter_from_snapshot(row, profile) if profile else False
 
 
 def _should_exit(
@@ -630,51 +751,20 @@ def _should_exit(
     holding_days: int,
     cfg: BacktestConfig,
 ) -> str | None:
-    close = row.get("close")
-    sma20 = row.get("sma20")
-    rsi14 = row.get("rsi14")
-    macd = row.get("macd")
-    macd_signal = row.get("macd_signal")
-    macd_hist = row.get("macd_hist")
-    trade_price = row.get("trade_price")
-    entry_price = holding.get("entry_price")
-
-    if holding_days >= cfg.max_holding_days:
-        return "보유기간 만료"
-    if (
-        cfg.stop_loss_pct is not None
-        and trade_price is not None
-        and entry_price
-        and ((float(trade_price) / float(entry_price)) - 1) * 100 <= -cfg.stop_loss_pct
-    ):
-        return "손절"
-    if (
-        cfg.take_profit_pct is not None
-        and trade_price is not None
-        and entry_price
-        and ((float(trade_price) / float(entry_price)) - 1) * 100 >= cfg.take_profit_pct
-    ):
-        return "익절"
-    if close is not None and sma20 is not None and close < sma20:
-        return "20일선 이탈"
-    if macd is not None and macd_signal is not None and macd_hist is not None:
-        if macd < macd_signal and macd_hist < 0:
-            return "MACD 약세 전환"
-    if rsi14 is not None and rsi14 >= 75:
-        return "RSI 과열"
-    return None
+    market = normalize_strategy_market(str(holding.get("market") or row.get("market") or ""))
+    profile = _resolve_backtest_profiles(cfg).get(market)
+    if profile is None:
+        return None
+    return should_exit_from_snapshot(
+        row,
+        entry_price=holding.get("entry_price"),
+        holding_days=holding_days,
+        profile=profile,
+    )
 
 
 def _entry_score(row: dict[str, Any]) -> float:
-    close = float(row["close"])
-    sma20 = float(row["sma20"])
-    sma60 = float(row["sma60"])
-    volume_ratio = float(row["volume_ratio"])
-    rsi14 = float(row["rsi14"])
-    macd_hist = float(row["macd_hist"])
-    trend_score = ((close / sma20) - 1) * 100 + ((sma20 / sma60) - 1) * 100
-    rsi_score = max(0.0, 70 - abs(57 - rsi14))
-    return round(trend_score + volume_ratio * 2.5 + macd_hist * 12 + rsi_score * 0.1, 4)
+    return entry_score_from_snapshot(row)
 
 
 def _compute_metrics(

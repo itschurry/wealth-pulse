@@ -28,9 +28,12 @@ _BASE_ENTRIES = [
     CompanyCatalogEntry("한화에어로스페이스", "012450", "KOSPI", "방산", ("한화에어로스페이스", "한화 에어로스페이스")),
     CompanyCatalogEntry("대한항공", "003490", "KOSPI", "항공", ("대한항공", "대한 항공")),
     CompanyCatalogEntry("아시아나항공", "020560", "KOSPI", "항공", ("아시아나항공", "아시아나 항공")),
+    CompanyCatalogEntry("IBK기업은행", "024110", "KOSPI", "금융", ("ibk기업은행", "ibk 기업은행", "기업은행", "ibk")),
     CompanyCatalogEntry("KB금융", "105560", "KOSPI", "금융", ("kb금융", "kb 금융", "국민은행")),
     CompanyCatalogEntry("신한지주", "055550", "KOSPI", "금융", ("신한지주", "신한금융", "신한 금융")),
     CompanyCatalogEntry("셀트리온", "068270", "KOSPI", "바이오", ("셀트리온",)),
+    CompanyCatalogEntry("LS", "006260", "KOSPI", "산업재", ("ls", "ls corp", "ls그룹", "엘에스")),
+    CompanyCatalogEntry("LS ELECTRIC", "010120", "KOSPI", "산업재", ("ls electric", "ls일렉트릭", "엘에스일렉트릭")),
     CompanyCatalogEntry("에코프로", "086520", "KOSDAQ", "2차전지", ("에코프로",)),
     CompanyCatalogEntry("에코프로비엠", "247540", "KOSDAQ", "2차전지", ("에코프로비엠", "에코프로 비엠")),
     CompanyCatalogEntry("알테오젠", "196170", "KOSDAQ", "바이오", ("알테오젠",)),
@@ -56,7 +59,7 @@ _BASE_ENTRIES = [
     CompanyCatalogEntry("Serve Robotics", "SERV", "NASDAQ", "로봇", ("serve robotics", "serv", "서브 로보틱스", "배달로봇")),
 ]
 
-_ALLOWED_MARKETS = {"KOSPI", "NASDAQ"}
+_ALLOWED_MARKETS = {"KOSPI", "KOSDAQ", "NASDAQ"}
 _CATALOG_CACHE: dict[str, list[CompanyCatalogEntry]] = {}
 
 

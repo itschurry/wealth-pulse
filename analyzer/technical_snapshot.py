@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from broker.kis_client import KISAPIError, KISClient, KISConfigError
+from market_utils import lookup_company_listing, resolve_quote_market
 
 _KST = datetime.timezone(datetime.timedelta(hours=9))
 _TECHNICAL_CACHE_TTL = 900
@@ -277,17 +278,7 @@ def evaluate_technical_snapshot(
 
 
 def _normalize_quote_market(code: str, market: str) -> str:
-    normalized_market = (market or "").strip().upper()
-    if normalized_market in {"KOSPI", "KOSDAQ", "KRX", "KR", "KOREA"}:
-        return "KOSPI"
-    if normalized_market in {"NASDAQ", "NAS", "US", "USA", "NYSE", "AMEX"}:
-        return "NASDAQ"
-    normalized_code = code.split(".")[0].strip().upper()
-    if normalized_code.isdigit():
-        return "KOSPI"
-    if normalized_code:
-        return "NASDAQ"
-    return ""
+    return resolve_quote_market(code=code, market=market, scope="core")
 
 
 def _overseas_exchange_candidates(market: str) -> list[str]:
@@ -343,11 +334,15 @@ def fetch_technical_snapshot(
     interval: str = "1d",
     timeout: float = 8.0,
 ) -> dict[str, Any] | None:
-    normalized_market = _normalize_quote_market(code, market)
+    normalized_code = str(code or "").split(".")[0].strip().upper()
+    listing = lookup_company_listing(code=normalized_code, name=normalized_code, scope="core")
+    resolved_code = str((listing or {}).get("code") or normalized_code).strip().upper()
+    resolved_market = str((listing or {}).get("market") or market or "").strip()
+    normalized_market = _normalize_quote_market(resolved_code, resolved_market)
     if normalized_market not in {"KOSPI", "NASDAQ"} or interval != "1d":
         return None
 
-    cache_key = f"{market}:{code}:{range_}:{interval}"
+    cache_key = f"{resolved_market}:{resolved_code}:{range_}:{interval}"
     now = time.time()
     cached = _technical_cache.get(cache_key)
     if cached and now - float(cached.get("ts") or 0.0) < _TECHNICAL_CACHE_TTL:
@@ -357,7 +352,7 @@ def fetch_technical_snapshot(
     if client is None:
         return None
 
-    history_market = (market or "").strip().upper()
+    history_market = resolved_market.strip().upper()
     if history_market not in {"KOSPI", "NASDAQ", "NYSE", "AMEX"}:
         history_market = normalized_market
 
@@ -368,7 +363,7 @@ def fetch_technical_snapshot(
     try:
         if history_market == "KOSPI":
             rows = client.get_domestic_daily_history(
-                code,
+                resolved_code,
                 start_date=start_date,
                 end_date=end_date,
             )
@@ -376,7 +371,7 @@ def fetch_technical_snapshot(
             for exchange in _overseas_exchange_candidates(history_market):
                 try:
                     rows = client.get_overseas_daily_history(
-                        code,
+                        resolved_code,
                         exchange=exchange,
                         start_date=start_date,
                         end_date=end_date,

@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from collectors.models import DailyData, NewsArticle
 from config.company_catalog import CompanyCatalogEntry, get_company_catalog
+from market_utils import resolve_market
 
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -50,10 +51,30 @@ _DYNAMIC_TICKER_BLOCKLIST = {
     "ADR", "IPO", "MNA", "M&A", "CEO", "CFO", "CTO", "GPU", "CPU", "HBM", "LLM",
     "KOSPI", "KOSDAQ", "NYSE", "NASDAQ", "AMEX", "USA", "US", "EU", "UK", "UAE",
 }
+_US_CONTEXT_KEYWORDS = (
+    "nasdaq", "nyse", "amex", "미국증시", "뉴욕증시", "월가", "us stock", "u.s. stock",
+    "adr", "premarket", "after-hours", "after hours", "pre-market",
+)
+_ASCII_ALIAS_PATTERN = re.compile(r"[a-z0-9][a-z0-9 .&\\-]*")
 
 
 def _normalize(value: str) -> str:
     return value.lower().strip()
+
+
+def _alias_in_text(alias: str, text: str) -> bool:
+    normalized_alias = _normalize(alias)
+    if not normalized_alias:
+        return False
+    if _ASCII_ALIAS_PATTERN.fullmatch(normalized_alias):
+        pattern = rf"(?<![a-z0-9]){re.escape(normalized_alias)}(?![a-z0-9])"
+        return re.search(pattern, text) is not None
+    return normalized_alias in text
+
+
+def _has_us_market_context(raw_text: str) -> bool:
+    lowered = str(raw_text or "").lower()
+    return any(keyword in lowered for keyword in _US_CONTEXT_KEYWORDS)
 
 
 def _article_text(article: NewsArticle) -> str:
@@ -477,6 +498,7 @@ def _extract_dynamic_us_ticker_entries(
         raw_text = " ".join([article.title or "", article.summary or "", article.body or ""])
         if not raw_text:
             continue
+        has_us_context = _has_us_market_context(raw_text)
         article_counts: dict[str, int] = {}
         for match in _US_TICKER_PATTERN.finditer(raw_text):
             token = str(match.group(1) or "").strip().upper()
@@ -493,6 +515,14 @@ def _extract_dynamic_us_ticker_entries(
                 or token in existing_codes
             ):
                 continue
+            resolved_market = resolve_market(code=token, name=token, scope="core")
+            if resolved_market in {"KOSPI", "KOSDAQ"}:
+                continue
+            if not resolved_market:
+                if len(token) < 3 and token not in dollar_mentioned:
+                    continue
+                if token not in dollar_mentioned and not has_us_context:
+                    continue
             article_counts[token] = article_counts.get(token, 0) + 1
         for code, count in article_counts.items():
             mention_counts[code] = mention_counts.get(code, 0) + count
@@ -674,7 +704,7 @@ def generate_today_picks(
         entry_playbook_candidate = playbook_candidate_map.get(entry.code) or playbook_candidate_map.get(entry.name)
         for article in data.news:
             text = _article_text(article)
-            if any(alias in text for alias in aliases):
+            if any(_alias_in_text(alias, text) for alias in aliases):
                 related.append(article)
 
         if not related and not entry_disclosures and not _has_notable_flow(entry_flow) and not entry_ai_signal and not entry_playbook_candidate:
