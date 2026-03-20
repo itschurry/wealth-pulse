@@ -1,8 +1,8 @@
-"""장중 30분 + 장외 3시간 자동 실행 스케줄러.
+"""장중 30분 + 장외 1시간 자동 실행 스케줄러.
 
 - 한국장: KST 09:00-15:30, 30분 단위
 - 미국장: ET 09:30-16:00, 30분 단위
-- 장외: KST 06/09/12/15/18/21시
+- 장외: KST 06/07/08/09/10/11/12/13/14/15/16/17/18/19/20/21시
 """
 import asyncio
 import os
@@ -17,7 +17,8 @@ from main import run_daily_report
 
 KST_TZ = "Asia/Seoul"
 KST_ZONE = ZoneInfo(KST_TZ)
-OUT_OF_SESSION_RUN_HOURS = (6, 9, 12, 15, 18, 21)
+OUT_OF_SESSION_RUN_HOURS = (6, 7, 8, 9, 10, 11, 12,
+                            13, 14, 15, 16, 17, 18, 19, 20, 21)
 POLL_INTERVAL_SECONDS = 30
 _last_run_slot_id = ""
 
@@ -50,7 +51,8 @@ def _current_slot(now_utc: datetime | None = None) -> tuple[str, list[str]]:
     if is_market_half_hour_slot("US", source):
         reasons.append("us-market:ET half-hour slot")
 
-    slot_id = source.replace(second=0, microsecond=0).astimezone(timezone.utc).isoformat()
+    slot_id = source.replace(second=0, microsecond=0).astimezone(
+        timezone.utc).isoformat()
     return slot_id, reasons
 
 
@@ -69,7 +71,7 @@ def _run_if_slot() -> None:
 
 
 def _log_schedule_policy() -> None:
-    logger.info("장외 스케줄: 06:00 / 09:00 / 12:00 / 15:00 / 18:00 / 21:00 KST")
+    logger.info("장외 스케줄: 06:00 / 07:00 / 08:00 / 09:00 / 10:00 / 11:00 / 12:00 / 13:00 / 14:00 / 15:00 / 16:00 / 17:00 / 18:00 / 19:00 / 20:00 / 21:00 KST")
     logger.info("한국장 스케줄: 09:00-15:30 KST, 30분 단위 (주말/한국 공휴일 제외)")
     logger.info("미국장 스케줄: 09:30-16:00 ET, 30분 단위 (주말/미국 거래소 휴장일 제외)")
 
@@ -84,7 +86,7 @@ if __name__ == "__main__":
         )
 
     logger.info(
-        "스케줄러 시작 (장중 30분 단위 + 장외 3시간 단위)"
+        "스케줄러 시작 (장중 30분 단위 + 장외 1시간 단위)"
     )
     _log_schedule_policy()
     while True:
