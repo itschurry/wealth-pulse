@@ -304,6 +304,21 @@ def _normalize_quote_market(code: str, market: str) -> str:
     return ""
 
 
+def _overseas_exchange_candidates(market: str) -> list[str]:
+    normalized = (market or "").strip().upper()
+    if normalized in {"NYSE", "AMEX", "NASDAQ"}:
+        ordered = [normalized, "NASDAQ", "NYSE", "AMEX"]
+    elif normalized in {"NAS", "US", "USA", ""}:
+        ordered = ["NASDAQ", "NYSE", "AMEX"]
+    else:
+        ordered = ["NASDAQ", "NYSE", "AMEX"]
+    deduped: list[str] = []
+    for item in ordered:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
 def _search_catalog(query: str, limit: int = 10) -> list[dict]:
     query_raw = query.strip()
     if not query_raw:
@@ -395,9 +410,6 @@ def _paper_fx_rate() -> float | None:
 def _resolve_stock_quote(code: str, market: str = "") -> dict:
     normalized_code = code.split(".")[0].strip().upper()
     normalized_market = _normalize_quote_market(normalized_code, market)
-    overseas_exchange = (market or "").strip().upper()
-    if overseas_exchange not in {"NASDAQ", "NYSE", "AMEX"}:
-        overseas_exchange = "NASDAQ"
     if not normalized_code:
         raise ValueError("code required")
     if normalized_market not in {"KOSPI", "NASDAQ"}:
@@ -417,13 +429,28 @@ def _resolve_stock_quote(code: str, market: str = "") -> dict:
             "market": "KOSPI",
         }
 
-    kis_price = client.get_overseas_price(normalized_code, exchange=overseas_exchange)
+    last_exc: Exception | None = None
+    kis_price = None
+    resolved_exchange = "NASDAQ"
+    for exchange in _overseas_exchange_candidates(market):
+        try:
+            kis_price = client.get_overseas_price(normalized_code, exchange=exchange)
+            resolved_exchange = exchange
+            break
+        except Exception as exc:
+            last_exc = exc
+            continue
+    if kis_price is None:
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("해외 현재가 조회에 실패했습니다.")
+
     return {
         "code": normalized_code,
         "name": kis_price.get("name") or normalized_code,
         "price": kis_price.get("price"),
         "change_pct": kis_price.get("change_pct"),
-        "market": overseas_exchange,
+        "market": resolved_exchange,
     }
 
 
@@ -447,7 +474,7 @@ def _get_paper_engine() -> PaperExecutionEngine:
 
 def _normalize_pick_market(market: str) -> str:
     normalized = (market or "").strip().upper()
-    if normalized in {"NASDAQ", "NAS", "US", "USA"}:
+    if normalized in {"NASDAQ", "NAS", "US", "USA", "NYSE", "AMEX"}:
         return "NASDAQ"
     if normalized in {"KOSDAQ", "KQ", "KOSDAQ GLOBAL", "코스닥"}:
         return "KOSDAQ"
@@ -505,12 +532,17 @@ def _parse_theme_gate_config(raw: dict | None = None) -> dict:
         min_news = int(payload.get("theme_min_news", 1))
     except (TypeError, ValueError):
         min_news = 1
+    try:
+        priority_bonus = float(payload.get("theme_priority_bonus", 2.0))
+    except (TypeError, ValueError):
+        priority_bonus = 2.0
     return {
         "theme_gate_enabled": bool(payload.get("theme_gate_enabled", True)),
         "theme_min_score": max(0.0, min(30.0, min_score)),
         "theme_min_news": max(0, min(10, min_news)),
-        # theme_focus는 고정 운영값으로 유지한다.
-        "theme_focus": list(_DEFAULT_THEME_FOCUS),
+        "theme_priority_bonus": max(0.0, min(10.0, priority_bonus)),
+        # 하위호환용으로 유지하되 실행 필터에는 사용하지 않는다.
+        "theme_focus": _normalize_theme_focus(payload.get("theme_focus")),
     }
 
 
@@ -543,31 +575,24 @@ def _pick_theme_news_count(item: dict) -> int:
 
 def _passes_theme_gate(item: dict, cfg: dict) -> bool:
     if not bool(cfg.get("theme_gate_enabled", True)):
-        return True
-    matched_themes = {
-        str(theme).strip().lower()
-        for theme in (item.get("matched_themes", []) or [])
-        if str(theme).strip()
-    }
-    focus = set(cfg.get("theme_focus") or _DEFAULT_THEME_FOCUS)
-    if focus and not (focus & matched_themes):
         return False
     if _to_float(item.get("theme_score"), default=0.0) < float(cfg.get("theme_min_score", 2.5)):
         return False
     if _pick_theme_news_count(item) < int(cfg.get("theme_min_news", 1)):
         return False
-    return bool(item.get("keyword_gate_passed", False))
+    return True
 
 
 def _auto_invest_picks(
     *,
     market: str = "NASDAQ",
     max_positions: int = 5,
-    min_score: float = 60.0,
+    min_score: float = 50.0,
     include_neutral: bool = False,
     theme_gate_enabled: bool = True,
     theme_min_score: float = 2.5,
     theme_min_news: int = 1,
+    theme_priority_bonus: float = 2.0,
     theme_focus: list[str] | None = None,
 ) -> dict:
     target_market = _normalize_pick_market(market)
@@ -580,6 +605,7 @@ def _auto_invest_picks(
         "theme_gate_enabled": theme_gate_enabled,
         "theme_min_score": theme_min_score,
         "theme_min_news": theme_min_news,
+        "theme_priority_bonus": theme_priority_bonus,
         "theme_focus": theme_focus or list(_DEFAULT_THEME_FOCUS),
     }
     candidates = _collect_pick_candidates(target_market, filter_cfg)
@@ -671,7 +697,7 @@ def _auto_invest_picks(
     final_account = engine.get_account(refresh_quotes=True)
     message = ""
     if not candidates:
-        message = "조건에 맞는 자동매수 후보가 없습니다. (테마 우선 후 일반 보충 모드) min_score 또는 데이터 갱신 상태를 확인해 보세요."
+        message = "조건에 맞는 자동매수 후보가 없습니다. (점수 우선 + 테마 가점 모드) min_score 또는 데이터 갱신 상태를 확인해 보세요."
     return {
         "ok": True,
         "strategy": "today-picks-auto-buy-v1",
@@ -685,6 +711,7 @@ def _auto_invest_picks(
         "theme_gate_enabled": bool(theme_gate_enabled),
         "theme_min_score": float(theme_min_score),
         "theme_min_news": int(theme_min_news),
+        "theme_priority_bonus": float(theme_priority_bonus),
         "theme_focus": _normalize_theme_focus(theme_focus),
         "message": message,
         "account": final_account,
@@ -696,11 +723,12 @@ def _default_auto_trader_config() -> dict:
         "interval_seconds": 300,
         "markets": ["KOSPI", "NASDAQ"],
         "max_positions_per_market": 12,
-        "min_score": 52.0,
+        "min_score": 50.0,
         "include_neutral": True,
         "theme_gate_enabled": True,
         "theme_min_score": 2.5,
         "theme_min_news": 1,
+        "theme_priority_bonus": 2.0,
         "theme_focus": list(_DEFAULT_THEME_FOCUS),
         "daily_buy_limit": 100,
         "daily_sell_limit": 100,
@@ -708,7 +736,7 @@ def _default_auto_trader_config() -> dict:
         "rsi_min": 35.0,
         "rsi_max": 78.0,
         "volume_ratio_min": 0.8,
-        "min_entry_signals": 3,
+        "min_entry_signals": 2,
         "signal_interval": "15m",
         "signal_range": "5d",
         "stop_loss_pct": 5.0,
@@ -749,9 +777,9 @@ def _should_enter_by_indicators(technicals: dict, cfg: dict) -> bool:
     macd_signal = technicals.get("macd_signal")
     macd_hist = technicals.get("macd_hist")
     try:
-        required = int(cfg.get("min_entry_signals", 3))
+        required = int(cfg.get("min_entry_signals", 2))
     except (TypeError, ValueError):
-        required = 3
+        required = 2
     required = max(1, min(6, required))
 
     passed = 0
@@ -815,9 +843,10 @@ def _should_exit_by_indicators(position: dict, technicals: dict, cfg: dict) -> s
 
 
 def _collect_pick_candidates(market: str, cfg: dict) -> list[dict]:
-    min_score = float(cfg.get("min_score", 60.0))
+    min_score = float(cfg.get("min_score", 50.0))
     include_neutral = bool(cfg.get("include_neutral", False))
     theme_cfg = _parse_theme_gate_config(cfg)
+    theme_priority_bonus = float(theme_cfg.get("theme_priority_bonus", 2.0))
     allowed_signals = {"추천", "buy", "BUY"}
     if include_neutral:
         allowed_signals.update({"중립", "hold", "HOLD"})
@@ -830,19 +859,20 @@ def _collect_pick_candidates(market: str, cfg: dict) -> list[dict]:
         picks = []
 
     def _sort_candidates(items: list[dict]) -> list[dict]:
-        return sorted(items, key=lambda item: item["score"], reverse=True)
-
-    def _prioritize_theme(items: list[dict]) -> list[dict]:
-        if not bool(theme_cfg.get("theme_gate_enabled", True)):
-            return _sort_candidates(items)
-        themed: list[dict] = []
-        general: list[dict] = []
+        prepared: list[dict] = []
         for item in items:
-            if _passes_theme_gate(item, theme_cfg):
-                themed.append(item)
-            else:
-                general.append(item)
-        return _sort_candidates(themed) + _sort_candidates(general)
+            base_score = float(item.get("score") or 0.0)
+            priority_score = base_score
+            if bool(theme_cfg.get("theme_gate_enabled", True)) and _passes_theme_gate(item, theme_cfg):
+                priority_score += theme_priority_bonus
+            candidate = dict(item)
+            candidate["priority_score"] = round(priority_score, 2)
+            prepared.append(candidate)
+        return sorted(
+            prepared,
+            key=lambda item: (float(item.get("priority_score") or 0.0), float(item.get("score") or 0.0)),
+            reverse=True,
+        )
 
     candidates: list[dict] = []
     for item in picks:
@@ -868,7 +898,7 @@ def _collect_pick_candidates(market: str, cfg: dict) -> list[dict]:
             "theme_news_count": _pick_theme_news_count(item),
         })
     if candidates:
-        return _prioritize_theme(candidates)
+        return _sort_candidates(candidates)
 
     recommendations = _get_recommendations().get("recommendations", [])
     for item in recommendations:
@@ -895,7 +925,7 @@ def _collect_pick_candidates(market: str, cfg: dict) -> list[dict]:
             "theme_news_count": _pick_theme_news_count(item),
         }
         candidates.append(candidate)
-    return _prioritize_theme(candidates)
+    return _sort_candidates(candidates)
 
 
 def _run_auto_trader_cycle(cfg: dict) -> dict:
@@ -1150,14 +1180,14 @@ def _start_auto_trader(config: dict) -> dict:
         merged["daily_buy_limit"] = max(1, min(200, int(merged.get("daily_buy_limit") or 20)))
         merged["daily_sell_limit"] = max(1, min(200, int(merged.get("daily_sell_limit") or 20)))
         merged["max_orders_per_symbol_per_day"] = max(1, min(10, int(merged.get("max_orders_per_symbol_per_day") or 1)))
-        merged["min_score"] = max(0.0, min(100.0, float(merged.get("min_score") or 60.0)))
+        merged["min_score"] = max(0.0, min(100.0, float(merged.get("min_score") or 50.0)))
         merged.update(_parse_theme_gate_config(merged))
         merged["rsi_min"] = max(10.0, min(90.0, float(merged.get("rsi_min") or 45.0)))
         merged["rsi_max"] = max(10.0, min(90.0, float(merged.get("rsi_max") or 68.0)))
         if merged["rsi_min"] > merged["rsi_max"]:
             merged["rsi_min"], merged["rsi_max"] = merged["rsi_max"], merged["rsi_min"]
         merged["volume_ratio_min"] = max(0.5, min(5.0, float(merged.get("volume_ratio_min") or 1.2)))
-        merged["min_entry_signals"] = max(1, min(6, int(merged.get("min_entry_signals") or 3)))
+        merged["min_entry_signals"] = max(1, min(6, int(merged.get("min_entry_signals") or 2)))
         merged["stop_loss_pct"] = max(1.0, min(50.0, float(merged.get("stop_loss_pct") or 7.0)))
         merged["take_profit_pct"] = max(1.0, min(100.0, float(merged.get("take_profit_pct") or 18.0)))
         merged["max_holding_days"] = max(1, min(180, int(merged.get("max_holding_days") or 30)))
@@ -1259,12 +1289,20 @@ def _fetch_kis_history(code: str, market: str, lookback_days: int = 180) -> dict
                 end_date=end_date,
             )
         elif normalized_market in {"NASDAQ", "NYSE", "AMEX"}:
-            rows = client.get_overseas_daily_history(
-                code,
-                exchange=normalized_market,
-                start_date=start_date,
-                end_date=end_date,
-            )
+            rows = []
+            for exchange in _overseas_exchange_candidates(normalized_market):
+                try:
+                    rows = client.get_overseas_daily_history(
+                        code,
+                        exchange=exchange,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                except Exception:
+                    rows = []
+                    continue
+                if rows:
+                    break
         else:
             return None
     except Exception:
@@ -2245,9 +2283,9 @@ class Handler(BaseHTTPRequestHandler):
                 max_positions = 5
             try:
                 min_score_raw = payload.get("min_score")
-                min_score = float(60.0 if min_score_raw in (None, "") else min_score_raw)
+                min_score = float(50.0 if min_score_raw in (None, "") else min_score_raw)
             except (TypeError, ValueError):
-                min_score = 60.0
+                min_score = 50.0
             include_neutral = bool(payload.get("include_neutral") is True)
             theme_cfg = _parse_theme_gate_config(payload)
             max_positions = max(1, min(20, max_positions))
@@ -2260,6 +2298,7 @@ class Handler(BaseHTTPRequestHandler):
                 theme_gate_enabled=theme_cfg["theme_gate_enabled"],
                 theme_min_score=theme_cfg["theme_min_score"],
                 theme_min_news=theme_cfg["theme_min_news"],
+                theme_priority_bonus=theme_cfg["theme_priority_bonus"],
                 theme_focus=theme_cfg["theme_focus"],
             )
             status = 200 if result.get("ok") else 400

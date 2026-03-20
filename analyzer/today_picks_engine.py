@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from zoneinfo import ZoneInfo
 
 from collectors.models import DailyData, NewsArticle
@@ -30,10 +31,9 @@ _THEME_BOOSTS = {
 _DISCLOSURE_POSITIVE = {"earnings", "contract", "shareholder_return", "investment"}
 _DISCLOSURE_NEGATIVE = {"capital", "governance", "restructuring"}
 _EVENT_RISK_CATEGORIES = {"inflation", "policy", "labor"}
-_THEME_FOCUS_DEFAULT = {"automotive", "robotics", "physical_ai"}
 _THEME_GATE_MIN_SCORE = 2.5
 _THEME_GATE_MIN_NEWS = 1
-_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ"}
+_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ", "NYSE", "AMEX"}
 _SECTOR_THEME_HINTS = {
     "자동차": {"automotive", "physical_ai"},
     "자동차부품": {"automotive", "robotics", "physical_ai"},
@@ -41,6 +41,14 @@ _SECTOR_THEME_HINTS = {
     "반도체": {"physical_ai", "robotics"},
     "플랫폼": {"physical_ai"},
     "가전": {"robotics", "physical_ai"},
+}
+_US_TICKER_PATTERN = re.compile(r"(?<![A-Z0-9])(\$?[A-Z]{2,5}(?:\.[A-Z])?)(?![A-Z0-9])")
+_DYNAMIC_TICKER_BLOCKLIST = {
+    "USD", "KRW", "EUR", "JPY", "GBP", "CNY", "CNH", "DXY", "USDT", "USDC",
+    "AI", "EV", "ETF", "SEC", "FED", "FOMC", "CPI", "PPI", "GDP", "PMI", "PCE",
+    "WTI", "OPEC", "API", "RBI", "ECB", "BOJ", "NFP", "YOY", "QOQ", "EPS",
+    "ADR", "IPO", "MNA", "M&A", "CEO", "CFO", "CTO", "GPU", "CPU", "HBM", "LLM",
+    "KOSPI", "KOSDAQ", "NYSE", "NASDAQ", "AMEX", "USA", "US", "EU", "UK", "UAE",
 }
 
 
@@ -313,12 +321,58 @@ def _keyword_gate_passed(
     if theme_score < min_score:
         return False
     matched = set(matched_themes)
-    if not (_THEME_FOCUS_DEFAULT & matched):
-        return False
     sector_hints = _SECTOR_THEME_HINTS.get(sector, set())
     if sector_hints and not (sector_hints & matched):
         return False
     return True
+
+
+def _extract_dynamic_us_ticker_entries(
+    news: list[NewsArticle],
+    *,
+    existing_codes: set[str],
+) -> list[CompanyCatalogEntry]:
+    mention_counts: dict[str, int] = {}
+    dollar_mentioned: set[str] = set()
+
+    for article in news:
+        raw_text = " ".join([article.title or "", article.summary or "", article.body or ""])
+        if not raw_text:
+            continue
+        article_counts: dict[str, int] = {}
+        for match in _US_TICKER_PATTERN.finditer(raw_text):
+            token = str(match.group(1) or "").strip().upper()
+            if not token:
+                continue
+            if token.startswith("$"):
+                token = token[1:]
+                if token:
+                    dollar_mentioned.add(token)
+            if (
+                not token
+                or len(token) < 2
+                or token in _DYNAMIC_TICKER_BLOCKLIST
+                or token in existing_codes
+            ):
+                continue
+            article_counts[token] = article_counts.get(token, 0) + 1
+        for code, count in article_counts.items():
+            mention_counts[code] = mention_counts.get(code, 0) + count
+
+    entries: list[CompanyCatalogEntry] = []
+    for code, mentions in sorted(mention_counts.items(), key=lambda item: (-item[1], item[0])):
+        if mentions < 2 and code not in dollar_mentioned:
+            continue
+        entries.append(
+            CompanyCatalogEntry(
+                name=code,
+                code=code,
+                market="NASDAQ",
+                sector="미국주식",
+                aliases=(code, code.lower()),
+            )
+        )
+    return entries
 
 
 def _build_pick(
@@ -444,7 +498,15 @@ def generate_today_picks(
         ai_signal_map[item.get("code") or item.get("name")] = item
         ai_signal_map[item.get("name")] = item
 
-    for entry in get_company_catalog(scope="live"):
+    catalog_entries = get_company_catalog(scope="live")
+    existing_codes = {entry.code.upper() for entry in catalog_entries if entry.code}
+    dynamic_entries = _extract_dynamic_us_ticker_entries(
+        data.news,
+        existing_codes=existing_codes,
+    )
+    all_entries = catalog_entries + dynamic_entries
+
+    for entry in all_entries:
         aliases = tuple(_normalize(alias) for alias in entry.aliases)
         related = []
         entry_disclosures = disclosure_map.get(entry.code, []) or disclosure_map.get(entry.name, [])
