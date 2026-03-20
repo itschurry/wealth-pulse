@@ -57,6 +57,15 @@ class KISClient:
     """토큰 발급과 시세 조회를 위한 최소 REST 클라이언트."""
 
     _TOKEN_CACHE_PATH = LOGS_DIR / "kis_token_cache.json"
+    _OVERSEAS_PRICE_PATH = "/uapi/overseas-price/v1/quotations/price-detail"
+    _OVERSEAS_DAILY_PATH = "/uapi/overseas-price/v1/quotations/dailyprice"
+    _OVERSEAS_PRICE_TR_IDS = ("HHDFS76200200",)
+    _OVERSEAS_DAILY_TR_IDS = ("HHDFS76240000",)
+    _OVERSEAS_EXCHANGE_MAP = {
+        "NASDAQ": ("NAS", "NASD", "NASQ"),
+        "NYSE": ("NYS", "NYSE"),
+        "AMEX": ("AMS", "AMEX"),
+    }
 
     def __init__(
         self,
@@ -266,6 +275,162 @@ class KISClient:
                 "volume": volume,
             })
         return history
+
+    def get_overseas_price(
+        self,
+        symbol: str,
+        *,
+        exchange: str = "NASDAQ",
+    ) -> dict[str, Any]:
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            raise ValueError("symbol is required")
+
+        payload: dict[str, Any] | None = None
+        for exchange_code in self._normalize_overseas_exchange(exchange):
+            for tr_id in self._OVERSEAS_PRICE_TR_IDS:
+                try:
+                    payload = self._request(
+                        "GET",
+                        self._OVERSEAS_PRICE_PATH,
+                        headers=self._auth_headers(tr_id),
+                        params={
+                            "AUTH": "",
+                            "EXCD": exchange_code,
+                            "SYMB": normalized_symbol,
+                        },
+                    )
+                except KISAPIError:
+                    continue
+                if payload:
+                    break
+            if payload:
+                break
+
+        if not payload:
+            raise KISAPIError("해외 현재가 조회에 실패했습니다.")
+
+        output = payload.get("output") or {}
+        output2 = payload.get("output2") or {}
+        merged = {**output2, **output}
+        price = _pick_float(
+            merged,
+            "last",
+            "clos",
+            "ovrs_nmix_prpr",
+            "stck_prpr",
+            "trade_price",
+            "last_price",
+        )
+        previous_close = _pick_float(
+            merged,
+            "base",
+            "prdy_clpr",
+            "prev",
+            "xprc",
+            "prev_close",
+        )
+        change = _pick_float(
+            merged,
+            "diff",
+            "t_xdif",
+            "prdy_vrss",
+            "change",
+        )
+        change_pct = _pick_float(
+            merged,
+            "rate",
+            "t_xrat",
+            "prdy_ctrt",
+            "change_rate",
+            "change_pct",
+        )
+        if change_pct is None and price not in (None, 0) and previous_close not in (None, 0):
+            change_pct = ((price - previous_close) / previous_close) * 100
+        if change is None and price is not None and previous_close is not None:
+            change = price - previous_close
+
+        return {
+            "code": normalized_symbol,
+            "name": _pick_str(merged, "name", "hts_kor_isnm", "ovrs_item_name"),
+            "price": price,
+            "change": change,
+            "change_pct": change_pct,
+            "open": _pick_float(merged, "open", "oprc"),
+            "high": _pick_float(merged, "high", "hgpr"),
+            "low": _pick_float(merged, "low", "lwpr"),
+            "volume": _pick_float(merged, "tvol", "acml_vol", "volume"),
+            "raw": merged,
+        }
+
+    def get_overseas_daily_history(
+        self,
+        symbol: str,
+        *,
+        exchange: str = "NASDAQ",
+        start_date: str = "",
+        end_date: str = "",
+    ) -> list[dict[str, Any]]:
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            raise ValueError("symbol is required")
+        if not end_date:
+            end_date = time.strftime("%Y%m%d")
+
+        payload: dict[str, Any] | None = None
+        for exchange_code in self._normalize_overseas_exchange(exchange):
+            for tr_id in self._OVERSEAS_DAILY_TR_IDS:
+                try:
+                    payload = self._request(
+                        "GET",
+                        self._OVERSEAS_DAILY_PATH,
+                        headers=self._auth_headers(tr_id),
+                        params={
+                            "AUTH": "",
+                            "EXCD": exchange_code,
+                            "SYMB": normalized_symbol,
+                            "GUBN": "0",
+                            "BYMD": end_date,
+                            "MODP": "1",
+                        },
+                    )
+                except KISAPIError:
+                    continue
+                if payload:
+                    break
+            if payload:
+                break
+
+        if not payload:
+            raise KISAPIError("해외 일봉 조회에 실패했습니다.")
+
+        output = payload.get("output2") or payload.get("output1") or payload.get("output") or []
+        history = []
+        for item in output:
+            date = str(item.get("xymd") or item.get("stck_bsop_date") or "")
+            close = _pick_float(item, "clos", "stck_clpr", "last")
+            volume = _pick_float(item, "tvol", "acml_vol", "volume")
+            if not date or close is None:
+                continue
+            if start_date and date < start_date:
+                continue
+            if end_date and date > end_date:
+                continue
+            history.append({
+                "date": date,
+                "close": close,
+                "volume": volume,
+            })
+        return history
+
+    def _normalize_overseas_exchange(self, exchange: str) -> tuple[str, ...]:
+        normalized = (exchange or "").strip().upper()
+        if normalized in self._OVERSEAS_EXCHANGE_MAP:
+            return self._OVERSEAS_EXCHANGE_MAP[normalized]
+        for _, exchange_codes in self._OVERSEAS_EXCHANGE_MAP.items():
+            if normalized in exchange_codes:
+                return exchange_codes
+        return self._OVERSEAS_EXCHANGE_MAP["NASDAQ"]
 
     def get_balance(
         self,
@@ -493,3 +658,21 @@ def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
         path.write_text(json.dumps(payload), encoding="utf-8")
     except OSError:
         return
+
+
+def _pick_float(payload: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        if key not in payload:
+            continue
+        value = _to_float(payload.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _pick_str(payload: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return value
+    return ""
