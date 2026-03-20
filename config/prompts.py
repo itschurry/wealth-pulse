@@ -154,7 +154,7 @@ PLAYBOOK_PROMPT = """아래 데이터만 사용해 오늘의 트레이딩 플레
 {candidate_universe}
 
 반드시 아래 키를 모두 포함하세요.
-{
+{{
   "market_regime": "string",
   "short_term_bias": "bullish | neutral | defensive",
   "mid_term_bias": "bullish | neutral | defensive",
@@ -164,15 +164,15 @@ PLAYBOOK_PROMPT = """아래 데이터만 사용해 오늘의 트레이딩 플레
   "invalid_setups": ["string"],
   "key_risks": ["string"],
   "event_watchlist": [
-    {
+    {{
       "name": "string",
       "timing": "string",
       "importance": "높음 | 중간 | 낮음",
       "note": "string"
-    }
+    }}
   ],
   "stock_candidates_short_term": [
-    {
+    {{
       "name": "string",
       "code": "string",
       "market": "KOSPI | KOSDAQ | NASDAQ | NYSE",
@@ -182,7 +182,7 @@ PLAYBOOK_PROMPT = """아래 데이터만 사용해 오늘의 트레이딩 플레
       "confidence": 0,
       "reasons": ["string"],
       "risks": ["string"],
-      "technical_snapshot": {
+      "technical_snapshot": {{
         "current_price": 0,
         "change_pct": 0,
         "sma20": 0,
@@ -197,13 +197,13 @@ PLAYBOOK_PROMPT = """아래 데이터만 사용해 오늘의 트레이딩 플레
         "breakout_20d": true,
         "breakout_20d_high": 0,
         "trend": "bullish | neutral | bearish"
-      },
+      }},
       "technical_view": "string",
       "setup_quality": "high | mixed | low | unknown"
-    }
+    }}
   ],
   "stock_candidates_mid_term": [
-    {
+    {{
       "name": "string",
       "code": "string",
       "market": "KOSPI | KOSDAQ | NASDAQ | NYSE",
@@ -213,7 +213,7 @@ PLAYBOOK_PROMPT = """아래 데이터만 사용해 오늘의 트레이딩 플레
       "confidence": 0,
       "reasons": ["string"],
       "risks": ["string"],
-      "technical_snapshot": {
+      "technical_snapshot": {{
         "current_price": 0,
         "change_pct": 0,
         "sma20": 0,
@@ -228,13 +228,13 @@ PLAYBOOK_PROMPT = """아래 데이터만 사용해 오늘의 트레이딩 플레
         "breakout_20d": true,
         "breakout_20d_high": 0,
         "trend": "bullish | neutral | bearish"
-      },
+      }},
       "technical_view": "string",
       "setup_quality": "high | mixed | low | unknown"
-    }
+    }}
   ],
   "gating_rules": ["string"]
-}
+}}
 
 작성 원칙:
 - stock_candidates_* 는 각각 최대 8개
