@@ -1,6 +1,7 @@
 """일일 경제 리포트 생성 파이프라인"""
 import asyncio
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from loguru import logger
@@ -55,23 +56,26 @@ async def run_daily_report():
     _setup_logging()
     logger.info("=== 일일 리포트 생성 시작 ===")
 
-    logger.info("[1/10] 시장 데이터 수집...")
-    market = collect_market()
-
-    logger.info("[2/10] 뉴스 수집...")
-    news = collect_news()
-
-    logger.info("[3/10] 거시 지표 수집...")
-    macro = collect_macro()
-
-    logger.info("[4/10] 경제 일정 수집...")
-    calendar_events = collect_calendar_events()
-
-    logger.info("[5/10] 공시 수집...")
-    disclosures = collect_disclosures()
-
-    logger.info("[6/10] 수급 데이터 수집...")
-    investor_flows = collect_investor_flows()
+    logger.info("[1-6/10] 수집 병렬 시작...")
+    loop = asyncio.get_event_loop()
+    _FALLBACKS = [None, [], [], [], [], []]
+    _NAMES = ["market", "news", "macro", "calendar_events", "disclosures", "investor_flows"]
+    _COLLECTORS = [collect_market, collect_news, collect_macro,
+                   collect_calendar_events, collect_disclosures, collect_investor_flows]
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        raw_results = await asyncio.gather(
+            *[loop.run_in_executor(executor, fn) for fn in _COLLECTORS],
+            return_exceptions=True,
+        )
+    resolved = []
+    for name, result, fallback in zip(_NAMES, raw_results, _FALLBACKS):
+        if isinstance(result, Exception):
+            logger.warning(f"수집 실패 [{name}]: {result!r} — 폴백값 사용")
+            resolved.append(fallback)
+        else:
+            resolved.append(result)
+    market, news, macro, calendar_events, disclosures, investor_flows = resolved
+    logger.info("수집 완료")
 
     logger.info("[7/10] 시장 컨텍스트 생성...")
     market_context = build_market_context(market, macro)
