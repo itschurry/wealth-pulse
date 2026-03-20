@@ -107,7 +107,8 @@ def save_report(content: str, date: str, fmt: str = "html") -> str:
 
 
 def save_analysis_cache(analysis: str, date: str, playbook: dict | None = None) -> None:
-    """AI 분석 결과를 JSON으로 캐시 저장 (api_server.py가 읽어 /api/analysis 제공)"""
+    """AI 분석 결과를 SQLite에 캐시 저장 (api_server.py가 읽어 /api/analysis 제공)"""
+    from reporter.storage import save_report
     summary_lines = _extract_summary(analysis)
 
     analysis_html = markdown2.markdown(
@@ -129,100 +130,88 @@ def save_analysis_cache(analysis: str, date: str, playbook: dict | None = None) 
         "date":          date,
         "analysis_playbook": playbook or {},
     }
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_analysis.json"
-    cache_path.write_text(json.dumps(
-        payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    logger.info(f"분석 캐시 저장: {cache_path}")
+    save_report(date, "analysis", payload)
+    logger.info(f"분석 캐시 저장: {date}/analysis")
 
 
 def save_analysis_playbook_cache(payload: dict, date: str) -> None:
-    """구조화된 분석 플레이북을 JSON으로 저장한다."""
+    """구조화된 분석 플레이북을 SQLite에 저장한다."""
+    from reporter.storage import save_report
     out = dict(payload)
     out["date"] = date
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_analysis_playbook.json"
-    cache_path.write_text(
-        json.dumps(out, ensure_ascii=False, indent=2, default=_json_default),
-        encoding="utf-8",
-    )
-    logger.info(f"분석 플레이북 캐시 저장: {cache_path}")
+    save_report(date, "analysis_playbook", out)
+    logger.info(f"분석 플레이북 캐시 저장: {date}/analysis_playbook")
 
 
 def save_recommendations_cache(payload: dict, date: str) -> None:
-    """투자 추천 결과를 JSON으로 캐시 저장 (api_server.py가 읽어 /api/recommendations 제공)"""
+    """투자 추천 결과를 SQLite에 캐시 저장 (api_server.py가 읽어 /api/recommendations 제공)"""
+    from reporter.storage import save_report
     out = dict(payload)
     out["date"] = date
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_recommendations.json"
-    cache_path.write_text(json.dumps(
-        out, ensure_ascii=False, indent=2), encoding="utf-8")
-    logger.info(f"추천 캐시 저장: {cache_path}")
+    save_report(date, "recommendations", out)
+    logger.info(f"추천 캐시 저장: {date}/recommendations")
 
 
 def save_macro_cache(items: list, date: str) -> None:
-    """거시 지표를 JSON으로 저장한다."""
+    """거시 지표를 SQLite에 저장한다."""
+    from reporter.storage import save_report
     payload = {
         "date": date,
         "items": [asdict(item) for item in items],
         "summary": [item.summary for item in items if getattr(item, "summary", "")],
     }
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_macro.json"
-    cache_path.write_text(json.dumps(
-        payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    logger.info(f"거시 캐시 저장: {cache_path}")
+    save_report(date, "macro", payload)
+    logger.info(f"거시 캐시 저장: {date}/macro")
 
 
 def save_calendar_cache(items: list, date: str) -> None:
-    """경제 일정을 JSON으로 저장한다."""
+    """경제 일정을 SQLite에 저장한다."""
+    from reporter.storage import save_report
     payload = {
         "date": date,
         "items": [asdict(item) for item in items],
     }
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_calendar.json"
-    cache_path.write_text(json.dumps(
-        payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
-    logger.info(f"일정 캐시 저장: {cache_path}")
+    save_report(date, "calendar", payload)
+    logger.info(f"일정 캐시 저장: {date}/calendar")
 
 
 def save_disclosures_cache(items: list, date: str) -> None:
-    """공시 데이터를 JSON으로 저장한다."""
+    """공시 데이터를 SQLite에 저장한다."""
+    from reporter.storage import save_report
     payload = {
         "date": date,
         "items": [asdict(item) for item in items],
     }
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_disclosures.json"
-    cache_path.write_text(json.dumps(
-        payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
-    logger.info(f"공시 캐시 저장: {cache_path}")
+    save_report(date, "disclosures", payload)
+    logger.info(f"공시 캐시 저장: {date}/disclosures")
 
 
 def save_investor_flows_cache(items: list, date: str) -> None:
-    """수급 데이터를 JSON으로 저장한다."""
+    """수급 데이터를 SQLite에 저장한다."""
+    from reporter.storage import save_report
     payload = {
         "date": date,
         "items": [asdict(item) for item in items],
     }
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_investor_flows.json"
-    cache_path.write_text(json.dumps(
-        payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
-    logger.info(f"수급 캐시 저장: {cache_path}")
+    save_report(date, "investor_flows", payload)
+    logger.info(f"수급 캐시 저장: {date}/investor_flows")
 
 
 def save_ai_signals_cache(payload: dict, date: str) -> None:
-    """OpenAI 보조신호를 JSON으로 저장한다."""
+    """OpenAI 보조신호를 SQLite에 저장한다."""
+    from reporter.storage import save_report
     out = dict(payload)
     out["date"] = date
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_ai_signals.json"
-    cache_path.write_text(json.dumps(
-        out, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
-    logger.info(f"AI 보조신호 캐시 저장: {cache_path}")
+    save_report(date, "ai_signals", out)
+    logger.info(f"AI 보조신호 캐시 저장: {date}/ai_signals")
 
 
 def save_market_context_cache(context, date: str) -> None:
-    """시장 컨텍스트를 JSON으로 저장한다."""
+    """시장 컨텍스트를 SQLite에 저장한다."""
+    from reporter.storage import save_report
     payload = {"date": date, "context": asdict(context) if context else {}}
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_market_context.json"
-    cache_path.write_text(json.dumps(
-        payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    logger.info(f"시장 컨텍스트 캐시 저장: {cache_path}")
+    save_report(date, "market_context", payload)
+    logger.info(f"시장 컨텍스트 캐시 저장: {date}/market_context")
 
 
 def _json_default(value):
@@ -234,24 +223,20 @@ def _json_default(value):
 
 
 def save_news_cache(items: list, date: str) -> None:
-    """수집한 뉴스 원문 메타데이터를 JSON으로 저장한다."""
+    """수집한 뉴스 원문 메타데이터를 SQLite에 저장한다."""
+    from reporter.storage import save_report
     payload = {
         "date": date,
         "items": items,
     }
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_news.json"
-    cache_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default),
-        encoding="utf-8",
-    )
-    logger.info(f"뉴스 캐시 저장: {cache_path}")
+    save_report(date, "news", payload)
+    logger.info(f"뉴스 캐시 저장: {date}/news")
 
 
 def save_today_picks_cache(payload: dict, date: str) -> None:
-    """오늘의 추천 종목 결과를 JSON으로 저장한다."""
+    """오늘의 추천 종목 결과를 SQLite에 저장한다."""
+    from reporter.storage import save_report
     out = dict(payload)
     out["date"] = date
-    cache_path = REPORT_OUTPUT_DIR / f"{date}_today_picks.json"
-    cache_path.write_text(json.dumps(
-        out, ensure_ascii=False, indent=2), encoding="utf-8")
-    logger.info(f"오늘의 추천 캐시 저장: {cache_path}")
+    save_report(date, "today_picks", out)
+    logger.info(f"오늘의 추천 캐시 저장: {date}/today_picks")
