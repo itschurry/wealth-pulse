@@ -423,6 +423,12 @@ export interface PaperEngineConfig {
   max_holding_days: number;
 }
 
+export interface PaperSkippedItem {
+  code?: string;
+  market?: string;
+  reason?: string;
+}
+
 export interface PaperEngineState {
   running: boolean;
   started_at?: string;
@@ -433,6 +439,7 @@ export interface PaperEngineState {
     executed_sell_count?: number;
     candidate_counts_by_market?: Record<string, number>;
     skip_reason_counts?: Record<string, number>;
+    skipped?: PaperSkippedItem[];
     market_stats?: Record<string, {
       candidate_count?: number;
       executed_buy_count?: number;

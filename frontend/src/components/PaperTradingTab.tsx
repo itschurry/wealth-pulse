@@ -1,6 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePaperTrading } from '../hooks/usePaperTrading';
-import type { PaperEngineConfig } from '../types';
+import type { PaperEngineConfig, PaperSkippedItem } from '../types';
+
+const SKIP_REASON_LABELS: Record<string, string> = {
+  entry_signal_not_matched: '매수신호 미충족',
+  rsi_above_max: 'RSI 과열',
+  rsi_below_min: 'RSI 과매도',
+  stop_loss: '손절 매도',
+  take_profit: '익절 매도',
+  max_holding_days: '보유기간 초과',
+  insufficient_cash: '잔액 부족',
+  already_holding: '이미 보유 중',
+  max_positions: '최대 포지션 도달',
+  invalid_quote: '시세 오류',
+  technicals_error: '지표 오류',
+  technicals_unavailable: '지표 없음',
+  buy_failed: '매수 실패',
+  order_failed: '매수 실패',
+  sell_failed: '매도 실패',
+};
+
+function labelSkipReason(reason?: string): string {
+  if (!reason) return '알 수 없음';
+  if (reason.startsWith('quote_error')) return '시세 조회 오류';
+  return SKIP_REASON_LABELS[reason] ?? reason;
+}
 
 function formatKrw(value?: number | null) {
   if (value === undefined || value === null) return '—';
@@ -76,6 +100,9 @@ export function PaperTradingTab() {
   const [themeMinNews, setThemeMinNews] = useState('1');
   const [themePriorityBonus, setThemePriorityBonus] = useState('2.0');
   const [statusMessage, setStatusMessage] = useState('');
+  const [lastAutoInvestSkipped, setLastAutoInvestSkipped] = useState<PaperSkippedItem[]>([]);
+  const [showAutoInvestSkipDetail, setShowAutoInvestSkipDetail] = useState(false);
+  const [showEngineSkipDetail, setShowEngineSkipDetail] = useState(false);
 
   const initialTotalKrw = useMemo(() => {
     return (account.initial_cash_krw || 0) + ((account.initial_cash_usd || 0) * (account.fx_rate || 0));
@@ -151,7 +178,6 @@ export function PaperTradingTab() {
   const candidateCountsByMarket = engineState.last_summary?.candidate_counts_by_market || {};
   const skipReasonEntries = Object.entries(engineState.last_summary?.skip_reason_counts || {})
     .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
-  const topSkipReason = skipReasonEntries[0];
   const isEngineConfigDirty = useMemo(() => {
     const cfg = desiredEngineConfig;
     const applied = engineState.config;
@@ -272,12 +298,14 @@ export function PaperTradingTab() {
     }
     const payload = result.payload || {};
     const executed = Array.isArray(payload.executed) ? payload.executed.length : 0;
-    const skipped = Array.isArray(payload.skipped) ? payload.skipped.length : 0;
+    const skippedList: PaperSkippedItem[] = Array.isArray(payload.skipped) ? payload.skipped : [];
+    setLastAutoInvestSkipped(skippedList);
+    setShowAutoInvestSkipDetail(false);
     if (executed === 0 && payload.message) {
       setStatusMessage(String(payload.message));
       return;
     }
-    setStatusMessage(`추천 기반 자동매수 완료: 체결 ${executed}건, 스킵 ${skipped}건`);
+    setStatusMessage(`추천 기반 자동매수 완료: 체결 ${executed}건, 스킵 ${skippedList.length}건`);
   }
 
   async function handleStartEngine() {
@@ -404,9 +432,39 @@ export function PaperTradingTab() {
             <div style={{ marginTop: 4 }}>
               최근 후보: KOSPI {candidateCountsByMarket.KOSPI ?? 0}건 / NASDAQ {candidateCountsByMarket.NASDAQ ?? 0}건
             </div>
-            <div style={{ marginTop: 4 }}>
-              주요 스킵: {topSkipReason ? `${topSkipReason[0]} (${topSkipReason[1]}건)` : '없음'}
-            </div>
+            {skipReasonEntries.length > 0 && (
+              <div style={{ marginTop: 6, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+                <div style={{ fontWeight: 700, color: 'var(--text-2)', marginBottom: 4 }}>스킵 이유 ({skipReasonEntries.reduce((s, [, c]) => s + Number(c), 0)}건)</div>
+                {skipReasonEntries.map(([reason, count]) => (
+                  <div key={reason} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
+                    <span style={{ color: 'var(--text-3)' }}>{labelSkipReason(reason)}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-2)' }}>{count}건</span>
+                  </div>
+                ))}
+                {(engineState.last_summary?.skipped?.length ?? 0) > 0 && (
+                  <button
+                    className="ghost-button"
+                    style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }}
+                    onClick={() => setShowEngineSkipDetail((v) => !v)}
+                  >
+                    종목별 상세 {showEngineSkipDetail ? '▲ 접기' : '▼ 펼치기'}
+                  </button>
+                )}
+                {showEngineSkipDetail && (
+                  <div style={{ marginTop: 6, display: 'grid', gap: 2, maxHeight: 200, overflowY: 'auto' }}>
+                    {(engineState.last_summary?.skipped ?? []).map((item, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: 'var(--text-4)' }}>
+                        <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{item.code ?? '—'}{item.market ? ` (${item.market})` : ''}</span>
+                        <span>{labelSkipReason(item.reason)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {skipReasonEntries.length === 0 && (
+              <div style={{ marginTop: 4 }}>스킵: 없음</div>
+            )}
             <div style={{ marginTop: 4, color: engineState.last_error ? 'var(--down)' : 'var(--text-4)' }}>
               오류: {engineState.last_error || '없음'}
             </div>
@@ -545,6 +603,42 @@ export function PaperTradingTab() {
           <button className="ghost-button" onClick={() => refreshEngineStatus()}>엔진 상태 새로고침</button>
           <button className="ghost-button" onClick={handleAutoInvest}>1회 자동매수 실행</button>
         </div>
+        {lastAutoInvestSkipped.length > 0 && (() => {
+          const autoInvestSkipCounts: Record<string, number> = {};
+          for (const item of lastAutoInvestSkipped) {
+            const key = item.reason ?? 'unknown';
+            autoInvestSkipCounts[key] = (autoInvestSkipCounts[key] ?? 0) + 1;
+          }
+          const sortedEntries = Object.entries(autoInvestSkipCounts).sort((a, b) => b[1] - a[1]);
+          return (
+            <div style={{ marginTop: 8, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-soft)', fontSize: 12, color: 'var(--text-3)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--text-2)', marginBottom: 6 }}>1회 자동매수 스킵 내역 ({lastAutoInvestSkipped.length}건)</div>
+              {sortedEntries.map(([reason, count]) => (
+                <div key={reason} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
+                  <span>{labelSkipReason(reason)}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-2)' }}>{count}건</span>
+                </div>
+              ))}
+              <button
+                className="ghost-button"
+                style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }}
+                onClick={() => setShowAutoInvestSkipDetail((v) => !v)}
+              >
+                종목별 상세 {showAutoInvestSkipDetail ? '▲ 접기' : '▼ 펼치기'}
+              </button>
+              {showAutoInvestSkipDetail && (
+                <div style={{ marginTop: 6, display: 'grid', gap: 2, maxHeight: 200, overflowY: 'auto' }}>
+                  {lastAutoInvestSkipped.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: 'var(--text-4)' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{item.code ?? '—'}</span>
+                      <span>{labelSkipReason(item.reason)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {(statusMessage || lastError) && (
