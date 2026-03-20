@@ -1,15 +1,16 @@
-"""장중 30분 + 장외 1시간 자동 실행 스케줄러.
+"""APScheduler 기반 스케줄러.
 
-- 한국장: KST 09:00-15:30, 30분 단위
-- 미국장: ET 09:30-16:00, 30분 단위
-- 장외: KST 06/07/08/09/10/11/12/13/14/15/16/17/18/19/20/21시
+- 한국장 정규장: KST 09:00-15:30, 30분 단위 cron
+- 미국장 정규장: ET 09:30-16:00, 30분 단위 cron
+- 장외: KST 06:00-21:00, 매 정시 cron
 """
 import asyncio
 import os
-import time
-
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 
 from config.market_calendar import is_market_half_hour_slot
@@ -17,61 +18,57 @@ from main import run_daily_report
 
 KST_TZ = "Asia/Seoul"
 KST_ZONE = ZoneInfo(KST_TZ)
-OUT_OF_SESSION_RUN_HOURS = (6, 7, 8, 9, 10, 11, 12,
-                            13, 14, 15, 16, 17, 18, 19, 20, 21)
-POLL_INTERVAL_SECONDS = 30
-_last_run_slot_id = ""
 
 
 def _run():
-    """동기 래퍼 - schedule 라이브러리 호환."""
+    """동기 래퍼 - APScheduler job 함수."""
     logger.info(f"스케줄 실행 시작: {datetime.now():%Y-%m-%d %H:%M:%S}")
     try:
         asyncio.run(run_daily_report())
         logger.info("스케줄 실행 완료")
     except Exception:
-        # 예외로 프로세스가 종료되면 다음 슬롯(예: 21:00)을 통째로 놓칠 수 있으므로
-        # 로그를 남기고 루프는 계속 유지한다.
+        # 예외로 프로세스가 종료되면 다음 슬롯을 통째로 놓칠 수 있으므로
+        # 로그를 남기고 스케줄러는 계속 유지한다.
         logger.exception("스케줄 실행 실패")
 
 
-def _matches_off_session_slot(now_kst: datetime) -> bool:
-    return now_kst.minute == 0 and now_kst.hour in OUT_OF_SESSION_RUN_HOURS
-
-
-def _current_slot(now_utc: datetime | None = None) -> tuple[str, list[str]]:
-    source = now_utc or datetime.now(timezone.utc)
-    kst_now = source.astimezone(KST_ZONE)
-    reasons: list[str] = []
-
-    if _matches_off_session_slot(kst_now):
-        reasons.append(f"off-session:{kst_now:%H:%M} KST")
-    if is_market_half_hour_slot("KR", source):
-        reasons.append(f"kr-market:{kst_now:%H:%M} KST")
-    if is_market_half_hour_slot("US", source):
-        reasons.append("us-market:ET half-hour slot")
-
-    slot_id = source.replace(second=0, microsecond=0).astimezone(
-        timezone.utc).isoformat()
-    return slot_id, reasons
-
-
-def _run_if_slot() -> None:
-    global _last_run_slot_id
-
-    slot_id, reasons = _current_slot()
-    if not reasons:
+def _kr_market_job():
+    """한국장 슬롯 핸들러 — is_market_half_hour_slot으로 공휴일 필터."""
+    now_utc = datetime.now(timezone.utc)
+    if not is_market_half_hour_slot("KR", now_utc):
         return
-    if slot_id == _last_run_slot_id:
+    now_kst = now_utc.astimezone(KST_ZONE)
+    # 15:30 초과 슬롯은 스킵
+    if now_kst.hour == 15 and now_kst.minute > 30:
         return
+    logger.info(f"한국장 슬롯 실행: {now_kst:%H:%M} KST")
+    _run()
 
-    logger.info(f"실행 슬롯 감지: {slot_id} reasons={', '.join(reasons)}")
-    _last_run_slot_id = slot_id
+
+def _us_market_job():
+    """미국장 슬롯 핸들러 — is_market_half_hour_slot으로 공휴일 필터."""
+    now_utc = datetime.now(timezone.utc)
+    if not is_market_half_hour_slot("US", now_utc):
+        return
+    et_zone = ZoneInfo("America/New_York")
+    now_et = now_utc.astimezone(et_zone)
+    # 16:00 초과 슬롯은 스킵
+    if now_et.hour >= 16:
+        return
+    logger.info(f"미국장 슬롯 실행: {now_et:%H:%M} ET")
+    _run()
+
+
+def _off_session_job():
+    """장외 슬롯 핸들러 (KST 매 정시)."""
+    now_utc = datetime.now(timezone.utc)
+    now_kst = now_utc.astimezone(KST_ZONE)
+    logger.info(f"장외 슬롯 실행: {now_kst:%H:%M} KST")
     _run()
 
 
 def _log_schedule_policy() -> None:
-    logger.info("장외 스케줄: 06:00 / 07:00 / 08:00 / 09:00 / 10:00 / 11:00 / 12:00 / 13:00 / 14:00 / 15:00 / 16:00 / 17:00 / 18:00 / 19:00 / 20:00 / 21:00 KST")
+    logger.info("장외 스케줄: 06:00-21:00 KST 매 정시")
     logger.info("한국장 스케줄: 09:00-15:30 KST, 30분 단위 (주말/한국 공휴일 제외)")
     logger.info("미국장 스케줄: 09:30-16:00 ET, 30분 단위 (주말/미국 거래소 휴장일 제외)")
 
@@ -85,10 +82,33 @@ if __name__ == "__main__":
             f"'export TZ={KST_TZ}' 또는 systemd/docker에 TZ={KST_TZ}을 설정하세요."
         )
 
-    logger.info(
-        "스케줄러 시작 (장중 30분 단위 + 장외 1시간 단위)"
+    scheduler = BlockingScheduler()
+
+    # 한국장: KST 09:00-15:30, 30분 단위
+    scheduler.add_job(
+        _kr_market_job,
+        CronTrigger(hour="9-15", minute="0,30", timezone=KST_TZ),
+        max_instances=1,
+        id="kr_market",
     )
+
+    # 미국장: ET 09:30-15:30, 30분 단위 (16:00 초과는 핸들러에서 스킵)
+    scheduler.add_job(
+        _us_market_job,
+        CronTrigger(hour="9-15", minute="0,30", timezone="America/New_York"),
+        max_instances=1,
+        id="us_market",
+    )
+
+    # 장외: KST 06:00-21:00 매 정시
+    scheduler.add_job(
+        _off_session_job,
+        CronTrigger(hour="6-21", minute=0, timezone=KST_TZ),
+        max_instances=1,
+        id="off_session",
+    )
+
+    logger.info("APScheduler 시작")
     _log_schedule_policy()
-    while True:
-        _run_if_slot()
-        time.sleep(POLL_INTERVAL_SECONDS)
+    scheduler.start()
+
