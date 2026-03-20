@@ -49,6 +49,24 @@ NEWS_FEEDS = [
         "lang": "en",
         "priority": 2,
     },
+    {
+        "name": "Google News - EV & Autonomous",
+        "url": "https://news.google.com/rss/search?q=electric+vehicle+autonomous+driving+when:3d&hl=en-US&gl=US&ceid=US:en",
+        "lang": "en",
+        "priority": 1,
+    },
+    {
+        "name": "Google News - Robotics",
+        "url": "https://news.google.com/rss/search?q=robotics+industry+humanoid+when:3d&hl=en-US&gl=US&ceid=US:en",
+        "lang": "en",
+        "priority": 1,
+    },
+    {
+        "name": "Google News - Physical AI",
+        "url": "https://news.google.com/rss/search?q=physical+ai+embodied+ai+humanoid+robot+when:3d&hl=en-US&gl=US&ceid=US:en",
+        "lang": "en",
+        "priority": 1,
+    },
 ]
 
 
@@ -65,6 +83,8 @@ NEWS_CONFIG = {
         "AI", "엔비디아", "NVIDIA", "GTC",
         "FOMC", "금리", "연준", "Fed",
         "유가", "자율주행",
+        "자동차", "전기차", "SDV", "로봇", "휴머노이드",
+        "피지컬 AI", "physical AI", "robotics", "humanoid",
         "코스피", "나스닥", "S&P",
         "ETF", "자금유입", "자금유출",
         "외국인", "기관", "연기금",
@@ -74,4 +94,26 @@ NEWS_CONFIG = {
         "OPEC", "감산", "증산",
         "환율", "달러", "환율상승",
     ],
+    "theme_keywords": {
+        "automotive": [
+            "자동차", "완성차", "전기차", "ev", "자율주행", "로보택시", "robotaxi",
+            "sdv", "차량용 반도체", "테슬라", "현대차", "기아", "모빌리티",
+        ],
+        "robotics": [
+            "로봇", "로보틱스", "robot", "robotics", "협동로봇", "산업용 로봇",
+            "로봇팔", "자동화", "factory automation", "물류로봇", "servicerobot",
+            "휴머노이드", "humanoid",
+        ],
+        "physical_ai": [
+            "피지컬 ai", "physical ai", "embodied ai", "humanoid",
+            "world model", "멀티모달 제어", "에이전트 로봇", "robot foundation model",
+            "real-world ai", "온디바이스 ai", "vision-language-action", "vla",
+            "자율주행 ai", "로봇 ai",
+        ],
+    },
+    "theme_weights": {
+        "automotive": 1.2,
+        "robotics": 1.4,
+        "physical_ai": 1.6,
+    },
 }

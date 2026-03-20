@@ -108,6 +108,10 @@ export function usePaperTrading() {
     max_positions?: number;
     min_score?: number;
     include_neutral?: boolean;
+    theme_gate_enabled?: boolean;
+    theme_min_score?: number;
+    theme_min_news?: number;
+    theme_focus?: Array<'automotive' | 'robotics' | 'physical_ai'>;
   }) => {
     try {
       const res = await fetch('/api/paper/auto-invest', {

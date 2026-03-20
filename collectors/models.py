@@ -14,6 +14,9 @@ class NewsArticle:
     body: str = ""
     lang: str = "ko"
     relevance_score: float = 0.0
+    theme_score: float = 0.0
+    matched_themes: list[str] = field(default_factory=list)
+    theme_hit_count: int = 0
 
 
 @dataclass
