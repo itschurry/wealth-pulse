@@ -228,6 +228,7 @@ export function PaperTradingTab() {
   const [themePriorityBonus, setThemePriorityBonus] = useState('2.0');
   const [statusMessage, setStatusMessage] = useState('');
   const [lastAutoInvestSkipped, setLastAutoInvestSkipped] = useState<PaperSkippedItem[]>([]);
+  const [optApplyStatus, setOptApplyStatus] = useState<'idle' | 'loading' | 'applied' | 'error'>('idle');
 
   const initialTotalKrw = useMemo(() => {
     return (account.initial_cash_krw || 0) + ((account.initial_cash_usd || 0) * (account.fx_rate || 0));
@@ -423,6 +424,38 @@ export function PaperTradingTab() {
     engineState.config?.theme_min_score,
     JSON.stringify(engineState.config?.market_profiles || {}),
   ]);
+
+  async function handleApplyOptimizedParams() {
+    setOptApplyStatus('loading');
+    try {
+      const res = await fetch('/api/optimized-params');
+      const data = await res.json();
+      if (data.status !== 'ok' || !data.global_params) {
+        setOptApplyStatus('error');
+        setStatusMessage('최적화 결과가 없습니다. 먼저 백테스터 탭에서 최적화를 실행하세요.');
+        return;
+      }
+      const gp = data.global_params as Record<string, number | null>;
+      setEngineMarketProfiles((prev) => {
+        const patch: Partial<PaperStrategyProfile> = {
+          ...(gp.stop_loss_pct != null && { stop_loss_pct: gp.stop_loss_pct }),
+          ...(gp.take_profit_pct != null && { take_profit_pct: gp.take_profit_pct }),
+          ...(gp.max_holding_days != null && { max_holding_days: gp.max_holding_days }),
+          ...(gp.rsi_min != null && { rsi_min: gp.rsi_min }),
+          ...(gp.rsi_max != null && { rsi_max: gp.rsi_max }),
+        };
+        return {
+          KOSPI: { ...prev.KOSPI, ...patch, market: 'KOSPI' },
+          NASDAQ: { ...prev.NASDAQ, ...patch, market: 'NASDAQ' },
+        };
+      });
+      setOptApplyStatus('applied');
+      setStatusMessage(`최적화 파라미터가 적용되었습니다. (손절 ${gp.stop_loss_pct ?? '—'}% · 익절 ${gp.take_profit_pct ?? '—'}% · 최대보유일 ${gp.max_holding_days ?? '—'}일)`);
+    } catch {
+      setOptApplyStatus('error');
+      setStatusMessage('최적화 파라미터 조회 중 오류가 발생했습니다.');
+    }
+  }
 
   async function handleReset() {
     const result = await reset({
@@ -653,6 +686,16 @@ export function PaperTradingTab() {
               <option value="NASDAQ">NASDAQ</option>
             </select>
           </label>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>몬테카를로 최적화 결과 적용</span>
+            <button
+              onClick={handleApplyOptimizedParams}
+              disabled={optApplyStatus === 'loading'}
+              style={{ padding: '7px 12px', borderRadius: 8, fontSize: 12, background: optApplyStatus === 'applied' ? 'var(--up)' : 'var(--bg-2)', color: optApplyStatus === 'applied' ? '#fff' : 'var(--text-2)', border: '1px solid var(--border)', cursor: optApplyStatus === 'loading' ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+            >
+              {optApplyStatus === 'loading' ? '불러오는 중...' : optApplyStatus === 'applied' ? '✓ 적용됨' : '최적화 파라미터 적용'}
+            </button>
+          </div>
           <label style={{ display: 'grid', gap: 6 }}>
             <span style={{ fontSize: 12, color: 'var(--text-3)' }}>지표 봉 간격</span>
             <select className="backtest-input" value={activeProfile.signal_interval} onChange={(event) => patchActiveProfile({ signal_interval: event.target.value as PaperStrategyProfile['signal_interval'] })}>
@@ -689,11 +732,12 @@ export function PaperTradingTab() {
             <input className="backtest-input" type="number" min={0.5} max={5} step={0.1} value={activeProfile.volume_ratio_min} onChange={(event) => patchActiveProfile({ volume_ratio_min: Number(event.target.value) })} />
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>손절/익절(%)</span>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <input className="backtest-input" type="number" min={1} max={50} value={activeProfile.stop_loss_pct ?? ''} onChange={(event) => patchActiveProfile({ stop_loss_pct: event.target.value === '' ? null : Number(event.target.value) })} />
-              <input className="backtest-input" type="number" min={1} max={100} value={activeProfile.take_profit_pct ?? ''} onChange={(event) => patchActiveProfile({ take_profit_pct: event.target.value === '' ? null : Number(event.target.value) })} />
-            </div>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>손절 기준(%)</span>
+            <input className="backtest-input" type="number" min={1} max={50} value={activeProfile.stop_loss_pct ?? ''} onChange={(event) => patchActiveProfile({ stop_loss_pct: event.target.value === '' ? null : Number(event.target.value) })} />
+          </label>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>익절 기준(%)</span>
+            <input className="backtest-input" type="number" min={1} max={100} value={activeProfile.take_profit_pct ?? ''} onChange={(event) => patchActiveProfile({ take_profit_pct: event.target.value === '' ? null : Number(event.target.value) })} />
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
             <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최대 보유일</span>

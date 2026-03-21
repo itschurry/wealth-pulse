@@ -646,8 +646,8 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
             <div style={{ display: 'grid', gap: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
                 최적화 일시: {optimizedParams.optimized_at ? new Date(optimizedParams.optimized_at as string).toLocaleString('ko-KR') : '—'}
-                {' · '}방법: {String(optimizedParams.method ?? '—')}
-                {' · '}시뮬레이션: {String(optimizedParams.n_simulations ?? '—')}회
+                {' · '}방법: {String((optimizedParams.meta as Record<string, unknown>)?.method ?? '—')}
+                {' · '}시뮬레이션: {String((optimizedParams.meta as Record<string, unknown>)?.n_simulations ?? '—')}회
               </div>
               {(optimizedParams.global_params as Record<string, unknown>) && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
