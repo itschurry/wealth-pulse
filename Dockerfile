@@ -21,6 +21,7 @@ COPY broker /app/broker
 COPY collectors /app/collectors
 COPY config /app/config
 COPY reporter /app/reporter
+COPY scripts /app/scripts
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
