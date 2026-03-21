@@ -529,6 +529,7 @@ export interface PaperEngineConfig {
 
 export interface PaperSkippedItem {
   code?: string;
+  name?: string;
   market?: string;
   reason?: string;
 }

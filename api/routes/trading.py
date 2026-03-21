@@ -557,11 +557,12 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             if sell_count >= daily_sell_limit:
                 break
             code = str(position.get("code") or "").upper()
+            pos_name = str(position.get("name") or code)
             if _symbol_order_count(market, "sell", code) >= max_orders_per_symbol:
                 continue
             technicals, tech_error = _load_technicals(code, market)
             if tech_error:
-                skipped.append({"code": code, "market": market, "reason": f"technicals_error: {tech_error}"})
+                skipped.append({"code": code, "name": pos_name, "market": market, "reason": f"technicals_error: {tech_error}"})
                 continue
             if not technicals:
                 continue
@@ -603,24 +604,25 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             if slots <= 0 or buy_count >= daily_buy_limit:
                 break
             code = str(candidate.get("code") or "").upper()
+            cand_name = str(candidate.get("name") or code)
             if not code or code in held_codes:
                 continue
             if _symbol_order_count(market, "buy", code) >= max_orders_per_symbol:
                 continue
             technicals, tech_error = _load_technicals(code, market)
             if tech_error:
-                skipped.append({"code": code, "market": market, "reason": f"technicals_error: {tech_error}"})
+                skipped.append({"code": code, "name": cand_name, "market": market, "reason": f"technicals_error: {tech_error}"})
                 continue
             if not technicals:
-                skipped.append({"code": code, "market": market, "reason": "technicals_unavailable"})
+                skipped.append({"code": code, "name": cand_name, "market": market, "reason": "technicals_unavailable"})
                 continue
             if not _should_enter_by_indicators(technicals, cfg, market):
-                skipped.append({"code": code, "market": market, "reason": "entry_signal_not_matched"})
+                skipped.append({"code": code, "name": cand_name, "market": market, "reason": "entry_signal_not_matched"})
                 continue
             quote = _resolve_stock_quote(code, market)
             price_local = float(quote.get("price") or 0.0)
             if price_local <= 0:
-                skipped.append({"code": code, "market": market, "reason": "invalid_quote"})
+                skipped.append({"code": code, "name": cand_name, "market": market, "reason": "invalid_quote"})
                 continue
             account = engine.get_account(refresh_quotes=False)
             available_cash = (
@@ -630,7 +632,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             budget_per_slot = available_cash / max(slots, 1)
             quantity = int((budget_per_slot * 0.995) // price_local)
             if quantity <= 0:
-                skipped.append({"code": code, "market": market, "reason": "insufficient_cash"})
+                skipped.append({"code": code, "name": cand_name, "market": market, "reason": "insufficient_cash"})
                 continue
             result = engine.place_order(
                 side="buy",
@@ -646,13 +648,14 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 event = result.get("event") or {}
                 executed_buys.append({
                     "code": code,
+                    "name": cand_name,
                     "market": market,
                     "quantity": event.get("quantity"),
                     "filled_price_local": event.get("filled_price_local"),
                 })
                 orders = (result.get("account") or {}).get("orders", orders)
             else:
-                skipped.append({"code": code, "market": market, "reason": result.get("error") or "buy_failed"})
+                skipped.append({"code": code, "name": cand_name, "market": market, "reason": result.get("error") or "buy_failed"})
 
     skip_reason_counts: dict[str, int] = {}
     for item in skipped:

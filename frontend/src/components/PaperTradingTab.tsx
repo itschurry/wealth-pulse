@@ -33,7 +33,7 @@ function labelSkipReason(reason?: string): string {
 function SkipCodeBadge({ item }: { item: PaperSkippedItem }) {
   const [hovered, setHovered] = useState(false);
   const label = labelSkipReason(item.reason);
-  const display = item.code ?? '—';
+  const display = item.name || item.code || '—';
   return (
     <span
       style={{ position: 'relative', display: 'inline-block' }}
