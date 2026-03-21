@@ -8,6 +8,7 @@ const PARAM_LABELS: Record<string, string> = {
   max_holding_days: '최대보유일',
   rsi_min: 'RSI 하한',
   rsi_max: 'RSI 상한',
+  volume_ratio_min: '거래량 배수',
   n_symbols_optimized: '최적화 종목수',
   n_reliable: '신뢰 종목수',
   n_simulations: '시뮬레이션 횟수',
@@ -22,6 +23,7 @@ function paramValue(key: string, val: unknown): string {
   if (val === null || val === undefined) return '—';
   if (key === 'stop_loss_pct' || key === 'take_profit_pct') return `${val}%`;
   if (key === 'max_holding_days') return `${val}일`;
+  if (key === 'volume_ratio_min') return `${val}x`;
   return String(val);
 }
 
@@ -671,7 +673,7 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
                             {typeof sym.name === 'string' ? sym.name : code}
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--text-3)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                            {(['stop_loss_pct', 'take_profit_pct', 'max_holding_days', 'rsi_min', 'rsi_max'] as const).map((k) =>
+                            {(['stop_loss_pct', 'take_profit_pct', 'max_holding_days', 'rsi_min', 'rsi_max', 'volume_ratio_min'] as const).map((k) =>
                               sym[k] !== undefined && sym[k] !== null
                                 ? <span key={k}><span style={{ color: 'var(--text-4)' }}>{paramLabel(k)}: </span>{paramValue(k, sym[k])}</span>
                                 : null

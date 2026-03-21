@@ -34,6 +34,7 @@ _OPTIMIZED_PARAMS_PATH = _PROJECT_ROOT / "config" / "optimized_params.json"
 _STOP_LOSS_RANGE = (2.0, 15.0)
 _TAKE_PROFIT_RANGE = (4.0, 30.0)
 _HOLDING_DAYS_RANGE = (3, 60)
+_VOLUME_RATIO_RANGE = (0.5, 3.0)
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -107,6 +108,7 @@ def _compute_global_params(results: list[OptimizationResult]) -> dict:
         "max_holding_days": int(round(float(np.median([r.best_params["max_holding_days"] for r in reliable])))),
         "rsi_min": round(float(np.median([r.best_params["rsi_min"] for r in reliable])), 1),
         "rsi_max": round(float(np.median([r.best_params["rsi_max"] for r in reliable])), 1),
+        "volume_ratio_min": round(float(np.median([r.best_params.get("volume_ratio_min", 1.0) for r in reliable])), 2),
     }
 
 
@@ -124,12 +126,14 @@ def _save_results(
         global_params["stop_loss_pct"] = _clamp(global_params["stop_loss_pct"], *_STOP_LOSS_RANGE)
         global_params["take_profit_pct"] = _clamp(global_params["take_profit_pct"], *_TAKE_PROFIT_RANGE)
         global_params["max_holding_days"] = int(_clamp(global_params["max_holding_days"], *_HOLDING_DAYS_RANGE))
+        global_params["volume_ratio_min"] = round(_clamp(global_params["volume_ratio_min"], *_VOLUME_RATIO_RANGE), 2)
 
     per_symbol = {}
     for r in results:
         params = {k: _clamp(v, *_STOP_LOSS_RANGE) if k == "stop_loss_pct"
                   else _clamp(v, *_TAKE_PROFIT_RANGE) if k == "take_profit_pct"
                   else int(_clamp(v, *_HOLDING_DAYS_RANGE)) if k == "max_holding_days"
+                  else round(_clamp(v, *_VOLUME_RATIO_RANGE), 2) if k == "volume_ratio_min"
                   else v
                   for k, v in r.best_params.items()}
         per_symbol[r.symbol] = {

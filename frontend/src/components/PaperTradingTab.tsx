@@ -443,6 +443,7 @@ export function PaperTradingTab() {
           ...(gp.max_holding_days != null && { max_holding_days: gp.max_holding_days }),
           ...(gp.rsi_min != null && { rsi_min: gp.rsi_min }),
           ...(gp.rsi_max != null && { rsi_max: gp.rsi_max }),
+          ...(gp.volume_ratio_min != null && { volume_ratio_min: gp.volume_ratio_min }),
         };
         return {
           KOSPI: { ...prev.KOSPI, ...patch, market: 'KOSPI' },
@@ -450,7 +451,7 @@ export function PaperTradingTab() {
         };
       });
       setOptApplyStatus('applied');
-      setStatusMessage(`최적화 파라미터가 적용되었습니다. (손절 ${gp.stop_loss_pct ?? '—'}% · 익절 ${gp.take_profit_pct ?? '—'}% · 최대보유일 ${gp.max_holding_days ?? '—'}일)`);
+      setStatusMessage(`최적화 파라미터가 적용되었습니다. (손절 ${gp.stop_loss_pct ?? '—'}% · 익절 ${gp.take_profit_pct ?? '—'}% · 최대보유일 ${gp.max_holding_days ?? '—'}일 · 거래량 ${gp.volume_ratio_min ?? '—'}x)`);
     } catch {
       setOptApplyStatus('error');
       setStatusMessage('최적화 파라미터 조회 중 오류가 발생했습니다.');

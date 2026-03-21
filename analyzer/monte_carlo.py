@@ -1,6 +1,7 @@
 """몬테카를로 파라미터 최적화 엔진.
 
 부트스트랩 또는 GBM 방식으로 미래 가격 경로를 시뮬레이션하고,
+RSI·거래량 조건부 부트스트랩으로 실제 진입 조건을 반영한
 손절/익절/기간만료 전략의 최적 파라미터를 탐색한다.
 """
 from __future__ import annotations
@@ -29,11 +30,12 @@ class SimulationConfig:
 @dataclass
 class ParamGrid:
     """최적화할 파라미터 탐색 범위"""
-    stop_loss_pct: list[float] = field(default_factory=lambda: [3.0, 5.0, 7.0, 10.0])
-    take_profit_pct: list[float] = field(default_factory=lambda: [6.0, 10.0, 15.0, 20.0])
-    max_holding_days: list[int] = field(default_factory=lambda: [5, 10, 20, 30])
-    rsi_min: list[float] = field(default_factory=lambda: [30.0, 35.0, 40.0])
-    rsi_max: list[float] = field(default_factory=lambda: [70.0, 75.0, 80.0])
+    stop_loss_pct: list[float] = field(default_factory=lambda: [3.0, 5.0, 7.0, 10.0, 13.0])
+    take_profit_pct: list[float] = field(default_factory=lambda: [6.0, 10.0, 15.0, 20.0, 25.0])
+    max_holding_days: list[int] = field(default_factory=lambda: [5, 10, 15, 20, 30])
+    rsi_min: list[float] = field(default_factory=lambda: [30.0, 40.0, 50.0])
+    rsi_max: list[float] = field(default_factory=lambda: [60.0, 70.0, 80.0])
+    volume_ratio_min: list[float] = field(default_factory=lambda: [0.8, 1.2, 2.0])
 
 
 @dataclass
@@ -60,6 +62,54 @@ _HOLDING_DAYS_RANGE = (3, 60)
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
+
+
+# 조건부 부트스트랩에서 유효 진입 신호가 이 값 미만이면 해당 조합을 스킵
+_MIN_ENTRY_SIGNALS = 10
+
+
+def _compute_rsi(closes: np.ndarray, period: int = 14) -> np.ndarray:
+    """Wilder의 평활 이동 평균 방식으로 RSI를 계산한다.
+
+    Returns:
+        shape (n,) — 처음 period개는 nan
+    """
+    rsi = np.full(len(closes), np.nan)
+    if len(closes) <= period:
+        return rsi
+    deltas = np.diff(closes.astype(float))
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+
+    avg_gain = float(np.mean(gains[:period]))
+    avg_loss = float(np.mean(losses[:period]))
+    for i in range(period, len(deltas)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        if avg_loss < 1e-12:
+            rsi[i + 1] = 100.0
+        else:
+            rs = avg_gain / avg_loss
+            rsi[i + 1] = 100.0 - 100.0 / (1.0 + rs)
+    return rsi
+
+
+def _compute_volume_ratio(volumes: np.ndarray, period: int = 20) -> np.ndarray:
+    """각 날의 거래량 / 과거 period일 평균 거래량을 반환한다.
+
+    Returns:
+        shape (n,) — 처음 period-1개는 nan
+    """
+    vols = volumes.astype(float)
+    vol_ratio = np.full(len(vols), np.nan)
+    if len(vols) < period:
+        return vol_ratio
+    from numpy.lib.stride_tricks import sliding_window_view
+    windows = sliding_window_view(vols, period)
+    avgs = windows.mean(axis=1)
+    mask = avgs > 0
+    vol_ratio[period - 1:][mask] = vols[period - 1:][mask] / avgs[mask]
+    return vol_ratio
 
 
 def generate_price_paths(
@@ -159,61 +209,111 @@ def optimize_params(
     param_grid: ParamGrid,
     sim_config: SimulationConfig,
 ) -> OptimizationResult | None:
-    """단일 종목에 대해 파라미터 그리드 탐색을 수행한다."""
-    closes = [float(r["close"]) for r in price_history if r.get("close") is not None]
-    if len(closes) < sim_config.lookback_days + sim_config.validation_days:
-        logger.debug("{}/{}: 데이터 부족 ({} < {})", symbol, market, len(closes),
+    """단일 종목에 대해 파라미터 그리드 탐색을 수행한다.
+
+    진입 조건(RSI 범위, 거래량 배수)을 만족하는 날의 수익률만 부트스트랩 샘플로
+    사용하는 조건부 몬테카를로 방식으로 실제 전략 진입 조건을 반영한다.
+    """
+    records = [(r["close"], r.get("volume") or 0.0)
+               for r in price_history if r.get("close") is not None]
+    if len(records) < sim_config.lookback_days + sim_config.validation_days:
+        logger.debug("{}/{}: 데이터 부족 ({} < {})", symbol, market, len(records),
                      sim_config.lookback_days + sim_config.validation_days)
         return None
 
-    all_returns = np.diff(np.array(closes)) / np.array(closes[:-1])
-    train_returns = all_returns[-sim_config.lookback_days - sim_config.validation_days:
-                                -sim_config.validation_days]
-    val_returns = all_returns[-sim_config.validation_days:]
+    closes_full = np.array([r[0] for r in records], dtype=float)
+    volumes_full = np.array([r[1] for r in records], dtype=float)
 
-    if len(train_returns) < 30:
+    # 지표를 전체 기간으로 계산 (훈련 시작 전까지 워밍업 포함)
+    rsi_full = _compute_rsi(closes_full)
+    vol_ratio_full = _compute_volume_ratio(volumes_full)
+
+    returns_full = np.diff(closes_full) / closes_full[:-1]  # shape (n-1,)
+
+    n_train = sim_config.lookback_days
+    n_val = sim_config.validation_days
+
+    # 훈련/검증 분리 (returns 배열 기준)
+    train_ret = returns_full[-n_train - n_val:-n_val]   # (n_train,)
+    val_ret = returns_full[-n_val:]                      # (n_val,)
+
+    # 진입 조건 판별에 쓸 지표 (returns[i]와 동일 인덱스인 closes[i]의 지표)
+    # closes_full의 인덱스: returns_full[i] = (closes[i+1]-closes[i])/closes[i]
+    # 훈련 구간 closes 인덱스: -n_train-n_val-1 ... -n_val-1
+    train_rsi = rsi_full[-n_train - n_val - 1:-n_val - 1]       # (n_train,)
+    train_vol = vol_ratio_full[-n_train - n_val - 1:-n_val - 1] # (n_train,)
+    val_rsi = rsi_full[-n_val - 1:-1]                            # (n_val,)
+    val_vol = vol_ratio_full[-n_val - 1:-1]                      # (n_val,)
+
+    if len(train_ret) < 30:
         return None
-
-    train_paths = generate_price_paths(
-        train_returns, sim_config.n_simulations, sim_config.simulation_days,
-        sim_config.method, sim_config.random_seed,
-    )
 
     best_sharpe = -np.inf
     best_params: dict = {}
     best_metrics: dict = {}
 
-    for sl, tp, hd, rsi_lo, rsi_hi in itertools.product(
-        param_grid.stop_loss_pct,
-        param_grid.take_profit_pct,
-        param_grid.max_holding_days,
+    # 진입 필터 조합별로 paths를 1회만 생성한 뒤 exit params를 반복
+    for rsi_lo, rsi_hi, vol_min in itertools.product(
         param_grid.rsi_min,
         param_grid.rsi_max,
+        param_grid.volume_ratio_min,
     ):
-        # 비현실적 조합 제거
-        if tp < sl * 1.5:
-            continue
         if rsi_lo >= rsi_hi:
             continue
 
-        metrics = simulate_strategy(train_paths, sl, tp, hd)
-        if metrics["sharpe_ratio"] > best_sharpe:
-            best_sharpe = metrics["sharpe_ratio"]
-            best_params = {
-                "stop_loss_pct": _clamp(sl, *_STOP_LOSS_RANGE),
-                "take_profit_pct": _clamp(tp, *_TAKE_PROFIT_RANGE),
-                "max_holding_days": int(_clamp(hd, *_HOLDING_DAYS_RANGE)),
-                "rsi_min": rsi_lo,
-                "rsi_max": rsi_hi,
-            }
-            best_metrics = metrics
+        entry_mask = (
+            ~np.isnan(train_rsi) & ~np.isnan(train_vol) &
+            (train_rsi >= rsi_lo) & (train_rsi <= rsi_hi) &
+            (train_vol >= vol_min)
+        )
+        entry_idx = np.where(entry_mask)[0]
+        if len(entry_idx) < _MIN_ENTRY_SIGNALS:
+            continue
+
+        entry_returns = train_ret[entry_idx]
+        train_paths = generate_price_paths(
+            entry_returns, sim_config.n_simulations, sim_config.simulation_days,
+            sim_config.method, sim_config.random_seed,
+        )
+
+        for sl, tp, hd in itertools.product(
+            param_grid.stop_loss_pct,
+            param_grid.take_profit_pct,
+            param_grid.max_holding_days,
+        ):
+            if tp < sl * 1.5:
+                continue
+
+            metrics = simulate_strategy(train_paths, sl, tp, hd)
+            if metrics["sharpe_ratio"] > best_sharpe:
+                best_sharpe = metrics["sharpe_ratio"]
+                best_params = {
+                    "stop_loss_pct": _clamp(sl, *_STOP_LOSS_RANGE),
+                    "take_profit_pct": _clamp(tp, *_TAKE_PROFIT_RANGE),
+                    "max_holding_days": int(_clamp(hd, *_HOLDING_DAYS_RANGE)),
+                    "rsi_min": rsi_lo,
+                    "rsi_max": rsi_hi,
+                    "volume_ratio_min": vol_min,
+                }
+                best_metrics = metrics
 
     if not best_params:
         return None
 
-    # 검증 기간으로 과적합 체크
+    # 검증: 동일 진입 필터를 검증 기간에 적용해 과적합 체크
+    val_entry_mask = (
+        ~np.isnan(val_rsi) & ~np.isnan(val_vol) &
+        (val_rsi >= best_params["rsi_min"]) & (val_rsi <= best_params["rsi_max"]) &
+        (val_vol >= best_params["volume_ratio_min"])
+    )
+    val_entry_idx = np.where(val_entry_mask)[0]
+    if len(val_entry_idx) >= _MIN_ENTRY_SIGNALS:
+        val_entry_returns = val_ret[val_entry_idx]
+    else:
+        val_entry_returns = val_ret  # 진입 신호 부족 시 전체 수익률로 fallback
+
     val_paths = generate_price_paths(
-        val_returns, sim_config.n_simulations, sim_config.simulation_days,
+        val_entry_returns, sim_config.n_simulations, sim_config.simulation_days,
         sim_config.method, sim_config.random_seed + 1,
     )
     val_metrics = simulate_strategy(
