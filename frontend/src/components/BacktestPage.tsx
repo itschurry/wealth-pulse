@@ -314,7 +314,7 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
           setOptMessage('최적화 완료되었습니다.');
         }
       } catch { /* 무시 */ }
-    }, 15_000);
+    }, 10_000);
     return () => clearInterval(timer);
   }, [optStatus]);
 

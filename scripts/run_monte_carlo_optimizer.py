@@ -85,18 +85,19 @@ def _fetch_yfinance_history(code: str, market: str, days: int) -> list[dict]:
         return []
 
 
-def _fetch_price_history(code: str, market: str, days: int) -> list[dict]:
+def _fetch_price_history(code: str, market: str, days: int, min_rows: int = 80) -> list[dict]:
     """KIS 우선, 실패 시 yfinance 폴백으로 가격 데이터를 가져온다."""
     rows = _fetch_kis_history(code, market, days)
-    if len(rows) >= 50:
+    if len(rows) >= min_rows:
         return rows
-    logger.debug("{}/{}: KIS {} 건 — yfinance 폴백", code, market, len(rows))
+    logger.debug("{}/{}: KIS {} 건 (필요 {} 건) — yfinance 폴백", code, market, len(rows), min_rows)
     return _fetch_yfinance_history(code, market, days)
 
 
 def _collect_price_data(
     symbols: list[tuple[str, str]],
     days: int,
+    min_rows: int = 80,
 ) -> dict[str, list[dict]]:
     """종목 목록의 가격 데이터를 수집한다."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -104,7 +105,7 @@ def _collect_price_data(
     total = len(symbols)
 
     def _task(code: str, market: str) -> tuple[str, list[dict]]:
-        return code, _fetch_price_history(code, market, days)
+        return code, _fetch_price_history(code, market, days, min_rows=min_rows)
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {executor.submit(_task, code, mkt): (code, mkt) for code, mkt in symbols}
@@ -156,10 +157,10 @@ def _save_results(results: list[OptimizationResult], sim_config: SimulationConfi
         per_symbol[r.symbol] = {
             "market": r.market,
             **params,
-            "sharpe_ratio": round(r.sharpe_ratio, 4),
-            "win_rate": round(r.win_rate, 4),
-            "validation_sharpe": round(r.validation_sharpe, 4),
-            "is_reliable": r.is_reliable,
+            "sharpe_ratio": float(round(r.sharpe_ratio, 4)),
+            "win_rate": float(round(r.win_rate, 4)),
+            "validation_sharpe": float(round(r.validation_sharpe, 4)),
+            "is_reliable": bool(r.is_reliable),
         }
 
     output = {
@@ -218,6 +219,10 @@ def main() -> None:
     parser.add_argument("--simulations", type=int, default=5000,
                         help="시뮬레이션 횟수 (기본: 5000)")
     parser.add_argument("--method", choices=["bootstrap", "gbm"], default="bootstrap")
+    parser.add_argument("--lookback-days", type=int, default=None,
+                        help="학습 기간 일수 (기본: SimulationConfig 기본값 252)")
+    parser.add_argument("--validation-days", type=int, default=None,
+                        help="검증 기간 일수 (기본: SimulationConfig 기본값 63)")
     args = parser.parse_args()
 
     symbols = _build_symbol_list(args)
@@ -227,15 +232,18 @@ def main() -> None:
 
     logger.info("=== 몬테카를로 최적화 시작: {}개 종목 ===", len(symbols))
 
-    sim_config = SimulationConfig(
-        n_simulations=args.simulations,
-        method=args.method,
-    )
+    sim_kwargs: dict = {"n_simulations": args.simulations, "method": args.method}
+    if args.lookback_days is not None:
+        sim_kwargs["lookback_days"] = args.lookback_days
+    if args.validation_days is not None:
+        sim_kwargs["validation_days"] = args.validation_days
+    sim_config = SimulationConfig(**sim_kwargs)
 
-    # 가격 데이터 수집 (학습 252 + 검증 63 + 여유 50 = 365일)
-    required_days = sim_config.lookback_days + sim_config.validation_days + 50
-    logger.info("가격 데이터 수집 중 (최근 {}일)...", required_days)
-    price_data = _collect_price_data(symbols, required_days)
+    # 실제로 필요한 최소 데이터 건수 = 학습 + 검증 기간
+    min_rows = sim_config.lookback_days + sim_config.validation_days
+    required_days = min_rows + 50
+    logger.info("가격 데이터 수집 중 (최근 {}일, 최소 {}건)...", required_days, min_rows)
+    price_data = _collect_price_data(symbols, required_days, min_rows=min_rows)
 
     logger.info("파라미터 최적화 실행 중...")
     results = run_portfolio_optimization(symbols, price_data, sim_config=sim_config)
