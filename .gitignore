@@ -39,3 +39,5 @@ report/*
 # --- Misc runtime artifacts ---
 *.pid
 *.tmp
+refactoring-result.md
+revision.md
