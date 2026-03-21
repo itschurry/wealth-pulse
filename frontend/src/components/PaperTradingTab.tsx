@@ -229,6 +229,11 @@ export function PaperTradingTab() {
   const [statusMessage, setStatusMessage] = useState('');
   const [lastAutoInvestSkipped, setLastAutoInvestSkipped] = useState<PaperSkippedItem[]>([]);
 
+  // 몬테카를로 최적화 상태
+  const [optimizedParams, setOptimizedParams] = useState<Record<string, unknown> | null>(null);
+  const [optStatus, setOptStatus] = useState<'idle' | 'loading' | 'running' | 'error'>('idle');
+  const [optMessage, setOptMessage] = useState('');
+
 
   const initialTotalKrw = useMemo(() => {
     return (account.initial_cash_krw || 0) + ((account.initial_cash_usd || 0) * (account.fx_rate || 0));
@@ -424,6 +429,57 @@ export function PaperTradingTab() {
     engineState.config?.theme_min_score,
     JSON.stringify(engineState.config?.market_profiles || {}),
   ]);
+
+  useEffect(() => {
+    fetch('/api/optimized-params')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.status === 'ok') setOptimizedParams(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleRunOptimization() {
+    setOptStatus('loading');
+    setOptMessage('');
+    try {
+      const r = await fetch('/api/run-optimization', { method: 'POST' });
+      const data = await r.json();
+      if (data?.status === 'started') {
+        setOptStatus('running');
+        setOptMessage('백그라운드에서 실행 중입니다. 완료까지 수 분~수십 분 소요됩니다.');
+      } else if (data?.status === 'already_running') {
+        setOptStatus('running');
+        setOptMessage('이미 실행 중입니다.');
+      } else {
+        setOptStatus('error');
+        setOptMessage(data?.error || '알 수 없는 오류');
+      }
+    } catch {
+      setOptStatus('error');
+      setOptMessage('서버 연결 실패');
+    }
+  }
+
+  async function handleRefreshOptParams() {
+    setOptStatus('loading');
+    try {
+      const r = await fetch('/api/optimized-params');
+      const data = await r.json();
+      if (data?.status === 'ok') {
+        setOptimizedParams(data);
+        setOptStatus('idle');
+        setOptMessage('');
+      } else {
+        setOptimizedParams(null);
+        setOptStatus('idle');
+        setOptMessage('최적화 결과가 없습니다.');
+      }
+    } catch {
+      setOptStatus('error');
+      setOptMessage('조회 실패');
+    }
+  }
 
   async function handleReset() {
     const result = await reset({
@@ -797,6 +853,86 @@ export function PaperTradingTab() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* 몬테카를로 파라미터 최적화 */}
+      <div className="page-section" style={{ display: 'grid', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-1)' }}>파라미터 최적화</div>
+            <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 2 }}>
+              몬테카를로 시뮬레이션으로 손절/익절/보유기간 최적값을 탐색합니다.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <button
+              onClick={handleRefreshOptParams}
+              disabled={optStatus === 'loading'}
+              style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, background: 'var(--bg-2)', color: 'var(--text-2)', border: '1px solid var(--border)', cursor: optStatus === 'loading' ? 'not-allowed' : 'pointer' }}
+            >
+              새로고침
+            </button>
+            <button
+              onClick={handleRunOptimization}
+              disabled={optStatus === 'loading' || optStatus === 'running'}
+              style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, background: optStatus === 'running' ? 'var(--bg-2)' : 'var(--up)', color: optStatus === 'running' ? 'var(--text-3)' : '#fff', border: 'none', cursor: (optStatus === 'loading' || optStatus === 'running') ? 'not-allowed' : 'pointer', fontWeight: 700 }}
+            >
+              {optStatus === 'loading' ? '요청 중...' : optStatus === 'running' ? '실행 중...' : '최적화 실행'}
+            </button>
+          </div>
+        </div>
+
+        {optMessage && (
+          <div style={{ fontSize: 12, color: optStatus === 'error' ? 'var(--down)' : 'var(--text-3)', background: 'var(--bg-soft)', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)' }}>
+            {optMessage}
+          </div>
+        )}
+
+        {optimizedParams ? (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
+              최적화 일시: {optimizedParams.optimized_at ? new Date(optimizedParams.optimized_at as string).toLocaleString('ko-KR') : '—'}
+              {' · '}방법: {String(optimizedParams.method ?? '—')}
+              {' · '}시뮬레이션: {String(optimizedParams.n_simulations ?? '—')}회
+            </div>
+            {(optimizedParams.global_params as Record<string, unknown>) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+                {Object.entries(optimizedParams.global_params as Record<string, unknown>).map(([key, val]) => (
+                  <div key={key} style={{ padding: '10px 12px', background: 'var(--bg-soft)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-4)', marginBottom: 4 }}>{key}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>{val === null ? '—' : String(val)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(optimizedParams.per_symbol as Record<string, unknown>) && Object.keys(optimizedParams.per_symbol as Record<string, unknown>).length > 0 && (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-2)', marginBottom: 8 }}>종목별 최적 파라미터</div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {Object.entries(optimizedParams.per_symbol as Record<string, Record<string, unknown>>)
+                    .filter(([, sym]) => sym.is_reliable)
+                    .map(([code, sym]) => (
+                      <div key={code} style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: 8, alignItems: 'center', padding: '8px 12px', background: 'var(--bg-soft)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-1)' }}>{code}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-3)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          {(['stop_loss_pct', 'take_profit_pct', 'max_holding_days', 'rsi_min', 'rsi_max'] as const).map((k) =>
+                            sym[k] !== undefined && sym[k] !== null
+                              ? <span key={k}><span style={{ color: 'var(--text-4)' }}>{k.replace(/_pct$/, '(%)')}: </span>{String(sym[k])}</span>
+                              : null
+                          )}
+                          <span style={{ color: 'var(--text-4)', fontSize: 11 }}>샤프={typeof sym.sharpe_ratio === 'number' ? sym.sharpe_ratio.toFixed(2) : '—'}</span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--text-4)' }}>
+            최적화 결과가 없습니다. "최적화 실행" 버튼을 눌러 시작하거나, 스케줄러가 매주 일요일 02:00 KST에 자동으로 실행합니다.
           </div>
         )}
       </div>
