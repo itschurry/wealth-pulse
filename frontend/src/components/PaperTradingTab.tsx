@@ -594,6 +594,35 @@ export function PaperTradingTab() {
       </div>
 
       <div className="page-section" style={{ display: 'grid', gap: 12 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-1)' }}>보유 종목 현황</div>
+        {account.positions.length === 0 && <div style={{ color: 'var(--text-4)', fontSize: 13 }}>보유 포지션이 없습니다.</div>}
+        {account.positions.length > 0 && (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {account.positions.map((position) => (
+              <div key={`${position.market}-${position.code}`} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 14, background: 'var(--bg-soft)' }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--text-1)' }}>{position.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 4 }}>{position.code} · {position.market} · {position.quantity}주</div>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                  <div>평균가 {position.currency === 'USD' ? formatUsd(position.avg_price_local) : formatKrw(position.avg_price_local)}</div>
+                  <div style={{ marginTop: 4 }}>현재가 {position.currency === 'USD' ? formatUsd(position.last_price_local) : formatKrw(position.last_price_local)}</div>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                  <div>평가액 {formatKrw(position.market_value_krw)}</div>
+                  <div style={{ marginTop: 4 }}>환율 {position.fx_rate.toFixed(2)}</div>
+                </div>
+                <div style={{ fontSize: 12, color: position.unrealized_pnl_krw >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                  <div>{formatKrw(position.unrealized_pnl_krw)}</div>
+                  <div style={{ marginTop: 4 }}>{formatSignedPct(position.unrealized_pnl_pct)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="page-section" style={{ display: 'grid', gap: 12 }}>
         <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-1)' }}>초기 자금 / 기간 설정</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
           <label style={{ display: 'grid', gap: 6 }}>
@@ -815,35 +844,6 @@ export function PaperTradingTab() {
           {lastError || statusMessage}
         </div>
       )}
-
-      <div className="page-section" style={{ display: 'grid', gap: 12 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-1)' }}>포지션</div>
-        {account.positions.length === 0 && <div style={{ color: 'var(--text-4)', fontSize: 13 }}>보유 포지션이 없습니다.</div>}
-        {account.positions.length > 0 && (
-          <div style={{ display: 'grid', gap: 8 }}>
-            {account.positions.map((position) => (
-              <div key={`${position.market}-${position.code}`} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 14, background: 'var(--bg-soft)' }}>
-                <div>
-                  <div style={{ fontWeight: 700, color: 'var(--text-1)' }}>{position.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 4 }}>{position.code} · {position.market} · {position.quantity}주</div>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                  <div>평균가 {position.currency === 'USD' ? formatUsd(position.avg_price_local) : formatKrw(position.avg_price_local)}</div>
-                  <div style={{ marginTop: 4 }}>현재가 {position.currency === 'USD' ? formatUsd(position.last_price_local) : formatKrw(position.last_price_local)}</div>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                  <div>평가액 {formatKrw(position.market_value_krw)}</div>
-                  <div style={{ marginTop: 4 }}>환율 {position.fx_rate.toFixed(2)}</div>
-                </div>
-                <div style={{ fontSize: 12, color: position.unrealized_pnl_krw >= 0 ? 'var(--up)' : 'var(--down)' }}>
-                  <div>{formatKrw(position.unrealized_pnl_krw)}</div>
-                  <div style={{ marginTop: 4 }}>{formatSignedPct(position.unrealized_pnl_pct)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
     </div>
   );
