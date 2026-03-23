@@ -1,13 +1,13 @@
 """Jinja2 템플릿으로 HTML/Markdown 리포트 생성"""
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict
 import json
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import List
+from zoneinfo import ZoneInfo
 
 import markdown2
-import pytz
 from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 
@@ -16,7 +16,7 @@ from collectors.models import DailyData
 
 
 _TEMPLATE_DIR = BASE_DIR / "templates"
-_KST = pytz.timezone("Asia/Seoul")
+_KST = ZoneInfo("Asia/Seoul")
 
 
 def _get_jinja_env() -> Environment:
@@ -212,14 +212,6 @@ def save_market_context_cache(context, date: str) -> None:
     payload = {"date": date, "context": asdict(context) if context else {}}
     save_report(date, "market_context", payload)
     logger.info(f"시장 컨텍스트 캐시 저장: {date}/market_context")
-
-
-def _json_default(value):
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if is_dataclass(value):
-        return asdict(value)
-    raise TypeError(f"JSON serializable unsupported type: {type(value)!r}")
 
 
 def save_news_cache(items: list, date: str) -> None:

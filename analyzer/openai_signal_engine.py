@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -10,44 +9,16 @@ from loguru import logger
 from openai import APIError, OpenAI, RateLimitError
 
 from analyzer.market_context_builder import summarize_macro_for_prompt, summarize_market_context_for_prompt
+from analyzer.utils import (
+    has_notable_flow as _has_notable_flow,
+    normalize_lower as _normalize,
+    safe_json_loads as _safe_json_loads,
+)
 from collectors.models import DailyData
 from config.company_catalog import CompanyCatalogEntry, get_company_catalog
 from config.settings import OPENAI_API_KEY, OPENAI_SIGNAL_MODEL
 
 _KST = ZoneInfo("Asia/Seoul")
-
-
-def _normalize(value: str) -> str:
-    return value.lower().strip()
-
-
-def _safe_json_loads(text: str) -> dict | None:
-    raw = (text or "").strip()
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(raw[start:end + 1])
-            except json.JSONDecodeError:
-                return None
-    return None
-
-
-def _has_notable_flow(flow: dict | None) -> bool:
-    if not flow:
-        return False
-    foreign_1d = flow.get("foreign_net_1d", 0)
-    foreign_5d = flow.get("foreign_net_5d", 0)
-    institution_1d = flow.get("institution_net_1d", 0)
-    institution_5d = flow.get("institution_net_5d", 0)
-    same_direction_1d = (foreign_1d > 0 and institution_1d > 0) or (foreign_1d < 0 and institution_1d < 0)
-    same_direction_5d = (foreign_5d > 0 and institution_5d > 0) or (foreign_5d < 0 and institution_5d < 0)
-    return same_direction_1d or same_direction_5d
 
 
 def _collect_candidates(data: DailyData, limit: int) -> list[dict]:

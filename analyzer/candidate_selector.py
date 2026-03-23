@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from analyzer.shared_strategy import normalize_strategy_market
-from config.settings import REPORT_OUTPUT_DIR
 
 
 @dataclass(frozen=True)
@@ -108,9 +107,14 @@ def load_historical_candidates(
     cfg: CandidateSelectionConfig,
     report_dir: Path | None = None,
 ) -> dict[str, Any]:
-    report_root = report_dir or REPORT_OUTPUT_DIR
-    today_picks = _load_report_json(report_root, date, "today_picks")
-    recommendations = _load_report_json(report_root, date, "recommendations")
+    if report_dir is None:
+        # Production path: read from SQLite DB.
+        today_picks = _load_report_sqlite(date, "today_picks")
+        recommendations = _load_report_sqlite(date, "recommendations")
+    else:
+        # Test / override path: read from JSON files in the given directory.
+        today_picks = _load_report_json(report_dir, date, "today_picks")
+        recommendations = _load_report_json(report_dir, date, "recommendations")
     candidates, source = _select_market_candidates_with_source(
         market=market,
         cfg=cfg,
@@ -251,7 +255,17 @@ def _pick_theme_news_count(item: Mapping[str, Any]) -> int:
     return count
 
 
+def _load_report_sqlite(date: str, key: str) -> dict[str, Any]:
+    """SQLite DB에서 리포트를 로드한다. 없거나 오류 시 빈 dict 반환."""
+    try:
+        from reporter.storage import load_report
+        return load_report(date, key) or {}
+    except Exception:
+        return {}
+
+
 def _load_report_json(report_root: Path, date: str, suffix: str) -> dict[str, Any]:
+    """JSON 파일에서 리포트를 로드한다 (테스트용 경로 지원)."""
     path = report_root / f"{date}_{suffix}.json"
     if not path.exists():
         return {}

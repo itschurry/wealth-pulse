@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { AnalysisData } from '../types';
-import { renderTextWithLinks } from '../utils/linkify';
+import { formatLinkLabel, renderTextWithLinks } from '../utils/linkify';
 import { getBiasLabel } from '../utils/quantLabels';
 
 interface Props {
@@ -82,7 +82,7 @@ export function AnalysisTab({ data, status, onRefresh }: Props) {
           anchor.href = url;
           anchor.target = '_blank';
           anchor.rel = 'noreferrer';
-          anchor.textContent = url;
+          anchor.textContent = formatLinkLabel(url);
           fragment.appendChild(anchor);
 
           lastIndex = start + url.length;

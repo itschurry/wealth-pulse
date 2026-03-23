@@ -3,15 +3,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Dict, List
-
-import pytz
+from zoneinfo import ZoneInfo
 
 from analyzer.technical_snapshot import evaluate_technical_snapshot, fetch_technical_snapshot
+from analyzer.utils import normalize_lower as _normalize
 from collectors.models import DailyData
 from config.portfolio import HOLDINGS
 from market_utils import lookup_company_listing, resolve_market
 
-_KST = pytz.timezone("Asia/Seoul")
+_KST = ZoneInfo("Asia/Seoul")
 _ALLOWED_HORIZONS = {"short_term", "mid_term"}
 
 _SECTOR_KEYWORDS = {
@@ -26,10 +26,6 @@ _SECTOR_KEYWORDS = {
 
 def _safe_text(value: str | None) -> str:
     return (value or "").strip()
-
-
-def _normalize(value: str) -> str:
-    return (value or "").strip().lower()
 
 
 def _normalize_code(value: str) -> str:

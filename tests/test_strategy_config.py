@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from api_server import _default_auto_trader_config, _parse_backtest_config
+from api.routes.backtest import _parse_backtest_config
+from api.routes.trading import _default_auto_trader_config
 
 
 class StrategyConfigTests(unittest.TestCase):

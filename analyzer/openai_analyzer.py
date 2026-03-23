@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -12,60 +10,23 @@ from openai import APIError, OpenAI, RateLimitError
 
 from analyzer.market_context_builder import summarize_macro_for_prompt, summarize_market_context_for_prompt
 from analyzer.technical_snapshot import evaluate_technical_snapshot, fetch_technical_snapshot
+from analyzer.utils import (
+    DYNAMIC_TICKER_BLOCKLIST as _DYNAMIC_TICKER_BLOCKLIST,
+    US_TICKER_PATTERN as _US_TICKER_PATTERN,
+    article_text as _article_text,
+    has_notable_flow as _has_notable_flow,
+    normalize_lower as _normalize,
+    safe_json_loads as _safe_json_loads,
+)
 from collectors.models import DailyData, NewsArticle
 from config.company_catalog import CompanyCatalogEntry, get_company_catalog
 from config.prompts import DAILY_REPORT_PROMPT, PLAYBOOK_PROMPT, PLAYBOOK_SYSTEM_PROMPT, SYSTEM_PROMPT
 from config.settings import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_PLAYBOOK_MODEL
 
 _DISCLOSURE_POSITIVE = {"earnings", "contract", "shareholder_return", "investment"}
-_US_TICKER_PATTERN = re.compile(r"(?<![A-Z0-9])(\$?[A-Z]{2,5}(?:\.[A-Z])?)(?![A-Z0-9])")
-_DYNAMIC_TICKER_BLOCKLIST = {
-    "USD", "KRW", "EUR", "JPY", "GBP", "CNY", "CNH", "DXY", "USDT", "USDC",
-    "AI", "EV", "ETF", "SEC", "FED", "FOMC", "CPI", "PPI", "GDP", "PMI", "PCE",
-    "WTI", "OPEC", "API", "RBI", "ECB", "BOJ", "NFP", "YOY", "QOQ", "EPS",
-    "ADR", "IPO", "MNA", "M&A", "CEO", "CFO", "CTO", "GPU", "CPU", "HBM", "LLM",
-    "KOSPI", "KOSDAQ", "NYSE", "NASDAQ", "AMEX", "USA", "US", "EU", "UK",
-}
 _ALLOWED_BIAS = {"bullish", "neutral", "defensive"}
 _ALLOWED_ACTION = {"buy", "watch", "avoid"}
 _ALLOWED_MARKETS = {"KOSPI", "KOSDAQ", "NASDAQ", "NYSE"}
-
-
-def _normalize(value: str) -> str:
-    return value.lower().strip()
-
-
-def _safe_json_loads(text: str) -> dict | None:
-    raw = (text or "").strip()
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(raw[start:end + 1])
-            except json.JSONDecodeError:
-                return None
-    return None
-
-
-def _article_text(article: NewsArticle) -> str:
-    return " ".join([article.title or "", article.summary or "", article.body or ""]).lower()
-
-
-def _has_notable_flow(flow: dict | None) -> bool:
-    if not flow:
-        return False
-    foreign_1d = flow.get("foreign_net_1d", 0)
-    foreign_5d = flow.get("foreign_net_5d", 0)
-    institution_1d = flow.get("institution_net_1d", 0)
-    institution_5d = flow.get("institution_net_5d", 0)
-    same_direction_1d = (foreign_1d > 0 and institution_1d > 0) or (foreign_1d < 0 and institution_1d < 0)
-    same_direction_5d = (foreign_5d > 0 and institution_5d > 0) or (foreign_5d < 0 and institution_5d < 0)
-    return same_direction_1d or same_direction_5d
 
 
 def _extract_dynamic_us_ticker_entries(news: list[NewsArticle], existing_codes: set[str]) -> list[CompanyCatalogEntry]:

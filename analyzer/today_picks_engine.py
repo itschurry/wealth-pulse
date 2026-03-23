@@ -1,10 +1,16 @@
 """뉴스 기반 오늘의 추천 및 관심종목 액션 계산."""
 from __future__ import annotations
 
-from datetime import datetime
 import re
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from analyzer.utils import (
+    DYNAMIC_TICKER_BLOCKLIST as _DYNAMIC_TICKER_BLOCKLIST,
+    US_TICKER_PATTERN as _US_TICKER_PATTERN,
+    article_text as _article_text,
+    normalize_lower as _normalize,
+)
 from collectors.models import DailyData, NewsArticle
 from config.company_catalog import CompanyCatalogEntry, get_company_catalog
 from market_utils import resolve_market
@@ -43,23 +49,11 @@ _SECTOR_THEME_HINTS = {
     "플랫폼": {"physical_ai"},
     "가전": {"robotics", "physical_ai"},
 }
-_US_TICKER_PATTERN = re.compile(r"(?<![A-Z0-9])(\$?[A-Z]{2,5}(?:\.[A-Z])?)(?![A-Z0-9])")
-_DYNAMIC_TICKER_BLOCKLIST = {
-    "USD", "KRW", "EUR", "JPY", "GBP", "CNY", "CNH", "DXY", "USDT", "USDC",
-    "AI", "EV", "ETF", "SEC", "FED", "FOMC", "CPI", "PPI", "GDP", "PMI", "PCE",
-    "WTI", "OPEC", "API", "RBI", "ECB", "BOJ", "NFP", "YOY", "QOQ", "EPS",
-    "ADR", "IPO", "MNA", "M&A", "CEO", "CFO", "CTO", "GPU", "CPU", "HBM", "LLM",
-    "KOSPI", "KOSDAQ", "NYSE", "NASDAQ", "AMEX", "USA", "US", "EU", "UK", "UAE",
-}
 _US_CONTEXT_KEYWORDS = (
     "nasdaq", "nyse", "amex", "미국증시", "뉴욕증시", "월가", "us stock", "u.s. stock",
     "adr", "premarket", "after-hours", "after hours", "pre-market",
 )
 _ASCII_ALIAS_PATTERN = re.compile(r"[a-z0-9][a-z0-9 .&\\-]*")
-
-
-def _normalize(value: str) -> str:
-    return value.lower().strip()
 
 
 def _alias_in_text(alias: str, text: str) -> bool:
@@ -75,10 +69,6 @@ def _alias_in_text(alias: str, text: str) -> bool:
 def _has_us_market_context(raw_text: str) -> bool:
     lowered = str(raw_text or "").lower()
     return any(keyword in lowered for keyword in _US_CONTEXT_KEYWORDS)
-
-
-def _article_text(article: NewsArticle) -> str:
-    return " ".join([article.title, article.summary, article.body]).lower()
 
 
 def _score_keywords(text: str, keywords: tuple[str, ...]) -> int:
