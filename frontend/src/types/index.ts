@@ -554,8 +554,10 @@ export interface PaperEngineState {
     candidate_counts_by_market?: Record<string, number>;
     skip_reason_counts?: Record<string, number>;
     skipped?: PaperSkippedItem[];
+    closed_markets?: string[];
     market_stats?: Record<string, {
       candidate_count?: number;
+      market_closed?: boolean;
       executed_buy_count?: number;
       executed_sell_count?: number;
       skipped_count?: number;

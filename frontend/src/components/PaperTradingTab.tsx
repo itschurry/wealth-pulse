@@ -822,10 +822,16 @@ export function PaperTradingTab() {
           <div style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-soft)', fontSize: 12, color: 'var(--text-3)' }}>
             <div>KOSPI: <b style={{ color: isKospiRunning ? 'var(--up)' : 'var(--text-2)' }}>{isKospiRunning ? '실행 중' : '중지'}</b></div>
             <div style={{ marginTop: 4 }}>적용 시장: {appliedMarkets.includes('KOSPI') ? '포함' : '미포함'}</div>
+            {engineState.last_summary?.market_stats?.['KOSPI']?.market_closed && (
+              <div style={{ marginTop: 4, color: 'var(--text-4)' }}>장외 시간 (거래 스킵)</div>
+            )}
           </div>
           <div style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-soft)', fontSize: 12, color: 'var(--text-3)' }}>
             <div>NASDAQ: <b style={{ color: isNasdaqRunning ? 'var(--up)' : 'var(--text-2)' }}>{isNasdaqRunning ? '실행 중' : '중지'}</b></div>
             <div style={{ marginTop: 4 }}>적용 시장: {appliedMarkets.includes('NASDAQ') ? '포함' : '미포함'}</div>
+            {engineState.last_summary?.market_stats?.['NASDAQ']?.market_closed && (
+              <div style={{ marginTop: 4, color: 'var(--text-4)' }}>장외 시간 (거래 스킵)</div>
+            )}
           </div>
           <div style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-soft)', fontSize: 12, color: isEngineConfigDirty ? 'var(--accent)' : 'var(--text-3)' }}>
             <div>설정 상태: <b>{isEngineConfigDirty ? '재시작 필요' : '동기화됨'}</b></div>

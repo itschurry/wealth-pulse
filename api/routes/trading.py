@@ -588,6 +588,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     executed_buys: list[dict] = []
     executed_sells: list[dict] = []
     skipped: list[dict] = []
+    closed_markets: list[str] = []
     markets = [m for m in cfg.get("markets", ["KOSPI", "NASDAQ"]) if m in {"KOSPI", "NASDAQ"}]
     candidate_counts_by_market: dict[str, int] = {market: 0 for market in markets}
 
@@ -596,7 +597,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     for market in markets:
         calendar_market = _MARKET_TO_CALENDAR.get(market, market)
         if not is_market_open(calendar_market):
-            skipped.append({"code": "*", "market": market, "reason": "market_closed"})
+            closed_markets.append(market)
             candidate_counts_by_market[market] = 0
             continue
 
@@ -720,6 +721,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     for market in markets:
         market_stats[market] = {
             "candidate_count": int(candidate_counts_by_market.get(market, 0)),
+            "market_closed": market in closed_markets,
             "executed_buy_count": sum(
                 1 for item in executed_buys
                 if str(item.get("market") or "").upper() == market
@@ -745,6 +747,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         "candidate_counts_by_market": candidate_counts_by_market,
         "skip_reason_counts": skip_reason_counts,
         "market_stats": market_stats,
+        "closed_markets": closed_markets,
         "skipped": skipped[:50],
         "account": final_account,
     }
