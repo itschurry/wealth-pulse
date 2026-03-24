@@ -329,6 +329,15 @@ class PaperExecutionEngine:
             if not code or not market or quantity <= 0:
                 state["positions"].pop(key, None)
                 continue
+            # 이름이 코드와 동일하면 카탈로그에서 먼저 보완 (시세 조회 실패 시에도 적용)
+            current_name = str(position.get("name") or "")
+            if not current_name or current_name == code:
+                catalog = (
+                    lookup_company_listing(code=code, scope="core")
+                    or lookup_company_listing(code=code, scope="live")
+                )
+                if catalog and catalog.get("name"):
+                    position["name"] = catalog["name"]
             try:
                 quote = self.quote_provider(code, market)
             except Exception:
