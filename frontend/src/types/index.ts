@@ -251,6 +251,12 @@ export interface TodayPickItem {
   technical_snapshot?: TechnicalSnapshot | null;
   technical_view?: string | null;
   setup_quality?: string | null;
+  // Phase 5: 신뢰도 정보 필드 추가
+  strategy_reliability?: 'high' | 'medium' | 'low' | 'insufficient';
+  validation_trades?: number;
+  validation_sharpe?: number;
+  is_reliable?: boolean;
+  reliability_reason?: string;
 }
 
 export interface TodayPicksData {

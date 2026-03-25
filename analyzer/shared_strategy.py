@@ -164,6 +164,22 @@ def profile_from_mapping(market: str, payload: Mapping[str, Any] | None) -> Stra
 
 
 def should_enter_from_snapshot(snapshot: Mapping[str, Any] | None, profile: StrategyProfile) -> bool:
+    """
+    진입 조건 판단 (최적화 파라미터 명시적 참조)
+
+    최적화 파라미터 의존성:
+    - profile.rsi_min / profile.rsi_max (몬테카를로 최적화 후보)
+    - profile.volume_ratio_min (몬테카를로 최적화 후보)
+
+    필수 필터 조건:
+    - 가격 > SMA20 > SMA60 (추세 정렬)
+    - 거래량 >= 최소 기준 (유동성)
+    - RSI 범위 내 (과매도/과매수 회피)
+    - MACD 양성 (모멘텀)
+
+    기타 기술지표 (ADX, BB, OBV, MFI, Stochastic)는 점수용이고,
+    필수 필터가 아님을 주목할 것.
+    """
     if not snapshot:
         return False
     close = _read_snapshot_value(
@@ -175,6 +191,9 @@ def should_enter_from_snapshot(snapshot: Mapping[str, Any] | None, profile: Stra
     macd = snapshot.get("macd")
     macd_signal = snapshot.get("macd_signal")
     macd_hist = snapshot.get("macd_hist")
+    # Phase 3 추가: 횡보장 & 과열 필터링
+    adx14 = snapshot.get("adx14")
+    mfi14 = snapshot.get("mfi14")
 
     return bool(
         close is not None
@@ -185,10 +204,16 @@ def should_enter_from_snapshot(snapshot: Mapping[str, Any] | None, profile: Stra
         and macd is not None
         and macd_signal is not None
         and macd_hist is not None
-        and float(close) > float(sma20) > float(sma60)
-        and float(volume_ratio) >= profile.volume_ratio_min
+        and float(close) > float(sma20) > float(sma60)  # 추세 정렬 (필수 필터)
+        and float(volume_ratio) >= profile.volume_ratio_min  # 유동성 (최적화 파라미터)
+        # 모멘텀 범위 (최적화 파라미터)
         and profile.rsi_min <= float(rsi14) <= profile.rsi_max
-        and (float(macd_hist) > 0 or float(macd) > float(macd_signal))
+        and (float(macd_hist) > 0 or float(macd) > float(macd_signal))  # MACD 양성 (필수)
+        # Phase 3-1: 횡보장 필터 (ADX < 15는 진입 금지)
+        and (adx14 is None or float(adx14) >= 15)  # ADX >= 15만 진입
+        # Phase 3-2: 과열 차단 (RSI >= 75 AND MFI > 75 동시 진입 금지)
+        and not (rsi14 is not None and mfi14 is not None and
+                 float(rsi14) >= 75 and float(mfi14) > 75)  # 과열 회피
     )
 
 
@@ -199,6 +224,22 @@ def should_exit_from_snapshot(
     holding_days: int,
     profile: StrategyProfile,
 ) -> str | None:
+    """
+    청산 조건 판단 (최적화 파라미터 명시적 참조)
+
+    최적화 파라미터 의존성:
+    - profile.max_holding_days (몬테카를로 최적화 후보) → 보유기간 제한
+    - profile.stop_loss_pct (몬테카를로 최적화 후보) → 손절가 설정
+    - profile.take_profit_pct (몬테카를로 최적화 후보) → 익절가 설정
+
+    청산 우선순위 (먼저 충족되는 조건):
+    1. 보유기간 만료 (profile.max_holding_days)
+    2. 손절 (profile.stop_loss_pct)
+    3. 익절 (profile.take_profit_pct)
+    4. 기술적 약세 신호 (SMA, MACD, RSI)
+
+    주의: 최적화된 파라미터가 None이 아닐 때만 해당 조건 활성화됨.
+    """
     if not snapshot:
         return None
     price = _read_snapshot_value(
@@ -211,8 +252,10 @@ def should_exit_from_snapshot(
     macd_signal = snapshot.get("macd_signal")
     macd_hist = snapshot.get("macd_hist")
 
+    # 1. 보유기간 만료 (최적화 파라미터)
     if holding_days >= profile.max_holding_days:
         return "보유기간 만료"
+    # 2. 손절 (최적화 파라미터)
     if (
         profile.stop_loss_pct is not None
         and price is not None
@@ -220,6 +263,7 @@ def should_exit_from_snapshot(
         and ((float(price) / float(entry_price)) - 1) * 100 <= -profile.stop_loss_pct
     ):
         return "손절"
+    # 3. 익절 (최적화 파라미터)
     if (
         profile.take_profit_pct is not None
         and price is not None
@@ -227,14 +271,17 @@ def should_exit_from_snapshot(
         and ((float(price) / float(entry_price)) - 1) * 100 >= profile.take_profit_pct
     ):
         return "익절"
-    if close is not None and sma20 is not None and float(close) < float(sma20) * 0.99:
-        return "20일선 이탈"
-    if (price is not None and entry_price and macd is not None and macd_signal is not None and macd_hist is not None):
-        pnl_pct = ((float(price) / float(entry_price)) - 1) * 100
-        if float(macd) < float(macd_signal) and float(macd_hist) < 0 and pnl_pct < -2.0:
-            return "MACD 약세 전환"
-    if rsi14 is not None and float(rsi14) >= 82:
-        return "RSI 과열"
+    # 4. 기술적 약세 신호 (Phase 3-3: 초기 1~2일 잡음 차단)
+    # 진입 후 1~2일 내 기술 신호는 무시 (익절과 손절은 항상 유효)
+    if holding_days > 2:  # 3일 이상 보유한 경우만 기술 신호 적용
+        if close is not None and sma20 is not None and float(close) < float(sma20) * 0.99:
+            return "20일선 이탈"
+        if (price is not None and entry_price and macd is not None and macd_signal is not None and macd_hist is not None):
+            pnl_pct = ((float(price) / float(entry_price)) - 1) * 100
+            if float(macd) < float(macd_signal) and float(macd_hist) < 0 and pnl_pct < -2.0:
+                return "MACD 약세 전환"
+        if rsi14 is not None and float(rsi14) >= 82:
+            return "RSI 과열"
     return None
 
 
@@ -282,6 +329,14 @@ def entry_score_from_snapshot(snapshot: Mapping[str, Any] | None, profile: Strat
     if stoch_k is not None and stoch_d is not None:
         if float(stoch_k) < 25 and float(stoch_d) < 25:
             new_indicator_score += 1.0
+
+    # Phase 3-1: MFI 점수 반영 추가
+    mfi14 = snapshot.get("mfi14")
+    if mfi14 is not None:
+        if float(mfi14) < 25:
+            new_indicator_score += 1.0  # 과매도
+        elif float(mfi14) > 75:
+            new_indicator_score -= 1.0  # 과매수
 
     return round(base_score + new_indicator_score, 4)
 

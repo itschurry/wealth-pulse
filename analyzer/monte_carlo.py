@@ -52,24 +52,37 @@ class OptimizationResult:
     win_rate: float
     avg_return_pct: float
     max_drawdown_pct: float
-    n_trades: float
-    validation_sharpe: float
-    optimized_at: str
-    is_reliable: bool
+    avg_holding_days: float  # 평균 보유 기간 (이전 n_trades 필드명 수정)
+    trade_count: int = 0  # 실제 거래 횟수
+    validation_sharpe: float = 0.0
+    validation_trades: int = 0  # 검증 구간 진입 신호 수
+    optimized_at: str = ""
+    is_reliable: bool = False
+    # "passed", "insufficient_signals", "low_sharpe"
+    reliability_reason: str = "unknown"
 
 
-# 클램핑 범위
-_STOP_LOSS_RANGE = (2.0, 15.0)
-_TAKE_PROFIT_RANGE = (4.0, 30.0)
-_HOLDING_DAYS_RANGE = (3, 60)
+# ============================================================
+# 파라미터 탐색 범위 (몬테카를로 최적화)
+# ============================================================
+_STOP_LOSS_RANGE = (2.0, 15.0)  # 손절 범위
+_TAKE_PROFIT_RANGE = (4.0, 30.0)  # 익절 범위
+_HOLDING_DAYS_RANGE = (3, 60)  # 최대 보유 기간 범위
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
-# 조건부 부트스트랩에서 유효 진입 신호가 이 값 미만이면 해당 조합을 스킵
-_MIN_ENTRY_SIGNALS = 10
+# ============================================================
+# 검증 신뢰도 기준
+# ============================================================
+# Phase 2-2: 최소 신호 기준 및 신뢰도 임계값 문서화
+# - 검증 구간 진입 신호 수가 이 값 미만이면 신뢰도 불인정
+# - Iteration 1에서 fallback 제거 후 명시적 기준 적용
+_MIN_ENTRY_SIGNALS = 10  # 검증 신뢰도 최소 필수 진입 신호 수
+_MIN_SHARPE_RELIABLE = 0.1  # Sharpe Ratio > 0.1일 때만 is_reliable=True
+# (1 이상이 아닌 0.1 기준: 신뢰도 양성만 충분)
 
 
 def _compute_rsi(closes: np.ndarray, period: int = 14) -> np.ndarray:
@@ -125,14 +138,41 @@ def generate_price_paths(
 ) -> np.ndarray:
     """과거 수익률로 미래 가격 경로를 생성한다.
 
+    Phase 4: Block Bootstrap 추가
+    - "bootstrap": 단순 복원 샘플링 (기존)
+    - "block_bootstrap": 연속 블록 샘플링 (시장 구간 특성 보존)
+    - "gbm": 기하 브라운 운동 (기존)
+
     Returns:
         shape (n_simulations, simulation_days) — 시작가 1.0 기준 누적 경로
     """
     rng = np.random.default_rng(seed)
-    if method == "bootstrap":
+
+    if method == "block_bootstrap":
+        # Phase 4: Block Bootstrap 구현
+        # 목적: 시장의 연속성(클러스터)을 보존하여 현실성 향상
+        block_size = max(2, int(np.sqrt(len(returns))))  # 블록 크기: sqrt(n)
+        n_blocks = simulation_days // block_size + 1
+        sampled_list = []
+
+        for _ in range(n_simulations):
+            path_returns = []
+            for _ in range(n_blocks):
+                # 랜덤 블록 위치 선택
+                block_start = rng.integers(0, len(returns) - block_size + 1)
+                block = returns[block_start:block_start + block_size]
+                path_returns.extend(block)
+            sampled_list.append(path_returns[:simulation_days])
+
+        sampled = np.array(sampled_list)
+        paths = np.cumprod(1.0 + sampled, axis=1)
+
+    elif method == "bootstrap":
+        # 단순 복원 샘플링 (기존)
         sampled = rng.choice(returns, size=(
             n_simulations, simulation_days), replace=True)
         paths = np.cumprod(1.0 + sampled, axis=1)
+
     else:  # gbm
         mu = float(np.mean(returns))
         sigma = float(np.std(returns))
@@ -209,6 +249,66 @@ def simulate_strategy(
     }
 
 
+def _compute_composite_score(metrics: dict[str, float]) -> float:
+    """
+    다중 지표 기반 복합 점수 계산 (Phase 3 - 최적화 목적함수 개선)
+
+    목표: Sharpe만이 아니라 견고성(낙폭, 승률, 거래 수)도 함께 고려해서
+    과적합 가능성이 낮은 전략을 우선한다.
+
+    계산식:
+    - 기본 점수: sharpe_ratio * 100
+    - 낙폭 페널티: max_drawdown <= -30% 이면 -50점  
+    - 승률 보너스: win_rate >= 50% 이면 +20점
+    - 거래 수 요구: n_total < 30이면 -10점 (표본 부족)
+    """
+    sharpe = metrics.get("sharpe_ratio", 0.0)
+    max_dd = metrics.get("max_drawdown_pct", 0.0)
+    win_rate = metrics.get("win_rate", 0.0)
+    n_total = int(metrics.get("n_total", 1))
+
+    score = sharpe * 100.0  # 기본: Sharpe 점수화
+
+    # 낙폭 페널티: -30% 초과는 크게 감점
+    if max_dd < -30.0:
+        score -= 50.0
+    elif max_dd < -20.0:
+        score -= 20.0
+
+    # 승률 보너스: 50% 이상이면 추가
+    if win_rate >= 50.0:
+        score += 20.0
+    elif win_rate >= 40.0:
+        score += 10.0
+
+    # 거래 표본 페널티: 너무 적으면 감점 (과적합 위험)
+    if n_total < 20:
+        score -= 10.0
+
+    return score
+
+
+def _should_use_result(result: OptimizationResult) -> bool:
+    """
+    최적화 결과의 신뢰도 필터 (Phase 3)
+
+    자동 탈락 조건:
+    - validation_trades < _MIN_ENTRY_SIGNALS (검증 신호 부족)
+    - validation_sharpe <= 0 (검증 구간에서 음수 Sharpe)
+    - max_drawdown_pct < -40% (과도한 낙폭)
+    - trade_count < 10 (훈련 구간 거래 표본 부족)
+    """
+    if result.validation_trades < _MIN_ENTRY_SIGNALS:
+        return False  # 검증 신호 부족
+    if result.validation_sharpe <= 0.0:
+        return False  # 검증 구간 부정적
+    if result.max_drawdown_pct < -40.0:
+        return False  # 과도한 낙폭
+    if result.trade_count < 10:
+        return False  # 훈련 표본 부족
+    return True
+
+
 def optimize_params(
     symbol: str,
     market: str,
@@ -255,7 +355,7 @@ def optimize_params(
     if len(train_ret) < 30:
         return None
 
-    best_sharpe = -np.inf
+    best_score = -np.inf  # 복합 점수 기반 선택 (Phase 3)
     best_params: dict = {}
     best_metrics: dict = {}
 
@@ -292,8 +392,10 @@ def optimize_params(
                 continue
 
             metrics = simulate_strategy(train_paths, sl, tp, hd)
-            if metrics["sharpe_ratio"] > best_sharpe:
-                best_sharpe = metrics["sharpe_ratio"]
+            # Phase 3: Sharpe만이 아니라 다중 지표 복합 점수로 비교
+            composite_score = _compute_composite_score(metrics)
+            if composite_score > best_score:
+                best_score = composite_score
                 best_params = {
                     "stop_loss_pct": _clamp(sl, *_STOP_LOSS_RANGE),
                     "take_profit_pct": _clamp(tp, *_TAKE_PROFIT_RANGE),
@@ -314,22 +416,28 @@ def optimize_params(
         (val_vol >= best_params["volume_ratio_min"])
     )
     val_entry_idx = np.where(val_entry_mask)[0]
-    if len(val_entry_idx) >= _MIN_ENTRY_SIGNALS:
-        val_entry_returns = val_ret[val_entry_idx]
-    else:
-        val_entry_returns = val_ret  # 진입 신호 부족 시 전체 수익률로 fallback
+    validation_signals = len(val_entry_idx)
+    reliability_reason = "passed"
 
-    val_paths = generate_price_paths(
-        val_entry_returns, sim_config.n_simulations, sim_config.simulation_days,
-        sim_config.method, sim_config.random_seed + 1,
-    )
-    val_metrics = simulate_strategy(
-        val_paths,
-        best_params["stop_loss_pct"],
-        best_params["take_profit_pct"],
-        best_params["max_holding_days"],
-    )
-    validation_sharpe = val_metrics["sharpe_ratio"]
+    # Phase 2-1: fallback 제거 - 신호 부족 시 명시적으로 검증 실패 처리
+    if validation_signals < _MIN_ENTRY_SIGNALS:
+        validation_sharpe = 0.0
+        reliability_reason = "insufficient_signals"
+    else:
+        val_entry_returns = val_ret[val_entry_idx]
+        val_paths = generate_price_paths(
+            val_entry_returns, sim_config.n_simulations, sim_config.simulation_days,
+            sim_config.method, sim_config.random_seed + 1,
+        )
+        val_metrics = simulate_strategy(
+            val_paths,
+            best_params["stop_loss_pct"],
+            best_params["take_profit_pct"],
+            best_params["max_holding_days"],
+        )
+        validation_sharpe = val_metrics["sharpe_ratio"]
+        if validation_sharpe <= 0.1:
+            reliability_reason = "low_sharpe"
 
     return OptimizationResult(
         symbol=symbol,
@@ -339,11 +447,15 @@ def optimize_params(
         win_rate=best_metrics.get("win_rate", 0.0),
         avg_return_pct=best_metrics.get("avg_return_pct", 0.0),
         max_drawdown_pct=best_metrics.get("max_drawdown_pct", 0.0),
-        n_trades=best_metrics.get("avg_holding_days", 0.0),
+        avg_holding_days=best_metrics.get("avg_holding_days", 0.0),
+        trade_count=best_metrics.get("trade_count", 0),
         validation_sharpe=validation_sharpe,
+        validation_trades=validation_signals,
         optimized_at=datetime.datetime.now(
             datetime.timezone.utc).isoformat(timespec="seconds"),
-        is_reliable=validation_sharpe > 0.1,
+        is_reliable=(validation_sharpe >
+                     0.1 and validation_signals >= _MIN_ENTRY_SIGNALS),
+        reliability_reason=reliability_reason,
     )
 
 
@@ -353,13 +465,18 @@ def run_portfolio_optimization(
     param_grid: ParamGrid | None = None,
     sim_config: SimulationConfig | None = None,
 ) -> list[OptimizationResult]:
-    """여러 종목에 대해 병렬로 optimize_params를 실행한다."""
+    """여러 종목에 대해 병렬로 optimize_params를 실행한다.
+
+    Phase 3: 신뢰도 필터 추가
+    - 신뢰도가 낮은 결과는 자동으로 제외 (검증 신호 부족, 과도한 낙폭 등)
+    """
     if param_grid is None:
         param_grid = ParamGrid()
     if sim_config is None:
         sim_config = SimulationConfig()
 
     results: list[OptimizationResult] = []
+    filtered_results: list[OptimizationResult] = []  # Phase 3: 신뢰도 필터링 후 결과
     total = len(symbols)
 
     def _task(code: str, market: str) -> OptimizationResult | None:
@@ -383,10 +500,21 @@ def run_portfolio_optimization(
             result = future.result()
             if result is not None:
                 results.append(result)
-                logger.info("[{}/{}] {} ({}) — 샤프={:.2f}, 신뢰={}",
-                            done, total, code, market,
-                            result.sharpe_ratio, result.is_reliable)
+                # Phase 3: 신뢰도 필터 적용
+                if _should_use_result(result):
+                    filtered_results.append(result)
+                    logger.info("[{}/{}] {} ({}) — 샤프={:.2f}, VAL신호={}, 신뢰=✓",
+                                done, total, code, market,
+                                result.sharpe_ratio, result.validation_trades)
+                else:
+                    logger.info("[{}/{}] {} ({}) — 신뢰도 부족 (reason:{})",
+                                done, total, code, market, result.reliability_reason)
             else:
-                logger.info("[{}/{}] {} ({}) — 스킵", done, total, code, market)
+                logger.info("[{}/{}] {} ({}) — 최적화 실패",
+                            done, total, code, market)
 
-    return results
+    logger.info("최종 결과: 전체 {}개 중 신뢰 가능 {}개 (필터율: {:.1f}%)",
+                len(results), len(filtered_results),
+                (1 - len(filtered_results) / max(1, len(results))) * 100)
+
+    return filtered_results  # Phase 3: 신뢰도가 높은 결과만 반환

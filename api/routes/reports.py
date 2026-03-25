@@ -128,6 +128,19 @@ def _fallback_today_picks(date: str | None = None) -> dict:
     if not recommendations.get("recommendations"):
         return {"picks": [], "auto_candidates": []}
 
+    # Phase 5: 최적화 결과 로드 (신뢰도 정보 추가용)
+    optimized_params = None
+    try:
+        from pathlib import Path
+        from config.backtest_universe import LOGS_DIR
+        opt_path = Path(__file__).parent.parent.parent / \
+            "config" / "optimized_params.json"
+        if opt_path.exists():
+            import json
+            optimized_params = json.loads(opt_path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+
     all_candidates = []
     for item in recommendations.get("recommendations", []):
         ticker = (item.get("ticker") or "").split(".")[0]
@@ -137,6 +150,29 @@ def _fallback_today_picks(date: str | None = None) -> dict:
             str(item.get("code") or ticker),
             str(item.get("name") or ""),
         )
+
+        # Phase 5: 최적화 결과에서 신뢰도 정보 추출
+        code = item.get("code") or ticker
+        opt_result = {}
+        if optimized_params and optimized_params.get("per_symbol", {}).get(code):
+            opt_result = optimized_params["per_symbol"][code]
+
+        # 신뢰도 결정 (is_reliable 필드 기반)
+        is_reliable = bool(opt_result.get("is_reliable", False))
+        validation_trades = int(opt_result.get("validation_trades", 0))
+        validation_sharpe = float(opt_result.get("validation_sharpe", 0.0))
+        reliability_reason = str(opt_result.get(
+            "reliability_reason", "unknown"))
+
+        # 신뢰도 레벨 결정
+        strategy_reliability = "insufficient"  # 기본값
+        if is_reliable and validation_sharpe > 0.1 and validation_trades >= 10:
+            strategy_reliability = "high"
+        elif validation_trades >= 5 and validation_sharpe > 0.0:
+            strategy_reliability = "medium"
+        elif validation_trades > 0:
+            strategy_reliability = "low"
+
         candidate = {
             "name": item.get("name"),
             "code": ticker,
@@ -158,6 +194,12 @@ def _fallback_today_picks(date: str | None = None) -> dict:
             "gate_reasons": item.get("gate_reasons", []),
             "playbook_alignment": item.get("playbook_alignment"),
             "ai_thesis": item.get("ai_thesis"),
+            # Phase 5 추가 필드
+            "strategy_reliability": strategy_reliability,
+            "validation_trades": validation_trades,
+            "validation_sharpe": validation_sharpe,
+            "is_reliable": is_reliable,
+            "reliability_reason": reliability_reason,
         }
         all_candidates.append(candidate)
 
@@ -198,12 +240,16 @@ def _build_compare_payload(base_date: str | None = None, prev_date: str | None =
 
     base_analysis = _load_report_json("analysis", base_date, latest=False)
     prev_analysis = _load_report_json("analysis", prev_date, latest=False)
-    base_recommendations = _load_report_json("recommendations", base_date, latest=False)
-    prev_recommendations = _load_report_json("recommendations", prev_date, latest=False)
+    base_recommendations = _load_report_json(
+        "recommendations", base_date, latest=False)
+    prev_recommendations = _load_report_json(
+        "recommendations", prev_date, latest=False)
     base_context = _load_report_json("market_context", base_date, latest=False)
     prev_context = _load_report_json("market_context", prev_date, latest=False)
-    base_today_picks = _load_report_json("today_picks", base_date, latest=False) or _fallback_today_picks(base_date)
-    prev_today_picks = _load_report_json("today_picks", prev_date, latest=False) or _fallback_today_picks(prev_date)
+    base_today_picks = _load_report_json(
+        "today_picks", base_date, latest=False) or _fallback_today_picks(base_date)
+    prev_today_picks = _load_report_json(
+        "today_picks", prev_date, latest=False) or _fallback_today_picks(prev_date)
 
     base_rec_map: dict = {}
     prev_rec_map: dict = {}
@@ -218,8 +264,10 @@ def _build_compare_payload(base_date: str | None = None, prev_date: str | None =
 
     recommendation_changes = []
     for current in base_recommendations.get("recommendations", []):
-        key = (current.get("ticker") or "").split(".")[0] or current.get("name")
-        previous = prev_rec_map.get(key) or prev_rec_map.get(current.get("name"))
+        key = (current.get("ticker") or "").split(
+            ".")[0] or current.get("name")
+        previous = prev_rec_map.get(
+            key) or prev_rec_map.get(current.get("name"))
         if not previous:
             continue
         if current.get("signal") != previous.get("signal") or current.get("score") != previous.get("score"):
@@ -231,8 +279,10 @@ def _build_compare_payload(base_date: str | None = None, prev_date: str | None =
                 "score_diff": round(float(current.get("score", 0)) - float(previous.get("score", 0)), 1),
             })
 
-    base_pick_map = {item.get("code") or item.get("name"): item for item in base_today_picks.get("picks", [])}
-    prev_pick_map = {item.get("code") or item.get("name"): item for item in prev_today_picks.get("picks", [])}
+    base_pick_map = {item.get("code") or item.get(
+        "name"): item for item in base_today_picks.get("picks", [])}
+    prev_pick_map = {item.get("code") or item.get(
+        "name"): item for item in prev_today_picks.get("picks", [])}
     today_pick_changes = []
     for key, current in base_pick_map.items():
         previous = prev_pick_map.get(key)

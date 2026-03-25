@@ -102,6 +102,32 @@ function MarketSection({ bucket, items, session }: { bucket: MarketBucket; items
 function PickCard({ item }: { item: TodayPickItem }) {
   const gate = gateTone[item.gate_status || 'passed'] || gateTone.passed;
   const signalLabel = getQuantSignalLabel(item.signal);
+  
+  // Phase 5: 신뢰도 배지 렌더링
+  const getReliabilityBadge = () => {
+    if (!item.strategy_reliability && !item.reliability_reason) {
+      return null;
+    }
+    
+    const reliabilityConfig: Record<string, { label: string; color: string; bg: string; border: string }> = {
+      'high': { label: '신뢰도 높음', color: 'var(--up)', bg: 'rgba(24,121,78,.12)', border: 'rgba(24,121,78,.2)' },
+      'medium': { label: '신뢰도 보통', color: '#b7791f', bg: 'rgba(183,121,31,.12)', border: 'rgba(183,121,31,.2)' },
+      'low': { label: '신뢰도 낮음', color: 'var(--down)', bg: 'rgba(196,68,45,.10)', border: 'rgba(196,68,45,.2)' },
+      'insufficient': { label: '검증 부족', color: '#a0aec0', bg: 'rgba(160,174,192,.12)', border: 'rgba(160,174,192,.2)' },
+    };
+    
+    const config = reliabilityConfig[item.strategy_reliability || 'insufficient'] || 
+                   { label: item.reliability_reason || '신뢰도 확인', color: '#a0aec0', bg: 'rgba(160,174,192,.12)', border: 'rgba(160,174,192,.2)' };
+    
+    return (
+      <span style={{ fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '6px 10px', 
+                     color: config.color, border: `1px solid ${config.border}`, background: config.bg }}>
+        {config.label}
+        {item.validation_trades !== undefined && ` (신호: ${item.validation_trades})`}
+      </span>
+    );
+  };
+  
   return (
     <div className="page-section" style={{ padding: 18, borderColor: `${signalColor[item.signal] || 'var(--border)'}33`, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
@@ -121,6 +147,7 @@ function PickCard({ item }: { item: TodayPickItem }) {
               {getSetupQualityLabel(item.setup_quality)}
             </span>
           )}
+          {getReliabilityBadge()}
         </div>
       </div>
 

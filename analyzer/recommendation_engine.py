@@ -293,7 +293,8 @@ def _legacy_recommendations(data: DailyData) -> Dict:
         score = 50.0
         score += market_bias * 4.0
         score += macro_adjustment
-        score += min(hits, 6) * 3.5
+        # Phase 2-2: generate_recommendations와 가중치 통일
+        score += min(hits, 8) * 3.0
         score += min(h.weight_pct / 10.0, 4.0)
         score = max(0.0, min(score, 100.0))
 

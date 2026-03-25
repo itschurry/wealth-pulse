@@ -7,6 +7,14 @@
   python3 scripts/run_monte_carlo_optimizer.py --symbols 005930,000660,NVDA,MSFT
 """
 from __future__ import annotations
+from config.backtest_universe import get_kospi100_universe, get_sp100_nasdaq_universe
+from analyzer.monte_carlo import (
+    OptimizationResult,
+    ParamGrid,
+    SimulationConfig,
+    run_portfolio_optimization,
+)
+from loguru import logger
 
 import argparse
 import datetime
@@ -18,15 +26,6 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from loguru import logger
-
-from analyzer.monte_carlo import (
-    OptimizationResult,
-    ParamGrid,
-    SimulationConfig,
-    run_portfolio_optimization,
-)
-from config.backtest_universe import get_kospi100_universe, get_sp100_nasdaq_universe
 
 _OPTIMIZED_PARAMS_PATH = _PROJECT_ROOT / "config" / "optimized_params.json"
 
@@ -49,7 +48,8 @@ def _fetch_kis_history(code: str, market: str, days: int) -> list[dict]:
             return []
         client = KISClient.from_env()
         end = datetime.date.today().strftime("%Y%m%d")
-        start = (datetime.date.today() - datetime.timedelta(days=days)).strftime("%Y%m%d")
+        start = (datetime.date.today() -
+                 datetime.timedelta(days=days)).strftime("%Y%m%d")
         if market == "KOSPI":
             return client.get_domestic_daily_history(code, start_date=start, end_date=end)
         else:
@@ -59,13 +59,13 @@ def _fetch_kis_history(code: str, market: str, days: int) -> list[dict]:
         return []
 
 
-
 def _fetch_price_history(code: str, market: str, days: int, min_rows: int = 80) -> list[dict]:
     """KIS API로 가격 데이터를 가져온다. min_rows에 못 미치면 빈 리스트 반환."""
     rows = _fetch_kis_history(code, market, days)
     if len(rows) >= min_rows:
         return rows
-    logger.debug("{}/{}: KIS {} 건 (필요 {} 건) — 데이터 부족", code, market, len(rows), min_rows)
+    logger.debug("{}/{}: KIS {} 건 (필요 {} 건) — 데이터 부족",
+                 code, market, len(rows), min_rows)
     return []
 
 
@@ -83,14 +83,16 @@ def _collect_price_data(
         return code, _fetch_price_history(code, market, days, min_rows=min_rows)
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {executor.submit(_task, code, mkt): (code, mkt) for code, mkt in symbols}
+        futures = {executor.submit(_task, code, mkt): (
+            code, mkt) for code, mkt in symbols}
         done = 0
         for future in as_completed(futures):
             code, mkt = futures[future]
             done += 1
             rows = future.result()[1]
             price_data[code] = rows
-            logger.debug("[{}/{}] {} ({}) — {}건 수집", done, total, code, mkt, len(rows))
+            logger.debug("[{}/{}] {} ({}) — {}건 수집", done,
+                         total, code, mkt, len(rows))
 
     return price_data
 
@@ -123,10 +125,14 @@ def _save_results(
 
     # 클램핑
     if global_params:
-        global_params["stop_loss_pct"] = _clamp(global_params["stop_loss_pct"], *_STOP_LOSS_RANGE)
-        global_params["take_profit_pct"] = _clamp(global_params["take_profit_pct"], *_TAKE_PROFIT_RANGE)
-        global_params["max_holding_days"] = int(_clamp(global_params["max_holding_days"], *_HOLDING_DAYS_RANGE))
-        global_params["volume_ratio_min"] = round(_clamp(global_params["volume_ratio_min"], *_VOLUME_RATIO_RANGE), 2)
+        global_params["stop_loss_pct"] = _clamp(
+            global_params["stop_loss_pct"], *_STOP_LOSS_RANGE)
+        global_params["take_profit_pct"] = _clamp(
+            global_params["take_profit_pct"], *_TAKE_PROFIT_RANGE)
+        global_params["max_holding_days"] = int(
+            _clamp(global_params["max_holding_days"], *_HOLDING_DAYS_RANGE))
+        global_params["volume_ratio_min"] = round(
+            _clamp(global_params["volume_ratio_min"], *_VOLUME_RATIO_RANGE), 2)
 
     per_symbol = {}
     for r in results:
@@ -136,14 +142,21 @@ def _save_results(
                   else round(_clamp(v, *_VOLUME_RATIO_RANGE), 2) if k == "volume_ratio_min"
                   else v
                   for k, v in r.best_params.items()}
+        # Phase 5: 신뢰도 정보 확대 저장
         per_symbol[r.symbol] = {
             "name": (name_map or {}).get(r.symbol, r.symbol),
             "market": r.market,
             **params,
             "sharpe_ratio": float(round(r.sharpe_ratio, 4)),
             "win_rate": float(round(r.win_rate, 4)),
+            "avg_return_pct": float(round(r.avg_return_pct, 4)),
+            "max_drawdown_pct": float(round(r.max_drawdown_pct, 4)),
+            "avg_holding_days": float(round(r.avg_holding_days, 2)),
+            "trade_count": int(r.trade_count),
             "validation_sharpe": float(round(r.validation_sharpe, 4)),
+            "validation_trades": int(r.validation_trades),
             "is_reliable": bool(r.is_reliable),
+            "reliability_reason": str(r.reliability_reason),
         }
 
     output = {
@@ -200,7 +213,8 @@ def main() -> None:
                         help="쉼표 구분 종목 코드 (예: 005930,NVDA)")
     parser.add_argument("--simulations", type=int, default=5000,
                         help="시뮬레이션 횟수 (기본: 5000)")
-    parser.add_argument("--method", choices=["bootstrap", "gbm"], default="bootstrap")
+    parser.add_argument(
+        "--method", choices=["bootstrap", "gbm"], default="bootstrap")
     parser.add_argument("--lookback-days", type=int, default=None,
                         help="학습 기간 일수 (기본: SimulationConfig 기본값 252)")
     parser.add_argument("--validation-days", type=int, default=None,
@@ -217,7 +231,8 @@ def main() -> None:
 
     logger.info("=== 몬테카를로 최적화 시작: {}개 종목 ===", len(sym_pairs))
 
-    sim_kwargs: dict = {"n_simulations": args.simulations, "method": args.method}
+    sim_kwargs: dict = {
+        "n_simulations": args.simulations, "method": args.method}
     if args.lookback_days is not None:
         sim_kwargs["lookback_days"] = args.lookback_days
     if args.validation_days is not None:
@@ -228,17 +243,20 @@ def main() -> None:
     min_rows = sim_config.lookback_days + sim_config.validation_days
     required_days = min_rows + 50
     logger.info("가격 데이터 수집 중 (최근 {}일, 최소 {}건)...", required_days, min_rows)
-    price_data = _collect_price_data(sym_pairs, required_days, min_rows=min_rows)
+    price_data = _collect_price_data(
+        sym_pairs, required_days, min_rows=min_rows)
 
     logger.info("파라미터 최적화 실행 중...")
-    results = run_portfolio_optimization(sym_pairs, price_data, sim_config=sim_config)
+    results = run_portfolio_optimization(
+        sym_pairs, price_data, sim_config=sim_config)
 
     if not results:
         logger.error("최적화 결과가 없습니다.")
         sys.exit(1)
 
     reliable = [r for r in results if r.is_reliable]
-    logger.info("최적화 완료: {}개 종목, 신뢰할 수 있는 결과: {}개", len(results), len(reliable))
+    logger.info("최적화 완료: {}개 종목, 신뢰할 수 있는 결과: {}개",
+                len(results), len(reliable))
 
     if reliable:
         gp = _compute_global_params(results)
