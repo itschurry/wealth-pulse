@@ -38,7 +38,8 @@ from market_utils import normalize_market, resolve_market
 _DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]
 _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
 
-_OPTIMIZED_PARAMS_PATH = Path(__file__).parent.parent.parent / "config" / "optimized_params.json"
+_OPTIMIZED_PARAMS_PATH = Path(
+    __file__).parent.parent.parent / "config" / "optimized_params.json"
 _OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
 
 
@@ -50,7 +51,8 @@ def _load_optimized_params() -> dict | None:
         return None
     try:
         data = json.loads(_OPTIMIZED_PARAMS_PATH.read_text(encoding="utf-8"))
-        optimized_at = datetime.datetime.fromisoformat(data.get("optimized_at", "2000-01-01"))
+        optimized_at = datetime.datetime.fromisoformat(
+            data.get("optimized_at", "2000-01-01"))
         age_days = (datetime.datetime.now(datetime.timezone.utc)
                     - optimized_at.astimezone(datetime.timezone.utc)).days
         if age_days > _OPTIMIZED_PARAMS_MAX_AGE_DAYS:
@@ -73,14 +75,29 @@ def _get_symbol_optimized_params(code: str) -> dict:
         return {}
     return {
         k: symbol_data[k]
-        for k in ("stop_loss_pct", "take_profit_pct", "max_holding_days", "rsi_min", "rsi_max")
+        for k in (
+            "stop_loss_pct",
+            "take_profit_pct",
+            "max_holding_days",
+            "rsi_min",
+            "rsi_max",
+            "volume_ratio_min",
+            "adx_min",
+            "mfi_min",
+            "mfi_max",
+            "bb_pct_min",
+            "bb_pct_max",
+            "stoch_k_min",
+            "stoch_k_max",
+        )
         if k in symbol_data
     }
 
 
 def _get_paper_engine() -> PaperExecutionEngine:
     if _cache._paper_engine is None:
-        state_path = Path(os.getenv("PAPER_TRADING_STATE_PATH", str(LOGS_DIR / "paper_account_state.json")))
+        state_path = Path(os.getenv("PAPER_TRADING_STATE_PATH",
+                          str(LOGS_DIR / "paper_account_state.json")))
         _cache._paper_engine = PaperExecutionEngine(
             config=EngineConfig(
                 state_path=state_path,
@@ -121,18 +138,21 @@ def _parse_seed_positions(raw) -> list[dict]:
             quantity = 0
         avg_price_raw = item.get("avg_price_local")
         try:
-            avg_price_local = float(avg_price_raw) if avg_price_raw not in (None, "") else 0.0
+            avg_price_local = float(
+                avg_price_raw) if avg_price_raw not in (None, "") else 0.0
         except (TypeError, ValueError):
             avg_price_local = 0.0
 
         if market not in {"KOSPI", "NASDAQ"}:
-            raise ValueError(f"seed_positions[{idx}] market은 KOSPI/NASDAQ만 허용합니다.")
+            raise ValueError(
+                f"seed_positions[{idx}] market은 KOSPI/NASDAQ만 허용합니다.")
         if not code:
             raise ValueError(f"seed_positions[{idx}] code가 필요합니다.")
         if quantity <= 0:
             raise ValueError(f"seed_positions[{idx}] quantity는 1 이상이어야 합니다.")
         if avg_price_local <= 0:
-            raise ValueError(f"seed_positions[{idx}] avg_price_local은 0보다 커야 합니다.")
+            raise ValueError(
+                f"seed_positions[{idx}] avg_price_local은 0보다 커야 합니다.")
 
         parsed.append({
             "market": market,
@@ -249,10 +269,27 @@ def _default_auto_trader_config() -> dict:
     optimized = _load_optimized_params()
     if optimized:
         global_params = optimized.get("global_params", {})
-        _OPTIMIZABLE_KEYS = {"stop_loss_pct", "take_profit_pct", "max_holding_days", "rsi_min", "rsi_max"}
+        _OPTIMIZABLE_KEYS = {
+            "stop_loss_pct",
+            "take_profit_pct",
+            "max_holding_days",
+            "rsi_min",
+            "rsi_max",
+            "volume_ratio_min",
+            "adx_min",
+            "mfi_min",
+            "mfi_max",
+            "bb_pct_min",
+            "bb_pct_max",
+            "stoch_k_min",
+            "stoch_k_max",
+        }
         for key in _OPTIMIZABLE_KEYS:
             if key in global_params and global_params[key] is not None:
                 base[key] = global_params[key]
+                for market_key in ("KOSPI", "NASDAQ"):
+                    if market_key in base["market_profiles"]:
+                        base["market_profiles"][market_key][key] = global_params[key]
         from loguru import logger
         logger.info("몬테카를로 최적 파라미터 적용: {}", global_params)
     return base
@@ -270,9 +307,11 @@ def _order_day(ts: str) -> str:
 
 
 def _position_holding_days(position: dict) -> int:
-    entry_ts = str(position.get("entry_ts") or position.get("updated_at") or "")
+    entry_ts = str(position.get("entry_ts")
+                   or position.get("updated_at") or "")
     try:
-        entry_date = datetime.datetime.fromisoformat(entry_ts).astimezone(_KST).date()
+        entry_date = datetime.datetime.fromisoformat(
+            entry_ts).astimezone(_KST).date()
     except Exception:
         return 0
     return max(0, (datetime.datetime.now(_KST).date() - entry_date).days)
@@ -288,7 +327,8 @@ def _auto_trader_profile_map(cfg: dict, markets: list[str] | None = None) -> dic
     if isinstance(raw_profiles, dict) and raw_profiles:
         profile_map = {
             normalize_strategy_market(market): serialize_strategy_profiles([
-                profile_from_mapping(market, payload if isinstance(payload, dict) else {})
+                profile_from_mapping(
+                    market, payload if isinstance(payload, dict) else {})
             ])[normalize_strategy_market(market)]
             for market, payload in raw_profiles.items()
             if normalize_strategy_market(market) in {"KOSPI", "NASDAQ"}
@@ -296,14 +336,30 @@ def _auto_trader_profile_map(cfg: dict, markets: list[str] | None = None) -> dic
         for market in selected_markets:
             profile_map.setdefault(
                 market,
-                serialize_strategy_profiles([default_strategy_profile(market)])[market],
+                serialize_strategy_profiles(
+                    [default_strategy_profile(market)])[market],
             )
         return profile_map
 
     overrides: dict[str, object] = {}
     if "max_positions_per_market" in cfg:
-        overrides["max_positions"] = int(cfg.get("max_positions_per_market") or 5)
-    for key in ("max_holding_days", "rsi_min", "rsi_max", "volume_ratio_min", "signal_interval", "signal_range"):
+        overrides["max_positions"] = int(
+            cfg.get("max_positions_per_market") or 5)
+    for key in (
+        "max_holding_days",
+        "rsi_min",
+        "rsi_max",
+        "volume_ratio_min",
+        "adx_min",
+        "mfi_min",
+        "mfi_max",
+        "bb_pct_min",
+        "bb_pct_max",
+        "stoch_k_min",
+        "stoch_k_max",
+        "signal_interval",
+        "signal_range",
+    ):
         if key in cfg and cfg.get(key) not in (None, ""):
             overrides[key] = cfg.get(key)
     for key in ("stop_loss_pct", "take_profit_pct"):
@@ -333,12 +389,20 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     profile_map = _auto_trader_profile_map(cfg, markets)
     primary = profile_map.get(markets[0]) or next(iter(profile_map.values()))
     cfg["market_profiles"] = profile_map
-    cfg["max_positions_per_market"] = int(primary.get("max_positions") or cfg.get("max_positions_per_market") or 5)
+    cfg["max_positions_per_market"] = int(primary.get(
+        "max_positions") or cfg.get("max_positions_per_market") or 5)
     cfg["signal_interval"] = str(primary.get("signal_interval") or "1d")
     cfg["signal_range"] = str(primary.get("signal_range") or "6mo")
     cfg["rsi_min"] = float(primary.get("rsi_min") or 45.0)
     cfg["rsi_max"] = float(primary.get("rsi_max") or 68.0)
     cfg["volume_ratio_min"] = float(primary.get("volume_ratio_min") or 1.2)
+    cfg["adx_min"] = primary.get("adx_min")
+    cfg["mfi_min"] = primary.get("mfi_min")
+    cfg["mfi_max"] = primary.get("mfi_max")
+    cfg["bb_pct_min"] = primary.get("bb_pct_min")
+    cfg["bb_pct_max"] = primary.get("bb_pct_max")
+    cfg["stoch_k_min"] = primary.get("stoch_k_min")
+    cfg["stoch_k_max"] = primary.get("stoch_k_max")
     cfg["stop_loss_pct"] = primary.get("stop_loss_pct")
     cfg["take_profit_pct"] = primary.get("take_profit_pct")
     cfg["max_holding_days"] = int(primary.get("max_holding_days") or 30)
@@ -443,7 +507,8 @@ def _auto_invest_picks(
 
     for item in candidates:
         if remaining_slots <= 0:
-            skipped.append({"code": item.get("code"), "reason": "max_positions"})
+            skipped.append({"code": item.get("code"),
+                           "reason": "max_positions"})
             continue
         code = str(item.get("code") or "").upper()
         if code in held_codes:
@@ -460,8 +525,10 @@ def _auto_invest_picks(
             skipped.append({"code": code, "reason": "invalid_quote"})
             continue
 
-        fx_rate = (_paper_fx_rate() or 1300.0) if target_market == "NASDAQ" else 1.0
-        unit_price = quote_price if target_market == "NASDAQ" else (quote_price * fx_rate)
+        fx_rate = (_paper_fx_rate()
+                   or 1300.0) if target_market == "NASDAQ" else 1.0
+        unit_price = quote_price if target_market == "NASDAQ" else (
+            quote_price * fx_rate)
         budget_per_slot = available_cash / max(remaining_slots, 1)
         quantity = int((budget_per_slot * 0.995) // unit_price)
         if quantity <= 0:
@@ -484,7 +551,8 @@ def _auto_invest_picks(
             take_profit_pct=tp,
         )
         if not order_result.get("ok"):
-            skipped.append({"code": code, "reason": order_result.get("error") or "order_failed"})
+            skipped.append(
+                {"code": code, "reason": order_result.get("error") or "order_failed"})
             continue
 
         event = order_result.get("event") or {}
@@ -596,8 +664,10 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     executed_sells: list[dict] = []
     skipped: list[dict] = []
     closed_markets: list[str] = []
-    markets = [m for m in cfg.get("markets", ["KOSPI", "NASDAQ"]) if m in {"KOSPI", "NASDAQ"}]
-    candidate_counts_by_market: dict[str, int] = {market: 0 for market in markets}
+    markets = [m for m in cfg.get("markets", ["KOSPI", "NASDAQ"]) if m in {
+        "KOSPI", "NASDAQ"}]
+    candidate_counts_by_market: dict[str, int] = {
+        market: 0 for market in markets}
 
     _MARKET_TO_CALENDAR = {"KOSPI": "KR", "NASDAQ": "US"}
 
@@ -624,11 +694,13 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 continue
             technicals, tech_error = _load_technicals(code, market)
             if tech_error:
-                skipped.append({"code": code, "name": pos_name, "market": market, "reason": f"technicals_error: {tech_error}"})
+                skipped.append({"code": code, "name": pos_name, "market": market,
+                               "reason": f"technicals_error: {tech_error}"})
                 continue
             if not technicals:
                 continue
-            reason = _should_exit_by_indicators(position, technicals, cfg, market)
+            reason = _should_exit_by_indicators(
+                position, technicals, cfg, market)
             if not reason:
                 continue
             result = engine.place_order(
@@ -641,10 +713,12 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             if result.get("ok"):
                 sell_count += 1
                 event = result.get("event") or {}
-                executed_sells.append({"code": code, "market": market, "reason": reason, "quantity": event.get("quantity")})
+                executed_sells.append(
+                    {"code": code, "market": market, "reason": reason, "quantity": event.get("quantity")})
                 orders = (result.get("account") or {}).get("orders", orders)
             else:
-                skipped.append({"code": code, "market": market, "reason": result.get("error") or "sell_failed"})
+                skipped.append({"code": code, "market": market,
+                               "reason": result.get("error") or "sell_failed"})
 
         account = engine.get_account(refresh_quotes=True)
         held_codes = {
@@ -673,18 +747,22 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 continue
             technicals, tech_error = _load_technicals(code, market)
             if tech_error:
-                skipped.append({"code": code, "name": cand_name, "market": market, "reason": f"technicals_error: {tech_error}"})
+                skipped.append({"code": code, "name": cand_name, "market": market,
+                               "reason": f"technicals_error: {tech_error}"})
                 continue
             if not technicals:
-                skipped.append({"code": code, "name": cand_name, "market": market, "reason": "technicals_unavailable"})
+                skipped.append({"code": code, "name": cand_name,
+                               "market": market, "reason": "technicals_unavailable"})
                 continue
             if not _should_enter_by_indicators(technicals, cfg, market):
-                skipped.append({"code": code, "name": cand_name, "market": market, "reason": "entry_signal_not_matched"})
+                skipped.append({"code": code, "name": cand_name,
+                               "market": market, "reason": "entry_signal_not_matched"})
                 continue
             quote = _resolve_stock_quote(code, market)
             price_local = float(quote.get("price") or 0.0)
             if price_local <= 0:
-                skipped.append({"code": code, "name": cand_name, "market": market, "reason": "invalid_quote"})
+                skipped.append({"code": code, "name": cand_name,
+                               "market": market, "reason": "invalid_quote"})
                 continue
             account = engine.get_account(refresh_quotes=False)
             available_cash = (
@@ -694,9 +772,10 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             budget_per_slot = available_cash / max(slots, 1)
             quantity = int((budget_per_slot * 0.995) // price_local)
             if quantity <= 0:
-                skipped.append({"code": code, "name": cand_name, "market": market, "reason": "insufficient_cash"})
+                skipped.append({"code": code, "name": cand_name,
+                               "market": market, "reason": "insufficient_cash"})
                 continue
-            
+
             # 몬테카를로 최적 파라미터 로드
             symbol_params = _get_symbol_optimized_params(code)
             sl = symbol_params.get("stop_loss_pct")
@@ -725,7 +804,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 })
                 orders = (result.get("account") or {}).get("orders", orders)
             else:
-                skipped.append({"code": code, "name": cand_name, "market": market, "reason": result.get("error") or "buy_failed"})
+                skipped.append({"code": code, "name": cand_name, "market": market,
+                               "reason": result.get("error") or "buy_failed"})
 
     skip_reason_counts: dict[str, int] = {}
     for item in skipped:
@@ -771,7 +851,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
 def _auto_trader_loop(stop_event: threading.Event) -> None:
     while not stop_event.is_set():
         with _cache._auto_trader_lock:
-            cfg = dict(_cache._auto_trader_state.get("config") or _default_auto_trader_config())
+            cfg = dict(_cache._auto_trader_state.get(
+                "config") or _default_auto_trader_config())
         try:
             summary = _run_auto_trader_cycle(cfg)
             with _cache._auto_trader_lock:
@@ -801,12 +882,18 @@ def _start_auto_trader(config: dict) -> dict:
             return {"ok": True, "running": True, "message": "이미 실행 중입니다.", "state": dict(_cache._auto_trader_state)}
         merged = _default_auto_trader_config()
         merged.update(config or {})
-        merged["interval_seconds"] = max(30, min(3600, int(merged.get("interval_seconds") or 300)))
-        merged["max_positions_per_market"] = max(1, min(20, int(merged.get("max_positions_per_market") or 5)))
-        merged["daily_buy_limit"] = max(1, min(200, int(merged.get("daily_buy_limit") or 20)))
-        merged["daily_sell_limit"] = max(1, min(200, int(merged.get("daily_sell_limit") or 20)))
-        merged["max_orders_per_symbol_per_day"] = max(1, min(10, int(merged.get("max_orders_per_symbol_per_day") or 1)))
-        merged["min_score"] = max(0.0, min(100.0, float(merged.get("min_score") or 50.0)))
+        merged["interval_seconds"] = max(
+            30, min(3600, int(merged.get("interval_seconds") or 300)))
+        merged["max_positions_per_market"] = max(
+            1, min(20, int(merged.get("max_positions_per_market") or 5)))
+        merged["daily_buy_limit"] = max(
+            1, min(200, int(merged.get("daily_buy_limit") or 20)))
+        merged["daily_sell_limit"] = max(
+            1, min(200, int(merged.get("daily_sell_limit") or 20)))
+        merged["max_orders_per_symbol_per_day"] = max(
+            1, min(10, int(merged.get("max_orders_per_symbol_per_day") or 1)))
+        merged["min_score"] = max(
+            0.0, min(100.0, float(merged.get("min_score") or 50.0)))
         merged.update(_parse_theme_gate_config(merged))
         markets = merged.get("markets") or ["KOSPI", "NASDAQ"]
         if not isinstance(markets, list):
@@ -818,7 +905,8 @@ def _start_auto_trader(config: dict) -> dict:
 
         _cache._auto_trader_stop_event = threading.Event()
         _cache._auto_trader_thread = threading.Thread(
-            target=_auto_trader_loop, args=(_cache._auto_trader_stop_event,), daemon=True
+            target=_auto_trader_loop, args=(
+                _cache._auto_trader_stop_event,), daemon=True
         )
         _cache._auto_trader_state["running"] = True
         _cache._auto_trader_state["started_at"] = _now_iso()
@@ -875,7 +963,8 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
         order_type = str(payload.get("order_type") or "market").strip().lower()
         limit_price_raw = payload.get("limit_price")
         try:
-            limit_price = float(limit_price_raw) if limit_price_raw not in (None, "") else None
+            limit_price = float(limit_price_raw) if limit_price_raw not in (
+                None, "") else None
         except (TypeError, ValueError):
             limit_price = None
         engine = _get_paper_engine()
@@ -899,9 +988,12 @@ def handle_paper_reset(payload: dict) -> tuple[int, dict]:
         initial_cash_usd_raw = payload.get("initial_cash_usd")
         paper_days_raw = payload.get("paper_days")
         seed_positions = _parse_seed_positions(payload.get("seed_positions"))
-        initial_cash_krw = float(initial_cash_krw_raw) if initial_cash_krw_raw not in (None, "") else None
-        initial_cash_usd = float(initial_cash_usd_raw) if initial_cash_usd_raw not in (None, "") else None
-        paper_days = int(paper_days_raw) if paper_days_raw not in (None, "") else None
+        initial_cash_krw = float(
+            initial_cash_krw_raw) if initial_cash_krw_raw not in (None, "") else None
+        initial_cash_usd = float(
+            initial_cash_usd_raw) if initial_cash_usd_raw not in (None, "") else None
+        paper_days = int(paper_days_raw) if paper_days_raw not in (
+            None, "") else None
         engine = _get_paper_engine()
         return 200, {
             "ok": True,
@@ -923,12 +1015,14 @@ def handle_paper_auto_invest(payload: dict) -> tuple[int, dict]:
         market = str(payload.get("market") or "NASDAQ").strip().upper()
         try:
             max_positions_raw = payload.get("max_positions")
-            max_positions = int(5 if max_positions_raw in (None, "") else max_positions_raw)
+            max_positions = int(5 if max_positions_raw in (
+                None, "") else max_positions_raw)
         except (TypeError, ValueError):
             max_positions = 5
         try:
             min_score_raw = payload.get("min_score")
-            min_score = float(50.0 if min_score_raw in (None, "") else min_score_raw)
+            min_score = float(50.0 if min_score_raw in (
+                None, "") else min_score_raw)
         except (TypeError, ValueError):
             min_score = 50.0
         include_neutral = bool(payload.get("include_neutral") is True)

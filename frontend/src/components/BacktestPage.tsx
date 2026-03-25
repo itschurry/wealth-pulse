@@ -603,6 +603,10 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
                 <div style={{ display: 'grid', gap: 10, marginTop: 14, fontSize: 13, color: 'var(--text-3)' }}>
                   <div>RSI: {data.config?.rsi_min} ~ {data.config?.rsi_max}</div>
                   <div>거래량: {data.config?.volume_ratio_min}배 이상</div>
+                  <div>ADX: {data.config?.adx_min ?? draft.adx_min ?? '미사용'} 이상</div>
+                  <div>MFI: {data.config?.mfi_min ?? draft.mfi_min ?? '미사용'} ~ {data.config?.mfi_max ?? draft.mfi_max ?? '미사용'}</div>
+                  <div>BB %b: {data.config?.bb_pct_min ?? draft.bb_pct_min ?? '미사용'} ~ {data.config?.bb_pct_max ?? draft.bb_pct_max ?? '미사용'}</div>
+                  <div>Stochastic K: {data.config?.stoch_k_min ?? draft.stoch_k_min ?? '미사용'} ~ {data.config?.stoch_k_max ?? draft.stoch_k_max ?? '미사용'}</div>
                   <div>추세: 종가 &gt; 20일선 &gt; 60일선</div>
                   <div>모멘텀: MACD 히스토그램 양수</div>
                 </div>
@@ -616,13 +620,8 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
                   <div>추세 이탈: 20일선 하회</div>
                   <div>기본 종료: MACD 약세 / RSI 과열 / 보유기간 만료</div>
                 </div>
-
-                  {draft.adx_min && <div>ADX: {draft.adx_min} 이상</div>}
-                  {draft.mfi_min && <div>MFI: {draft.mfi_min} ~ {draft.mfi_max}</div>}
-                  {draft.bb_pct_min && <div>BB %b: {draft.bb_pct_min} ~ {draft.bb_pct_max}</div>}
-                  {draft.stoch_k_min && <div>Stochastic K: {draft.stoch_k_min} ~ {draft.stoch_k_max}</div>}
-                </div>
               </div>
+            </div>
             <Sparkline data={data} currency={baseCurrency} />
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
@@ -639,7 +638,7 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
               <div style={{ fontSize: 12, color: 'var(--text-4)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Monte Carlo</div>
               <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)', marginTop: 6 }}>파라미터 최적화</div>
               <div style={{ fontSize: 13, color: 'var(--text-4)', marginTop: 8 }}>
-                몬테카를로 시뮬레이션으로 손절/익절/보유기간 최적값을 탐색합니다. 결과를 모의투자에 적용해 전략을 개선하세요.
+                몬테카를로 시뮬레이션으로 손절/익절/보유기간과 RSI·거래량·ADX·MFI·BB·Stochastic 조건 최적값을 탐색합니다.
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -695,7 +694,7 @@ export function BacktestPage({ onBack }: { onBack: () => void }) {
                             {typeof sym.name === 'string' ? sym.name : code}
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--text-3)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                            {(['stop_loss_pct', 'take_profit_pct', 'max_holding_days', 'rsi_min', 'rsi_max', 'volume_ratio_min'] as const).map((k) =>
+                            {(['stop_loss_pct', 'take_profit_pct', 'max_holding_days', 'rsi_min', 'rsi_max', 'volume_ratio_min', 'adx_min', 'mfi_min', 'mfi_max', 'bb_pct_min', 'bb_pct_max', 'stoch_k_min', 'stoch_k_max'] as const).map((k) =>
                               sym[k] !== undefined && sym[k] !== null
                                 ? <span key={k}><span style={{ color: 'var(--text-4)' }}>{paramLabel(k)}: </span>{paramValue(k, sym[k])}</span>
                                 : null

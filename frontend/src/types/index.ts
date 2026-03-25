@@ -419,6 +419,13 @@ export interface BacktestData {
     rsi_min?: number;
     rsi_max?: number;
     volume_ratio_min?: number;
+    adx_min?: number | null;
+    mfi_min?: number | null;
+    mfi_max?: number | null;
+    bb_pct_min?: number | null;
+    bb_pct_max?: number | null;
+    stoch_k_min?: number | null;
+    stoch_k_max?: number | null;
     stop_loss_pct?: number | null;
     take_profit_pct?: number | null;
     market_profiles?: Record<string, {
@@ -452,6 +459,13 @@ export interface PaperStrategyProfile {
   rsi_min: number;
   rsi_max: number;
   volume_ratio_min: number;
+  adx_min?: number | null;
+  mfi_min?: number | null;
+  mfi_max?: number | null;
+  bb_pct_min?: number | null;
+  bb_pct_max?: number | null;
+  stoch_k_min?: number | null;
+  stoch_k_max?: number | null;
   stop_loss_pct?: number | null;
   take_profit_pct?: number | null;
   signal_interval: '1m' | '2m' | '5m' | '15m' | '30m' | '60m' | '90m' | '1d';
@@ -548,6 +562,13 @@ export interface PaperEngineConfig {
   rsi_min: number;
   rsi_max: number;
   volume_ratio_min: number;
+  adx_min?: number | null;
+  mfi_min?: number | null;
+  mfi_max?: number | null;
+  bb_pct_min?: number | null;
+  bb_pct_max?: number | null;
+  stoch_k_min?: number | null;
+  stoch_k_max?: number | null;
   min_entry_signals?: number;
   signal_interval: '1m' | '2m' | '5m' | '15m' | '30m' | '60m' | '90m' | '1d';
   signal_range: '1d' | '5d' | '1mo' | '3mo' | '6mo' | '1y';

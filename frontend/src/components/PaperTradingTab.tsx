@@ -163,6 +163,13 @@ const DEFAULT_PAPER_STRATEGY_PROFILES: Record<'KOSPI' | 'NASDAQ', PaperStrategyP
     rsi_min: 45,
     rsi_max: 62,
     volume_ratio_min: 1.0,
+    adx_min: 10,
+    mfi_min: 20,
+    mfi_max: 80,
+    bb_pct_min: 0.05,
+    bb_pct_max: 0.95,
+    stoch_k_min: 10,
+    stoch_k_max: 90,
     stop_loss_pct: 5,
     take_profit_pct: null,
     signal_interval: '1d',
@@ -175,6 +182,13 @@ const DEFAULT_PAPER_STRATEGY_PROFILES: Record<'KOSPI' | 'NASDAQ', PaperStrategyP
     rsi_min: 45,
     rsi_max: 68,
     volume_ratio_min: 1.2,
+    adx_min: 10,
+    mfi_min: 20,
+    mfi_max: 80,
+    bb_pct_min: 0.05,
+    bb_pct_max: 0.95,
+    stoch_k_min: 10,
+    stoch_k_max: 90,
     stop_loss_pct: null,
     take_profit_pct: null,
     signal_interval: '1d',
@@ -216,12 +230,20 @@ function normalizeProfileMap(
   (['KOSPI', 'NASDAQ'] as const).forEach((market) => {
     const raw = profiles?.[market];
     if (!raw) return;
+    const baseProfile = base[market];
     base[market] = {
-      ...base[market],
+      ...baseProfile,
       ...raw,
       market,
-      signal_interval: (raw.signal_interval || base[market].signal_interval) as PaperStrategyProfile['signal_interval'],
-      signal_range: (raw.signal_range || base[market].signal_range) as PaperStrategyProfile['signal_range'],
+      adx_min: raw.adx_min ?? baseProfile.adx_min,
+      mfi_min: raw.mfi_min ?? baseProfile.mfi_min,
+      mfi_max: raw.mfi_max ?? baseProfile.mfi_max,
+      bb_pct_min: raw.bb_pct_min ?? baseProfile.bb_pct_min,
+      bb_pct_max: raw.bb_pct_max ?? baseProfile.bb_pct_max,
+      stoch_k_min: raw.stoch_k_min ?? baseProfile.stoch_k_min,
+      stoch_k_max: raw.stoch_k_max ?? baseProfile.stoch_k_max,
+      signal_interval: (raw.signal_interval || baseProfile.signal_interval) as PaperStrategyProfile['signal_interval'],
+      signal_range: (raw.signal_range || baseProfile.signal_range) as PaperStrategyProfile['signal_range'],
     };
   });
   return base;
@@ -304,6 +326,13 @@ export function PaperTradingTab() {
         rsi_min: Math.max(10, Math.min(90, Number(engineMarketProfiles.KOSPI.rsi_min) || 45)),
         rsi_max: Math.max(10, Math.min(90, Number(engineMarketProfiles.KOSPI.rsi_max) || 62)),
         volume_ratio_min: Math.max(0.5, Math.min(5, Number(engineMarketProfiles.KOSPI.volume_ratio_min) || 1)),
+        adx_min: engineMarketProfiles.KOSPI.adx_min == null ? null : Math.max(5, Math.min(40, Number(engineMarketProfiles.KOSPI.adx_min) || 10)),
+        mfi_min: engineMarketProfiles.KOSPI.mfi_min == null ? null : Math.max(0, Math.min(100, Number(engineMarketProfiles.KOSPI.mfi_min) || 20)),
+        mfi_max: engineMarketProfiles.KOSPI.mfi_max == null ? null : Math.max(0, Math.min(100, Number(engineMarketProfiles.KOSPI.mfi_max) || 80)),
+        bb_pct_min: engineMarketProfiles.KOSPI.bb_pct_min == null ? null : Math.max(0, Math.min(1, Number(engineMarketProfiles.KOSPI.bb_pct_min) || 0.05)),
+        bb_pct_max: engineMarketProfiles.KOSPI.bb_pct_max == null ? null : Math.max(0, Math.min(1, Number(engineMarketProfiles.KOSPI.bb_pct_max) || 0.95)),
+        stoch_k_min: engineMarketProfiles.KOSPI.stoch_k_min == null ? null : Math.max(0, Math.min(100, Number(engineMarketProfiles.KOSPI.stoch_k_min) || 10)),
+        stoch_k_max: engineMarketProfiles.KOSPI.stoch_k_max == null ? null : Math.max(0, Math.min(100, Number(engineMarketProfiles.KOSPI.stoch_k_max) || 90)),
         stop_loss_pct: engineMarketProfiles.KOSPI.stop_loss_pct === null ? null : Math.max(1, Math.min(50, Number(engineMarketProfiles.KOSPI.stop_loss_pct) || 5)),
         take_profit_pct: engineMarketProfiles.KOSPI.take_profit_pct === null ? null : Math.max(1, Math.min(100, Number(engineMarketProfiles.KOSPI.take_profit_pct) || 18)),
       },
@@ -315,6 +344,13 @@ export function PaperTradingTab() {
         rsi_min: Math.max(10, Math.min(90, Number(engineMarketProfiles.NASDAQ.rsi_min) || 45)),
         rsi_max: Math.max(10, Math.min(90, Number(engineMarketProfiles.NASDAQ.rsi_max) || 68)),
         volume_ratio_min: Math.max(0.5, Math.min(5, Number(engineMarketProfiles.NASDAQ.volume_ratio_min) || 1.2)),
+        adx_min: engineMarketProfiles.NASDAQ.adx_min == null ? null : Math.max(5, Math.min(40, Number(engineMarketProfiles.NASDAQ.adx_min) || 10)),
+        mfi_min: engineMarketProfiles.NASDAQ.mfi_min == null ? null : Math.max(0, Math.min(100, Number(engineMarketProfiles.NASDAQ.mfi_min) || 20)),
+        mfi_max: engineMarketProfiles.NASDAQ.mfi_max == null ? null : Math.max(0, Math.min(100, Number(engineMarketProfiles.NASDAQ.mfi_max) || 80)),
+        bb_pct_min: engineMarketProfiles.NASDAQ.bb_pct_min == null ? null : Math.max(0, Math.min(1, Number(engineMarketProfiles.NASDAQ.bb_pct_min) || 0.05)),
+        bb_pct_max: engineMarketProfiles.NASDAQ.bb_pct_max == null ? null : Math.max(0, Math.min(1, Number(engineMarketProfiles.NASDAQ.bb_pct_max) || 0.95)),
+        stoch_k_min: engineMarketProfiles.NASDAQ.stoch_k_min == null ? null : Math.max(0, Math.min(100, Number(engineMarketProfiles.NASDAQ.stoch_k_min) || 10)),
+        stoch_k_max: engineMarketProfiles.NASDAQ.stoch_k_max == null ? null : Math.max(0, Math.min(100, Number(engineMarketProfiles.NASDAQ.stoch_k_max) || 90)),
         stop_loss_pct: engineMarketProfiles.NASDAQ.stop_loss_pct === null ? null : Math.max(1, Math.min(50, Number(engineMarketProfiles.NASDAQ.stop_loss_pct) || 5)),
         take_profit_pct: engineMarketProfiles.NASDAQ.take_profit_pct === null ? null : Math.max(1, Math.min(100, Number(engineMarketProfiles.NASDAQ.take_profit_pct) || 18)),
       },
@@ -339,6 +375,13 @@ export function PaperTradingTab() {
       rsi_min: primaryProfile.rsi_min,
       rsi_max: primaryProfile.rsi_max,
       volume_ratio_min: primaryProfile.volume_ratio_min,
+      adx_min: primaryProfile.adx_min,
+      mfi_min: primaryProfile.mfi_min,
+      mfi_max: primaryProfile.mfi_max,
+      bb_pct_min: primaryProfile.bb_pct_min,
+      bb_pct_max: primaryProfile.bb_pct_max,
+      stoch_k_min: primaryProfile.stoch_k_min,
+      stoch_k_max: primaryProfile.stoch_k_max,
       stop_loss_pct: primaryProfile.stop_loss_pct ?? 0,
       take_profit_pct: primaryProfile.take_profit_pct ?? 0,
       max_holding_days: primaryProfile.max_holding_days,
@@ -431,6 +474,13 @@ export function PaperTradingTab() {
           rsi_min: cfg.rsi_min ?? prev.KOSPI.rsi_min,
           rsi_max: cfg.rsi_max ?? prev.KOSPI.rsi_max,
           volume_ratio_min: cfg.volume_ratio_min ?? prev.KOSPI.volume_ratio_min,
+          adx_min: cfg.adx_min ?? prev.KOSPI.adx_min,
+          mfi_min: cfg.mfi_min ?? prev.KOSPI.mfi_min,
+          mfi_max: cfg.mfi_max ?? prev.KOSPI.mfi_max,
+          bb_pct_min: cfg.bb_pct_min ?? prev.KOSPI.bb_pct_min,
+          bb_pct_max: cfg.bb_pct_max ?? prev.KOSPI.bb_pct_max,
+          stoch_k_min: cfg.stoch_k_min ?? prev.KOSPI.stoch_k_min,
+          stoch_k_max: cfg.stoch_k_max ?? prev.KOSPI.stoch_k_max,
           stop_loss_pct: cfg.stop_loss_pct ?? prev.KOSPI.stop_loss_pct,
           take_profit_pct: cfg.take_profit_pct ?? prev.KOSPI.take_profit_pct,
           max_holding_days: cfg.max_holding_days ?? prev.KOSPI.max_holding_days,
@@ -442,6 +492,13 @@ export function PaperTradingTab() {
           rsi_min: cfg.rsi_min ?? prev.NASDAQ.rsi_min,
           rsi_max: cfg.rsi_max ?? prev.NASDAQ.rsi_max,
           volume_ratio_min: cfg.volume_ratio_min ?? prev.NASDAQ.volume_ratio_min,
+          adx_min: cfg.adx_min ?? prev.NASDAQ.adx_min,
+          mfi_min: cfg.mfi_min ?? prev.NASDAQ.mfi_min,
+          mfi_max: cfg.mfi_max ?? prev.NASDAQ.mfi_max,
+          bb_pct_min: cfg.bb_pct_min ?? prev.NASDAQ.bb_pct_min,
+          bb_pct_max: cfg.bb_pct_max ?? prev.NASDAQ.bb_pct_max,
+          stoch_k_min: cfg.stoch_k_min ?? prev.NASDAQ.stoch_k_min,
+          stoch_k_max: cfg.stoch_k_max ?? prev.NASDAQ.stoch_k_max,
           stop_loss_pct: cfg.stop_loss_pct ?? prev.NASDAQ.stop_loss_pct,
           take_profit_pct: cfg.take_profit_pct ?? prev.NASDAQ.take_profit_pct,
           max_holding_days: cfg.max_holding_days ?? prev.NASDAQ.max_holding_days,
@@ -487,6 +544,13 @@ export function PaperTradingTab() {
           ...(gp.rsi_min != null && { rsi_min: gp.rsi_min }),
           ...(gp.rsi_max != null && { rsi_max: gp.rsi_max }),
           ...(gp.volume_ratio_min != null && { volume_ratio_min: gp.volume_ratio_min }),
+          ...(gp.adx_min != null && { adx_min: gp.adx_min }),
+          ...(gp.mfi_min != null && { mfi_min: gp.mfi_min }),
+          ...(gp.mfi_max != null && { mfi_max: gp.mfi_max }),
+          ...(gp.bb_pct_min != null && { bb_pct_min: gp.bb_pct_min }),
+          ...(gp.bb_pct_max != null && { bb_pct_max: gp.bb_pct_max }),
+          ...(gp.stoch_k_min != null && { stoch_k_min: gp.stoch_k_min }),
+          ...(gp.stoch_k_max != null && { stoch_k_max: gp.stoch_k_max }),
         };
         return {
           KOSPI: { ...prev.KOSPI, ...patch, market: 'KOSPI' },
@@ -494,7 +558,7 @@ export function PaperTradingTab() {
         };
       });
       setOptApplyStatus('applied');
-      setStatusMessage(`최적화 파라미터가 적용되었습니다. (손절 ${gp.stop_loss_pct ?? '—'}% · 익절 ${gp.take_profit_pct ?? '—'}% · 최대보유일 ${gp.max_holding_days ?? '—'}일 · 거래량 ${gp.volume_ratio_min ?? '—'}x)`);
+      setStatusMessage(`최적화 파라미터 적용 완료 (손절 ${gp.stop_loss_pct ?? '—'}% · 익절 ${gp.take_profit_pct ?? '—'}% · ADX ${gp.adx_min ?? '—'} · MFI ${gp.mfi_min ?? '—'}~${gp.mfi_max ?? '—'})`);
     } catch {
       setOptApplyStatus('error');
       setStatusMessage('최적화 파라미터 조회 중 오류가 발생했습니다.');
@@ -910,6 +974,31 @@ export function PaperTradingTab() {
           <label style={{ display: 'grid', gap: 6 }}>
             <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최소 거래량 배수</span>
             <input className="backtest-input" type="number" min={0.5} max={5} step={0.1} value={activeProfile.volume_ratio_min} onChange={(event) => patchActiveProfile({ volume_ratio_min: Number(event.target.value) })} />
+          </label>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>ADX 최소값</span>
+            <input className="backtest-input" type="number" min={5} max={40} step={1} value={activeProfile.adx_min ?? ''} onChange={(event) => patchActiveProfile({ adx_min: event.target.value === '' ? null : Number(event.target.value) })} />
+          </label>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>MFI 최소/최대</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <input className="backtest-input" type="number" min={0} max={100} value={activeProfile.mfi_min ?? ''} onChange={(event) => patchActiveProfile({ mfi_min: event.target.value === '' ? null : Number(event.target.value) })} />
+              <input className="backtest-input" type="number" min={0} max={100} value={activeProfile.mfi_max ?? ''} onChange={(event) => patchActiveProfile({ mfi_max: event.target.value === '' ? null : Number(event.target.value) })} />
+            </div>
+          </label>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>BB %b 최소/최대</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <input className="backtest-input" type="number" min={0} max={1} step={0.01} value={activeProfile.bb_pct_min ?? ''} onChange={(event) => patchActiveProfile({ bb_pct_min: event.target.value === '' ? null : Number(event.target.value) })} />
+              <input className="backtest-input" type="number" min={0} max={1} step={0.01} value={activeProfile.bb_pct_max ?? ''} onChange={(event) => patchActiveProfile({ bb_pct_max: event.target.value === '' ? null : Number(event.target.value) })} />
+            </div>
+          </label>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Stochastic K 최소/최대</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <input className="backtest-input" type="number" min={0} max={100} value={activeProfile.stoch_k_min ?? ''} onChange={(event) => patchActiveProfile({ stoch_k_min: event.target.value === '' ? null : Number(event.target.value) })} />
+              <input className="backtest-input" type="number" min={0} max={100} value={activeProfile.stoch_k_max ?? ''} onChange={(event) => patchActiveProfile({ stoch_k_max: event.target.value === '' ? null : Number(event.target.value) })} />
+            </div>
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
             <span style={{ fontSize: 12, color: 'var(--text-3)' }}>손절 기준(%)</span>

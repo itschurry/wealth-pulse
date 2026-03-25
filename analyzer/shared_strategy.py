@@ -38,6 +38,13 @@ _DEFAULT_PROFILES: dict[str, StrategyProfile] = {
         rsi_min=38.0,
         rsi_max=72.0,
         volume_ratio_min=0.8,
+        adx_min=10.0,
+        mfi_min=20.0,
+        mfi_max=80.0,
+        bb_pct_min=0.05,
+        bb_pct_max=0.95,
+        stoch_k_min=10.0,
+        stoch_k_max=90.0,
         stop_loss_pct=7.0,
         take_profit_pct=15.0,
         signal_interval="1d",
@@ -50,6 +57,13 @@ _DEFAULT_PROFILES: dict[str, StrategyProfile] = {
         rsi_min=38.0,
         rsi_max=75.0,
         volume_ratio_min=1.0,
+        adx_min=10.0,
+        mfi_min=20.0,
+        mfi_max=80.0,
+        bb_pct_min=0.05,
+        bb_pct_max=0.95,
+        stoch_k_min=10.0,
+        stoch_k_max=90.0,
         stop_loss_pct=8.0,
         take_profit_pct=20.0,
         signal_interval="1d",
@@ -179,6 +193,17 @@ def profile_from_mapping(market: str, payload: Mapping[str, Any] | None) -> Stra
             "stop_loss_pct", default_strategy_profile(market).stop_loss_pct),
         take_profit_pct=raw.get(
             "take_profit_pct", default_strategy_profile(market).take_profit_pct),
+        adx_min=raw.get("adx_min", default_strategy_profile(market).adx_min),
+        mfi_min=raw.get("mfi_min", default_strategy_profile(market).mfi_min),
+        mfi_max=raw.get("mfi_max", default_strategy_profile(market).mfi_max),
+        bb_pct_min=raw.get(
+            "bb_pct_min", default_strategy_profile(market).bb_pct_min),
+        bb_pct_max=raw.get(
+            "bb_pct_max", default_strategy_profile(market).bb_pct_max),
+        stoch_k_min=raw.get(
+            "stoch_k_min", default_strategy_profile(market).stoch_k_min),
+        stoch_k_max=raw.get(
+            "stoch_k_max", default_strategy_profile(market).stoch_k_max),
         signal_interval=raw.get(
             "signal_interval", default_strategy_profile(market).signal_interval),
         signal_range=raw.get(
@@ -200,8 +225,9 @@ def should_enter_from_snapshot(snapshot: Mapping[str, Any] | None, profile: Stra
     - RSI 범위 내 (과매도/과매수 회피)
     - MACD 양성 (모멘텀)
 
-    기타 기술지표 (ADX, BB, OBV, MFI, Stochastic)는 점수용이고,
-    필수 필터가 아님을 주목할 것.
+    선택 필터(옵션):
+    - adx_min, mfi_min/mfi_max, bb_pct_min/bb_pct_max, stoch_k_min/stoch_k_max
+    - 값이 설정된 경우에만 필터로 동작
     """
     if not snapshot:
         return False
@@ -214,9 +240,28 @@ def should_enter_from_snapshot(snapshot: Mapping[str, Any] | None, profile: Stra
     macd = snapshot.get("macd")
     macd_signal = snapshot.get("macd_signal")
     macd_hist = snapshot.get("macd_hist")
-    # Phase 3 추가: 횡보장 & 과열 필터링
+    # 선택 필터 지표
     adx14 = snapshot.get("adx14")
     mfi14 = snapshot.get("mfi14")
+    bb_pct = snapshot.get("bb_pct")
+    stoch_k = snapshot.get("stoch_k")
+
+    # profile 기반 선택 필터
+    # 신규 지표는 데이터 결측 시 기존 핵심 필터만으로도 진입 가능하게 허용한다.
+    adx_ok = profile.adx_min is None or adx14 is None or float(
+        adx14) >= float(profile.adx_min)
+    mfi_lower_ok = profile.mfi_min is None or mfi14 is None or float(
+        mfi14) >= float(profile.mfi_min)
+    mfi_upper_ok = profile.mfi_max is None or mfi14 is None or float(
+        mfi14) <= float(profile.mfi_max)
+    bb_lower_ok = profile.bb_pct_min is None or bb_pct is None or float(
+        bb_pct) >= float(profile.bb_pct_min)
+    bb_upper_ok = profile.bb_pct_max is None or bb_pct is None or float(
+        bb_pct) <= float(profile.bb_pct_max)
+    stoch_lower_ok = profile.stoch_k_min is None or stoch_k is None or float(
+        stoch_k) >= float(profile.stoch_k_min)
+    stoch_upper_ok = profile.stoch_k_max is None or stoch_k is None or float(
+        stoch_k) <= float(profile.stoch_k_max)
 
     return bool(
         close is not None
@@ -232,11 +277,13 @@ def should_enter_from_snapshot(snapshot: Mapping[str, Any] | None, profile: Stra
         # 모멘텀 범위 (최적화 파라미터)
         and profile.rsi_min <= float(rsi14) <= profile.rsi_max
         and (float(macd_hist) > 0 or float(macd) > float(macd_signal))  # MACD 양성 (필수)
-        # Phase 3-1: 횡보장 필터 (ADX < 15는 진입 금지)
-        and (adx14 is None or float(adx14) >= 15)  # ADX >= 15만 진입
-        # Phase 3-2: 과열 차단 (RSI >= 75 AND MFI > 75 동시 진입 금지)
-        and not (rsi14 is not None and mfi14 is not None and
-                 float(rsi14) >= 75 and float(mfi14) > 75)  # 과열 회피
+        and adx_ok
+        and mfi_lower_ok
+        and mfi_upper_ok
+        and bb_lower_ok
+        and bb_upper_ok
+        and stoch_lower_ok
+        and stoch_upper_ok
     )
 
 

@@ -31,15 +31,22 @@ class SimulationConfig:
 class ParamGrid:
     """최적화할 파라미터 탐색 범위"""
     stop_loss_pct: list[float] = field(
-        default_factory=lambda: [5.0, 7.0, 10.0, 13.0, 15.0])
+        default_factory=lambda: [5.0, 8.0, 11.0, 14.0])
     take_profit_pct: list[float] = field(
-        default_factory=lambda: [10.0, 15.0, 20.0, 25.0, 30.0])
+        default_factory=lambda: [12.0, 18.0, 24.0, 30.0])
     max_holding_days: list[int] = field(
-        default_factory=lambda: [15, 20, 25, 30, 40])
-    rsi_min: list[float] = field(default_factory=lambda: [30.0, 38.0, 45.0])
-    rsi_max: list[float] = field(default_factory=lambda: [65.0, 72.0, 80.0])
+        default_factory=lambda: [15, 25, 35, 45])
+    rsi_min: list[float] = field(default_factory=lambda: [32.0, 40.0])
+    rsi_max: list[float] = field(default_factory=lambda: [68.0, 76.0])
     volume_ratio_min: list[float] = field(
-        default_factory=lambda: [0.6, 0.8, 1.0, 1.2])
+        default_factory=lambda: [0.8, 1.2])
+    adx_min: list[float] = field(default_factory=lambda: [15.0, 20.0])
+    mfi_min: list[float] = field(default_factory=lambda: [25.0, 35.0])
+    mfi_max: list[float] = field(default_factory=lambda: [65.0, 75.0])
+    bb_pct_min: list[float] = field(default_factory=lambda: [0.1, 0.2])
+    bb_pct_max: list[float] = field(default_factory=lambda: [0.8, 0.9])
+    stoch_k_min: list[float] = field(default_factory=lambda: [15.0, 25.0])
+    stoch_k_max: list[float] = field(default_factory=lambda: [75.0, 85.0])
 
 
 @dataclass
@@ -127,6 +134,119 @@ def _compute_volume_ratio(volumes: np.ndarray, period: int = 20) -> np.ndarray:
     mask = avgs > 0
     vol_ratio[period - 1:][mask] = vols[period - 1:][mask] / avgs[mask]
     return vol_ratio
+
+
+def _compute_bollinger_pct(closes: np.ndarray, period: int = 20) -> np.ndarray:
+    bb_pct = np.full(len(closes), np.nan)
+    if len(closes) < period:
+        return bb_pct
+    from numpy.lib.stride_tricks import sliding_window_view
+    windows = sliding_window_view(closes.astype(float), period)
+    means = windows.mean(axis=1)
+    stds = windows.std(axis=1)
+    upper = means + 2.0 * stds
+    lower = means - 2.0 * stds
+    denom = upper - lower
+    valid = denom > 1e-12
+    bb_pct[period - 1:][valid] = (closes[period - 1:]
+                                  [valid] - lower[valid]) / denom[valid]
+    return bb_pct
+
+
+def _compute_stoch_k(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> np.ndarray:
+    stoch = np.full(len(close), np.nan)
+    if len(close) < period:
+        return stoch
+    from numpy.lib.stride_tricks import sliding_window_view
+    high_w = sliding_window_view(high.astype(float), period)
+    low_w = sliding_window_view(low.astype(float), period)
+    highest = high_w.max(axis=1)
+    lowest = low_w.min(axis=1)
+    denom = highest - lowest
+    valid = denom > 1e-12
+    stoch[period - 1:][valid] = ((close[period - 1:]
+                                 [valid] - lowest[valid]) / denom[valid]) * 100.0
+    return stoch
+
+
+def _compute_adx(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> np.ndarray:
+    n = len(close)
+    adx = np.full(n, np.nan)
+    if n <= period + 1:
+        return adx
+
+    up_move = high[1:] - high[:-1]
+    down_move = low[:-1] - low[1:]
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) &
+                        (down_move > 0), down_move, 0.0)
+
+    tr = np.maximum.reduce([
+        high[1:] - low[1:],
+        np.abs(high[1:] - close[:-1]),
+        np.abs(low[1:] - close[:-1]),
+    ])
+
+    atr = np.full(len(tr), np.nan)
+    plus_di = np.full(len(tr), np.nan)
+    minus_di = np.full(len(tr), np.nan)
+    dx = np.full(len(tr), np.nan)
+
+    atr[period - 1] = np.mean(tr[:period])
+    plus_sum = np.sum(plus_dm[:period])
+    minus_sum = np.sum(minus_dm[:period])
+
+    plus_di[period - 1] = 100.0 * \
+        (plus_sum / atr[period - 1]) if atr[period - 1] > 1e-12 else 0.0
+    minus_di[period - 1] = 100.0 * \
+        (minus_sum / atr[period - 1]) if atr[period - 1] > 1e-12 else 0.0
+    denom = plus_di[period - 1] + minus_di[period - 1]
+    dx[period - 1] = 100.0 * abs(plus_di[period - 1] -
+                                 minus_di[period - 1]) / denom if denom > 1e-12 else 0.0
+
+    for i in range(period, len(tr)):
+        atr[i] = ((atr[i - 1] * (period - 1)) + tr[i]) / period
+        plus_sum = ((plus_sum * (period - 1)) + plus_dm[i]) / period
+        minus_sum = ((minus_sum * (period - 1)) + minus_dm[i]) / period
+        plus_di[i] = 100.0 * (plus_sum / atr[i]) if atr[i] > 1e-12 else 0.0
+        minus_di[i] = 100.0 * (minus_sum / atr[i]) if atr[i] > 1e-12 else 0.0
+        di_sum = plus_di[i] + minus_di[i]
+        dx[i] = 100.0 * abs(plus_di[i] - minus_di[i]) / \
+            di_sum if di_sum > 1e-12 else 0.0
+
+    first_adx_idx = period * 2 - 2
+    if first_adx_idx < len(dx):
+        adx[first_adx_idx + 1] = np.nanmean(dx[period - 1:first_adx_idx + 1])
+        for i in range(first_adx_idx + 2, len(adx)):
+            dx_idx = i - 1
+            adx[i] = ((adx[i - 1] * (period - 1)) + dx[dx_idx]) / period
+
+    return adx
+
+
+def _compute_mfi(high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray, period: int = 14) -> np.ndarray:
+    n = len(close)
+    mfi = np.full(n, np.nan)
+    if n <= period:
+        return mfi
+    typical = (high + low + close) / 3.0
+    raw_flow = typical * volume
+
+    pos_flow = np.zeros(n)
+    neg_flow = np.zeros(n)
+    delta_tp = typical[1:] - typical[:-1]
+    pos_flow[1:] = np.where(delta_tp > 0, raw_flow[1:], 0.0)
+    neg_flow[1:] = np.where(delta_tp < 0, raw_flow[1:], 0.0)
+
+    from numpy.lib.stride_tricks import sliding_window_view
+    pos_sum = sliding_window_view(pos_flow, period).sum(axis=1)
+    neg_sum = sliding_window_view(neg_flow, period).sum(axis=1)
+
+    money_ratio = np.divide(pos_sum, neg_sum, out=np.full_like(
+        pos_sum, np.inf), where=neg_sum > 1e-12)
+    mfi_values = 100.0 - (100.0 / (1.0 + money_ratio))
+    mfi[period - 1:] = mfi_values
+    return mfi
 
 
 def generate_price_paths(
@@ -321,19 +441,35 @@ def optimize_params(
     진입 조건(RSI 범위, 거래량 배수)을 만족하는 날의 수익률만 부트스트랩 샘플로
     사용하는 조건부 몬테카를로 방식으로 실제 전략 진입 조건을 반영한다.
     """
-    records = [(r["close"], r.get("volume") or 0.0)
-               for r in price_history if r.get("close") is not None]
+    records: list[dict[str, float]] = []
+    for row in price_history:
+        close = row.get("close")
+        if close is None:
+            continue
+        close_f = float(close)
+        high_f = float(row.get("high") or row.get("high_price") or close_f)
+        low_f = float(row.get("low") or row.get("low_price") or close_f)
+        vol_f = float(row.get("volume") or 0.0)
+        records.append({"close": close_f, "high": high_f,
+                       "low": low_f, "volume": vol_f})
+
     if len(records) < sim_config.lookback_days + sim_config.validation_days:
         logger.debug("{}/{}: 데이터 부족 ({} < {})", symbol, market, len(records),
                      sim_config.lookback_days + sim_config.validation_days)
         return None
 
-    closes_full = np.array([r[0] for r in records], dtype=float)
-    volumes_full = np.array([r[1] for r in records], dtype=float)
+    closes_full = np.array([r["close"] for r in records], dtype=float)
+    highs_full = np.array([r["high"] for r in records], dtype=float)
+    lows_full = np.array([r["low"] for r in records], dtype=float)
+    volumes_full = np.array([r["volume"] for r in records], dtype=float)
 
     # 지표를 전체 기간으로 계산 (훈련 시작 전까지 워밍업 포함)
     rsi_full = _compute_rsi(closes_full)
     vol_ratio_full = _compute_volume_ratio(volumes_full)
+    adx_full = _compute_adx(highs_full, lows_full, closes_full)
+    mfi_full = _compute_mfi(highs_full, lows_full, closes_full, volumes_full)
+    bb_pct_full = _compute_bollinger_pct(closes_full)
+    stoch_k_full = _compute_stoch_k(highs_full, lows_full, closes_full)
 
     returns_full = np.diff(closes_full) / closes_full[:-1]  # shape (n-1,)
 
@@ -349,8 +485,16 @@ def optimize_params(
     # 훈련 구간 closes 인덱스: -n_train-n_val-1 ... -n_val-1
     train_rsi = rsi_full[-n_train - n_val - 1:-n_val - 1]       # (n_train,)
     train_vol = vol_ratio_full[-n_train - n_val - 1:-n_val - 1]  # (n_train,)
+    train_adx = adx_full[-n_train - n_val - 1:-n_val - 1]
+    train_mfi = mfi_full[-n_train - n_val - 1:-n_val - 1]
+    train_bb = bb_pct_full[-n_train - n_val - 1:-n_val - 1]
+    train_stoch = stoch_k_full[-n_train - n_val - 1:-n_val - 1]
     val_rsi = rsi_full[-n_val - 1:-1]                            # (n_val,)
     val_vol = vol_ratio_full[-n_val - 1:-1]                      # (n_val,)
+    val_adx = adx_full[-n_val - 1:-1]
+    val_mfi = mfi_full[-n_val - 1:-1]
+    val_bb = bb_pct_full[-n_val - 1:-1]
+    val_stoch = stoch_k_full[-n_val - 1:-1]
 
     if len(train_ret) < 30:
         return None
@@ -360,18 +504,30 @@ def optimize_params(
     best_metrics: dict = {}
 
     # 진입 필터 조합별로 paths를 1회만 생성한 뒤 exit params를 반복
-    for rsi_lo, rsi_hi, vol_min in itertools.product(
+    for rsi_lo, rsi_hi, vol_min, adx_min, mfi_lo, mfi_hi, bb_lo, bb_hi, stoch_lo, stoch_hi in itertools.product(
         param_grid.rsi_min,
         param_grid.rsi_max,
         param_grid.volume_ratio_min,
+        param_grid.adx_min,
+        param_grid.mfi_min,
+        param_grid.mfi_max,
+        param_grid.bb_pct_min,
+        param_grid.bb_pct_max,
+        param_grid.stoch_k_min,
+        param_grid.stoch_k_max,
     ):
-        if rsi_lo >= rsi_hi:
+        if rsi_lo >= rsi_hi or mfi_lo >= mfi_hi or bb_lo >= bb_hi or stoch_lo >= stoch_hi:
             continue
 
         entry_mask = (
-            ~np.isnan(train_rsi) & ~np.isnan(train_vol) &
+            ~np.isnan(train_rsi) & ~np.isnan(train_vol) & ~np.isnan(train_adx) &
+            ~np.isnan(train_mfi) & ~np.isnan(train_bb) & ~np.isnan(train_stoch) &
             (train_rsi >= rsi_lo) & (train_rsi <= rsi_hi) &
-            (train_vol >= vol_min)
+            (train_vol >= vol_min) &
+            (train_adx >= adx_min) &
+            (train_mfi >= mfi_lo) & (train_mfi <= mfi_hi) &
+            (train_bb >= bb_lo) & (train_bb <= bb_hi) &
+            (train_stoch >= stoch_lo) & (train_stoch <= stoch_hi)
         )
         entry_idx = np.where(entry_mask)[0]
         if len(entry_idx) < _MIN_ENTRY_SIGNALS:
@@ -403,6 +559,13 @@ def optimize_params(
                     "rsi_min": rsi_lo,
                     "rsi_max": rsi_hi,
                     "volume_ratio_min": vol_min,
+                    "adx_min": adx_min,
+                    "mfi_min": mfi_lo,
+                    "mfi_max": mfi_hi,
+                    "bb_pct_min": bb_lo,
+                    "bb_pct_max": bb_hi,
+                    "stoch_k_min": stoch_lo,
+                    "stoch_k_max": stoch_hi,
                 }
                 best_metrics = metrics
 
@@ -411,9 +574,15 @@ def optimize_params(
 
     # 검증: 동일 진입 필터를 검증 기간에 적용해 과적합 체크
     val_entry_mask = (
-        ~np.isnan(val_rsi) & ~np.isnan(val_vol) &
+        ~np.isnan(val_rsi) & ~np.isnan(val_vol) & ~np.isnan(val_adx) &
+        ~np.isnan(val_mfi) & ~np.isnan(val_bb) & ~np.isnan(val_stoch) &
         (val_rsi >= best_params["rsi_min"]) & (val_rsi <= best_params["rsi_max"]) &
-        (val_vol >= best_params["volume_ratio_min"])
+        (val_vol >= best_params["volume_ratio_min"]) &
+        (val_adx >= best_params["adx_min"]) &
+        (val_mfi >= best_params["mfi_min"]) & (val_mfi <= best_params["mfi_max"]) &
+        (val_bb >= best_params["bb_pct_min"]) & (val_bb <= best_params["bb_pct_max"]) &
+        (val_stoch >= best_params["stoch_k_min"]) & (
+            val_stoch <= best_params["stoch_k_max"])
     )
     val_entry_idx = np.where(val_entry_mask)[0]
     validation_signals = len(val_entry_idx)
@@ -443,12 +612,12 @@ def optimize_params(
         symbol=symbol,
         market=market,
         best_params=best_params,
-        sharpe_ratio=best_sharpe,
+        sharpe_ratio=best_metrics.get("sharpe_ratio", 0.0),
         win_rate=best_metrics.get("win_rate", 0.0),
         avg_return_pct=best_metrics.get("avg_return_pct", 0.0),
         max_drawdown_pct=best_metrics.get("max_drawdown_pct", 0.0),
         avg_holding_days=best_metrics.get("avg_holding_days", 0.0),
-        trade_count=best_metrics.get("trade_count", 0),
+        trade_count=best_metrics.get("n_total", 0),
         validation_sharpe=validation_sharpe,
         validation_trades=validation_signals,
         optimized_at=datetime.datetime.now(

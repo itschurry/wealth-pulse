@@ -47,7 +47,8 @@ class BacktestConfig:
     take_profit_pct: float | None = None
     market_profiles: tuple[StrategyProfile, ...] = ()
     candidate_selection_enabled: bool = True
-    candidate_selection: CandidateSelectionConfig = field(default_factory=CandidateSelectionConfig)
+    candidate_selection: CandidateSelectionConfig = field(
+        default_factory=CandidateSelectionConfig)
 
 
 def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
@@ -93,7 +94,8 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
 
             holding = positions[code]
             holding_days = (current_date - holding["entry_date"]).days
-            profile = market_profiles.get(normalize_strategy_market(holding["market"]))
+            profile = market_profiles.get(
+                normalize_strategy_market(holding["market"]))
             if profile is None:
                 continue
             exit_reason = should_exit_from_snapshot(
@@ -109,8 +111,10 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             gross_value = exit_price * holding["shares"]
             fee = gross_value * cfg.sell_fee_rate
             cash += gross_value - fee
-            pnl = (exit_price - holding["entry_price"]) * holding["shares"] - holding["buy_fee"] - fee
-            pnl_pct = ((exit_price / holding["entry_price"]) - 1) * 100 if holding["entry_price"] else 0.0
+            pnl = (exit_price - holding["entry_price"]) * \
+                holding["shares"] - holding["buy_fee"] - fee
+            pnl_pct = (
+                (exit_price / holding["entry_price"]) - 1) * 100 if holding["entry_price"] else 0.0
             trades.append(
                 {
                     "code": code,
@@ -140,23 +144,28 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
                 row = rows.get(current_date)
                 if not row:
                     continue
-                market = normalize_strategy_market(str(row.get("market") or ""))
+                market = normalize_strategy_market(
+                    str(row.get("market") or ""))
                 profile = market_profiles.get(market)
                 if profile is None or market_slots.get(market, 0) <= 0:
                     continue
-                candidate_info = _historical_candidate_info(candidate_cache, current_date.isoformat(), market, cfg)
+                candidate_info = _historical_candidate_info(
+                    candidate_cache, current_date.isoformat(), market, cfg)
                 if candidate_info["has_report"] and str(row.get("code") or "").strip().upper() not in candidate_info["codes"]:
                     continue
                 if not should_enter_from_snapshot(row, profile):
                     continue
-                candidates.append((code, entry_score_from_snapshot(row, profile), row, profile))
+                candidates.append(
+                    (code, entry_score_from_snapshot(row, profile), row, profile))
 
             candidates.sort(key=lambda item: item[1], reverse=True)
             for code, _, row, profile in candidates:
-                market = normalize_strategy_market(str(row.get("market") or ""))
+                market = normalize_strategy_market(
+                    str(row.get("market") or ""))
                 if market_slots.get(market, 0) <= 0:
                     continue
-                remaining_slots = sum(max(0, value) for value in market_slots.values())
+                remaining_slots = sum(max(0, value)
+                                      for value in market_slots.values())
                 if remaining_slots <= 0:
                     break
                 budget = cash / remaining_slots
@@ -188,7 +197,8 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
         open_positions = []
         for code, holding in positions.items():
             row = row_maps[code].get(current_date)
-            price = float(row["trade_price"]) if row and row.get("trade_price") is not None else float(holding["last_trade_price"])
+            price = float(row["trade_price"]) if row and row.get(
+                "trade_price") is not None else float(holding["last_trade_price"])
             value = price * holding["shares"]
             market_value += value
             open_positions.append(
@@ -235,7 +245,8 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             **_single_market_profile_config(market_profiles),
         },
         "symbols": [
-            {"code": code, "name": rows[-1]["name"], "market": rows[-1]["market"]}
+            {"code": code, "name": rows[-1]["name"],
+                "market": rows[-1]["market"]}
             for code, rows in available_histories.items()
         ],
         "metrics": {
@@ -285,7 +296,8 @@ def _candidate_coverage_summary(cache: dict[str, dict[str, dict[str, Any]]]) -> 
                 covered_market_dates += 1
             source = str(candidate_info.get("source") or "none")
             source_counts[source] = source_counts.get(source, 0) + 1
-    coverage_pct = (covered_market_dates / total_market_dates * 100) if total_market_dates else 0.0
+    coverage_pct = (covered_market_dates / total_market_dates *
+                    100) if total_market_dates else 0.0
     return {
         "report_coverage_pct": round(coverage_pct, 2),
         "covered_market_dates": covered_market_dates,
@@ -320,6 +332,13 @@ def _resolve_backtest_profiles(cfg: BacktestConfig) -> dict[str, StrategyProfile
             volume_ratio_min=cfg.volume_ratio_min,
             stop_loss_pct=cfg.stop_loss_pct,
             take_profit_pct=cfg.take_profit_pct,
+            adx_min=getattr(cfg, "adx_min", None),
+            mfi_min=getattr(cfg, "mfi_min", None),
+            mfi_max=getattr(cfg, "mfi_max", None),
+            bb_pct_min=getattr(cfg, "bb_pct_min", None),
+            bb_pct_max=getattr(cfg, "bb_pct_max", None),
+            stoch_k_min=getattr(cfg, "stoch_k_min", None),
+            stoch_k_max=getattr(cfg, "stoch_k_max", None),
         )
         for market in cfg.markets
     }
@@ -337,6 +356,13 @@ def _single_market_profile_config(market_profiles: dict[str, StrategyProfile]) -
         "volume_ratio_min": profile.volume_ratio_min,
         "stop_loss_pct": profile.stop_loss_pct,
         "take_profit_pct": profile.take_profit_pct,
+        "adx_min": profile.adx_min,
+        "mfi_min": profile.mfi_min,
+        "mfi_max": profile.mfi_max,
+        "bb_pct_min": profile.bb_pct_min,
+        "bb_pct_max": profile.bb_pct_max,
+        "stoch_k_min": profile.stoch_k_min,
+        "stoch_k_max": profile.stoch_k_max,
     }
 
 
@@ -346,7 +372,8 @@ def _available_market_slots(
 ) -> dict[str, int]:
     counts = {market: 0 for market in market_profiles}
     for holding in positions.values():
-        market = normalize_strategy_market(str(holding.get("market") or holding.get("market_key") or ""))
+        market = normalize_strategy_market(
+            str(holding.get("market") or holding.get("market_key") or ""))
         if market in counts:
             counts[market] += 1
     return {
@@ -360,10 +387,12 @@ def _get_backtest_universe(markets: tuple[str, ...]) -> list[tuple[str, str, str
     allowed_markets = set(markets)
     if "KOSPI" in allowed_markets:
         for entry in get_kospi100_universe():
-            universe.append((entry["code"], entry["name"], entry["market"], _ticker_for_entry(entry["code"], entry["market"])))
+            universe.append((entry["code"], entry["name"], entry["market"], _ticker_for_entry(
+                entry["code"], entry["market"])))
     if "NASDAQ" in allowed_markets:
         for entry in get_sp100_universe():
-            universe.append((entry["code"], entry["name"], entry["market"], _ticker_for_entry(entry["code"], entry["market"])))
+            universe.append((entry["code"], entry["name"], entry["market"], _ticker_for_entry(
+                entry["code"], entry["market"])))
     return universe
 
 
@@ -376,15 +405,18 @@ def _load_histories(
     histories: dict[str, list[dict[str, Any]]] = {}
     fx_lookup = _load_usdkrw_lookup(cutoff_date)
     convert_us_to_krw = base_currency == "KRW"
-    domestic_count = sum(1 for _, _, market, _ in universe if market == "KOSPI")
+    domestic_count = sum(1 for _, _, market,
+                         _ in universe if market == "KOSPI")
     use_kis_for_domestic = domestic_count <= 80 and _get_kis_client() is not None
 
     def _load_one(entry: tuple[str, str, str, str]) -> tuple[str, list[dict[str, Any]]]:
         code, name, market, ticker = entry
         if market == "KOSPI":
-            rows = _fetch_kis_daily_history(code, name, market, cutoff_date) if use_kis_for_domestic else []
+            rows = _fetch_kis_daily_history(
+                code, name, market, cutoff_date) if use_kis_for_domestic else []
             if len(rows) < 80:
-                rows = _fetch_naver_daily_history(code, name, market, cutoff_date)
+                rows = _fetch_naver_daily_history(
+                    code, name, market, cutoff_date)
         else:
             rows = _fetch_yahoo_daily_history(
                 code,
@@ -458,14 +490,18 @@ def _fetch_naver_daily_history(
     for date, close, volume in raw_rows:
         valid_closes.append(close)
         valid_volumes.append(volume)
-        sma20 = sum(valid_closes[-20:]) / 20 if len(valid_closes) >= 20 else None
-        sma60 = sum(valid_closes[-60:]) / 60 if len(valid_closes) >= 60 else None
-        volume_avg20 = sum(valid_volumes[-20:]) / 20 if len(valid_volumes) >= 20 else None
+        sma20 = sum(valid_closes[-20:]) / \
+            20 if len(valid_closes) >= 20 else None
+        sma60 = sum(valid_closes[-60:]) / \
+            60 if len(valid_closes) >= 60 else None
+        volume_avg20 = sum(valid_volumes[-20:]) / \
+            20 if len(valid_volumes) >= 20 else None
         volume_ratio = (volume / volume_avg20) if volume_avg20 else None
         rsi14 = _rsi(valid_closes, 14)
         ema12 = _ema(valid_closes, 12)
         ema26 = _ema(valid_closes, 26)
-        macd_series = [fast - slow for fast, slow in zip(ema12[-len(ema26):], ema26)]
+        macd_series = [fast - slow for fast,
+                       slow in zip(ema12[-len(ema26):], ema26)]
         signal_series = _ema(macd_series, 9)
         macd = macd_series[-1] if macd_series else None
         macd_signal = signal_series[-1] if signal_series else None
@@ -556,14 +592,18 @@ def _fetch_kis_daily_history(
     for date, close, volume in parsed_rows:
         valid_closes.append(close)
         valid_volumes.append(volume)
-        sma20 = sum(valid_closes[-20:]) / 20 if len(valid_closes) >= 20 else None
-        sma60 = sum(valid_closes[-60:]) / 60 if len(valid_closes) >= 60 else None
-        volume_avg20 = sum(valid_volumes[-20:]) / 20 if len(valid_volumes) >= 20 else None
+        sma20 = sum(valid_closes[-20:]) / \
+            20 if len(valid_closes) >= 20 else None
+        sma60 = sum(valid_closes[-60:]) / \
+            60 if len(valid_closes) >= 60 else None
+        volume_avg20 = sum(valid_volumes[-20:]) / \
+            20 if len(valid_volumes) >= 20 else None
         volume_ratio = (volume / volume_avg20) if volume_avg20 else None
         rsi14 = _rsi(valid_closes, 14)
         ema12 = _ema(valid_closes, 12)
         ema26 = _ema(valid_closes, 26)
-        macd_series = [fast - slow for fast, slow in zip(ema12[-len(ema26):], ema26)]
+        macd_series = [fast - slow for fast,
+                       slow in zip(ema12[-len(ema26):], ema26)]
         signal_series = _ema(macd_series, 9)
         macd = macd_series[-1] if macd_series else None
         macd_signal = signal_series[-1] if signal_series else None
@@ -651,14 +691,18 @@ def _fetch_yahoo_daily_history(
     for date, close, volume, trade_price in raw_rows:
         valid_closes.append(close)
         valid_volumes.append(volume)
-        sma20 = sum(valid_closes[-20:]) / 20 if len(valid_closes) >= 20 else None
-        sma60 = sum(valid_closes[-60:]) / 60 if len(valid_closes) >= 60 else None
-        volume_avg20 = sum(valid_volumes[-20:]) / 20 if len(valid_volumes) >= 20 else None
+        sma20 = sum(valid_closes[-20:]) / \
+            20 if len(valid_closes) >= 20 else None
+        sma60 = sum(valid_closes[-60:]) / \
+            60 if len(valid_closes) >= 60 else None
+        volume_avg20 = sum(valid_volumes[-20:]) / \
+            20 if len(valid_volumes) >= 20 else None
         volume_ratio = (volume / volume_avg20) if volume_avg20 else None
         rsi14 = _rsi(valid_closes, 14)
         ema12 = _ema(valid_closes, 12)
         ema26 = _ema(valid_closes, 26)
-        macd_series = [fast - slow for fast, slow in zip(ema12[-len(ema26):], ema26)]
+        macd_series = [fast - slow for fast,
+                       slow in zip(ema12[-len(ema26):], ema26)]
         signal_series = _ema(macd_series, 9)
         macd = macd_series[-1] if macd_series else None
         macd_signal = signal_series[-1] if signal_series else None
@@ -707,7 +751,8 @@ def _load_usdkrw_lookup(cutoff_date):
         if not result:
             raise ValueError("FX history missing")
         timestamps = result.get("timestamp") or []
-        closes = ((result.get("indicators", {}).get("quote") or [{}])[0]).get("close") or []
+        closes = ((result.get("indicators", {}).get(
+            "quote") or [{}])[0]).get("close") or []
     except Exception:
         return lambda _date: None
 
@@ -751,7 +796,8 @@ def _should_exit(
     holding_days: int,
     cfg: BacktestConfig,
 ) -> str | None:
-    market = normalize_strategy_market(str(holding.get("market") or row.get("market") or ""))
+    market = normalize_strategy_market(
+        str(holding.get("market") or row.get("market") or ""))
     profile = _resolve_backtest_profiles(cfg).get(market)
     if profile is None:
         return None
@@ -791,14 +837,18 @@ def _compute_metrics(
         drawdown = ((equity / peak) - 1) * 100 if peak else 0.0
         max_drawdown = min(max_drawdown, drawdown)
 
-    total_return_pct = ((equities[-1] / initial_cash) - 1) * 100 if initial_cash else 0.0
+    total_return_pct = (
+        (equities[-1] / initial_cash) - 1) * 100 if initial_cash else 0.0
     years = max(len(equity_curve) / 252, 1 / 252)
-    cagr_pct = (((equities[-1] / initial_cash) ** (1 / years)) - 1) * 100 if initial_cash else 0.0
+    cagr_pct = (((equities[-1] / initial_cash) **
+                (1 / years)) - 1) * 100 if initial_cash else 0.0
 
     trade_returns = [float(item["pnl_pct"]) for item in trades]
     wins = [value for value in trade_returns if value > 0]
-    win_rate_pct = (len(wins) / len(trade_returns) * 100) if trade_returns else 0.0
-    avg_trade_return_pct = sum(trade_returns) / len(trade_returns) if trade_returns else 0.0
+    win_rate_pct = (len(wins) / len(trade_returns)
+                    * 100) if trade_returns else 0.0
+    avg_trade_return_pct = sum(trade_returns) / \
+        len(trade_returns) if trade_returns else 0.0
 
     daily_returns = []
     for prev, curr in zip(equities, equities[1:]):
@@ -807,7 +857,8 @@ def _compute_metrics(
     sharpe = 0.0
     if daily_returns:
         mean_return = sum(daily_returns) / len(daily_returns)
-        variance = sum((value - mean_return) ** 2 for value in daily_returns) / len(daily_returns)
+        variance = sum((value - mean_return) **
+                       2 for value in daily_returns) / len(daily_returns)
         stdev = sqrt(variance)
         if stdev > 0:
             sharpe = (mean_return / stdev) * sqrt(252)
@@ -829,7 +880,8 @@ def _ema(values: list[float], period: int) -> list[float]:
     multiplier = 2 / (period + 1)
     ema_values = [sum(values[:period]) / period]
     for value in values[period:]:
-        ema_values.append((value - ema_values[-1]) * multiplier + ema_values[-1])
+        ema_values.append(
+            (value - ema_values[-1]) * multiplier + ema_values[-1])
     return ema_values
 
 
@@ -848,5 +900,7 @@ def _rsi(values: list[float], period: int = 14) -> float | None:
         return 100.0
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
+
+
 _kis_client: KISClient | None = None
 _kis_unavailable = False

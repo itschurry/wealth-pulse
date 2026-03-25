@@ -34,6 +34,10 @@ _STOP_LOSS_RANGE = (2.0, 15.0)
 _TAKE_PROFIT_RANGE = (4.0, 30.0)
 _HOLDING_DAYS_RANGE = (3, 60)
 _VOLUME_RATIO_RANGE = (0.5, 3.0)
+_ADX_RANGE = (5.0, 40.0)
+_MFI_RANGE = (0.0, 100.0)
+_BB_PCT_RANGE = (0.0, 1.0)
+_STOCH_K_RANGE = (0.0, 100.0)
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -111,6 +115,13 @@ def _compute_global_params(results: list[OptimizationResult]) -> dict:
         "rsi_min": round(float(np.median([r.best_params["rsi_min"] for r in reliable])), 1),
         "rsi_max": round(float(np.median([r.best_params["rsi_max"] for r in reliable])), 1),
         "volume_ratio_min": round(float(np.median([r.best_params.get("volume_ratio_min", 1.0) for r in reliable])), 2),
+        "adx_min": round(float(np.median([r.best_params.get("adx_min", 15.0) for r in reliable])), 1),
+        "mfi_min": round(float(np.median([r.best_params.get("mfi_min", 25.0) for r in reliable])), 1),
+        "mfi_max": round(float(np.median([r.best_params.get("mfi_max", 75.0) for r in reliable])), 1),
+        "bb_pct_min": round(float(np.median([r.best_params.get("bb_pct_min", 0.1) for r in reliable])), 3),
+        "bb_pct_max": round(float(np.median([r.best_params.get("bb_pct_max", 0.9) for r in reliable])), 3),
+        "stoch_k_min": round(float(np.median([r.best_params.get("stoch_k_min", 15.0) for r in reliable])), 1),
+        "stoch_k_max": round(float(np.median([r.best_params.get("stoch_k_max", 85.0) for r in reliable])), 1),
     }
 
 
@@ -133,6 +144,20 @@ def _save_results(
             _clamp(global_params["max_holding_days"], *_HOLDING_DAYS_RANGE))
         global_params["volume_ratio_min"] = round(
             _clamp(global_params["volume_ratio_min"], *_VOLUME_RATIO_RANGE), 2)
+        global_params["adx_min"] = round(
+            _clamp(global_params["adx_min"], *_ADX_RANGE), 1)
+        global_params["mfi_min"] = round(
+            _clamp(global_params["mfi_min"], *_MFI_RANGE), 1)
+        global_params["mfi_max"] = round(
+            _clamp(global_params["mfi_max"], *_MFI_RANGE), 1)
+        global_params["bb_pct_min"] = round(
+            _clamp(global_params["bb_pct_min"], *_BB_PCT_RANGE), 3)
+        global_params["bb_pct_max"] = round(
+            _clamp(global_params["bb_pct_max"], *_BB_PCT_RANGE), 3)
+        global_params["stoch_k_min"] = round(
+            _clamp(global_params["stoch_k_min"], *_STOCH_K_RANGE), 1)
+        global_params["stoch_k_max"] = round(
+            _clamp(global_params["stoch_k_max"], *_STOCH_K_RANGE), 1)
 
     per_symbol = {}
     for r in results:
@@ -140,6 +165,10 @@ def _save_results(
                   else _clamp(v, *_TAKE_PROFIT_RANGE) if k == "take_profit_pct"
                   else int(_clamp(v, *_HOLDING_DAYS_RANGE)) if k == "max_holding_days"
                   else round(_clamp(v, *_VOLUME_RATIO_RANGE), 2) if k == "volume_ratio_min"
+                  else round(_clamp(v, *_ADX_RANGE), 1) if k == "adx_min"
+                  else round(_clamp(v, *_MFI_RANGE), 1) if k in {"mfi_min", "mfi_max"}
+                  else round(_clamp(v, *_BB_PCT_RANGE), 3) if k in {"bb_pct_min", "bb_pct_max"}
+                  else round(_clamp(v, *_STOCH_K_RANGE), 1) if k in {"stoch_k_min", "stoch_k_max"}
                   else v
                   for k, v in r.best_params.items()}
         # Phase 5: 신뢰도 정보 확대 저장
@@ -263,7 +292,8 @@ def main() -> None:
         logger.info(
             "글로벌 최적 파라미터 (신뢰 종목 중앙값): "
             "stop_loss={stop_loss_pct}%, take_profit={take_profit_pct}%, "
-            "max_holding={max_holding_days}일, rsi={rsi_min}~{rsi_max}",
+            "max_holding={max_holding_days}일, rsi={rsi_min}~{rsi_max}, "
+            "adx>={adx_min}, mfi={mfi_min}~{mfi_max}, bb%={bb_pct_min}~{bb_pct_max}, stoch={stoch_k_min}~{stoch_k_max}",
             **gp,
         )
 
