@@ -1,6 +1,6 @@
 # daily-market-brief
 
-자동투자 엔진 중심(Auto-Invest Core) 플랫폼입니다.
+고수익/고생존 자동투자 엔진(Profit-Max Auto-Invest Engine) 플랫폼입니다.
 
 이 저장소의 제품 목표는 리포트 생성 자체가 아니라, 전략 신호 생성과 실행(paper 우선), 백테스트 검증, 그리고 사람이 추적 가능한 설명 리포트를 하나의 운영 흐름으로 통합하는 것입니다.
 
@@ -40,11 +40,17 @@
 - `services.backtest_service`: 전략 검증/백테스트 orchestration
 - `services.report_service`: 리포트 생성 파이프라인
 
-## API Compatibility
-기존 `/api/*` 경로와 주요 응답 스키마는 유지합니다.
+## Domain API (Redesigned)
+기존 report-first 스키마 호환 유지가 아닌 도메인형 API를 기준으로 운영합니다.
 
-추가 엔드포인트:
-- `GET /api/system/mode`: 현재 운용 모드 및 지원 모드 목록
+- `GET /api/engine/status`: 실행 상태, allocator, risk guard, mode
+- `GET /api/signals/rank`: EV 랭킹 신호 목록
+- `GET /api/signals/{code}`: 개별 신호 상세
+- `GET /api/portfolio/state`: 포지션/현금/리스크 가드 상태
+- `GET /api/validation/backtest`: 확장 성과지표 포함 백테스트 결과
+- `GET /api/validation/walk-forward`: walk-forward 요약(train/validation/OOS)
+- `GET /api/reports/explain`: explainability 전용 리포트 뷰
+- `GET /api/reports/index`: 리포트 인덱스
 
 ## Quick Start
 ```bash

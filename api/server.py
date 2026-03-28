@@ -7,12 +7,14 @@ from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
 from api.routes.backtest import handle_backtest_run, handle_kospi_backtest
+from api.routes.engine import handle_engine_status
 from api.routes.market import handle_live_market, handle_stock_price, handle_stock_search
 from api.routes.optimization import (
     handle_get_optimization_status,
     handle_get_optimized_params,
     handle_run_optimization,
 )
+from api.routes.portfolio import handle_portfolio_state
 from api.routes.reports import (
     handle_analysis,
     handle_compare,
@@ -23,6 +25,8 @@ from api.routes.reports import (
     handle_reports,
     handle_today_picks,
 )
+from api.routes.reports_domain import handle_reports_explain, handle_reports_index
+from api.routes.signals import handle_signal_detail, handle_signals_rank
 from api.routes.trading import (
     handle_paper_account,
     handle_paper_auto_invest,
@@ -33,6 +37,7 @@ from api.routes.trading import (
     handle_paper_reset,
 )
 from api.routes.system import handle_system_mode
+from api.routes.validation import handle_validation_backtest, handle_validation_walk_forward
 from api.routes.watchlist import (
     handle_watchlist_actions,
     handle_watchlist_get,
@@ -62,6 +67,17 @@ def _query_value(query: QueryParams, name: str, default: str = "") -> str:
 
 
 GET_ROUTES: tuple[Route, ...] = (
+    Route("/api/engine/status", lambda _path, _query: handle_engine_status()),
+    Route("/api/signals/rank", lambda _path, query: handle_signals_rank(query)),
+    Route("/api/signals/", lambda path, _query: handle_signal_detail(path), prefix=True),
+    Route(
+        "/api/portfolio/state",
+        lambda _path, query: handle_portfolio_state(_query_value(query, "refresh", "1").strip() != "0"),
+    ),
+    Route("/api/validation/backtest", lambda _path, query: handle_validation_backtest(query)),
+    Route("/api/validation/walk-forward", lambda _path, query: handle_validation_walk_forward(query)),
+    Route("/api/reports/explain", lambda _path, query: handle_reports_explain(_query_value(query, "date") or None)),
+    Route("/api/reports/index", lambda _path, _query: handle_reports_index()),
     Route("/api/live-market", lambda _path, _query: handle_live_market()),
     Route("/api/reports", lambda _path, _query: handle_reports()),
     Route("/api/analysis", lambda _path, query: handle_analysis(_query_value(query, "date") or None)),

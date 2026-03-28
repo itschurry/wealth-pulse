@@ -1,4 +1,5 @@
 import time
+from typing import Any
 
 import api.cache as _cache
 from api.helpers import _SUPPORTED_AUTO_TRADE_MARKETS
@@ -117,6 +118,124 @@ def _get_market_dashboard() -> dict:
         "market": market,
         "macro": _get_macro(),
         "context": _get_market_context(),
+    }
+
+
+def _ev_to_signal_label(expected_value: float) -> str:
+    if expected_value > 1.5:
+        return "추천"
+    if expected_value > 0.2:
+        return "중립"
+    return "회피"
+
+
+def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
+    ev_metrics = item.get("ev_metrics") if isinstance(item.get("ev_metrics"), dict) else {}
+    expected_value = float(ev_metrics.get("expected_value") or 0.0)
+    win_probability = float(ev_metrics.get("win_probability") or 0.5)
+    reliability = str(ev_metrics.get("reliability") or "insufficient")
+    calibration = ev_metrics.get("calibration") if isinstance(ev_metrics.get("calibration"), dict) else {}
+    risk_inputs = item.get("risk_inputs") if isinstance(item.get("risk_inputs"), dict) else {}
+    size_recommendation = item.get("size_recommendation") if isinstance(item.get("size_recommendation"), dict) else {}
+    execution_realism = item.get("execution_realism") if isinstance(item.get("execution_realism"), dict) else {}
+    reasoning = item.get("signal_reasoning") if isinstance(item.get("signal_reasoning"), dict) else {}
+
+    score = max(0.0, min(100.0, 50.0 + (expected_value * 8.0)))
+    confidence = max(1, min(99, int(round(win_probability * 100.0))))
+    gate_status = "passed" if bool(item.get("entry_allowed")) else "blocked"
+    reason_codes = [str(reason) for reason in (item.get("reason_codes") or []) if reason]
+    candidate_reasons = [str(reason) for reason in (reasoning.get("candidate_reasons") or []) if reason]
+    candidate_risks = [str(reason) for reason in (reasoning.get("candidate_risks") or []) if reason]
+
+    if not candidate_reasons:
+        candidate_reasons = [
+            f"EV {expected_value:.2f}, 승률 {confidence}%, 전략 {item.get('strategy_type')}",
+            f"슬리피지 {execution_realism.get('slippage_bps', 0)} bps",
+        ]
+    if not candidate_risks:
+        candidate_risks = reason_codes[:]
+    if not candidate_risks:
+        candidate_risks = ["리스크 가드 이상 없음"]
+
+    return {
+        "rank": rank,
+        "name": item.get("name"),
+        "ticker": f"{item.get('code')}.{item.get('market')}",
+        "code": item.get("code"),
+        "market": item.get("market"),
+        "sector": item.get("sector"),
+        "signal": _ev_to_signal_label(expected_value),
+        "score": round(score, 1),
+        "confidence": confidence,
+        "risk_level": "중간",
+        "reasons": candidate_reasons[:5],
+        "risks": candidate_risks[:5],
+        "horizon": "short_term",
+        "gate_status": gate_status,
+        "gate_reasons": reason_codes[:5],
+        "playbook_alignment": None,
+        "ai_thesis": ((item.get("report_reasoning") or {}) if isinstance(item.get("report_reasoning"), dict) else {}).get("summary"),
+        "strategy_type": item.get("strategy_type"),
+        "expected_value": round(expected_value, 4),
+        "win_probability": round(win_probability, 4),
+        "expected_upside": ev_metrics.get("expected_upside"),
+        "expected_downside": ev_metrics.get("expected_downside"),
+        "size_recommendation": size_recommendation,
+        "reliability": reliability,
+        "validation_trades": int(calibration.get("sample_size") or 0),
+        "validation_sharpe": calibration.get("validation_sharpe"),
+        "strategy_reliability": reliability,
+        "technical_snapshot": None,
+        "execution_realism": execution_realism,
+        "risk_inputs": risk_inputs,
+    }
+
+
+def _strategy_recommendations_payload() -> dict[str, Any]:
+    from services.strategy_engine import build_signal_book
+
+    signal_book = build_signal_book(markets=["KOSPI", "NASDAQ"], cfg={})
+    rows = [
+        _map_strategy_signal(item, idx + 1)
+        for idx, item in enumerate(signal_book.get("signals", []))
+    ]
+    recommendations = [row for row in rows if row.get("gate_status") == "passed"][:60]
+    rejected = [row for row in rows if row.get("gate_status") != "passed"][:80]
+    signal_counts = {
+        "추천": sum(1 for row in recommendations if row.get("signal") == "추천"),
+        "중립": sum(1 for row in recommendations if row.get("signal") == "중립"),
+        "회피": sum(1 for row in recommendations if row.get("signal") == "회피"),
+    }
+    return {
+        "generated_at": signal_book.get("generated_at"),
+        "strategy": "profit-max-strategy-engine-v2",
+        "universe": "KOSPI+NASDAQ",
+        "signal_counts": signal_counts,
+        "recommendations": recommendations,
+        "rejected_candidates": rejected,
+        "risk_guard_state": signal_book.get("risk_guard_state"),
+        "regime": signal_book.get("regime"),
+        "risk_level": signal_book.get("risk_level"),
+    }
+
+
+def _strategy_today_picks_payload() -> dict[str, Any]:
+    recommendation_payload = _strategy_recommendations_payload()
+    approved = recommendation_payload.get("recommendations", [])
+    picks = approved[:12]
+    auto_candidates = approved[:100]
+    return {
+        "generated_at": recommendation_payload.get("generated_at"),
+        "strategy": recommendation_payload.get("strategy"),
+        "market_tone": recommendation_payload.get("regime"),
+        "picks": picks,
+        "auto_candidates": auto_candidates,
+        "auto_candidate_limit": 100,
+        "auto_candidate_total": len(auto_candidates),
+        "auto_candidate_market_counts": {
+            market: sum(1 for item in auto_candidates if str(item.get("market") or "").upper() == market)
+            for market in sorted(_SUPPORTED_AUTO_TRADE_MARKETS)
+        },
     }
 
 
@@ -358,7 +477,7 @@ def handle_analysis(date: str | None) -> tuple[int, dict]:
 def handle_recommendations(date: str | None) -> tuple[int, dict]:
     try:
         data = (
-            _get_recommendations() if not date
+            _strategy_recommendations_payload() if not date
             else _load_report_json("recommendations", date, latest=False) or {"error": "해당 날짜 추천이 없습니다.", "recommendations": []}
         )
         return 200, data
@@ -369,7 +488,7 @@ def handle_recommendations(date: str | None) -> tuple[int, dict]:
 def handle_today_picks(date: str | None) -> tuple[int, dict]:
     try:
         if not date:
-            data = _get_today_picks()
+            data = _strategy_today_picks_payload()
         else:
             data = (
                 _load_report_json("today_picks", date, latest=False)

@@ -31,6 +31,7 @@ from services.signal_service import (
     normalize_theme_focus as _signal_normalize_theme_focus,
     parse_theme_gate_config as _signal_parse_theme_gate_config,
 )
+from services.strategy_engine import select_entry_candidates
 
 _DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]
 _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
@@ -248,6 +249,18 @@ def _default_auto_trader_config() -> dict:
         "stop_loss_pct": primary["stop_loss_pct"],
         "take_profit_pct": primary["take_profit_pct"],
         "max_holding_days": primary["max_holding_days"],
+        "risk_per_trade_pct": 0.35,
+        "daily_loss_limit_pct": 2.0,
+        "max_consecutive_loss": 3,
+        "cooldown_minutes": 120,
+        "max_symbol_weight_pct": 20.0,
+        "max_sector_weight_pct": 35.0,
+        "max_market_exposure_pct": 70.0,
+        "block_buy_in_risk_off": True,
+        "block_buy_when_risk_high": True,
+        "min_avg_volume": 100000,
+        "min_avg_notional_krw": 50000000,
+        "slippage_bps_base": 8.0,
         "market_profiles": profiles,
     }
     # 몬테카를로 최적화 결과 오버레이
@@ -438,7 +451,8 @@ def _auto_invest_picks(
     if not is_market_open(calendar_market):
         return {"ok": False, "error": f"{target_market} 정규장 시간이 아닙니다. 장중에만 거래가 가능합니다."}
 
-    filter_cfg = {
+    filter_cfg = _default_auto_trader_config()
+    filter_cfg.update({
         "min_score": min_score,
         "include_neutral": include_neutral,
         "theme_gate_enabled": theme_gate_enabled,
@@ -446,8 +460,10 @@ def _auto_invest_picks(
         "theme_min_news": theme_min_news,
         "theme_priority_bonus": theme_priority_bonus,
         "theme_focus": theme_focus or list(_DEFAULT_THEME_FOCUS),
-    }
-    candidates = _collect_pick_candidates(target_market, filter_cfg)
+        "markets": [target_market],
+        "max_positions_per_market": int(max_positions),
+    })
+
     engine = _get_paper_engine()
     account = engine.get_account(refresh_quotes=True)
     held_codes = {
@@ -466,52 +482,39 @@ def _auto_invest_picks(
             "ok": True,
             "message": "이미 최대 포지션 수를 보유 중입니다.",
             "executed": [],
-            "skipped": [{"code": item.get("code"), "reason": "max_positions"} for item in candidates],
+            "skipped": [],
             "account": account,
         }
 
-    available_cash = (
-        float(account.get("cash_usd") or 0.0) if target_market == "NASDAQ"
-        else float(account.get("cash_krw") or 0.0)
+    entry_candidates = select_entry_candidates(
+        market=target_market,
+        cfg=filter_cfg,
+        account=account,
+        max_count=max(20, slots * 6),
     )
+
     executed = []
     skipped = []
     remaining_slots = slots
 
-    for item in candidates:
+    for item in entry_candidates:
         if remaining_slots <= 0:
-            skipped.append({"code": item.get("code"),
-                           "reason": "max_positions"})
+            skipped.append({"code": item.get("code"), "reason": "max_positions"})
             continue
+
         code = str(item.get("code") or "").upper()
         if code in held_codes:
             skipped.append({"code": code, "reason": "already_holding"})
             continue
 
-        try:
-            quote = _resolve_stock_quote(code, target_market)
-            quote_price = float(quote.get("price") or 0.0)
-        except Exception as exc:
-            skipped.append({"code": code, "reason": f"quote_error: {exc}"})
-            continue
-        if quote_price <= 0:
-            skipped.append({"code": code, "reason": "invalid_quote"})
-            continue
-
-        fx_rate = (_paper_fx_rate()
-                   or 1300.0) if target_market == "NASDAQ" else 1.0
-        unit_price = quote_price if target_market == "NASDAQ" else (
-            quote_price * fx_rate)
-        budget_per_slot = available_cash / max(remaining_slots, 1)
-        quantity = int((budget_per_slot * 0.995) // unit_price)
+        size_recommendation = item.get("size_recommendation") if isinstance(item.get("size_recommendation"), dict) else {}
+        quantity = int(size_recommendation.get("quantity") or 0)
         if quantity <= 0:
-            skipped.append({"code": code, "reason": "insufficient_cash"})
+            skipped.append({"code": code, "reason": size_recommendation.get("reason") or "size_zero"})
             continue
 
-        # 몬테카를로 최적 파라미터 로드
-        symbol_params = _get_symbol_optimized_params(code)
-        sl = symbol_params.get("stop_loss_pct")
-        tp = symbol_params.get("take_profit_pct")
+        risk_inputs = item.get("risk_inputs") if isinstance(item.get("risk_inputs"), dict) else {}
+        stop_loss_pct = risk_inputs.get("stop_loss_pct")
 
         order_result = engine.place_order(
             side="buy",
@@ -520,19 +523,20 @@ def _auto_invest_picks(
             quantity=quantity,
             order_type="market",
             limit_price=None,
-            stop_loss_pct=sl,
-            take_profit_pct=tp,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=None,
         )
         if not order_result.get("ok"):
-            skipped.append(
-                {"code": code, "reason": order_result.get("error") or "order_failed"})
+            skipped.append({"code": code, "reason": order_result.get("error") or "order_failed"})
             continue
 
         event = order_result.get("event") or {}
+        ev_metrics = item.get("ev_metrics") if isinstance(item.get("ev_metrics"), dict) else {}
         executed.append({
             "code": code,
             "name": item.get("name"),
-            "score": item.get("score"),
+            "strategy_type": item.get("strategy_type"),
+            "expected_value": ev_metrics.get("expected_value"),
             "quantity": event.get("quantity"),
             "filled_price_local": event.get("filled_price_local"),
             "filled_price_krw": event.get("filled_price_krw"),
@@ -540,26 +544,20 @@ def _auto_invest_picks(
         })
         held_codes.add(code)
         remaining_slots -= 1
-        refreshed = order_result.get("account") or {}
-        available_cash = (
-            float(refreshed.get("cash_usd") or available_cash)
-            if target_market == "NASDAQ"
-            else float(refreshed.get("cash_krw") or available_cash)
-        )
 
     final_account = engine.get_account(refresh_quotes=True)
     message = ""
-    if not candidates:
-        message = "조건에 맞는 자동매수 후보가 없습니다. (점수 우선 + 테마 가점 모드) min_score 또는 데이터 갱신 상태를 확인해 보세요."
+    if not entry_candidates:
+        message = "EV 및 리스크 가드를 통과한 자동매수 후보가 없습니다."
     return {
         "ok": True,
-        "strategy": "today-picks-auto-buy-v1",
+        "strategy": "ev-ranked-auto-buy-v2",
         "market": target_market,
         "max_positions": int(max_positions),
         "min_score": float(min_score),
         "executed": executed,
         "skipped": skipped,
-        "candidate_count": len(candidates),
+        "candidate_count": len(entry_candidates),
         "include_neutral": include_neutral,
         "theme_gate_enabled": bool(theme_gate_enabled),
         "theme_min_score": float(theme_min_score),
@@ -707,9 +705,14 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             candidate_counts_by_market[market] = 0
             continue
         buy_count = _count_orders(market, "buy")
-        candidates = _collect_pick_candidates(market=market, cfg=cfg)
-        candidate_counts_by_market[market] = len(candidates)
-        for candidate in candidates:
+        entry_candidates = select_entry_candidates(
+            market=market,
+            cfg=cfg,
+            account=account,
+            max_count=max(20, slots * 6),
+        )
+        candidate_counts_by_market[market] = len(entry_candidates)
+        for candidate in entry_candidates:
             if slots <= 0 or buy_count >= daily_buy_limit:
                 break
             code = str(candidate.get("code") or "").upper()
@@ -718,41 +721,20 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 continue
             if _symbol_order_count(market, "buy", code) >= max_orders_per_symbol:
                 continue
-            technicals, tech_error = _load_technicals(code, market)
-            if tech_error:
-                skipped.append({"code": code, "name": cand_name, "market": market,
-                               "reason": f"technicals_error: {tech_error}"})
-                continue
-            if not technicals:
-                skipped.append({"code": code, "name": cand_name,
-                               "market": market, "reason": "technicals_unavailable"})
-                continue
-            if not _should_enter_by_indicators(technicals, cfg, market):
-                skipped.append({"code": code, "name": cand_name,
-                               "market": market, "reason": "entry_signal_not_matched"})
-                continue
-            quote = _resolve_stock_quote(code, market)
-            price_local = float(quote.get("price") or 0.0)
-            if price_local <= 0:
-                skipped.append({"code": code, "name": cand_name,
-                               "market": market, "reason": "invalid_quote"})
-                continue
-            account = engine.get_account(refresh_quotes=False)
-            available_cash = (
-                float(account.get("cash_usd") or 0.0) if market == "NASDAQ"
-                else float(account.get("cash_krw") or 0.0)
-            )
-            budget_per_slot = available_cash / max(slots, 1)
-            quantity = int((budget_per_slot * 0.995) // price_local)
+
+            size_recommendation = candidate.get("size_recommendation") if isinstance(candidate.get("size_recommendation"), dict) else {}
+            quantity = int(size_recommendation.get("quantity") or 0)
             if quantity <= 0:
-                skipped.append({"code": code, "name": cand_name,
-                               "market": market, "reason": "insufficient_cash"})
+                skipped.append({
+                    "code": code,
+                    "name": cand_name,
+                    "market": market,
+                    "reason": size_recommendation.get("reason") or "size_zero",
+                })
                 continue
 
-            # 몬테카를로 최적 파라미터 로드
-            symbol_params = _get_symbol_optimized_params(code)
-            sl = symbol_params.get("stop_loss_pct")
-            tp = symbol_params.get("take_profit_pct")
+            risk_inputs = candidate.get("risk_inputs") if isinstance(candidate.get("risk_inputs"), dict) else {}
+            stop_loss_pct = risk_inputs.get("stop_loss_pct")
 
             result = engine.place_order(
                 side="buy",
@@ -760,18 +742,21 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 market=market,
                 quantity=quantity,
                 order_type="market",
-                stop_loss_pct=sl,
-                take_profit_pct=tp,
+                stop_loss_pct=stop_loss_pct,
+                take_profit_pct=None,
             )
             if result.get("ok"):
                 buy_count += 1
                 slots -= 1
                 held_codes.add(code)
                 event = result.get("event") or {}
+                ev_metrics = candidate.get("ev_metrics") if isinstance(candidate.get("ev_metrics"), dict) else {}
                 executed_buys.append({
                     "code": code,
                     "name": cand_name,
                     "market": market,
+                    "strategy_type": candidate.get("strategy_type"),
+                    "expected_value": ev_metrics.get("expected_value"),
                     "quantity": event.get("quantity"),
                     "filled_price_local": event.get("filled_price_local"),
                 })
@@ -868,6 +853,26 @@ def _start_auto_trader(config: dict) -> dict:
             1, min(10, int(merged.get("max_orders_per_symbol_per_day") or 1)))
         merged["min_score"] = max(
             0.0, min(100.0, float(merged.get("min_score") or 50.0)))
+        merged["risk_per_trade_pct"] = max(
+            0.05, min(5.0, float(merged.get("risk_per_trade_pct") or 0.35)))
+        merged["daily_loss_limit_pct"] = max(
+            0.1, min(20.0, float(merged.get("daily_loss_limit_pct") or 2.0)))
+        merged["max_consecutive_loss"] = max(
+            1, min(20, int(merged.get("max_consecutive_loss") or 3)))
+        merged["cooldown_minutes"] = max(
+            5, min(1440, int(merged.get("cooldown_minutes") or 120)))
+        merged["max_symbol_weight_pct"] = max(
+            1.0, min(100.0, float(merged.get("max_symbol_weight_pct") or 20.0)))
+        merged["max_sector_weight_pct"] = max(
+            1.0, min(100.0, float(merged.get("max_sector_weight_pct") or 35.0)))
+        merged["max_market_exposure_pct"] = max(
+            1.0, min(100.0, float(merged.get("max_market_exposure_pct") or 70.0)))
+        merged["min_avg_volume"] = max(
+            0.0, float(merged.get("min_avg_volume") or 100000))
+        merged["min_avg_notional_krw"] = max(
+            0.0, float(merged.get("min_avg_notional_krw") or 50000000))
+        merged["slippage_bps_base"] = max(
+            1.0, min(80.0, float(merged.get("slippage_bps_base") or 8.0)))
         merged.update(_parse_theme_gate_config(merged))
         markets = merged.get("markets") or ["KOSPI", "NASDAQ"]
         if not isinstance(markets, list):

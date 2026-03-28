@@ -52,6 +52,12 @@ class EngineConfig:
     default_paper_days: int = 7
     buy_fee_rate: float = 0.00015
     sell_fee_rate: float = 0.00015
+    slippage_bps_base: float = 8.0
+    slippage_bps_open_boost: float = 6.0
+    slippage_bps_event_boost: float = 4.0
+    liquidity_min_volume: int = 30_000
+    liquidity_adv_ratio_limit: float = 0.03
+    stop_gap_risk_bps: float = 25.0
     order_notifier: Callable[[dict[str, Any], dict[str, Any]], None] | None = None
 
 
@@ -144,6 +150,14 @@ class PaperExecutionEngine:
         if quote_price is None or quote_price <= 0:
             return {"ok": False, "error": "유효한 현재가를 가져오지 못했습니다."}
 
+        can_trade, liquidity_reason = self._liquidity_gate(
+            market=normalized_market,
+            quote=quote,
+            quantity=quantity,
+        )
+        if not can_trade:
+            return {"ok": False, "error": liquidity_reason or "liquidity_guard_blocked"}
+
         fx_rate = 1.0 if normalized_market == "KOSPI" else (_to_float(self.fx_provider()) or 1300.0)
         can_fill, reject_reason = self._can_fill(
             side=normalized_side,
@@ -154,7 +168,19 @@ class PaperExecutionEngine:
         if not can_fill:
             return {"ok": False, "error": reject_reason or "체결 조건이 맞지 않습니다."}
 
-        executed_local = quote_price if normalized_order_type == "market" else float(limit_price)
+        slippage_bps = self._estimate_slippage_bps(
+            market=normalized_market,
+            quote=quote,
+            quantity=quantity,
+            side=normalized_side,
+        )
+        if normalized_order_type == "market":
+            if normalized_side == "buy":
+                executed_local = quote_price * (1.0 + (slippage_bps / 10_000.0))
+            else:
+                executed_local = quote_price * (1.0 - (slippage_bps / 10_000.0))
+        else:
+            executed_local = float(limit_price)
         executed_krw = executed_local * fx_rate
         fee_rate = self.config.buy_fee_rate if normalized_side == "buy" else self.config.sell_fee_rate
         notional_local = executed_local * quantity
@@ -263,6 +289,11 @@ class PaperExecutionEngine:
                 "realized_pnl_local": round(realized_local, 4),
                 "realized_pnl_krw": round(realized_krw, 2),
                 "status": "filled",
+                "execution_realism": {
+                    "slippage_bps": round(slippage_bps, 2),
+                    "slippage_model_version": "intraday_v2",
+                    "liquidity_gate_status": "passed",
+                },
             }
             state["orders"].insert(0, event)
             state["orders"] = state["orders"][:300]
@@ -279,6 +310,55 @@ class PaperExecutionEngine:
                 pass
 
         return {"ok": True, "event": event, "account": snapshot}
+
+    def _market_is_opening_window(self, market: str) -> bool:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if market == "KOSPI":
+            current = now.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
+            return (current.hour == 9 and current.minute < 30)
+        if market == "NASDAQ":
+            et = now.astimezone(datetime.timezone(datetime.timedelta(hours=-4)))
+            return (et.hour == 9 and et.minute >= 30) or (et.hour == 10 and et.minute < 30)
+        return False
+
+    def _estimate_slippage_bps(
+        self,
+        *,
+        market: str,
+        quote: dict[str, Any],
+        quantity: int,
+        side: str,
+    ) -> float:
+        bps = float(self.config.slippage_bps_base)
+        if self._market_is_opening_window(market):
+            bps += float(self.config.slippage_bps_open_boost)
+
+        change_pct = abs(_to_float(quote.get("change_pct")) or 0.0)
+        bps += min(12.0, change_pct * 1.2)
+
+        if bool(quote.get("event_risk")):
+            bps += float(self.config.slippage_bps_event_boost)
+
+        volume_ratio = _to_float(quote.get("volume_ratio"))
+        if volume_ratio is not None and volume_ratio > 0 and volume_ratio < 1.0:
+            bps += (1.0 - volume_ratio) * 10.0
+
+        if quantity >= 1000:
+            bps += 2.0
+        if side == "sell":
+            bps += 0.5
+        return max(1.0, min(80.0, bps))
+
+    def _liquidity_gate(self, *, market: str, quote: dict[str, Any], quantity: int) -> tuple[bool, str | None]:
+        volume = _to_float(quote.get("volume"))
+        avg_volume = _to_float(quote.get("volume_avg20")) or volume
+        if volume is not None and volume < self.config.liquidity_min_volume:
+            return False, "liquidity_guard:volume_too_low"
+        if avg_volume is not None and avg_volume > 0:
+            adv_ratio = quantity / avg_volume
+            if adv_ratio > float(self.config.liquidity_adv_ratio_limit):
+                return False, "liquidity_guard:adv_ratio_exceeded"
+        return True, None
 
     def _can_fill(
         self,
@@ -399,15 +479,20 @@ class PaperExecutionEngine:
             if liquidation_reason:
                 now = _now_iso()
                 fee_rate = self.config.sell_fee_rate
-                notional_local = last_price_local * quantity
-                notional_krw = last_price_krw * quantity
+                slippage_bps = float(self.config.slippage_bps_base)
+                if liquidation_reason == "stop_loss":
+                    slippage_bps += float(self.config.stop_gap_risk_bps)
+                gap_adjusted_price_local = max(0.0, last_price_local * (1.0 - (slippage_bps / 10_000.0)))
+                gap_adjusted_price_krw = gap_adjusted_price_local * fx_rate
+                notional_local = gap_adjusted_price_local * quantity
+                notional_krw = gap_adjusted_price_krw * quantity
                 fee_local = max(0.0, notional_local * fee_rate)
                 fee_krw = max(0.0, notional_krw * fee_rate)
                 
                 proceeds_local = notional_local - fee_local
                 proceeds_krw = notional_krw - fee_krw
-                realized_local = (last_price_local - avg_price_local) * quantity - fee_local
-                realized_krw = (last_price_krw - avg_price_krw) * quantity - fee_krw
+                realized_local = (gap_adjusted_price_local - avg_price_local) * quantity - fee_local
+                realized_krw = (gap_adjusted_price_krw - avg_price_krw) * quantity - fee_krw
 
                 if market == "KOSPI":
                     state["cash_krw"] = float(state["cash_krw"]) + proceeds_krw
@@ -427,8 +512,8 @@ class PaperExecutionEngine:
                     "name": position["name"],
                     "market": market,
                     "quantity": quantity,
-                    "filled_price_local": round(last_price_local, 4),
-                    "filled_price_krw": round(last_price_krw, 4),
+                    "filled_price_local": round(gap_adjusted_price_local, 4),
+                    "filled_price_krw": round(gap_adjusted_price_krw, 4),
                     "fx_rate": round(fx_rate, 4),
                     "notional_local": round(notional_local, 4),
                     "notional_krw": round(notional_krw, 2),
@@ -438,6 +523,10 @@ class PaperExecutionEngine:
                     "realized_pnl_krw": round(realized_krw, 2),
                     "status": "filled",
                     "note": f"Auto-liquidation ({liquidation_reason})",
+                    "execution_realism": {
+                        "slippage_bps": round(slippage_bps, 2),
+                        "slippage_model_version": "gap-risk-v1",
+                    },
                 }
                 state["orders"].insert(0, event)
                 state["positions"].pop(key, None)

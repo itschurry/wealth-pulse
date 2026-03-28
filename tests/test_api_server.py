@@ -41,6 +41,26 @@ class ApiServerDispatchTests(unittest.TestCase):
         self.assertEqual((200, {"ok": True, "current_mode": "paper"}), result)
         mock_handler.assert_called_once_with()
 
+    def test_dispatch_get_routes_domain_signals(self):
+        with patch("api.server.handle_signals_rank", return_value=(200, {"ok": True, "count": 1})) as mock_handler:
+            result = dispatch_get("/api/signals/rank", {"limit": ["10"]})
+
+        self.assertEqual((200, {"ok": True, "count": 1}), result)
+        mock_handler.assert_called_once_with({"limit": ["10"]})
+
+    def test_dispatch_get_routes_domain_signal_detail(self):
+        with patch("api.server.handle_signal_detail", return_value=(200, {"ok": True, "signal": {}})) as mock_handler:
+            result = dispatch_get("/api/signals/005930", {})
+
+        self.assertEqual((200, {"ok": True, "signal": {}}), result)
+        mock_handler.assert_called_once_with("/api/signals/005930")
+
+    def test_dispatch_get_routes_domain_portfolio_refresh_flag(self):
+        with patch("api.server.handle_portfolio_state", return_value=(200, {"ok": True})) as mock_handler:
+            dispatch_get("/api/portfolio/state", {"refresh": ["0"]})
+
+        mock_handler.assert_called_once_with(False)
+
     def test_dispatch_returns_none_for_unknown_route(self):
         self.assertIsNone(dispatch_get("/api/unknown", {}))
         self.assertIsNone(dispatch_post("/api/unknown", {}))
