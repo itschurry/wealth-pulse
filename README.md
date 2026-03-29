@@ -1,132 +1,131 @@
 # daily-market-brief
 
-고수익/고생존 자동투자 엔진(Profit-Max Auto-Invest Engine) 플랫폼입니다.
+고수익/고생존 자동투자 엔진과 설명 리포트를 함께 운영하는 프로젝트입니다. 현재 구조는 `docflow-ai` 정렬을 목표로 `apps/api`, `apps/web`, `storage` 기준으로 재구성되어 있습니다.
 
-이 저장소의 제품 목표는 리포트 생성 자체가 아니라, 전략 신호 생성과 실행(paper 우선), 백테스트 검증, 그리고 사람이 추적 가능한 설명 리포트를 하나의 운영 흐름으로 통합하는 것입니다.
-
-## Product Direction
-- Core: 신호 생성 + 포트폴리오/주문 실행 엔진
-- Validation: 백테스트 + paper trading
-- Explainability: 리포트/시장 컨텍스트
-- Future-ready: 실계좌 실행 인터페이스(Live engine stub)
-
-## Runtime Modes
-- `report`: 설명 리포트 생성 중심 실행
-- `paper`: 모의투자 실행 모드
-- `live_disabled`: 실계좌 인터페이스 비활성(기본)
-- `live_ready`: 실계좌 연결 준비 모드
-
-현재 모드는 환경변수 `AUTO_INVEST_MODE`와 `/api/system/mode` 응답으로 확인할 수 있습니다.
-
-## Architecture (Refactor Target)
+## Repository Layout
 ```text
 .
-├── app/            # 제품 모드/런타임 공통 정의
-├── domain/         # 도메인 모델/규칙(점진 확장)
-├── services/       # signal/execution/backtest/report 유스케이스
-├── infra/          # 외부 연동 어댑터(점진 확장)
-├── jobs/           # scheduler가 호출하는 실행 wrapper
-├── api/            # HTTP route (request/response 매핑 중심)
-├── broker/         # execution engine 구현체(paper/live stub)
-├── analyzer/       # 전략/분석 로직
-├── collectors/     # 데이터 수집
-├── frontend/       # 운영 콘솔 UI
-└── tests/
+├── apps/
+│   ├── api/        # Python backend, FastAPI, scheduler, report pipeline
+│   └── web/        # React/Vite console UI
+├── storage/
+│   ├── reports/    # SQLite report cache + generated artifacts
+│   └── logs/       # runtime logs, watchlist, paper trading state
+├── docker-compose.yml
+└── .github/workflows/ci.yml
 ```
 
-## Core Services
-- `services.signal_service`: 추천/테마 게이트 기반 후보 산출
-- `services.execution_service`: paper 계좌, 자동매매 루프, 주문 실행
-- `services.backtest_service`: 전략 검증/백테스트 orchestration
-- `services.report_service`: 리포트 생성 파이프라인
+## Runtime Model
+- 로컬 개발: `venv` 기반 직접 실행
+- 배포: Docker `api + web`
+- `scheduler.py`: host/systemd 운영 유지
+- `LLM_PROVIDER=nemotron`: 호스트 Ollama 필요, API 컨테이너는 `OLLAMA_HOST` 로 접속
 
-## Domain API (Redesigned)
-기존 report-first 스키마 호환 유지가 아닌 도메인형 API를 기준으로 운영합니다.
-
-- `GET /api/engine/status`: 실행 상태, allocator, risk guard, mode
-- `GET /api/signals/rank`: EV 랭킹 신호 목록
-- `GET /api/signals/{code}`: 개별 신호 상세
-- `GET /api/portfolio/state`: 포지션/현금/리스크 가드 상태
-- `GET /api/validation/backtest`: 확장 성과지표 포함 백테스트 결과
-- `GET /api/validation/walk-forward`: walk-forward 요약(train/validation/OOS)
-- `GET /api/reports/explain`: explainability 전용 리포트 뷰
-- `GET /api/reports/index`: 리포트 인덱스
-
-## Quick Start
+## Local Development
 ```bash
-# python deps
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r apps/api/requirements.txt
 
-# frontend deps
-cd frontend
+cd apps/web
 npm install
-cd ..
+cd ../..
+```
 
-# one-shot report generation
+백엔드:
+```bash
+cd apps/api
+python3 api_server.py
+```
+
+프런트엔드:
+```bash
+cd apps/web
+npm run dev
+```
+
+원샷 리포트:
+```bash
+cd apps/api
 python3 run_once.py
-
-# api server (terminal 1)
-python3 api_server.py
-
-# frontend dev server (terminal 2)
-cd frontend && npm run dev
 ```
 
-## LLM Provider
-- `LLM_PROVIDER=openai` keeps the existing OpenAI flow.
-- `LLM_PROVIDER=nemotron` uses a host-installed Ollama instance and the local Nemotron model.
-- OpenAI와 Nemotron 모두 동일하게 host Python runtime 에서 실행합니다.
-- 운영 기준 명령은 `python3 run_once.py`, `python3 api_server.py`, `scheduler.py`, `scripts/manage_scheduler_systemd.sh` 입니다.
-
-Example `.env` values:
-
+스케줄러:
 ```bash
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_SIGNAL_MODEL=gpt-4o-mini
-OPENAI_PLAYBOOK_MODEL=gpt-4o-mini
-```
-
-```bash
-LLM_PROVIDER=nemotron
-NEMOTRON_MODEL=nemotron-3-super
-```
-
-Before running with `LLM_PROVIDER=nemotron`, ensure Ollama is installed and the model is already pulled on the host server.
-
-## Local Host Runtime
-- Backend API: `python3 api_server.py` on `127.0.0.1:8001`
-- Frontend dev UI: `cd frontend && npm run dev`
-- One-shot report: `python3 run_once.py`
-- Scheduler: `python3 scheduler.py`
-- Long-running scheduler service: `bash scripts/manage_scheduler_systemd.sh install`
-
-The Vite dev server proxies `/api` requests to `http://localhost:8001`, so the local console works without Docker.
-
-## Production-Like Host Run
-```bash
-source .venv/bin/activate
-python3 api_server.py
+cd apps/api
 python3 scheduler.py
 ```
 
-If you need the frontend as static assets on a host machine, build it with:
+기존 루트 명령도 호환 래퍼로 유지됩니다.
+```bash
+python3 api_server.py
+python3 run_once.py
+python3 scheduler.py
+```
+
+## Environment
+주요 설정은 `apps/api/.env.example` 을 기준으로 합니다.
+
+- `LLM_PROVIDER=openai|nemotron`
+- `OPENAI_API_KEY`
+- `NEMOTRON_MODEL`
+- `OLLAMA_HOST`
+- `REPORT_OUTPUT_DIR`
+- `LOGS_DIR`
+
+로컬 host-run 개발 기본값:
+- API: `http://127.0.0.1:8001`
+- Web dev: `http://127.0.0.1:5173`
+- Web prod: `http://127.0.0.1:8080`
+- Ollama: `http://127.0.0.1:11434`
+
+## Docker Deployment
+API와 Web만 컨테이너로 운영합니다. `scheduler` 는 제외합니다.
 
 ```bash
-cd frontend
+cp apps/api/.env.example apps/api/.env
+# apps/api/.env 값을 실제 환경에 맞게 수정
+
+docker compose up --build -d
+docker compose ps
+```
+
+검증:
+```bash
+curl http://localhost:8001/health
+curl -I http://localhost:8080
+curl http://localhost:8080/api/health
+```
+
+Nemotron 사용 시:
+- 배포 서버 호스트에 Ollama 설치 및 모델 pull
+- `OLLAMA_HOST=http://host.docker.internal:11434` 또는 서버 고정 호스트명 설정
+- Linux Docker에서는 compose의 `extra_hosts` 설정을 사용
+
+## Scheduler
+systemd 운영 스크립트:
+```bash
+cd apps/api
+bash scripts/manage_scheduler_systemd.sh install
+```
+
+이 스크립트는 `storage/logs` 를 사용하고, `PYTHONPATH=apps/api` 기준으로 서비스를 설치합니다.
+
+## Test And Build
+백엔드 테스트:
+```bash
+cd apps/api
+python -m unittest discover -s tests
+```
+
+프런트엔드 빌드:
+```bash
+cd apps/web
 npm run build
 ```
 
-This repository no longer uses Docker, docker-compose, nginx, or container entrypoints as an operation path.
-
-## Validation Workflow
-1. 백테스트로 전략 파라미터 검증
-2. paper trading으로 실행/상태/위험 규칙 검증
-3. 리포트로 매매 근거/시장 맥락 점검
-4. live 모드 전환 준비(현재는 stub)
-
-## Disclaimer
-본 프로젝트의 데이터/리포트/추천은 투자 참고용이며, 최종 투자 판단과 책임은 사용자에게 있습니다.
+Docker 빌드:
+```bash
+docker build -t daily-market-brief-api ./apps/api
+docker build -t daily-market-brief-web ./apps/web
+```

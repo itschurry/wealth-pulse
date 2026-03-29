@@ -1,0 +1,37 @@
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./storage/reports:/reports
+      - ./storage/logs:/logs
+    environment:
+      PYTHONPATH: /app
+      REPORT_OUTPUT_DIR: /reports
+      LOGS_DIR: /logs
+      PAPER_TRADING_STATE_PATH: /logs/paper_account_state.json
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+    env_file:
+      - ./apps/api/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=5).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

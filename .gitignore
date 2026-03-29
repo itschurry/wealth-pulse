@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!apps/api/.env.example
 
 # --- Python ---
 __pycache__/
@@ -18,19 +19,19 @@ env/
 .ruff_cache/
 
 # --- Node / Frontend ---
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/.cache/
+apps/web/node_modules/
+apps/web/dist/
+apps/web/.vite/
+apps/web/.cache/
 
 # --- Logs ---
-logs/*
-!logs/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep
 *.log
 
 # --- Generated reports/artifacts ---
-report/*
-!report/.gitkeep
+storage/reports/*
+!storage/reports/.gitkeep
 
 # --- OS / Editor ---
 .DS_Store
@@ -42,5 +43,5 @@ report/*
 *.tmp
 refactoring-result.md
 revision.md
-config/optimized_params.json
+apps/api/config/optimized_params.json
 monte.md

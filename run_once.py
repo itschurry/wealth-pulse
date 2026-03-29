@@ -1,6 +1,18 @@
-"""수동 1회 실행"""
-import asyncio
-from main import run_daily_report
+#!/usr/bin/env python3
+"""Compatibility wrapper for the relocated one-shot runner."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+
+API_DIR = Path(__file__).resolve().parent / "apps" / "api"
+if str(API_DIR) not in sys.path:
+    sys.path.insert(0, str(API_DIR))
+
+from run_once import main  # type: ignore  # noqa: E402
+
 
 if __name__ == "__main__":
-    asyncio.run(run_daily_report())
+    main()
