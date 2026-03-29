@@ -34,28 +34,9 @@ _DEFAULT_PROFILES: dict[str, StrategyProfile] = {
     "KOSPI": StrategyProfile(
         market="KOSPI",
         max_positions=5,
-        max_holding_days=25,
+        max_holding_days=15,
         rsi_min=38.0,
-        rsi_max=72.0,
-        volume_ratio_min=0.8,
-        adx_min=10.0,
-        mfi_min=20.0,
-        mfi_max=80.0,
-        bb_pct_min=0.05,
-        bb_pct_max=0.95,
-        stoch_k_min=10.0,
-        stoch_k_max=90.0,
-        stop_loss_pct=7.0,
-        take_profit_pct=15.0,
-        signal_interval="1d",
-        signal_range="6mo",
-    ),
-    "NASDAQ": StrategyProfile(
-        market="NASDAQ",
-        max_positions=5,
-        max_holding_days=40,
-        rsi_min=38.0,
-        rsi_max=75.0,
+        rsi_max=62.0,
         volume_ratio_min=1.0,
         adx_min=10.0,
         mfi_min=20.0,
@@ -64,8 +45,27 @@ _DEFAULT_PROFILES: dict[str, StrategyProfile] = {
         bb_pct_max=0.95,
         stoch_k_min=10.0,
         stoch_k_max=90.0,
-        stop_loss_pct=8.0,
-        take_profit_pct=20.0,
+        stop_loss_pct=5.0,
+        take_profit_pct=None,
+        signal_interval="1d",
+        signal_range="6mo",
+    ),
+    "NASDAQ": StrategyProfile(
+        market="NASDAQ",
+        max_positions=5,
+        max_holding_days=30,
+        rsi_min=38.0,
+        rsi_max=68.0,
+        volume_ratio_min=1.2,
+        adx_min=10.0,
+        mfi_min=20.0,
+        mfi_max=80.0,
+        bb_pct_min=0.05,
+        bb_pct_max=0.95,
+        stoch_k_min=10.0,
+        stoch_k_max=90.0,
+        stop_loss_pct=None,
+        take_profit_pct=None,
         signal_interval="1d",
         signal_range="6mo",
     ),
@@ -322,23 +322,26 @@ def should_exit_from_snapshot(
     macd_signal = snapshot.get("macd_signal")
     macd_hist = snapshot.get("macd_hist")
 
+    epsilon = 1e-9
+
     # 1. 보유기간 만료 (최적화 파라미터)
     if holding_days >= profile.max_holding_days:
         return "보유기간 만료"
+    pnl_pct = None
+    if price is not None and entry_price:
+        pnl_pct = ((float(price) / float(entry_price)) - 1) * 100
     # 2. 손절 (최적화 파라미터)
     if (
         profile.stop_loss_pct is not None
-        and price is not None
-        and entry_price
-        and ((float(price) / float(entry_price)) - 1) * 100 <= -profile.stop_loss_pct
+        and pnl_pct is not None
+        and pnl_pct <= (-float(profile.stop_loss_pct) + epsilon)
     ):
         return "손절"
     # 3. 익절 (최적화 파라미터)
     if (
         profile.take_profit_pct is not None
-        and price is not None
-        and entry_price
-        and ((float(price) / float(entry_price)) - 1) * 100 >= profile.take_profit_pct
+        and pnl_pct is not None
+        and pnl_pct >= (float(profile.take_profit_pct) - epsilon)
     ):
         return "익절"
     # 4. 기술적 약세 신호 (Phase 3-3: 초기 1~2일 잡음 차단)
@@ -346,8 +349,7 @@ def should_exit_from_snapshot(
     if holding_days > 2:  # 3일 이상 보유한 경우만 기술 신호 적용
         if close is not None and sma20 is not None and float(close) < float(sma20) * 0.99:
             return "20일선 이탈"
-        if (price is not None and entry_price and macd is not None and macd_signal is not None and macd_hist is not None):
-            pnl_pct = ((float(price) / float(entry_price)) - 1) * 100
+        if (pnl_pct is not None and macd is not None and macd_signal is not None and macd_hist is not None):
             if float(macd) < float(macd_signal) and float(macd_hist) < 0 and pnl_pct < -2.0:
                 return "MACD 약세 전환"
         if rsi14 is not None and float(rsi14) >= 82:
