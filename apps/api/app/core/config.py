@@ -6,9 +6,17 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+_CURRENT_FILE = Path(__file__).resolve()
+_API_DIR_CANDIDATE = _CURRENT_FILE.parents[2]
+
+if _API_DIR_CANDIDATE.name == "api" and _API_DIR_CANDIDATE.parent.name == "apps":
+    API_DIR = _API_DIR_CANDIDATE
+    REPO_ROOT = API_DIR.parent.parent
+else:
+    API_DIR = _API_DIR_CANDIDATE
+    REPO_ROOT = API_DIR
+
 APPS_DIR = REPO_ROOT / "apps"
-API_DIR = APPS_DIR / "api"
 WEB_DIR = APPS_DIR / "web"
 STORAGE_DIR = REPO_ROOT / "storage"
 REPORTS_DIR = STORAGE_DIR / "reports"
@@ -52,7 +60,7 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
-    report_web_url: str = Field(default="http://localhost:8080", alias="REPORT_WEB_URL")
+    report_web_url: str = Field(default="http://localhost:8081", alias="REPORT_WEB_URL")
 
     smtp_host: str = Field(default="smtp.gmail.com", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
@@ -86,5 +94,16 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-settings.report_output_dir.mkdir(parents=True, exist_ok=True)
-settings.logs_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _ensure_directory(path: Path) -> None:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Docker-oriented absolute paths like /logs or /reports may not be writable
+        # during local imports. Actual runtime validation happens when the path is used.
+        pass
+
+
+_ensure_directory(settings.report_output_dir)
+_ensure_directory(settings.logs_dir)

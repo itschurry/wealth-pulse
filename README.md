@@ -76,7 +76,7 @@ python3 scheduler.py
 로컬 host-run 개발 기본값:
 - API: `http://127.0.0.1:8001`
 - Web dev: `http://127.0.0.1:5173`
-- Web prod: `http://127.0.0.1:8080`
+- Web prod: `http://127.0.0.1:8081`
 - Ollama: `http://127.0.0.1:11434`
 
 ## Docker Deployment
@@ -93,8 +93,8 @@ docker compose ps
 검증:
 ```bash
 curl http://localhost:8001/health
-curl -I http://localhost:8080
-curl http://localhost:8080/api/health
+curl -I http://localhost:8081
+curl http://localhost:8081/api/health
 ```
 
 Nemotron 사용 시:
