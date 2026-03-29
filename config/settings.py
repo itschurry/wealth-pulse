@@ -8,10 +8,12 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent.parent
 
 # OpenAI
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_SIGNAL_MODEL = os.getenv("OPENAI_SIGNAL_MODEL", OPENAI_MODEL)
 OPENAI_PLAYBOOK_MODEL = os.getenv("OPENAI_PLAYBOOK_MODEL", OPENAI_MODEL)
+NEMOTRON_MODEL = os.getenv("NEMOTRON_MODEL", "nemotron-3-super")
 
 # FRED
 FRED_API_KEY = (

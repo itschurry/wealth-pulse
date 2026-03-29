@@ -1,11 +1,9 @@
 """텔레그램 봇으로 메시지 발송"""
-import asyncio
-
 from loguru import logger
-from openai import OpenAI
 from telegram import Bot
 
-from config.settings import OPENAI_API_KEY, OPENAI_MODEL, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REPORT_WEB_URL
+from config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REPORT_WEB_URL
+from llm.service import complete_text
 
 _QUOTE_PROMPT = (
     "투자와 관련된 짧은 명언 한 줄을 한국어로 알려주세요. "
@@ -15,22 +13,19 @@ _FALLBACK_INTRO = "오늘의 리포트가 도착했어요.\n편하실 때 아래
 
 
 async def _generate_investment_quote() -> str | None:
-    """OpenAI를 이용해 투자 관련 짧은 명언을 생성한다. 실패 시 None 반환."""
-    if not OPENAI_API_KEY:
-        return None
+    """LLM을 이용해 투자 관련 짧은 명언을 생성한다. 실패 시 None 반환."""
     try:
-        client = OpenAI(api_key=OPENAI_API_KEY)
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": _QUOTE_PROMPT}],
+        response = await complete_text(
+            system_prompt="투자 관련 짧은 인용구만 반환한다.",
+            user_prompt=_QUOTE_PROMPT,
+            task="quote",
             temperature=1.0,
-            max_completion_tokens=128,
+            max_tokens=128,
         )
-        quote = (response.choices[0].message.content or "").strip()
+        quote = (response.content or "").strip()
         return quote if quote else None
     except Exception as exc:
-        logger.warning(f"OpenAI 명언 생성 실패: {exc}")
+        logger.warning("LLM 명언 생성 실패: {}", exc)
         return None
 
 
@@ -54,7 +49,7 @@ async def send_text_message(message: str) -> bool:
 
 
 async def send_report(_: str) -> bool:
-    """OpenAI로 생성한 투자 명언과 함께 리포트 링크를 발송한다."""
+    """LLM으로 생성한 투자 명언과 함께 리포트 링크를 발송한다."""
     quote = await _generate_investment_quote()
     if quote:
         message = f"{quote}\n\n오늘의 리포트 → {REPORT_WEB_URL}"

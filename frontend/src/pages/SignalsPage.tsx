@@ -3,7 +3,7 @@ import { buildSignalRows } from '../adapters/consoleViewAdapter';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { strategyTypeToKorean, UI_TEXT } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
-import { formatNumber, formatPercent } from '../utils/format';
+import { formatCount, formatNumber, formatPercent } from '../utils/format';
 import type { ConsoleSnapshot } from '../types/consoleView';
 
 interface SignalsPageProps {
@@ -18,6 +18,7 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
   const rows = buildSignalRows(snapshot).slice(0, 60);
   const allowedCount = rows.filter((row) => row.statusLabel === UI_TEXT.status.allowed).length;
   const blockedCount = rows.length - allowedCount;
+  const emptyMessage = errorMessage ? UI_TEXT.empty.signalsMissingData : UI_TEXT.empty.signalsNoMatches;
 
   const handleRefresh = useCallback(() => {
     onRefresh();
@@ -100,7 +101,7 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
                         {winProbability === undefined ? '-' : formatPercent(winProbability, 2, true)}
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
-                        {size > 0 ? formatNumber(size, 0) : '-'}
+                        {size > 0 ? formatCount(size, '주') : '-'}
                       </td>
                       <td style={{ padding: 12, fontSize: 12, color: row.statusLabel === '추천' ? 'var(--up)' : 'var(--down)', fontWeight: 700 }}>
                         {row.statusLabel}
@@ -114,7 +115,7 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
                 {rows.length === 0 && (
                   <tr>
                     <td colSpan={7} style={{ padding: 14, fontSize: 12, color: 'var(--text-4)' }}>
-                      {UI_TEXT.common.noData}
+                      {emptyMessage}
                     </td>
                   </tr>
                 )}

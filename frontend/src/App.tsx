@@ -24,7 +24,6 @@ const CONSOLE_TABS: Array<{ id: ConsoleTab; label: string; path: string }> = [
 
 const REPORT_TABS: Array<{ id: ReportTab; label: string; path: string }> = [
   { id: 'today-report', label: UI_TEXT.reportTabs.todayReport, path: '/reports/today-report' },
-  { id: 'today-recommendations', label: UI_TEXT.reportTabs.todayRecommendations, path: '/reports/today-recommendations' },
   { id: 'action-board', label: UI_TEXT.reportTabs.actionBoard, path: '/reports/action-board' },
   { id: 'watch-decision', label: UI_TEXT.reportTabs.watchDecision, path: '/reports/watch-decision' },
 ];
@@ -41,7 +40,8 @@ function toRouteState(pathname: string): RouteState {
     '/reports': '/reports/today-report',
     '/console/backtest': '/console/validation',
     '/reports/today': '/reports/today-report',
-    '/reports/recommendations': '/reports/today-recommendations',
+    '/reports/recommendations': '/reports/today-report',
+    '/reports/today-recommendations': '/reports/today-report',
     '/': '/console/overview',
   };
   if (legacyRedirects[path]) return normalize(legacyRedirects[path]);

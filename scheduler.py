@@ -93,7 +93,7 @@ if __name__ == "__main__":
         logger.warning(
             f"⚠️ TZ 환경변수가 {KST_TZ}이 아닙니다 (현재: {tz or '미설정'}). "
             f"코드상 로그 기준은 {KST_TZ}를 기대하므로, 로그/운영 혼선을 막으려면 "
-            f"'export TZ={KST_TZ}' 또는 systemd/docker에 TZ={KST_TZ}을 설정하세요."
+            f"'export TZ={KST_TZ}' 또는 systemd/셸 실행 환경에 TZ={KST_TZ}을 설정하세요."
         )
 
     scheduler = BlockingScheduler()

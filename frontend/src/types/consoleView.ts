@@ -25,24 +25,22 @@ export interface ConsoleDataState {
 
 export interface TodayReportView {
   generatedAt: string;
+  dataAsOf: string;
+  statusItems: Array<{
+    label: string;
+    value: string;
+    tone?: 'neutral' | 'good' | 'bad';
+  }>;
   summaryLines: string[];
-  riskHighlights: string[];
-  strategyPoint: '관망' | '선별' | '공격' | '축소';
-}
-
-export interface TodayRecommendationItem {
-  symbol: string;
-  strategy: string;
-  expectedValue: number;
-  winProbability: number;
-  size: number;
-  status: '추천' | '차단';
-  reasonSummary: string;
-}
-
-export interface TodayRecommendationView {
-  recommended: TodayRecommendationItem[];
-  excluded: TodayRecommendationItem[];
+  judgmentTitle: '관망' | '선별' | '공격' | '축소';
+  judgmentLines: string[];
+  actionItems: Array<{
+    label: string;
+    detail: string;
+    tone?: 'neutral' | 'good' | 'bad';
+  }>;
+  watchPoints: string[];
+  hasReportContent: boolean;
 }
 
 export interface ActionBoardView {
@@ -83,6 +81,11 @@ export interface ActionBarAction {
   onClick: () => void;
   tone?: 'default' | 'primary' | 'danger';
   disabled?: boolean;
+  busy?: boolean;
+  busyLabel?: string;
+  confirmTitle?: string;
+  confirmMessage?: string;
+  confirmLabel?: string;
 }
 
 export interface PaperViewModel {

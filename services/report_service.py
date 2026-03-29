@@ -25,6 +25,7 @@ from collectors.market_collector import collect_market
 from collectors.models import DailyData
 from collectors.news_collector import collect_news
 from config.settings import DELIVERY_METHOD, LOGS_DIR
+from llm.service import validate_runtime_tasks
 from reporter.email_sender import send_report as send_email
 from reporter.report_generator import (
     save_ai_signals_cache,
@@ -64,6 +65,10 @@ def _setup_logging() -> None:
 async def run_report_pipeline() -> None:
     _setup_logging()
     logger.info("=== 일일 리포트 생성 시작 ===")
+    llm_tasks = ["report", "playbook", "signal"]
+    if DELIVERY_METHOD in ("telegram", "both"):
+        llm_tasks.append("quote")
+    validate_runtime_tasks(llm_tasks)
 
     logger.info("[1-6/10] 수집 병렬 시작...")
     loop = asyncio.get_event_loop()
@@ -108,10 +113,10 @@ async def run_report_pipeline() -> None:
         investor_flows=investor_flows,
     )
 
-    logger.info("[8/10] OpenAI API 분석 중...")
+    logger.info("[8/10] LLM 분석 중...")
     analysis, analysis_playbook = await analyze_with_playbook(daily_data)
 
-    logger.info("[9/10] OpenAI 보조신호 생성 중...")
+    logger.info("[9/10] LLM 보조신호 생성 중...")
     ai_signals = await generate_stock_aux_signals(daily_data)
 
     logger.info("[10/10] 투자 추천 계산 및 저장...")

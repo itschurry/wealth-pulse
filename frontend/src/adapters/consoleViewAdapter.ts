@@ -1,11 +1,9 @@
-import { reasonCodeToKorean, reliabilityToKorean, strategyTypeToKorean } from '../constants/uiText';
-import { formatSymbol } from '../utils/format';
+import { reasonCodeToKorean, reliabilityToKorean } from '../constants/uiText';
+import { formatCount, formatDateTime, formatSymbol } from '../utils/format';
 import type {
   ActionBoardView,
   ConsoleSnapshot,
   SignalTableRow,
-  TodayRecommendationItem,
-  TodayRecommendationView,
   TodayReportView,
   WatchDecisionView,
 } from '../types/consoleView';
@@ -88,6 +86,7 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
   const analysisLines = (snapshot.reports.analysis?.summary_lines || [])
     .map((line) => line.trim())
     .filter(Boolean);
+  const hasReportContent = analysisLines.length > 0 || Boolean(snapshot.reports.generated_at);
   const summaryFallback = [
     '거시/수급 지표 변화를 기준으로 시장 위험도를 점검합니다.',
     '리스크 가드 상태와 허용 신호 비율을 함께 확인합니다.',
@@ -99,72 +98,82 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
   const blockedReasons = translateReasons(
     (snapshot.signals.signals || []).flatMap((signal) => signal.entry_allowed ? [] : (signal.reason_codes || [])),
   );
+  const allocator = snapshot.engine.allocator || {};
+  const running = Boolean(snapshot.engine.execution?.state?.running);
+  const guardAllowed = Boolean(snapshot.engine.risk_guard_state?.entry_allowed);
+  const allowedCount = Number(allocator.entry_allowed_count || 0);
+  const blockedCount = Number(allocator.blocked_count || 0);
+  const decision = classifyMode(snapshot);
 
-  const riskFallback = [
-    '장초/이벤트 구간에서 체결 슬리피지 확대 가능성에 유의합니다.',
-    '연속 손실 구간에서는 신규 진입을 축소하고 관망 비중을 높입니다.',
-    '유동성 정보가 부족한 신호는 자동으로 제외될 수 있습니다.',
-  ];
-  const riskHighlights = dedupeKeepOrder([
+  const watchPoints = dedupeKeepOrder([
     ...guardReasons,
     ...blockedReasons,
-    ...riskFallback,
+    '장초/이벤트 구간에서는 체결 슬리피지 확대 가능성에 유의합니다.',
+    '연속 손실 구간에서는 신규 진입보다 기존 포지션 방어를 우선합니다.',
+    '유동성 정보가 부족한 신호는 자동으로 제외될 수 있습니다.',
   ]).slice(0, 5);
 
-  const decision = classifyMode(snapshot);
+  const judgmentLines = dedupeKeepOrder([
+    ...decision.rationale,
+    guardAllowed
+      ? `현재 신규 진입은 가능합니다. 신호 화면에서 허용 ${formatCount(allowedCount, '건')}을 우선 확인하세요.`
+      : '현재 신규 진입은 제한됩니다. 리스크 가드 사유를 먼저 해소하거나 관망 비중을 유지하세요.',
+    blockedCount > 0
+      ? `차단 신호 ${formatCount(blockedCount, '건')}은 사유를 확인한 뒤 제외 대상으로 유지합니다.`
+      : '현재 차단 신호가 많지 않아 허용 신호 중심으로 판단해도 됩니다.',
+  ]).slice(0, 3);
+
+  const actionItems: TodayReportView['actionItems'] = [
+    {
+      label: '오늘 해야 할 일',
+      detail: guardAllowed && allowedCount > 0
+        ? `허용 신호 ${formatCount(allowedCount, '건')}을 신호 화면에서 우선 점검하세요.`
+        : '신규 진입보다 기존 포지션과 리스크 가드 상태를 먼저 점검하세요.',
+      tone: guardAllowed && allowedCount > 0 ? 'good' : 'bad',
+    },
+    {
+      label: '주의할 점',
+      detail: guardReasons[0] || blockedReasons[0] || '차단 사유가 없더라도 손실 한도와 익스포저 캡은 그대로 유지합니다.',
+      tone: guardReasons.length > 0 || blockedReasons.length > 0 ? 'bad' : 'neutral',
+    },
+    {
+      label: '확인 기준',
+      detail: `리포트 생성 시각 ${formatDateTime(snapshot.reports.generated_at || snapshot.fetchedAt)} / 데이터 기준 시각 ${formatDateTime(snapshot.fetchedAt)}`,
+      tone: 'neutral',
+    },
+  ];
+
   return {
     generatedAt: snapshot.reports.generated_at || snapshot.fetchedAt,
+    dataAsOf: snapshot.fetchedAt,
+    statusItems: [
+      {
+        label: '엔진 상태',
+        value: running ? '실행 중' : '중지',
+        tone: running ? 'good' : 'bad',
+      },
+      {
+        label: '신규 진입 가능',
+        value: guardAllowed ? '가능' : '제한',
+        tone: guardAllowed ? 'good' : 'bad',
+      },
+      {
+        label: '장세 / 위험도',
+        value: `${allocator.regime || snapshot.signals.regime || '-'} / ${allocator.risk_level || snapshot.signals.risk_level || '-'}`,
+        tone: 'neutral',
+      },
+      {
+        label: '허용 / 차단 신호',
+        value: `${formatCount(allowedCount, '건')} / ${formatCount(blockedCount, '건')}`,
+        tone: 'neutral',
+      },
+    ],
     summaryLines,
-    riskHighlights,
-    strategyPoint: decision.mode,
-  };
-}
-
-function mapToRecommendationItem(
-  symbol: string,
-  strategy: string,
-  expectedValue: number,
-  winProbability: number,
-  size: number,
-  status: '추천' | '차단',
-  reasons: string[],
-): TodayRecommendationItem {
-  return {
-    symbol,
-    strategy: strategy || '-',
-    expectedValue,
-    winProbability,
-    size,
-    status,
-    reasonSummary: reasons.length > 0 ? reasons.join(', ') : '-',
-  };
-}
-
-export function buildTodayRecommendationView(snapshot: ConsoleSnapshot, topN = 15): TodayRecommendationView {
-  const signals = [...(snapshot.signals.signals || [])];
-  signals.sort((a, b) => (b.ev_metrics?.expected_value || -9999) - (a.ev_metrics?.expected_value || -9999));
-
-  const recommended: TodayRecommendationItem[] = [];
-  const excluded: TodayRecommendationItem[] = [];
-
-  for (const signal of signals) {
-    const symbol = formatSymbol(signal.code, signal.name);
-    const reasons = translateReasons(signal.reason_codes || []);
-    const ev = signal.ev_metrics?.expected_value ?? 0;
-    const win = signal.ev_metrics?.win_probability ?? 0;
-    const size = signal.size_recommendation?.quantity ?? 0;
-    const strategy = strategyTypeToKorean(signal.strategy_type || '');
-
-    if (signal.entry_allowed && size > 0) {
-      recommended.push(mapToRecommendationItem(symbol, strategy, ev, win, size, '추천', []));
-      continue;
-    }
-    excluded.push(mapToRecommendationItem(symbol, strategy, ev, win, size, '차단', reasons));
-  }
-
-  return {
-    recommended: recommended.slice(0, topN),
-    excluded: excluded.slice(0, 80),
+    judgmentTitle: decision.mode,
+    judgmentLines,
+    actionItems,
+    watchPoints,
+    hasReportContent,
   };
 }
 
@@ -196,7 +205,7 @@ export function buildActionBoardView(snapshot: ConsoleSnapshot): ActionBoardView
       {
         label: '신규 진입 허용 여부 확인',
         done: entryAllowedCount > 0,
-        detail: `허용 ${entryAllowedCount}건 / 차단 ${blockedCount}건`,
+        detail: `허용 ${formatCount(entryAllowedCount, '건')} / 차단 ${formatCount(blockedCount, '건')}`,
       },
       {
         label: '차단 사유 점검',

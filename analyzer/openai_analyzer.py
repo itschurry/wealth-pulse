@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from loguru import logger
-from openai import APIError, OpenAI, RateLimitError
 
 from analyzer.market_context_builder import summarize_macro_for_prompt, summarize_market_context_for_prompt
 from analyzer.technical_snapshot import evaluate_technical_snapshot, fetch_technical_snapshot
@@ -21,7 +20,7 @@ from analyzer.utils import (
 from collectors.models import DailyData, NewsArticle
 from config.company_catalog import CompanyCatalogEntry, get_company_catalog
 from config.prompts import DAILY_REPORT_PROMPT, PLAYBOOK_PROMPT, PLAYBOOK_SYSTEM_PROMPT, SYSTEM_PROMPT
-from config.settings import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_PLAYBOOK_MODEL
+from llm.service import complete_json, complete_text
 
 _DISCLOSURE_POSITIVE = {"earnings", "contract", "shareholder_return", "investment"}
 _ALLOWED_BIAS = {"bullish", "neutral", "defensive"}
@@ -529,34 +528,26 @@ def _format_daily_data(data: DailyData) -> dict:
     }
 
 
-async def _create_report(client: OpenAI, prompt: str) -> str:
-    response = await asyncio.to_thread(
-        client.chat.completions.create,
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
+async def _create_report(prompt: str) -> str:
+    response = await complete_text(
+        system_prompt=SYSTEM_PROMPT,
+        user_prompt=prompt,
+        task="report",
         temperature=0.35,
-        max_completion_tokens=8192,
+        max_tokens=8192,
     )
-    return response.choices[0].message.content or ""
+    return response.content
 
 
-async def _create_playbook(client: OpenAI, prompt: str) -> dict | None:
-    response = await asyncio.to_thread(
-        client.chat.completions.create,
-        model=OPENAI_PLAYBOOK_MODEL,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": PLAYBOOK_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
+async def _create_playbook(prompt: str) -> dict | None:
+    response = await complete_json(
+        system_prompt=PLAYBOOK_SYSTEM_PROMPT,
+        user_prompt=prompt,
+        task="playbook",
         temperature=0.15,
-        max_completion_tokens=3200,
+        max_tokens=3200,
     )
-    content = response.choices[0].message.content or "{}"
-    return _safe_json_loads(content)
+    return _safe_json_loads(response.content or "{}")
 
 
 async def analyze_with_playbook(data: DailyData) -> tuple[str, dict]:
@@ -596,42 +587,27 @@ async def analyze_with_playbook(data: DailyData) -> tuple[str, dict]:
     playbook_date = now.strftime("%Y-%m-%d")
     playbook_generated_at = now.strftime("%Y-%m-%d %H:%M KST")
 
-    if not OPENAI_API_KEY:
-        logger.warning("OPENAI_API_KEY가 설정되지 않았습니다. 분석/플레이북을 폴백으로 생성합니다.")
-        fallback_playbook["date"] = playbook_date
-        fallback_playbook["generated_at"] = playbook_generated_at
-        return _fallback_report(data), fallback_playbook
-
-    client = OpenAI(api_key=OPENAI_API_KEY)
     report = ""
     playbook_payload: dict | None = None
 
     for attempt in range(3):
         try:
-            logger.info(f"OpenAI 리포트/플레이북 호출 시도 {attempt+1}/3 (리포트 모델: {OPENAI_MODEL}, 플레이북 모델: {OPENAI_PLAYBOOK_MODEL})")
+            logger.info("LLM 리포트/플레이북 호출 시도 {}/3", attempt + 1)
             report, playbook_payload = await asyncio.gather(
-                _create_report(client, report_prompt),
-                _create_playbook(client, playbook_prompt),
+                _create_report(report_prompt),
+                _create_playbook(playbook_prompt),
             )
             normalized_playbook = _normalize_playbook(playbook_payload, fallback_playbook)
             normalized_playbook["date"] = playbook_date
             normalized_playbook["generated_at"] = playbook_generated_at
             return report or _fallback_report(data), normalized_playbook
-        except RateLimitError as exc:
-            wait = 20 + attempt * 10
-            logger.warning(f"OpenAI RateLimit (시도 {attempt+1}): {exc} — {wait}초 대기")
+        except Exception as exc:
+            wait = 5 if attempt == 0 else 10
+            logger.error("LLM 리포트/플레이북 호출 실패 (시도 {}/3): {}", attempt + 1, exc)
             if attempt < 2:
                 await asyncio.sleep(wait)
-        except APIError as exc:
-            logger.error(f"OpenAI APIError (시도 {attempt+1}): {exc}")
-            if attempt < 2:
-                await asyncio.sleep(5)
-        except Exception as exc:
-            logger.error(f"OpenAI 예상 외 오류 (시도 {attempt+1}): {exc}")
-            if attempt < 2:
-                await asyncio.sleep(5)
 
-    logger.error("OpenAI API 3회 모두 실패. 폴백 리포트와 플레이북을 생성합니다.")
+    logger.error("LLM 리포트/플레이북 3회 모두 실패. 폴백 리포트와 플레이북을 생성합니다.")
     fallback_playbook["date"] = playbook_date
     fallback_playbook["generated_at"] = playbook_generated_at
     return _fallback_report(data), fallback_playbook

@@ -4,7 +4,7 @@ import { UI_TEXT } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { usePaperTrading } from '../hooks/usePaperTrading';
 import type { ActionBarStatusItem, ConsoleSnapshot, PaperViewModel } from '../types/consoleView';
-import { formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
+import { formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
 
 interface PaperPortfolioPageProps {
   snapshot: ConsoleSnapshot;
@@ -92,6 +92,7 @@ function isToday(ts: unknown): boolean {
 export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh }: PaperPortfolioPageProps) {
   const { entries, push, clear } = useConsoleLogs();
   const [settings, setSettings] = useState<PaperSettings>(() => readSettings());
+  const [pendingAction, setPendingAction] = useState<'engine-toggle' | 'reset' | null>(null);
   const {
     account,
     engineState,
@@ -153,36 +154,41 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   }, [onRefresh, push, refresh, refreshEngineStatus]);
 
   const handleStartStop = useCallback(async () => {
-    if (engineState.running) {
-      const result = await stopEngine();
-      if (!result.ok) {
-        push('error', '모의투자 엔진 중지에 실패했습니다.', result.error || '');
-        return;
+    setPendingAction('engine-toggle');
+    try {
+      if (engineState.running) {
+        const result = await stopEngine();
+        if (!result.ok) {
+          push('error', '모의투자 엔진 중지에 실패했습니다.', result.error || '');
+          return;
+        }
+        push('success', '모의투자 엔진을 중지했습니다.');
+      } else {
+        const markets: Array<'KOSPI' | 'NASDAQ'> = [];
+        if (settings.runKospi) markets.push('KOSPI');
+        if (settings.runNasdaq) markets.push('NASDAQ');
+        if (markets.length === 0) {
+          push('warning', '시장 선택이 필요합니다.', '설정에서 KOSPI 또는 NASDAQ을 최소 1개 선택하세요.');
+          return;
+        }
+        const result = await startEngine({
+          interval_seconds: settings.intervalSeconds,
+          markets,
+          max_positions_per_market: settings.maxPositions,
+          daily_buy_limit: settings.dailyBuyLimit,
+          daily_sell_limit: settings.dailySellLimit,
+          max_orders_per_symbol_per_day: settings.maxOrdersPerSymbol,
+        });
+        if (!result.ok) {
+          push('error', '모의투자 엔진 시작에 실패했습니다.', result.error || '');
+          return;
+        }
+        push('success', '모의투자 엔진을 시작했습니다.', `시장: ${markets.join(', ')}`);
       }
-      push('success', '모의투자 엔진을 중지했습니다.');
-    } else {
-      const markets: Array<'KOSPI' | 'NASDAQ'> = [];
-      if (settings.runKospi) markets.push('KOSPI');
-      if (settings.runNasdaq) markets.push('NASDAQ');
-      if (markets.length === 0) {
-        push('warning', '시장 선택이 필요합니다.', '설정에서 KOSPI 또는 NASDAQ을 최소 1개 선택하세요.');
-        return;
-      }
-      const result = await startEngine({
-        interval_seconds: settings.intervalSeconds,
-        markets,
-        max_positions_per_market: settings.maxPositions,
-        daily_buy_limit: settings.dailyBuyLimit,
-        daily_sell_limit: settings.dailySellLimit,
-        max_orders_per_symbol_per_day: settings.maxOrdersPerSymbol,
-      });
-      if (!result.ok) {
-        push('error', '모의투자 엔진 시작에 실패했습니다.', result.error || '');
-        return;
-      }
-      push('success', '모의투자 엔진을 시작했습니다.', `시장: ${markets.join(', ')}`);
+      await Promise.all([refresh(true), refreshEngineStatus()]);
+    } finally {
+      setPendingAction(null);
     }
-    await Promise.all([refresh(true), refreshEngineStatus()]);
   }, [
     engineState.running,
     push,
@@ -200,21 +206,26 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   ]);
 
   const handleReset = useCallback(async () => {
-    const result = await reset({
-      initial_cash_krw: settings.initialCashKrw,
-      initial_cash_usd: settings.initialCashUsd,
-      paper_days: settings.paperDays,
-    });
-    if (!result.ok) {
-      push('error', '모의투자 초기화에 실패했습니다.', result.error || '');
-      return;
+    setPendingAction('reset');
+    try {
+      const result = await reset({
+        initial_cash_krw: settings.initialCashKrw,
+        initial_cash_usd: settings.initialCashUsd,
+        paper_days: settings.paperDays,
+      });
+      if (!result.ok) {
+        push('error', '모의투자 초기화에 실패했습니다.', result.error || '');
+        return;
+      }
+      push(
+        'success',
+        '모의투자 계좌를 초기화했습니다.',
+        `초기자금 KRW ${formatKRW(settings.initialCashKrw, true)} / USD ${formatUSD(settings.initialCashUsd, true)}`,
+      );
+      await Promise.all([refresh(true), refreshEngineStatus()]);
+    } finally {
+      setPendingAction(null);
     }
-    push(
-      'success',
-      '모의투자 계좌를 초기화했습니다.',
-      `초기자금 KRW ${formatKRW(settings.initialCashKrw)} / USD ${formatUSD(settings.initialCashUsd, true)}`,
-    );
-    await Promise.all([refresh(true), refreshEngineStatus()]);
   }, [push, refresh, refreshEngineStatus, reset, settings.initialCashKrw, settings.initialCashUsd, settings.paperDays]);
 
   const settingsPanel = (
@@ -331,11 +342,19 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 label: engineState.running ? '엔진 중지' : '엔진 시작',
                 onClick: () => { void handleStartStop(); },
                 tone: engineState.running ? 'danger' : 'primary',
+                busy: pendingAction === 'engine-toggle',
+                busyLabel: engineState.running ? '중지 중...' : '시작 중...',
+                confirmTitle: engineState.running ? UI_TEXT.confirm.stopEngineTitle : UI_TEXT.confirm.startEngineTitle,
+                confirmMessage: engineState.running ? UI_TEXT.confirm.stopEngineMessage : UI_TEXT.confirm.startEngineMessage,
               },
               {
                 label: '모의투자 초기화',
                 onClick: () => { void handleReset(); },
-                tone: 'default',
+                tone: 'danger',
+                busy: pendingAction === 'reset',
+                busyLabel: '초기화 중...',
+                confirmTitle: UI_TEXT.confirm.resetPaperTitle,
+                confirmMessage: UI_TEXT.confirm.resetPaperMessage,
               },
             ]}
             settingsPanel={settingsPanel}
@@ -344,11 +363,11 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
             <div className="page-section" style={{ padding: 14 }}>
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>총자산(원화환산)</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatKRW(vm.totalEquityKrw)}</div>
+              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatKRW(vm.totalEquityKrw, true)}</div>
             </div>
             <div className="page-section" style={{ padding: 14 }}>
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>원화 현금</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatKRW(vm.cashKrw)}</div>
+              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatKRW(vm.cashKrw, true)}</div>
             </div>
             <div className="page-section" style={{ padding: 14 }}>
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>달러 현금</div>
@@ -357,18 +376,18 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             <div className="page-section" style={{ padding: 14 }}>
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>평가손익</div>
               <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800, color: vm.unrealizedPnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>
-                {formatKRW(vm.unrealizedPnlKrw)}
+                {formatKRW(vm.unrealizedPnlKrw, true)}
               </div>
             </div>
             <div className="page-section" style={{ padding: 14 }}>
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>실현손익</div>
               <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800, color: vm.realizedPnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>
-                {formatKRW(vm.realizedPnlKrw)}
+                {formatKRW(vm.realizedPnlKrw, true)}
               </div>
             </div>
             <div className="page-section" style={{ padding: 14 }}>
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>보유 포지션 수</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatNumber(vm.positionCount, 0)}</div>
+              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatCount(vm.positionCount, '종목')}</div>
             </div>
           </div>
 
@@ -408,10 +427,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     <tr key={`${position.market}:${code}`} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatSymbol(code, name)}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>{String(position.market || '-')}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(position.quantity, 0)}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatCount(position.quantity, '주')}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(entryPrice, 2)}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(currentPrice, 2)}</td>
-                      <td style={{ padding: 12, fontSize: 12, color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw)}</td>
+                      <td style={{ padding: 12, fontSize: 12, color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw, true)}</td>
                       <td style={{ padding: 12, fontSize: 12, color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>
                         {formatPercent(pnlPct, 2)}
                       </td>
@@ -429,7 +448,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 })}
                 {positions.length === 0 && (
                   <tr>
-                    <td colSpan={12} style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>보유 포지션이 없습니다.</td>
+                    <td colSpan={12} style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noPositions}</td>
                   </tr>
                 )}
               </tbody>
@@ -454,9 +473,9 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               <div style={{ fontSize: 14, fontWeight: 700 }}>오늘 포지션 변화 요약</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
                 <div>오늘 체결: {formatNumber(todayOrders.length, 0)}건</div>
-                <div>매수 체결: {formatNumber(todayBuyCount, 0)}건</div>
-                <div>매도 체결: {formatNumber(todaySellCount, 0)}건</div>
-                <div>순증가 포지션: {formatNumber(todayBuyCount - todaySellCount, 0)}건</div>
+                <div>매수 체결: {formatCount(todayBuyCount, '건')}</div>
+                <div>매도 체결: {formatCount(todaySellCount, '건')}</div>
+                <div>순증가 포지션: {formatCount(todayBuyCount - todaySellCount, '건')}</div>
               </div>
             </div>
           </div>
@@ -474,11 +493,11 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       </span>
                     </div>
                     <div style={{ marginTop: 4, color: 'var(--text-3)' }}>
-                      수량 {formatNumber(order.quantity, 0)} · 체결가 {formatNumber(order.filled_price_local, 2)} · {formatDateTime(order.ts)}
+                      수량 {formatCount(order.quantity, '주')} · 체결가 {formatNumber(order.filled_price_local, 2)} · {formatDateTime(order.ts)}
                     </div>
                   </div>
                 ))}
-                {orders.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>체결 내역이 없습니다.</div>}
+                {orders.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noTrades}</div>}
               </div>
             </div>
 
@@ -487,11 +506,11 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                 {Object.entries(skipReasonCounts).slice(0, 8).map(([reason, count]) => (
                   <div key={reason} style={{ fontSize: 12, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
-                    {reason}: {formatNumber(count, 0)}건
+                    {reason}: {formatCount(count, '건')}
                   </div>
                 ))}
                 {Object.keys(skipReasonCounts).length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--text-4)' }}>최근 실행 스킵 사유 로그가 없습니다.</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noSkipReasons}</div>
                 )}
               </div>
             </div>

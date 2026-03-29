@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { UI_TEXT } from '../constants/uiText';
 import { formatDateTime } from '../utils/format';
 import type { ActionBarAction, ActionBarStatusItem, ConsoleLogEntry } from '../types/consoleView';
 
@@ -36,6 +37,50 @@ function actionClass(tone: ActionBarAction['tone']): string {
   return 'console-action-button';
 }
 
+interface ConsoleConfirmDialogProps {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  busy?: boolean;
+  tone?: ActionBarAction['tone'];
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+export function ConsoleConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = UI_TEXT.confirm.confirmAction,
+  busy = false,
+  tone = 'danger',
+  onConfirm,
+  onCancel,
+}: ConsoleConfirmDialogProps) {
+  if (!open) return null;
+
+  return (
+    <>
+      <div className="console-overlay" onClick={busy ? undefined : onCancel} />
+      <div className="console-confirm-shell" role="dialog" aria-modal="true" aria-labelledby="console-confirm-title">
+        <div className="console-confirm-card">
+          <div id="console-confirm-title" className="console-confirm-title">{title}</div>
+          <div className="console-confirm-message">{message}</div>
+          <div className="console-confirm-actions">
+            <button className="ghost-button" onClick={onCancel} disabled={busy}>
+              {UI_TEXT.confirm.cancelAction}
+            </button>
+            <button className={actionClass(tone)} onClick={onConfirm} disabled={busy}>
+              {busy ? '처리 중...' : confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function ConsoleActionBar({
   title,
   subtitle = '',
@@ -51,8 +96,42 @@ export function ConsoleActionBar({
 }: ConsoleActionBarProps) {
   const [logOpen, setLogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    tone?: ActionBarAction['tone'];
+    onConfirm: () => void;
+  } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const recentLogs = useMemo(() => logs.slice(0, 40), [logs]);
   const updateText = formatDateTime(lastUpdated);
+
+  function closeConfirm() {
+    if (confirmBusy) return;
+    setConfirmState(null);
+  }
+
+  function openActionConfirm(action: ActionBarAction) {
+    setConfirmState({
+      title: action.confirmTitle || UI_TEXT.confirm.defaultTitle,
+      message: action.confirmMessage || UI_TEXT.confirm.defaultMessage,
+      confirmLabel: action.confirmLabel,
+      tone: action.tone,
+      onConfirm: action.onClick,
+    });
+  }
+
+  async function runConfirmedAction() {
+    if (!confirmState) return;
+    try {
+      setConfirmBusy(true);
+      await Promise.resolve(confirmState.onConfirm());
+      setConfirmState(null);
+    } finally {
+      setConfirmBusy(false);
+    }
+  }
 
   return (
     <>
@@ -77,10 +156,16 @@ export function ConsoleActionBar({
               <button
                 key={action.label}
                 className={actionClass(action.tone)}
-                onClick={action.onClick}
-                disabled={Boolean(action.disabled)}
+                onClick={() => {
+                  if (action.confirmTitle || action.confirmMessage || action.tone === 'danger') {
+                    openActionConfirm(action);
+                    return;
+                  }
+                  action.onClick();
+                }}
+                disabled={Boolean(action.disabled) || Boolean(action.busy)}
               >
-                {action.label}
+                {action.busy ? (action.busyLabel || '처리 중...') : action.label}
               </button>
             ))}
           </div>
@@ -106,12 +191,22 @@ export function ConsoleActionBar({
         <div className="console-drawer-head">
           <div className="console-drawer-title">실행 로그</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="ghost-button" onClick={onClearLogs}>로그 비우기</button>
+            <button
+              className="ghost-button"
+              onClick={() => setConfirmState({
+                title: UI_TEXT.confirm.clearLogsTitle,
+                message: UI_TEXT.confirm.clearLogsMessage,
+                tone: 'danger',
+                onConfirm: onClearLogs,
+              })}
+            >
+              로그 비우기
+            </button>
             <button className="ghost-button" onClick={() => setLogOpen(false)}>닫기</button>
           </div>
         </div>
         <div className="console-drawer-body">
-          {recentLogs.length === 0 && <div className="console-drawer-empty">기록된 로그가 없습니다.</div>}
+          {recentLogs.length === 0 && <div className="console-drawer-empty">{UI_TEXT.empty.noLogs}</div>}
           {recentLogs.map((log) => (
             <div key={log.id} className={`console-log-item is-${log.level}`}>
               <div className="console-log-head">
@@ -134,6 +229,17 @@ export function ConsoleActionBar({
           {settingsPanel || <div className="console-drawer-empty">설정 항목이 없습니다.</div>}
         </div>
       </aside>
+
+      <ConsoleConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title || UI_TEXT.confirm.defaultTitle}
+        message={confirmState?.message || UI_TEXT.confirm.defaultMessage}
+        confirmLabel={confirmState?.confirmLabel}
+        tone={confirmState?.tone}
+        busy={confirmBusy}
+        onConfirm={() => { void runConfirmedAction(); }}
+        onCancel={closeConfirm}
+      />
     </>
   );
 }

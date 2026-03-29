@@ -519,6 +519,45 @@ input {
   color: var(--text-4);
 }
 
+.console-confirm-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.console-confirm-card {
+  width: min(460px, 100%);
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: #fffefb;
+  box-shadow: 0 20px 48px rgba(20, 29, 40, 0.18);
+  padding: 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.console-confirm-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-1);
+}
+
+.console-confirm-message {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+.console-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .console-log-item {
   border: 1px solid var(--border);
   border-radius: 12px;

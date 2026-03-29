@@ -11,6 +11,17 @@ const USD_DECIMAL_FMT = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 });
 
+const KST_DATE_TIME_FMT = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Seoul',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
 const NAME_BY_CODE = new Map<string, string>();
 for (const entry of COMPANY_CATALOG) {
   if (!entry.code) continue;
@@ -50,13 +61,13 @@ export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  const hh = String(date.getHours()).padStart(2, '0');
-  const mi = String(date.getMinutes()).padStart(2, '0');
-  const ss = String(date.getSeconds()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+  return `${KST_DATE_TIME_FMT.format(date).replace(',', '')} KST`;
+}
+
+export function formatCount(value: number | string | null | undefined, unit: string): string {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return `- ${unit}`;
+  return `${formatNumber(numeric, 0)}${unit}`;
 }
 
 function resolveSymbolName(code?: string, payloadName?: string): string {

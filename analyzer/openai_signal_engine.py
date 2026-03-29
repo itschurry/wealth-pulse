@@ -6,7 +6,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from loguru import logger
-from openai import APIError, OpenAI, RateLimitError
 
 from analyzer.market_context_builder import summarize_macro_for_prompt, summarize_market_context_for_prompt
 from analyzer.utils import (
@@ -16,7 +15,8 @@ from analyzer.utils import (
 )
 from collectors.models import DailyData
 from config.company_catalog import CompanyCatalogEntry, get_company_catalog
-from config.settings import OPENAI_API_KEY, OPENAI_SIGNAL_MODEL
+from llm.factory import get_model_for_task
+from llm.service import complete_json
 
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -214,33 +214,28 @@ async def generate_stock_aux_signals(data: DailyData, limit: int = 10) -> dict:
     """종목별 OpenAI 보조신호를 생성한다."""
     now = datetime.now(_KST)
     candidates = _collect_candidates(data, limit=limit)
-    if not OPENAI_API_KEY or not candidates:
+    model_name = get_model_for_task("signal")
+    if not candidates:
         return {
             "generated_at": now.strftime("%Y-%m-%d %H:%M %Z"),
             "date": now.strftime("%Y-%m-%d"),
-            "model": OPENAI_SIGNAL_MODEL,
+            "model": model_name,
             "signals": [],
         }
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
     allowed = {item["entry"].code: item["entry"] for item in candidates}
     prompt = _build_prompt(data, candidates)
 
     for attempt in range(3):
         try:
-            response = await asyncio.to_thread(
-                client.chat.completions.create,
-                model=OPENAI_SIGNAL_MODEL,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": "JSON만 반환하는 종목 보조신호 엔진이다."},
-                    {"role": "user", "content": prompt},
-                ],
+            response = await complete_json(
+                system_prompt="JSON만 반환하는 종목 보조신호 엔진이다.",
+                user_prompt=prompt,
+                task="signal",
                 temperature=0.1,
-                max_completion_tokens=2200,
+                max_tokens=2200,
             )
-            content = response.choices[0].message.content or "{}"
-            payload = _safe_json_loads(content) or {}
+            payload = _safe_json_loads(response.content or "{}") or {}
             normalized = []
             for item in payload.get("signals", []):
                 parsed = _normalize_signal_item(item, allowed)
@@ -250,27 +245,18 @@ async def generate_stock_aux_signals(data: DailyData, limit: int = 10) -> dict:
             return {
                 "generated_at": now.strftime("%Y-%m-%d %H:%M %Z"),
                 "date": now.strftime("%Y-%m-%d"),
-                "model": OPENAI_SIGNAL_MODEL,
+                "model": response.model,
                 "signals": normalized,
             }
-        except RateLimitError as exc:
-            wait = 15 + attempt * 10
-            logger.warning(
-                f"OpenAI 보조신호 RateLimit (시도 {attempt + 1}): {exc} — {wait}초 대기")
+        except Exception as exc:
+            wait = 5 if attempt == 0 else 10
+            logger.warning("LLM 보조신호 생성 실패 (시도 {}/3): {}", attempt + 1, exc)
             if attempt < 2:
                 await asyncio.sleep(wait)
-        except APIError as exc:
-            logger.warning(f"OpenAI 보조신호 APIError (시도 {attempt + 1}): {exc}")
-            if attempt < 2:
-                await asyncio.sleep(5)
-        except Exception as exc:
-            logger.warning(f"OpenAI 보조신호 생성 실패 (시도 {attempt + 1}): {exc}")
-            if attempt < 2:
-                await asyncio.sleep(5)
 
     return {
         "generated_at": now.strftime("%Y-%m-%d %H:%M %Z"),
         "date": now.strftime("%Y-%m-%d"),
-        "model": OPENAI_SIGNAL_MODEL,
+        "model": model_name,
         "signals": [],
     }

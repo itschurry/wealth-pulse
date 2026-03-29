@@ -54,16 +54,73 @@
 
 ## Quick Start
 ```bash
-# dependencies
+# python deps
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-cd frontend && npm install && cd ..
 
-# one-shot report
+# frontend deps
+cd frontend
+npm install
+cd ..
+
+# one-shot report generation
 python3 run_once.py
 
-# api server
+# api server (terminal 1)
 python3 api_server.py
+
+# frontend dev server (terminal 2)
+cd frontend && npm run dev
 ```
+
+## LLM Provider
+- `LLM_PROVIDER=openai` keeps the existing OpenAI flow.
+- `LLM_PROVIDER=nemotron` uses a host-installed Ollama instance and the local Nemotron model.
+- OpenAI와 Nemotron 모두 동일하게 host Python runtime 에서 실행합니다.
+- 운영 기준 명령은 `python3 run_once.py`, `python3 api_server.py`, `scheduler.py`, `scripts/manage_scheduler_systemd.sh` 입니다.
+
+Example `.env` values:
+
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_SIGNAL_MODEL=gpt-4o-mini
+OPENAI_PLAYBOOK_MODEL=gpt-4o-mini
+```
+
+```bash
+LLM_PROVIDER=nemotron
+NEMOTRON_MODEL=nemotron-3-super
+```
+
+Before running with `LLM_PROVIDER=nemotron`, ensure Ollama is installed and the model is already pulled on the host server.
+
+## Local Host Runtime
+- Backend API: `python3 api_server.py` on `127.0.0.1:8001`
+- Frontend dev UI: `cd frontend && npm run dev`
+- One-shot report: `python3 run_once.py`
+- Scheduler: `python3 scheduler.py`
+- Long-running scheduler service: `bash scripts/manage_scheduler_systemd.sh install`
+
+The Vite dev server proxies `/api` requests to `http://localhost:8001`, so the local console works without Docker.
+
+## Production-Like Host Run
+```bash
+source .venv/bin/activate
+python3 api_server.py
+python3 scheduler.py
+```
+
+If you need the frontend as static assets on a host machine, build it with:
+
+```bash
+cd frontend
+npm run build
+```
+
+This repository no longer uses Docker, docker-compose, nginx, or container entrypoints as an operation path.
 
 ## Validation Workflow
 1. 백테스트로 전략 파라미터 검증

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getJSON, postJSON } from '../api/client';
-import { ConsoleActionBar } from '../components/ConsoleActionBar';
+import { ConsoleActionBar, ConsoleConfirmDialog } from '../components/ConsoleActionBar';
 import { reliabilityToKorean, UI_TEXT } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { defaultBacktestQuery, loadBacktestQuery, saveBacktestQuery, useBacktest } from '../hooks/useBacktest';
 import type { BacktestQuery, BacktestTrade } from '../types';
 import type { ActionBarStatusItem, BacktestViewModel, ConsoleSnapshot } from '../types/consoleView';
-import { formatDateTime, formatNumber, formatPercent } from '../utils/format';
+import { formatCount, formatDateTime, formatNumber, formatPercent } from '../utils/format';
 
 interface BacktestValidationPageProps {
   snapshot: ConsoleSnapshot;
@@ -142,6 +142,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   const [optimizationStartedAt, setOptimizationStartedAt] = useState('');
   const [optimizedParams, setOptimizedParams] = useState<Record<string, unknown> | null>(null);
   const [optimizationMessage, setOptimizationMessage] = useState('');
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const { data, status, run } = useBacktest(initialQuery);
 
   const metrics = data.metrics as Record<string, unknown> | undefined;
@@ -442,7 +443,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         </select>
       </label>
       <button className="console-action-button is-primary" onClick={handleSaveSettings}>설정 저장</button>
-      <button className="console-action-button" onClick={handleResetSettings}>초기화</button>
+      <button className="console-action-button is-danger" onClick={() => setResetConfirmOpen(true)}>초기화</button>
     </div>
   );
 
@@ -521,7 +522,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
               <button className="console-action-button is-primary" onClick={() => { void handleRunBacktest(); }}>백테스트 실행</button>
               <button className="console-action-button" onClick={() => { void handleRunOptimization(); }} disabled={optimizationRunning}>최적화 실행</button>
               <button className="console-action-button" onClick={handleSaveSettings}>설정 저장</button>
-              <button className="console-action-button" onClick={handleResetSettings}>초기화</button>
+              <button className="console-action-button is-danger" onClick={() => setResetConfirmOpen(true)}>초기화</button>
             </div>
           </div>
 
@@ -599,10 +600,10 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 {reasonRows.map((row) => (
                   <div key={row.reason} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px', fontSize: 12 }}>
                     <div>{row.reason}</div>
-                    <div style={{ color: 'var(--text-3)', marginTop: 4 }}>거래 {formatNumber(row.count, 0)}건 · 평균 {formatPercent(row.avgPnlPct, 2)}</div>
+                    <div style={{ color: 'var(--text-3)', marginTop: 4 }}>거래 {formatCount(row.count, '건')} · 평균 {formatPercent(row.avgPnlPct, 2)}</div>
                   </div>
                 ))}
-                {reasonRows.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>사유별 데이터가 없습니다.</div>}
+                {reasonRows.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noReasonBreakdown}</div>}
               </div>
             </div>
           </div>
@@ -611,8 +612,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             <div className="page-section" style={{ padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700 }}>최근 OOS 요약</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
-                <div>윈도우 수: {formatNumber(snapshot.validation.summary?.windows, 0)}</div>
-                <div>양수 OOS 윈도우: {formatNumber(snapshot.validation.summary?.positive_windows, 0)}</div>
+                <div>윈도우 수: {formatCount(snapshot.validation.summary?.windows, '개')}</div>
+                <div>양수 OOS 윈도우: {formatCount(snapshot.validation.summary?.positive_windows, '개')}</div>
                 <div>신뢰도: {reliabilityToKorean(String(snapshot.validation.summary?.oos_reliability || ''))}</div>
               </div>
             </div>
@@ -625,7 +626,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     {key}: {typeof value === 'number' ? formatNumber(value, 4) : String(value)}
                   </div>
                 ))}
-                {Object.keys(globalParams).length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>최적 파라미터 데이터가 없습니다.</div>}
+                {Object.keys(globalParams).length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noOptimizedParams}</div>}
               </div>
             </div>
           </div>
@@ -640,7 +641,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     <div style={{ color: 'var(--text-3)', marginTop: 4 }}>상태 {item.status} · 수익률 {formatPercent(item.totalReturnPct, 2)}</div>
                   </div>
                 ))}
-                {runHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>실행 이력이 없습니다.</div>}
+                {runHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noRunHistory}</div>}
               </div>
             </div>
 
@@ -653,7 +654,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     <div style={{ color: 'var(--text-3)', marginTop: 4 }}>{item.message}</div>
                   </div>
                 ))}
-                {optimizationHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>최적화 이력이 없습니다.</div>}
+                {optimizationHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noOptimizationHistory}</div>}
               </div>
             </div>
 
@@ -672,7 +673,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                       {formatDateTime(item.at)} · {item.market.toUpperCase()} · {item.lookbackDays}일 · {item.strategy}
                     </div>
                   ))}
-                  {saveHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>설정 저장 이력이 없습니다.</div>}
+                  {saveHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noSaveHistory}</div>}
                 </div>
               </div>
             </div>
@@ -682,6 +683,18 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           {loading && <div style={{ color: 'var(--text-3)', fontSize: 12 }}>{UI_TEXT.common.loading}</div>}
         </div>
       </div>
+
+      <ConsoleConfirmDialog
+        open={resetConfirmOpen}
+        title={UI_TEXT.confirm.resetValidationTitle}
+        message={UI_TEXT.confirm.resetValidationMessage}
+        tone="danger"
+        onConfirm={() => {
+          handleResetSettings();
+          setResetConfirmOpen(false);
+        }}
+        onCancel={() => setResetConfirmOpen(false)}
+      />
     </div>
   );
 }

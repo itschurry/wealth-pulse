@@ -1,12 +1,11 @@
 import {
   buildActionBoardView,
-  buildTodayRecommendationView,
   buildTodayReportView,
   buildWatchDecisionView,
 } from '../adapters/consoleViewAdapter';
 import type { ReactNode } from 'react';
 import { UI_TEXT } from '../constants/uiText';
-import { formatDateTime, formatNumber, formatPercent } from '../utils/format';
+import { formatDateTime } from '../utils/format';
 import type { ConsoleSnapshot } from '../types/consoleView';
 import type { ReportTab } from '../types/navigation';
 
@@ -24,8 +23,44 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="page-section" style={{ padding: 18 }}>
         <div style={{ fontSize: 22, fontWeight: 800 }}>{UI_TEXT.reportTabs.todayReport}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 6 }}>생성 시간 {formatDateTime(view.generatedAt)}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 6 }}>
+          리포트 생성 시각 {formatDateTime(view.generatedAt)}
+        </div>
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+        {view.statusItems.map((item) => (
+          <div
+            key={item.label}
+            className="page-section"
+            style={{
+              padding: 16,
+              borderColor: item.tone === 'good'
+                ? 'var(--up-border)'
+                : item.tone === 'bad'
+                  ? 'var(--down-border)'
+                  : undefined,
+              background: item.tone === 'good'
+                ? 'var(--up-bg)'
+                : item.tone === 'bad'
+                  ? 'var(--down-bg)'
+                  : undefined,
+            }}
+          >
+            <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{item.label}</div>
+            <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800 }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {!view.hasReportContent && (
+        <div className="page-section" style={{ padding: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{UI_TEXT.empty.reportNotReady}</div>
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-3)', lineHeight: 1.7 }}>
+            {UI_TEXT.empty.reportNextStep}
+          </div>
+        </div>
+      )}
 
       <div className="page-section" style={{ padding: 16 }}>
         <div style={{ fontSize: 14, fontWeight: 700 }}>오늘 시장 요약</div>
@@ -39,10 +74,42 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
       </div>
 
       <div className="page-section" style={{ padding: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>위험/주의</div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>오늘의 판단</div>
+        <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800, color: 'var(--accent)' }}>{view.judgmentTitle}</div>
+        <div style={{ marginTop: 10, display: 'grid', gap: 8, fontSize: 13, color: 'var(--text-2)' }}>
+          {view.judgmentLines.map((line, idx) => (
+            <div key={`judgment-${idx}`} style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: 8 }}>
+              {line}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+        {view.actionItems.map((item) => (
+          <div
+            key={item.label}
+            className="page-section"
+            style={{
+              padding: 16,
+              borderColor: item.tone === 'good'
+                ? 'var(--up-border)'
+                : item.tone === 'bad'
+                  ? 'var(--down-border)'
+                  : undefined,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{item.label}</div>
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-3)', lineHeight: 1.7 }}>{item.detail}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="page-section" style={{ padding: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>관망/주의/집중 포인트</div>
         <div style={{ marginTop: 10, display: 'grid', gap: 8, fontSize: 13, color: 'var(--down)' }}>
-          {view.riskHighlights.map((line, idx) => (
-            <div key={`risk-${idx}`} style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: 8 }}>
+          {view.watchPoints.map((line, idx) => (
+            <div key={`watch-${idx}`} style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: 8 }}>
               {line}
             </div>
           ))}
@@ -50,62 +117,11 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
       </div>
 
       <div className="page-section" style={{ padding: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>오늘의 전략 포인트</div>
-        <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800, color: 'var(--accent)' }}>{view.strategyPoint}</div>
-      </div>
-    </div>
-  );
-}
-
-function renderTodayRecommendations(snapshot: ConsoleSnapshot) {
-  const view = buildTodayRecommendationView(snapshot, 15);
-  return (
-    <div style={{ display: 'grid', gap: 16 }}>
-      <div className="page-section" style={{ padding: 18 }}>
-        <div style={{ fontSize: 22, fontWeight: 800 }}>{UI_TEXT.reportTabs.todayRecommendations}</div>
-        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-4)' }}>
-          추천 {view.recommended.length}건 · 추천 제외 {view.excluded.length}건
+        <div style={{ fontSize: 14, fontWeight: 700 }}>기준 시각</div>
+        <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
+          <div>콘솔 데이터 기준 시각: {formatDateTime(view.dataAsOf)}</div>
+          <div>리포트 생성 시각: {formatDateTime(view.generatedAt)}</div>
         </div>
-      </div>
-
-      <div className="page-section" style={{ padding: 0, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-              <th style={{ padding: 12, fontSize: 12 }}>종목</th>
-              <th style={{ padding: 12, fontSize: 12 }}>전략</th>
-              <th style={{ padding: 12, fontSize: 12 }}>EV</th>
-              <th style={{ padding: 12, fontSize: 12 }}>승률</th>
-              <th style={{ padding: 12, fontSize: 12 }}>추천 비중</th>
-              <th style={{ padding: 12, fontSize: 12 }}>신호 상태</th>
-              <th style={{ padding: 12, fontSize: 12 }}>사유</th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.recommended.map((item, idx) => (
-              <tr key={`rec-${idx}`} style={{ borderTop: '1px solid var(--border)' }}>
-                <td style={{ padding: 12, fontSize: 12 }}>{item.symbol}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>{item.strategy}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(item.expectedValue, 2)}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(item.winProbability, 2, true)}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(item.size, 0)}</td>
-                <td style={{ padding: 12, fontSize: 12, color: 'var(--up)', fontWeight: 700 }}>{item.status}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>-</td>
-              </tr>
-            ))}
-            {view.excluded.map((item, idx) => (
-              <tr key={`exc-${idx}`} style={{ borderTop: '1px solid var(--border)' }}>
-                <td style={{ padding: 12, fontSize: 12 }}>{item.symbol}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>{item.strategy}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(item.expectedValue, 2)}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(item.winProbability, 2, true)}</td>
-                <td style={{ padding: 12, fontSize: 12 }}>{item.size > 0 ? formatNumber(item.size, 0) : '-'}</td>
-                <td style={{ padding: 12, fontSize: 12, color: 'var(--down)', fontWeight: 700 }}>{item.status}</td>
-                <td style={{ padding: 12, fontSize: 12, color: 'var(--down)' }}>{item.reasonSummary}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   );
@@ -117,6 +133,9 @@ function renderActionBoard(snapshot: ConsoleSnapshot) {
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="page-section" style={{ padding: 18 }}>
         <div style={{ fontSize: 22, fontWeight: 800 }}>{UI_TEXT.reportTabs.actionBoard}</div>
+        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-4)' }}>
+          실행 전 확인해야 할 규칙과 체크리스트를 정리했습니다.
+        </div>
       </div>
 
       <div className="page-section" style={{ padding: 16 }}>
@@ -168,9 +187,7 @@ function renderWatchDecision(snapshot: ConsoleSnapshot) {
 
 export function ReportsPage({ snapshot, loading, errorMessage, reportTab, onRefresh }: ReportsPageProps) {
   let body: ReactNode;
-  if (reportTab === 'today-recommendations') {
-    body = renderTodayRecommendations(snapshot);
-  } else if (reportTab === 'action-board') {
+  if (reportTab === 'action-board') {
     body = renderActionBoard(snapshot);
   } else if (reportTab === 'watch-decision') {
     body = renderWatchDecision(snapshot);
