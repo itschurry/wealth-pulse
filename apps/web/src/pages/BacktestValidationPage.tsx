@@ -91,7 +91,7 @@ function aggregateByReason(trades: BacktestTrade[]): Array<{ reason: string; cou
       avgPnlPct: item.count > 0 ? item.sum / item.count : 0,
     }))
     .sort((left, right) => right.count - left.count)
-    .slice(0, 12);
+    .slice(0, 8);
 }
 
 function formatElapsed(startedAt: string) {
@@ -108,8 +108,8 @@ function formatElapsed(startedAt: string) {
 function backtestPhaseLabel(phase: BacktestPhase): string {
   if (phase === 'requesting') return '요청 중';
   if (phase === 'running') return '실행 중';
-  if (phase === 'finalizing') return '결과 정리 중';
-  if (phase === 'success') return '성공';
+  if (phase === 'finalizing') return '정리 중';
+  if (phase === 'success') return '완료';
   if (phase === 'error') return '실패';
   return '대기';
 }
@@ -118,9 +118,48 @@ function optimizationPhaseLabel(phase: OptimizationPhase): string {
   if (phase === 'requesting') return '요청 중';
   if (phase === 'queued') return '큐 등록';
   if (phase === 'running') return '실행 중';
-  if (phase === 'success') return '성공';
+  if (phase === 'success') return '완료';
   if (phase === 'error') return '실패';
   return '대기';
+}
+
+function buildPhaseIndex(phase: BacktestPhase): number {
+  if (phase === 'requesting') return 0;
+  if (phase === 'running') return 1;
+  if (phase === 'finalizing') return 2;
+  if (phase === 'success' || phase === 'error') return 3;
+  return 0;
+}
+
+function buildOptimizationPhaseIndex(phase: OptimizationPhase): number {
+  if (phase === 'requesting') return 0;
+  if (phase === 'queued') return 1;
+  if (phase === 'running') return 2;
+  if (phase === 'success' || phase === 'error') return 3;
+  return 0;
+}
+
+function updateHistoryItem<T extends { id: string }>(items: T[], id: string, next: Partial<T>) {
+  return items.map((item) => (item.id === id ? { ...item, ...next } : item));
+}
+
+function renderHistoryList<T extends { id: string; at: string }>(
+  items: T[],
+  emptyMessage: string,
+  render: (item: T) => React.ReactNode,
+) {
+  if (items.length === 0) {
+    return <div className="empty-inline">{emptyMessage}</div>;
+  }
+  return (
+    <div className="history-list">
+      {items.map((item) => (
+        <div key={item.id} className="history-item">
+          {render(item)}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ProcessStepper({
@@ -165,17 +204,7 @@ function ProcessStepper({
   );
 }
 
-function SummaryMetricCard({
-  label,
-  value,
-  detail,
-  tone = 'neutral',
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone?: 'neutral' | 'good' | 'bad';
-}) {
+function SummaryMetricCard({ label, value, detail, tone = 'neutral' }: { label: string; value: string; detail: string; tone?: 'neutral' | 'good' | 'bad' }) {
   return (
     <div className={`summary-metric-card ${tone !== 'neutral' ? `is-${tone}` : ''}`}>
       <div className="summary-metric-label">{label}</div>
@@ -185,60 +214,13 @@ function SummaryMetricCard({
   );
 }
 
-function FieldBlock({
-  label,
-  help,
-  children,
-}: {
-  label: string;
-  help?: string;
-  children: ReactNode;
-}) {
+function FieldBlock({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
   return (
     <label className="settings-field">
       <span className="settings-field-label">{label}</span>
       {help && <span className="settings-field-help">{help}</span>}
       {children}
     </label>
-  );
-}
-
-function buildPhaseIndex(phase: BacktestPhase): number {
-  if (phase === 'requesting') return 0;
-  if (phase === 'running') return 1;
-  if (phase === 'finalizing') return 2;
-  if (phase === 'success' || phase === 'error') return 3;
-  return 0;
-}
-
-function buildOptimizationPhaseIndex(phase: OptimizationPhase): number {
-  if (phase === 'requesting') return 0;
-  if (phase === 'queued') return 1;
-  if (phase === 'running') return 2;
-  if (phase === 'success' || phase === 'error') return 3;
-  return 0;
-}
-
-function updateHistoryItem<T extends { id: string }>(items: T[], id: string, next: Partial<T>) {
-  return items.map((item) => (item.id === id ? { ...item, ...next } : item));
-}
-
-function renderHistoryList<T extends { id: string; at: string }>(
-  items: T[],
-  emptyMessage: string,
-  render: (item: T) => React.ReactNode,
-) {
-  if (items.length === 0) {
-    return <div className="empty-inline">{emptyMessage}</div>;
-  }
-  return (
-    <div className="history-list">
-      {items.map((item) => (
-        <div key={item.id} className="history-item">
-          {render(item)}
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -257,8 +239,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   const [runFinishedAt, setRunFinishedAt] = useState('');
   const [optimizationStartedAt, setOptimizationStartedAt] = useState('');
   const [optimizationUpdatedAt, setOptimizationUpdatedAt] = useState('');
-  const [backtestMessage, setBacktestMessage] = useState('실행 버튼을 누르면 최신 설정으로 백테스트를 시작합니다.');
-  const [optimizationMessage, setOptimizationMessage] = useState('최적화 작업은 백그라운드에서 실행됩니다.');
+  const [backtestMessage, setBacktestMessage] = useState('현재 저장된 설정 요약을 확인한 뒤 실행하면 됩니다.');
+  const [optimizationMessage, setOptimizationMessage] = useState('최적화는 백그라운드 작업으로 분리되어 실행됩니다.');
   const [optimizationRunning, setOptimizationRunning] = useState(false);
   const [optimizedParams, setOptimizedParams] = useState<Record<string, unknown> | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
@@ -344,7 +326,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           setOptimizationRunning(true);
           setOptimizationPhase('running');
           setOptimizationStartedAt(nowIso());
-          setOptimizationMessage('이미 실행 중인 최적화 작업을 모니터링합니다.');
+          setOptimizationMessage('이미 실행 중인 최적화 작업을 추적 중입니다.');
         }
 
         if (paramsPayload.status === 'ok') {
@@ -352,7 +334,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         }
       } catch {
         if (!alive) return;
-        push('warning', '최적화 상태 초기 조회에 실패했습니다.', '최적화 상태는 실행 시 다시 확인할 수 있습니다.', 'optimization');
+        push('warning', '최적화 상태 초기 조회에 실패했습니다.', '실행 시 다시 상태를 확인합니다.', 'optimization');
       }
     };
 
@@ -379,10 +361,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         setOptimizationPhase('success');
         setOptimizationUpdatedAt(nowIso());
         setOptimizationMessage('최적화가 완료되었습니다. 최신 파라미터를 확인하세요.');
-        if (paramsPayload.status === 'ok') {
-          setOptimizedParams(paramsPayload);
-        }
-        push('success', '최적화가 완료되었습니다.', '결과 요약 카드와 파라미터 영역을 확인하세요.', 'optimization');
+        if (paramsPayload.status === 'ok') setOptimizedParams(paramsPayload);
+        push('success', '최적화가 완료되었습니다.', '결과 카드가 갱신되었습니다.', 'optimization');
         pushToast({
           tone: 'success',
           title: '최적화 완료',
@@ -400,7 +380,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         setOptimizationPhase('error');
         setOptimizationUpdatedAt(nowIso());
         setOptimizationMessage('최적화 상태 조회 중 오류가 발생했습니다.');
-        push('error', '최적화 상태 조회 중 오류가 발생했습니다.', '상단 로그 보기에서 상세 오류를 확인하세요.', 'optimization');
+        push('error', '최적화 상태 조회 중 오류가 발생했습니다.', '로그와 서버 상태를 확인하세요.', 'optimization');
         pushToast({
           tone: 'error',
           title: '최적화 상태 조회 실패',
@@ -413,7 +393,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
   const handleRefreshAll = useCallback(() => {
     onRefresh();
-    push('info', '검증 화면 데이터를 새로고침했습니다.', '실행 재개는 실행 패널 버튼에서 직접 수행하세요.', 'refresh');
+    push('info', '검증 화면 데이터를 새로고침했습니다.', '실행 상태와 리포트 스냅샷을 다시 불러옵니다.', 'refresh');
     pushToast({
       tone: 'info',
       title: '화면을 새로고침했습니다.',
@@ -422,9 +402,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   }, [onRefresh, push, pushToast]);
 
   const handleRunBacktest = useCallback(async () => {
-    if (backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing') {
-      return;
-    }
+    if (backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing') return;
 
     const historyId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     updateRunHistory([
@@ -442,13 +420,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     setRunStartedAt(nowIso());
     setRunFinishedAt('');
     setBacktestPhase('requesting');
-    setBacktestMessage('백테스트 요청을 전송했습니다. 서버 응답을 기다리는 중입니다.');
+    setBacktestMessage('백테스트 요청을 전송했습니다.');
     push('info', '백테스트 실행을 시작했습니다.', `시장 ${validationStore.draftQuery.market_scope.toUpperCase()}, 기간 ${validationStore.draftQuery.lookback_days}일`, 'backtest');
-    pushToast({
-      tone: 'info',
-      title: '백테스트 실행 시작',
-      description: '진행 상태가 완료될 때까지 중복 실행은 잠시 잠깁니다.',
-    });
+    pushToast({ tone: 'info', title: '백테스트 실행 시작', description: '완료될 때까지 중복 실행은 잠시 잠깁니다.' });
 
     await Promise.resolve();
     setBacktestPhase('running');
@@ -456,7 +430,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
     const result = await run(validationStore.draftQuery);
     setBacktestPhase('finalizing');
-    setBacktestMessage('결과를 정리하고 요약 카드를 갱신하고 있습니다.');
+    setBacktestMessage('결과를 정리 중입니다.');
     await new Promise((resolve) => window.setTimeout(resolve, 180));
 
     const finishedAt = nowIso();
@@ -464,7 +438,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
     if (result.ok) {
       setBacktestPhase('success');
-      setBacktestMessage('백테스트가 성공적으로 완료되었습니다.');
+      setBacktestMessage('백테스트가 완료되었습니다.');
       updateRunHistory(updateHistoryItem([
         {
           id: historyId,
@@ -479,12 +453,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         status: '완료',
         totalReturnPct: metricNumber(result.payload?.metrics as Record<string, unknown> | undefined, 'total_return_pct'),
       }));
-      push('success', '백테스트가 완료되었습니다.', '상단 상태 카드와 최근 실행 이력을 확인하세요.', 'backtest');
-      pushToast({
-        tone: 'success',
-        title: '백테스트 완료',
-        description: '성과 요약과 최근 실행 이력이 갱신되었습니다.',
-      });
+      push('success', '백테스트가 완료되었습니다.', '성과 요약과 최근 실행 이력이 갱신되었습니다.', 'backtest');
+      pushToast({ tone: 'success', title: '백테스트 완료', description: '성과 요약과 최근 실행 이력이 갱신되었습니다.' });
       return;
     }
 
@@ -500,16 +470,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         totalReturnPct: null,
       },
       ...runHistory,
-    ].slice(0, 30), historyId, {
-      status: '실패',
-      totalReturnPct: null,
-    }));
+    ].slice(0, 30), historyId, { status: '실패', totalReturnPct: null }));
     push('error', '백테스트 실행이 실패했습니다.', result.error || '상단 로그 보기에서 상세 원인을 확인하세요.', 'backtest');
-    pushToast({
-      tone: 'error',
-      title: '백테스트 실패',
-      description: result.error || '로그와 서버 상태를 확인해 주세요.',
-    });
+    pushToast({ tone: 'error', title: '백테스트 실패', description: result.error || '로그와 서버 상태를 확인해 주세요.' });
   }, [backtestPhase, push, pushToast, run, runHistory, updateRunHistory, validationStore.draftQuery]);
 
   const handleRunOptimization = useCallback(async () => {
@@ -528,9 +491,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         const alreadyRunning = payload.status === 'already_running';
         setOptimizationRunning(true);
         setOptimizationPhase(alreadyRunning ? 'running' : 'queued');
-        setOptimizationMessage(alreadyRunning
-          ? '이미 실행 중인 최적화 작업을 추적합니다.'
-          : '최적화가 큐에 등록되었습니다.');
+        setOptimizationMessage(alreadyRunning ? '이미 실행 중인 최적화 작업을 추적합니다.' : '최적화가 큐에 등록되었습니다.');
         push('info', alreadyRunning ? '최적화가 이미 실행 중입니다.' : '최적화를 시작했습니다.', '완료 전까지 동일 작업은 다시 실행되지 않습니다.', 'optimization');
         pushToast({
           tone: 'info',
@@ -550,20 +511,12 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       setOptimizationPhase('error');
       setOptimizationMessage(payload.error || '최적화 요청 실패');
       push('error', '최적화 요청이 실패했습니다.', payload.error || '', 'optimization');
-      pushToast({
-        tone: 'error',
-        title: '최적화 요청 실패',
-        description: payload.error || '백엔드 최적화 엔드포인트를 확인해 주세요.',
-      });
+      pushToast({ tone: 'error', title: '최적화 요청 실패', description: payload.error || '백엔드 최적화 엔드포인트를 확인해 주세요.' });
     } catch {
       setOptimizationPhase('error');
       setOptimizationMessage('최적화 요청 중 오류가 발생했습니다.');
       push('error', '최적화 요청 중 오류가 발생했습니다.', '네트워크 또는 서버 상태를 확인하세요.', 'optimization');
-      pushToast({
-        tone: 'error',
-        title: '최적화 요청 실패',
-        description: '요청 전송 중 오류가 발생했습니다.',
-      });
+      pushToast({ tone: 'error', title: '최적화 요청 실패', description: '요청 전송 중 오류가 발생했습니다.' });
     }
   }, [optimizationHistory, optimizationPhase, optimizationRunning, push, pushToast, updateOptimizationHistory]);
 
@@ -581,11 +534,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     };
     updateSaveHistory([historyItem, ...saveHistory].slice(0, 30));
     push('success', '검증 설정을 저장했습니다.', `${validationStore.draftQuery.market_scope.toUpperCase()} · ${validationStore.draftQuery.lookback_days}일`, 'settings');
-    pushToast({
-      tone: 'success',
-      title: '설정 저장 완료',
-      description: '실행 패널 요약과 저장 필요 배지가 즉시 갱신되었습니다.',
-    });
+    pushToast({ tone: 'success', title: '설정 저장 완료', description: '실행 패널 요약과 저장 필요 배지가 즉시 갱신되었습니다.' });
     setSettingsSaving(false);
   }, [push, pushToast, saveHistory, settingsSaving, updateSaveHistory, validationStore]);
 
@@ -593,11 +542,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     validationStore.resetDraft();
     setBacktestMessage('설정 초안을 기본값으로 되돌렸습니다. 저장 후 실행할 수 있습니다.');
     push('warning', '검증 설정 초안을 기본값으로 되돌렸습니다.', '저장 전까지는 저장 필요 상태가 유지됩니다.', 'settings');
-    pushToast({
-      tone: 'warning',
-      title: '설정 초안 초기화',
-      description: '기본값으로 되돌렸습니다. 저장하면 실행 패널에 반영됩니다.',
-    });
+    pushToast({ tone: 'warning', title: '설정 초안 초기화', description: '기본값으로 되돌렸습니다. 저장하면 실행 패널에 반영됩니다.' });
   }, [push, pushToast, validationStore]);
 
   const settingsPanel = (
@@ -624,7 +569,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         />
       </FieldBlock>
 
-      <FieldBlock label="백테스트 기간(일)" help="최소 180일, 30일 단위로 권장합니다.">
+      <FieldBlock label="백테스트 기간(일)" help="최소 180일, 30일 단위 권장">
         <input
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
@@ -632,15 +577,11 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           min={180}
           step={30}
           value={validationStore.draftQuery.lookback_days}
-          onChange={(event) => validationStore.setDraftQuery((prev) => ({
-            ...prev,
-            lookback_days: Math.max(180, Number(event.target.value) || 180),
-          }))}
-          placeholder="예: 365"
+          onChange={(event) => validationStore.setDraftQuery((prev) => ({ ...prev, lookback_days: Math.max(180, Number(event.target.value) || 180) }))}
         />
       </FieldBlock>
 
-      <FieldBlock label="학습 기간(일)" help="최소 30일, 10일 단위로 입력하세요.">
+      <FieldBlock label="학습 기간(일)" help="최소 30일, 10일 단위">
         <input
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
@@ -648,15 +589,11 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           min={30}
           step={10}
           value={validationStore.draftSettings.trainingDays}
-          onChange={(event) => validationStore.setDraftSettings((prev) => ({
-            ...prev,
-            trainingDays: Math.max(30, Number(event.target.value) || 30),
-          }))}
-          placeholder="예: 180"
+          onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, trainingDays: Math.max(30, Number(event.target.value) || 30) }))}
         />
       </FieldBlock>
 
-      <FieldBlock label="검증 기간(일)" help="최소 20일, 10일 단위로 입력하세요.">
+      <FieldBlock label="검증 기간(일)" help="최소 20일, 10일 단위">
         <input
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
@@ -664,15 +601,11 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           min={20}
           step={10}
           value={validationStore.draftSettings.validationDays}
-          onChange={(event) => validationStore.setDraftSettings((prev) => ({
-            ...prev,
-            validationDays: Math.max(20, Number(event.target.value) || 20),
-          }))}
-          placeholder="예: 60"
+          onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, validationDays: Math.max(20, Number(event.target.value) || 20) }))}
         />
       </FieldBlock>
 
-      <FieldBlock label="Walk-forward" help="구간별 재학습 여부를 결정합니다.">
+      <FieldBlock label="Walk-forward" help="구간별 재학습 여부">
         <select
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
@@ -684,7 +617,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         </select>
       </FieldBlock>
 
-      <FieldBlock label="최소 거래 수(건)" help="검증 통과 최소 거래 수입니다.">
+      <FieldBlock label="최소 거래 수(건)" help="검증 통과 최소 거래 수">
         <input
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
@@ -692,15 +625,11 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           min={1}
           step={1}
           value={validationStore.draftSettings.minTrades}
-          onChange={(event) => validationStore.setDraftSettings((prev) => ({
-            ...prev,
-            minTrades: Math.max(1, Number(event.target.value) || 1),
-          }))}
-          placeholder="예: 20"
+          onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, minTrades: Math.max(1, Number(event.target.value) || 1) }))}
         />
       </FieldBlock>
 
-      <FieldBlock label="목표 함수" help="최적화 및 판단 기준 문구에 사용됩니다.">
+      <FieldBlock label="목표 함수" help="최적화 판단 기준">
         <select
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
@@ -714,16 +643,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
       <div className="settings-panel-actions">
         <button className="console-action-button is-primary" onClick={() => { void handleSaveSettings(); }} disabled={settingsSaving}>
-          {settingsSaving ? (
-            <span className="button-content">
-              <span className="button-spinner" aria-hidden="true" />
-              저장 중...
-            </span>
-          ) : '설정 저장'}
+          {settingsSaving ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />저장 중...</span> : '설정 저장'}
         </button>
-        <button className="console-action-button is-danger" onClick={() => setResetConfirmOpen(true)} disabled={settingsSaving}>
-          초기화
-        </button>
+        <button className="console-action-button is-danger" onClick={() => setResetConfirmOpen(true)} disabled={settingsSaving}>초안 초기화</button>
       </div>
     </div>
   );
@@ -733,8 +655,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       <div className="page-frame">
         <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
-            title="백테스트/검증"
-            subtitle="실행은 패널에서만 수행하고, 설정 변경·저장은 설정 패널에서만 관리합니다."
+            title="검증 콘솔"
+            subtitle="설정은 상단 패널에서 저장하고, 이 화면에서는 실행/상태/결과만 봅니다."
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
@@ -747,203 +669,217 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             settingsSavedAt={validationStore.lastSavedAt}
           />
 
-          <div className="page-section" style={{ display: 'grid', gap: 14 }}>
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">실행 패널</div>
-                <div className="section-copy">설정 값은 상단의 설정 패널에서만 수정할 수 있습니다. 아래에서는 현재 설정 요약을 확인하고 실행만 수행합니다.</div>
-              </div>
-              <div className={`inline-badge ${validationStore.unsaved ? 'is-warning' : 'is-success'}`}>
-                {validationStore.unsaved ? '저장 필요' : '저장됨'}
-              </div>
-            </div>
-
-            <div className="summary-rail">
-              {settingsSummaryLines.map((line) => (
-                <div key={line} className="summary-rail-item">{line}</div>
-              ))}
-            </div>
-
-            {validationStore.unsaved && (
-              <div className="inline-warning-card">
-                저장하지 않은 변경 사항이 있습니다. 실행은 현재 초안 값으로 진행되며, 저장하면 상단 배지가 사라집니다.
-              </div>
-            )}
-
-            <div className="execution-button-row">
-              <button
-                className="console-action-button is-primary"
-                onClick={() => { void handleRunBacktest(); }}
-                disabled={backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing'}
-              >
-                {backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing' ? (
-                  <span className="button-content">
-                    <span className="button-spinner" aria-hidden="true" />
-                    백테스트 진행 중...
-                  </span>
-                ) : '백테스트 실행'}
-              </button>
-              <button
-                className="console-action-button"
-                onClick={() => { void handleRunOptimization(); }}
-                disabled={optimizationRunning || optimizationPhase === 'requesting'}
-              >
-                {optimizationRunning || optimizationPhase === 'requesting' ? (
-                  <span className="button-content">
-                    <span className="button-spinner" aria-hidden="true" />
-                    최적화 진행 중...
-                  </span>
-                ) : '최적화 실행'}
-              </button>
-            </div>
-          </div>
-
-          <div className="summary-metric-grid">
-            <SummaryMetricCard
-              label="백테스트 수익률"
-              value={formatPercent(viewModel.totalReturnPct, 2)}
-              detail={`거래 ${formatCount(viewModel.tradeCount, '건')} · 승률 ${formatPercent(viewModel.winRatePct, 2)}`}
-              tone={(viewModel.totalReturnPct || 0) >= 0 ? 'good' : 'bad'}
-            />
-            <SummaryMetricCard
-              label="OOS 수익률"
-              value={formatPercent(viewModel.oosReturnPct, 2)}
-              detail={`신뢰도 ${viewModel.reliability || '-'} · 윈도우 ${formatCount(snapshot.validation.summary?.windows, '개')}`}
-              tone={(viewModel.oosReturnPct || 0) >= 0 ? 'good' : 'bad'}
-            />
-            <SummaryMetricCard
-              label="최대 낙폭 / PF"
-              value={`${formatPercent(viewModel.maxDrawdownPct, 2)} / ${formatNumber(viewModel.profitFactor, 2)}`}
-              detail={`학습 ${formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)} · 검증 ${formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}`}
-            />
-            <SummaryMetricCard
-              label="최근 저장 / 실행"
-              value={validationStore.lastSavedAt ? formatDateTime(validationStore.lastSavedAt) : '-'}
-              detail={`최근 실행 ${runFinishedAt ? formatDateTime(runFinishedAt) : '없음'} · 최적화 ${optimizationUpdatedAt ? formatDateTime(optimizationUpdatedAt) : '없음'}`}
-            />
-          </div>
-
-          <div className="process-grid">
-            <ProcessStepper
-              title="백테스트 진행 상태"
-              steps={['요청', '서버 계산', '결과 정리', backtestPhase === 'error' ? '실패' : '완료']}
-              activeIndex={buildPhaseIndex(backtestPhase)}
-              error={backtestPhase === 'error'}
-              detail={`${backtestMessage} · 경과 ${formatElapsed(runStartedAt)}`}
-              timestamp={runStartedAt || runFinishedAt}
-            />
-            <ProcessStepper
-              title="최적화 진행 상태"
-              steps={['요청', '큐 등록', '백그라운드 실행', optimizationPhase === 'error' ? '실패' : '완료']}
-              activeIndex={buildOptimizationPhaseIndex(optimizationPhase)}
-              error={optimizationPhase === 'error'}
-              detail={`${optimizationMessage} · 경과 ${formatElapsed(optimizationStartedAt)}`}
-              timestamp={optimizationStartedAt || optimizationUpdatedAt}
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">전략/시장/구간 성과</div>
-              <div className="detail-list">
-                <div>전략: {validationStore.draftSettings.strategy}</div>
-                <div>시장: {validationStore.draftQuery.market_scope.toUpperCase()}</div>
-                <div>학습 구간 수익률: {formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)}</div>
-                <div>검증 구간 수익률: {formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}</div>
-                <div>OOS 구간 수익률: {formatPercent(metricNumber(segmentOos, 'total_return_pct'), 2)}</div>
-              </div>
-            </div>
-
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">실행 정책 반영 상태</div>
-              <div className="detail-list">
-                <div>validation gate: {validationPolicy?.validation_gate_enabled ? '활성' : '비활성'}</div>
-                <div>min trades: {formatNumber(validationPolicy?.validation_min_trades, 0)}</div>
-                <div>min sharpe: {formatNumber(validationPolicy?.validation_min_sharpe, 2)}</div>
-                <div>저신뢰 차단: {validationPolicy?.validation_block_on_low_reliability ? '예' : '아니오'}</div>
-                <div>optimized 신뢰도 요구: {validationPolicy?.validation_require_optimized_reliability ? '예' : '아니오'}</div>
-                <div>optimized version: {String(optimizedState?.version || '-')}</div>
-                <div>optimized at: {formatDateTime(optimizedState?.optimized_at)}</div>
-              </div>
-            </div>
-
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">최적 파라미터</div>
-              <div className="detail-list">
-                {Object.entries(globalParams).slice(0, 10).map(([key, value]) => (
-                  <div key={key}>
-                    {key}: {typeof value === 'number' ? formatNumber(value, 4) : String(value)}
+          <div className="validation-layout">
+            <div className="validation-console-column">
+              <div className="page-section validation-console-card">
+                <div className="section-kicker">Operator Console</div>
+                <div className="section-head-row">
+                  <div>
+                    <div className="section-title">실행 패널</div>
+                    <div className="section-copy">아래에서는 현재 설정 요약 확인과 실행만 수행합니다.</div>
                   </div>
-                ))}
-                {Object.keys(globalParams).length === 0 && <div className="empty-inline">{UI_TEXT.empty.noOptimizedParams}</div>}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">진입·청산 사유별 성과</div>
-              <div className="history-list">
-                {reasonRows.map((row) => (
-                  <div key={row.reason} className="history-item">
-                    <div>{row.reason}</div>
-                    <div className="history-item-copy">거래 {formatCount(row.count, '건')} · 평균 {formatPercent(row.avgPnlPct, 2)}</div>
+                  <div className={`inline-badge ${validationStore.unsaved ? 'is-warning' : 'is-success'}`}>
+                    {validationStore.unsaved ? '저장 필요' : '저장됨'}
                   </div>
-                ))}
-                {reasonRows.length === 0 && <div className="empty-inline">{UI_TEXT.empty.noReasonBreakdown}</div>}
-              </div>
-            </div>
+                </div>
 
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">최근 OOS 요약</div>
-              <div className="detail-list">
-                <div>윈도우 수: {formatCount(snapshot.validation.summary?.windows, '개')}</div>
-                <div>양수 OOS 윈도우: {formatCount(snapshot.validation.summary?.positive_windows, '개')}</div>
-                <div>신뢰도: {reliabilityToKorean(String(snapshot.validation.summary?.oos_reliability || ''))}</div>
-              </div>
-            </div>
+                <div className="summary-rail is-compact">
+                  {settingsSummaryLines.map((line) => (
+                    <div key={line} className="summary-rail-item">{line}</div>
+                  ))}
+                </div>
 
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">실패 로그 / 설정 저장 이력</div>
-              <div className="history-list">
-                {entries.filter((item) => item.level === 'error').slice(0, 4).map((item) => (
-                  <div key={item.id} className="history-item is-danger">
-                    <div>{formatDateTime(item.timestamp)} · {item.message}</div>
-                    {item.context && <div className="history-item-copy">{item.context}</div>}
+                {validationStore.unsaved && (
+                  <div className="inline-warning-card">저장하지 않은 변경 사항이 있습니다. 실행은 현재 초안 값으로 진행됩니다.</div>
+                )}
+
+                <div className="execution-button-row is-split">
+                  <button
+                    className="console-action-button is-primary"
+                    onClick={() => { void handleRunBacktest(); }}
+                    disabled={backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing'}
+                  >
+                    {backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing'
+                      ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />백테스트 진행 중...</span>
+                      : '백테스트 실행'}
+                  </button>
+                  <button
+                    className="console-action-button"
+                    onClick={() => { void handleRunOptimization(); }}
+                    disabled={optimizationRunning || optimizationPhase === 'requesting'}
+                  >
+                    {optimizationRunning || optimizationPhase === 'requesting'
+                      ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />최적화 진행 중...</span>
+                      : '최적화 실행'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="process-grid">
+                <ProcessStepper
+                  title="백테스트 진행 상태"
+                  steps={['요청', '서버 계산', '결과 정리', backtestPhase === 'error' ? '실패' : '완료']}
+                  activeIndex={buildPhaseIndex(backtestPhase)}
+                  error={backtestPhase === 'error'}
+                  detail={`${backtestMessage} · 경과 ${formatElapsed(runStartedAt)}`}
+                  timestamp={runStartedAt || runFinishedAt}
+                />
+                <ProcessStepper
+                  title="최적화 진행 상태"
+                  steps={['요청', '큐 등록', '백그라운드 실행', optimizationPhase === 'error' ? '실패' : '완료']}
+                  activeIndex={buildOptimizationPhaseIndex(optimizationPhase)}
+                  error={optimizationPhase === 'error'}
+                  detail={`${optimizationMessage} · 경과 ${formatElapsed(optimizationStartedAt)}`}
+                  timestamp={optimizationStartedAt || optimizationUpdatedAt}
+                />
+              </div>
+
+              <div className="page-section" style={{ padding: 16 }}>
+                <div className="section-head-row">
+                  <div>
+                    <div className="section-title">최근 실행 이력</div>
+                    <div className="section-copy">실행/최적화/저장만 따로 모아 둔 운영 로그입니다.</div>
                   </div>
-                ))}
-                {entries.every((item) => item.level !== 'error') && <div className="empty-inline">실패 로그가 없습니다.</div>}
-                <div className="divider-line" />
-                {saveHistory.slice(0, 4).map((item) => (
-                  <div key={item.id} className="history-item">
-                    <div>{formatDateTime(item.at)} · {item.market.toUpperCase()}</div>
-                    <div className="history-item-copy">{item.lookbackDays}일 · {item.strategy}</div>
+                </div>
+                <div className="validation-history-grid">
+                  <div>
+                    <div className="section-subtitle">백테스트</div>
+                    {renderHistoryList(runHistory.slice(0, 8), UI_TEXT.empty.noRunHistory, (item) => (
+                      <>
+                        <div>{formatDateTime(item.at)} · {item.market.toUpperCase()} · {item.lookbackDays}일</div>
+                        <div className="history-item-copy">상태 {item.status} · 수익률 {formatPercent(item.totalReturnPct, 2)}</div>
+                      </>
+                    ))}
                   </div>
-                ))}
-                {saveHistory.length === 0 && <div className="empty-inline">{UI_TEXT.empty.noSaveHistory}</div>}
+                  <div>
+                    <div className="section-subtitle">최적화 / 저장</div>
+                    <div className="history-list">
+                      {optimizationHistory.slice(0, 4).map((item) => (
+                        <div key={item.id} className="history-item">
+                          <div>{formatDateTime(item.at)} · {item.status}</div>
+                          <div className="history-item-copy">{item.message}</div>
+                        </div>
+                      ))}
+                      {saveHistory.slice(0, 4).map((item) => (
+                        <div key={item.id} className="history-item">
+                          <div>{formatDateTime(item.at)} · {item.market.toUpperCase()}</div>
+                          <div className="history-item-copy">{item.lookbackDays}일 · {item.strategy}</div>
+                        </div>
+                      ))}
+                      {optimizationHistory.length === 0 && saveHistory.length === 0 && <div className="empty-inline">최근 이력이 없습니다.</div>}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">최근 실행 이력</div>
-              {renderHistoryList(runHistory.slice(0, 10), UI_TEXT.empty.noRunHistory, (item) => (
-                <>
-                  <div>{formatDateTime(item.at)} · {item.market.toUpperCase()} · {item.lookbackDays}일</div>
-                  <div className="history-item-copy">상태 {item.status} · 수익률 {formatPercent(item.totalReturnPct, 2)}</div>
-                </>
-              ))}
-            </div>
+            <div className="validation-report-column">
+              <div className="page-section validation-report-card">
+                <div className="section-kicker">Validation Report</div>
+                <div className="section-head-row">
+                  <div>
+                    <div className="section-title">핵심 결과</div>
+                    <div className="section-copy">실행과 분리된 읽기 전용 결과 요약입니다.</div>
+                  </div>
+                  <div className="inline-badge">최근 실행 {runFinishedAt ? formatDateTime(runFinishedAt) : '없음'}</div>
+                </div>
+                <div className="summary-metric-grid">
+                  <SummaryMetricCard
+                    label="백테스트 수익률"
+                    value={formatPercent(viewModel.totalReturnPct, 2)}
+                    detail={`거래 ${formatCount(viewModel.tradeCount, '건')} · 승률 ${formatPercent(viewModel.winRatePct, 2)}`}
+                    tone={(viewModel.totalReturnPct || 0) >= 0 ? 'good' : 'bad'}
+                  />
+                  <SummaryMetricCard
+                    label="OOS 수익률"
+                    value={formatPercent(viewModel.oosReturnPct, 2)}
+                    detail={`신뢰도 ${viewModel.reliability || '-'} · 윈도우 ${formatCount(snapshot.validation.summary?.windows, '개')}`}
+                    tone={(viewModel.oosReturnPct || 0) >= 0 ? 'good' : 'bad'}
+                  />
+                  <SummaryMetricCard
+                    label="최대 낙폭 / PF"
+                    value={`${formatPercent(viewModel.maxDrawdownPct, 2)} / ${formatNumber(viewModel.profitFactor, 2)}`}
+                    detail={`학습 ${formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)} · 검증 ${formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}`}
+                  />
+                  <SummaryMetricCard
+                    label="정책 반영"
+                    value={validationPolicy?.validation_gate_enabled ? 'Gate 활성' : 'Gate 비활성'}
+                    detail={`min trades ${formatNumber(validationPolicy?.validation_min_trades, 0)} · optimized ${String(optimizedState?.version || '-')}`}
+                  />
+                </div>
+              </div>
 
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">최근 최적화 이력</div>
-              {renderHistoryList(optimizationHistory.slice(0, 10), UI_TEXT.empty.noOptimizationHistory, (item) => (
-                <>
-                  <div>{formatDateTime(item.at)} · {item.status}</div>
-                  <div className="history-item-copy">{item.message}</div>
-                </>
-              ))}
+              <div className="validation-report-grid">
+                <div className="page-section" style={{ padding: 16 }}>
+                  <div className="section-title">구간 성과</div>
+                  <div className="detail-list">
+                    <div>전략: {validationStore.draftSettings.strategy}</div>
+                    <div>시장: {validationStore.draftQuery.market_scope.toUpperCase()}</div>
+                    <div>학습 구간 수익률: {formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)}</div>
+                    <div>검증 구간 수익률: {formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}</div>
+                    <div>OOS 구간 수익률: {formatPercent(metricNumber(segmentOos, 'total_return_pct'), 2)}</div>
+                  </div>
+                </div>
+
+                <div className="page-section" style={{ padding: 16 }}>
+                  <div className="section-title">OOS 요약</div>
+                  <div className="detail-list">
+                    <div>윈도우 수: {formatCount(snapshot.validation.summary?.windows, '개')}</div>
+                    <div>양수 OOS 윈도우: {formatCount(snapshot.validation.summary?.positive_windows, '개')}</div>
+                    <div>신뢰도: {reliabilityToKorean(String(snapshot.validation.summary?.oos_reliability || ''))}</div>
+                    <div>최적화 시각: {formatDateTime(optimizedState?.optimized_at)}</div>
+                  </div>
+                </div>
+
+                <div className="page-section" style={{ padding: 16 }}>
+                  <div className="section-title">실행 정책</div>
+                  <div className="detail-list">
+                    <div>validation gate: {validationPolicy?.validation_gate_enabled ? '활성' : '비활성'}</div>
+                    <div>min trades: {formatNumber(validationPolicy?.validation_min_trades, 0)}</div>
+                    <div>min sharpe: {formatNumber(validationPolicy?.validation_min_sharpe, 2)}</div>
+                    <div>저신뢰 차단: {validationPolicy?.validation_block_on_low_reliability ? '예' : '아니오'}</div>
+                    <div>optimized 요구: {validationPolicy?.validation_require_optimized_reliability ? '예' : '아니오'}</div>
+                  </div>
+                </div>
+
+                <div className="page-section" style={{ padding: 16 }}>
+                  <div className="section-title">최적 파라미터</div>
+                  <div className="detail-list">
+                    {Object.entries(globalParams).slice(0, 8).map(([key, value]) => (
+                      <div key={key}>{key}: {typeof value === 'number' ? formatNumber(value, 4) : String(value)}</div>
+                    ))}
+                    {Object.keys(globalParams).length === 0 && <div className="empty-inline">{UI_TEXT.empty.noOptimizedParams}</div>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="validation-report-grid">
+                <div className="page-section" style={{ padding: 16 }}>
+                  <div className="section-title">사유별 성과</div>
+                  <div className="history-list">
+                    {reasonRows.map((row) => (
+                      <div key={row.reason} className="history-item">
+                        <div>{row.reason}</div>
+                        <div className="history-item-copy">거래 {formatCount(row.count, '건')} · 평균 {formatPercent(row.avgPnlPct, 2)}</div>
+                      </div>
+                    ))}
+                    {reasonRows.length === 0 && <div className="empty-inline">{UI_TEXT.empty.noReasonBreakdown}</div>}
+                  </div>
+                </div>
+
+                <div className="page-section" style={{ padding: 16 }}>
+                  <div className="section-title">실패 로그</div>
+                  <div className="history-list">
+                    {entries.filter((item) => item.level === 'error').slice(0, 4).map((item) => (
+                      <div key={item.id} className="history-item is-danger">
+                        <div>{formatDateTime(item.timestamp)} · {item.message}</div>
+                        {item.context && <div className="history-item-copy">{item.context}</div>}
+                      </div>
+                    ))}
+                    {entries.every((item) => item.level !== 'error') && <div className="empty-inline">실패 로그가 없습니다.</div>}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

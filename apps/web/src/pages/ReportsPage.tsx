@@ -80,6 +80,12 @@ function tabHeadline(tab: ReportTab): string {
   return '오늘 리포트';
 }
 
+function tabDescription(tab: ReportTab): string {
+  if (tab === 'action-board') return '읽고 끝내는 화면이 아니라, 바로 체크하고 실행 준비를 끝내는 보드입니다.';
+  if (tab === 'watch-decision') return '신규 진입 태도와 집중 포인트만 짧게 정리한 판단 카드입니다.';
+  return '오늘 시장 판단과 운영 포인트를 빠르게 읽는 브리핑 화면입니다.';
+}
+
 function renderTodayReport(snapshot: ConsoleSnapshot) {
   const view = buildTodayReportView(snapshot);
   const signals = snapshot.signals.signals || [];
@@ -95,13 +101,13 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="page-section report-hero-card">
         <div className="report-hero-topline">
-          <span className="report-hero-tag">오늘의 판단</span>
+          <span className="report-hero-tag">Today Brief</span>
           <span className="report-hero-meta">리포트 생성 {formatDateTime(view.generatedAt)}</span>
         </div>
         <div className="report-hero-title-row">
           <div>
-            <div className="report-hero-title">오늘 리포트</div>
-            <div className="report-hero-copy">시장 요약, 리스크 가드, 허용 신호 비율을 한 화면에서 점검합니다.</div>
+            <div className="report-hero-title">오늘 판단</div>
+            <div className="report-hero-copy">장세, 리스크 가드, 신호 허용 비율만 먼저 보고 오늘 태도를 결정합니다.</div>
           </div>
           <div className={`report-mode-chip is-${view.judgmentTitle === '공격' ? 'good' : view.judgmentTitle === '관망' ? 'bad' : 'neutral'}`}>
             {view.judgmentTitle}
@@ -111,16 +117,11 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
 
       <div className="report-grid-3">
         <div className="page-section report-visual-card">
-          <div className="report-card-title">리스크 가드 / 장세</div>
+          <div className="report-card-title">운영 모드</div>
           <div className="report-card-value">{guardAllowed ? '진입 가능' : '진입 제한'}</div>
           <div className="report-card-copy">{regime} · 위험도 {riskLevel}</div>
           <div className="risk-meter">
             <div className="risk-meter-fill" style={{ width: `${meterScore}%` }} />
-          </div>
-          <div className="risk-meter-scale">
-            <span>방어</span>
-            <span>중립</span>
-            <span>주의</span>
           </div>
         </div>
 
@@ -131,13 +132,13 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
             <div className="signal-balance-segment is-good" style={{ width: ratioWidth(allowedCount, totalSignals) }} />
             <div className="signal-balance-segment is-bad" style={{ width: ratioWidth(blockedCount, totalSignals) }} />
           </div>
-          <div className="report-card-copy">허용 비율 {(allowedCount / totalSignals * 100).toFixed(0)}% · 차단 비율 {(blockedCount / totalSignals * 100).toFixed(0)}%</div>
+          <div className="report-card-copy">허용 {(allowedCount / totalSignals * 100).toFixed(0)}% · 차단 {(blockedCount / totalSignals * 100).toFixed(0)}%</div>
         </div>
 
         <div className="page-section report-visual-card">
-          <div className="report-card-title">핵심 행동 가이드</div>
-          <div className="report-card-value">{view.actionItems[0]?.label || '오늘 해야 할 일'}</div>
-          <div className="report-card-copy">{view.actionItems[0]?.detail || '오늘 해야 할 작업이 아직 정리되지 않았습니다.'}</div>
+          <div className="report-card-title">첫 액션</div>
+          <div className="report-card-value">{view.actionItems[0]?.label || '대기'}</div>
+          <div className="report-card-copy">{view.actionItems[0]?.detail || '오늘 액션 포인트가 아직 정리되지 않았습니다.'}</div>
         </div>
       </div>
 
@@ -152,8 +153,8 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
 
       <div className="report-grid-2">
         <div className="page-section" style={{ padding: 16 }}>
-          <div className="section-title">오늘 시장 요약</div>
-          <div className="report-brief-list">
+          <div className="section-title">시장 3줄 요약</div>
+          <div className="report-brief-list is-compact">
             {view.summaryLines.map((line, index) => (
               <div key={`summary-${index}`} className="report-brief-item">{line}</div>
             ))}
@@ -161,8 +162,8 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
         </div>
 
         <div className="page-section" style={{ padding: 16 }}>
-          <div className="section-title">오늘의 판단 근거</div>
-          <div className="report-brief-list">
+          <div className="section-title">판단 근거</div>
+          <div className="report-brief-list is-compact">
             {view.judgmentLines.map((line, index) => (
               <div key={`judgment-${index}`} className="report-brief-item">{line}</div>
             ))}
@@ -170,32 +171,33 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
         </div>
       </div>
 
-      <div className="report-grid-3">
-        {view.actionItems.map((item) => (
-          <div
-            key={item.label}
-            className={`page-section report-visual-card ${item.tone === 'good' ? 'is-good' : item.tone === 'bad' ? 'is-bad' : ''}`}
-          >
-            <div className="report-card-title">{item.label}</div>
-            <div className="report-card-copy" style={{ marginTop: 12 }}>{item.detail}</div>
-          </div>
-        ))}
-      </div>
-
       <div className="page-section" style={{ padding: 16 }}>
-        <div className="section-title">관망/주의/집중 포인트</div>
-        <div className="watch-grid">
-          {view.watchPoints.map((line, index) => (
-            <div key={`watch-${index}`} className="watch-card">{line}</div>
+        <div className="section-head-row">
+          <div>
+            <div className="section-title">오늘 해야 할 일</div>
+            <div className="section-copy">설명보다 액션 위주로 정리했습니다.</div>
+          </div>
+          <div className="inline-badge">{formatCount(view.actionItems.length, '개')}</div>
+        </div>
+        <div className="operator-note-grid">
+          {view.actionItems.map((item) => (
+            <div
+              key={item.label}
+              className={`operator-note-card ${item.tone === 'good' ? 'is-good' : item.tone === 'bad' ? 'is-bad' : ''}`}
+            >
+              <div className="operator-note-label">{item.label}</div>
+              <div className="operator-note-copy">{item.detail}</div>
+            </div>
           ))}
         </div>
       </div>
 
       <div className="page-section" style={{ padding: 16 }}>
-        <div className="section-title">기준 시각</div>
-        <div className="detail-list">
-          <div>콘솔 데이터 기준 시각: {formatDateTime(view.dataAsOf)}</div>
-          <div>리포트 생성 시각: {formatDateTime(view.generatedAt)}</div>
+        <div className="section-title">관망/주의 포인트</div>
+        <div className="watch-grid">
+          {view.watchPoints.map((line, index) => (
+            <div key={`watch-${index}`} className="watch-card">{line}</div>
+          ))}
         </div>
       </div>
     </div>
@@ -237,15 +239,15 @@ function renderActionBoard(
       <div className="page-section report-hero-card">
         <div className="report-hero-topline">
           <span className="report-hero-tag">Action Board</span>
-          <span className="report-hero-meta">운영 전 체크리스트와 실행 규칙</span>
+          <span className="report-hero-meta">운영 전 체크리스트</span>
         </div>
-        <div className="report-hero-title">액션보드</div>
-        <div className="report-hero-copy">완료 여부를 직접 기록하고, 운영자 전용 항목을 추가할 수 있습니다.</div>
+        <div className="report-hero-title">실행 준비 보드</div>
+        <div className="report-hero-copy">완료 여부만 빠르게 체크하고, 필요한 운영 항목만 추가합니다.</div>
       </div>
 
       <div className="page-section" style={{ padding: 16 }}>
-        <div className="section-title">오늘의 기본 행동 규칙</div>
-        <div className="report-brief-list">
+        <div className="section-title">기본 운영 규칙</div>
+        <div className="report-brief-list is-compact">
           {view.rules.map((rule, index) => (
             <div key={`rule-${index}`} className="report-brief-item">{rule}</div>
           ))}
@@ -256,26 +258,26 @@ function renderActionBoard(
         <div className="section-head-row">
           <div>
             <div className="section-title">체크리스트</div>
-            <div className="section-copy">키보드와 버튼으로 바로 완료 상태를 변경할 수 있습니다.</div>
+            <div className="section-copy">설명은 줄이고 체크 동작을 앞으로 뺐습니다.</div>
           </div>
-          <div className="inline-badge is-success">
-            완료 {formatCount(checklist.filter((item) => item.done).length, '건')}
-          </div>
+          <div className="inline-badge is-success">완료 {formatCount(checklist.filter((item) => item.done).length, '건')}</div>
         </div>
 
         <div className="action-checklist-grid">
           {checklist.map((item) => (
             <div key={item.id} className={`checklist-card ${item.done ? 'is-done' : ''}`}>
-              <button
-                type="button"
-                className={`checklist-toggle ${item.done ? 'is-done' : ''}`}
-                onClick={() => onToggle(item.id, !item.done)}
-                aria-pressed={item.done}
-                aria-label={`${item.label} ${item.done ? '미완료로 변경' : '완료로 변경'}`}
-              >
-                {item.done ? '완료' : '확인 필요'}
-              </button>
-              <div className="checklist-title">{item.label}</div>
+              <div className="checklist-card-head">
+                <div className="checklist-title">{item.label}</div>
+                <button
+                  type="button"
+                  className={`checklist-toggle ${item.done ? 'is-done' : ''}`}
+                  onClick={() => onToggle(item.id, !item.done)}
+                  aria-pressed={item.done}
+                  aria-label={`${item.label} ${item.done ? '미완료로 변경' : '완료로 변경'}`}
+                >
+                  {item.done ? '완료' : '확인 필요'}
+                </button>
+              </div>
               <div className="checklist-copy">{item.detail}</div>
               {item.custom && (
                 <button type="button" className="ghost-button" onClick={() => onRemoveItem(item.id)}>
@@ -289,14 +291,14 @@ function renderActionBoard(
         <div className="custom-checklist-form">
           <input
             className="console-search-input"
-            placeholder="추가 체크 항목 제목"
+            placeholder="추가 체크 항목"
             value={newItemLabel}
             onChange={(event) => setNewItemLabel(event.target.value)}
             aria-label="추가 체크 항목 제목"
           />
           <input
             className="console-search-input"
-            placeholder="세부 메모 또는 확인 기준"
+            placeholder="짧은 메모"
             value={newItemDetail}
             onChange={(event) => setNewItemDetail(event.target.value)}
             aria-label="추가 체크 항목 메모"
@@ -321,12 +323,12 @@ function renderWatchDecision(snapshot: ConsoleSnapshot) {
       <div className="page-section report-hero-card">
         <div className="report-hero-topline">
           <span className="report-hero-tag">Watch Decision</span>
-          <span className="report-hero-meta">현재 운용 모드와 집중 포인트</span>
+          <span className="report-hero-meta">진입 태도 요약</span>
         </div>
         <div className="report-hero-title-row">
           <div>
             <div className="report-hero-title">관망/관심목표 판단</div>
-            <div className="report-hero-copy">신규 진입 여건과 신호 밀도를 기준으로 오늘의 운영 태도를 정리했습니다.</div>
+            <div className="report-hero-copy">오늘 신규 진입 태도와 집중 포인트만 남겨 둔 짧은 판단 화면입니다.</div>
           </div>
           <div className={`report-mode-chip is-${view.mode === '공격' ? 'good' : view.mode === '관망' ? 'bad' : 'neutral'}`}>
             {view.mode}
@@ -338,23 +340,23 @@ function renderWatchDecision(snapshot: ConsoleSnapshot) {
         <div className="page-section report-visual-card">
           <div className="report-card-title">신규 진입</div>
           <div className="report-card-value">{guardAllowed ? '가능' : '제한'}</div>
-          <div className="report-card-copy">리스크 가드 기준 상태</div>
+          <div className="report-card-copy">리스크 가드 기준</div>
         </div>
         <div className="page-section report-visual-card">
           <div className="report-card-title">위험도</div>
           <div className="report-card-value">{riskLevel}</div>
-          <div className="report-card-copy">콘솔 allocator / signals 기준</div>
+          <div className="report-card-copy">allocator / signals 기준</div>
         </div>
         <div className="page-section report-visual-card">
           <div className="report-card-title">허용 신호</div>
           <div className="report-card-value">{formatCount(allowedCount, '건')}</div>
-          <div className="report-card-copy">오늘 진입 후보 신호 수</div>
+          <div className="report-card-copy">오늘 진입 후보 수</div>
         </div>
       </div>
 
       <div className="page-section" style={{ padding: 16 }}>
         <div className="section-title">판단 근거</div>
-        <div className="report-brief-list">
+        <div className="report-brief-list is-compact">
           {view.rationale.map((line, index) => (
             <div key={`rationale-${index}`} className="report-brief-item">{line}</div>
           ))}
@@ -431,8 +433,9 @@ export function ReportsPage({ snapshot, loading, errorMessage, reportTab, onRefr
         <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
           <div className="page-section reports-toolbar">
             <div>
+              <div className="section-kicker">Decision Report</div>
               <div className="section-title">{tabHeadline(reportTab)}</div>
-              <div className="section-copy">콘솔 스냅샷을 기반으로 오늘의 판단과 운영 포인트를 보여줍니다.</div>
+              <div className="section-copy">{tabDescription(reportTab)}</div>
             </div>
             <div className="reports-toolbar-actions">
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>

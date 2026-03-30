@@ -30,8 +30,13 @@ const REPORT_TABS: Array<{ id: ReportTab; label: string; path: string }> = [
 ];
 
 const SECTION_COPY: Record<TopSection, string> = {
-  console: '운영 상태와 실행 제어를 한 곳에서 확인합니다.',
-  reports: '오늘 판단과 액션 포인트를 빠르게 검토합니다.',
+  console: '실행 상태 확인, 제어, 검증 실행 같은 운영 작업용 화면입니다.',
+  reports: '오늘 판단, 우선순위, 체크리스트를 읽는 브리핑 화면입니다.',
+};
+
+const SECTION_BADGE: Record<TopSection, string> = {
+  console: 'Operator Console',
+  reports: 'Decision Reports',
 };
 
 function toRouteState(pathname: string): RouteState {
@@ -205,7 +210,7 @@ export default function App() {
           </div>
         </div>
         <div className="tab-shell-caption">
-          <span className="tab-shell-caption-title">{route.section === 'console' ? UI_TEXT.appName : '리포트 워크스페이스'}</span>
+          <span className="tab-shell-caption-title">{SECTION_BADGE[route.section]}</span>
           <span className="tab-shell-caption-copy">{SECTION_COPY[route.section]}</span>
         </div>
       </div>
