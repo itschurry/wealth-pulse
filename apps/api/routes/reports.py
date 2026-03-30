@@ -1,17 +1,37 @@
+import json
 import time
+from pathlib import Path
 from typing import Any
 
 import cache as _cache
-from helpers import _SUPPORTED_AUTO_TRADE_MARKETS
-from routes.market import _build_market
 from market_utils import resolve_market
-from reporter.storage import load_latest_report, load_report
-from reporter.storage import list_report_dates as _storage_list_dates
 from services.reliability_service import assess_validation_reliability
+from services.report_cache import get_cached_payload
+
+_SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ"}
+_OPTIMIZED_PARAMS_PATH = Path(__file__).resolve().parent.parent / "config" / "optimized_params.json"
 
 
 def _infer_recommendation_market(ticker: str, market: str = "", code: str = "", name: str = "") -> str:
     return resolve_market(code=code or ticker, name=name, market=market, ticker=ticker, scope="core")
+
+
+def _storage_list_dates(key: str) -> list[str]:
+    from reporter.storage import list_report_dates
+
+    return list_report_dates(key)
+
+
+def _storage_load_latest_report(key: str) -> dict | None:
+    from reporter.storage import load_latest_report
+
+    return load_latest_report(key)
+
+
+def _storage_load_report(date: str, key: str) -> dict | None:
+    from reporter.storage import load_report
+
+    return load_report(date, key)
 
 
 def _list_report_dates() -> list[str]:
@@ -44,26 +64,23 @@ def _load_report_json(suffix: str, date: str | None = None, latest: bool = True)
         target_date = _pick_date(date)
         if not target_date:
             return {}
-        return load_report(target_date, suffix) or {}
+        return _storage_load_report(target_date, suffix) or {}
     if not date:
         return {}
-    return load_report(date, suffix) or {}
+    return _storage_load_report(date, suffix) or {}
 
 
 def _get_cached_payload(cache_bucket: dict, loader, missing_payload: dict) -> dict:
-    now = time.time()
-    if cache_bucket["data"] is not None and now - cache_bucket["ts"] < _cache.REPORT_CACHE_TTL:
-        return cache_bucket["data"]
-    data = loader()
-    if not data:
-        return missing_payload
-    cache_bucket["data"] = data
-    cache_bucket["ts"] = now
-    return data
+    return get_cached_payload(
+        cache_bucket,
+        loader,
+        missing_payload,
+        ttl=_cache.REPORT_CACHE_TTL,
+    )
 
 
 def _get_cached_report(cache_bucket: dict, suffix: str, missing_payload: dict) -> dict:
-    return _get_cached_payload(cache_bucket, lambda: load_latest_report(suffix), missing_payload)
+    return _get_cached_payload(cache_bucket, lambda: _storage_load_latest_report(suffix), missing_payload)
 
 
 def _get_analysis() -> dict:
@@ -109,6 +126,8 @@ def _get_market_context() -> dict:
 
 
 def _get_market_dashboard() -> dict:
+    from routes.market import _build_market
+
     now = time.time()
     market = _cache._market_cache["data"]
     if market is None or now - _cache._market_cache["ts"] > _cache.CACHE_TTL:
@@ -128,6 +147,26 @@ def _ev_to_signal_label(expected_value: float) -> str:
     if expected_value > 0.2:
         return "중립"
     return "회피"
+
+
+def _coalesce(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
+
+
+def _load_optimized_params_payload() -> dict[str, Any] | None:
+    try:
+        if not _OPTIMIZED_PARAMS_PATH.exists():
+            return None
+        payload = json.loads(_OPTIMIZED_PARAMS_PATH.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
 
 
 def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
@@ -156,6 +195,21 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
     candidate_risks = [str(reason) for reason in (reasoning.get("candidate_risks") or []) if reason]
     score_components = validation_snapshot.get("score_components") if isinstance(validation_snapshot.get("score_components"), dict) else {}
     tail_risk = validation_snapshot.get("tail_risk") if isinstance(validation_snapshot.get("tail_risk"), dict) else {}
+    reliability_reason = _coalesce(
+        reliability_detail.get("reason"),
+        validation_snapshot.get("reliability_reason"),
+        calibration.get("reliability_reason"),
+    )
+    validation_trades = int(_coalesce(validation_snapshot.get("validation_trades"), calibration.get("sample_size"), 0) or 0)
+    validation_sharpe = _coalesce(
+        validation_snapshot.get("validation_sharpe"),
+        calibration.get("validation_sharpe"),
+    )
+    train_trade_count = int(_coalesce(validation_snapshot.get("trade_count"), calibration.get("trade_count"), 0) or 0)
+    max_drawdown_pct = _coalesce(
+        validation_snapshot.get("max_drawdown_pct"),
+        calibration.get("max_drawdown_pct"),
+    )
 
     if not candidate_reasons:
         candidate_reasons = [
@@ -192,11 +246,11 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
         "expected_downside": ev_metrics.get("expected_downside"),
         "size_recommendation": size_recommendation,
         "reliability": reliability,
-        "reliability_reason": reliability_detail.get("reason") or calibration.get("reliability_reason"),
-        "validation_trades": int(validation_snapshot.get("validation_trades") or calibration.get("sample_size") or 0),
-        "validation_sharpe": calibration.get("validation_sharpe"),
-        "train_trade_count": int(validation_snapshot.get("trade_count") or calibration.get("trade_count") or 0),
-        "max_drawdown_pct": validation_snapshot.get("max_drawdown_pct", calibration.get("max_drawdown_pct")),
+        "reliability_reason": reliability_reason,
+        "validation_trades": validation_trades,
+        "validation_sharpe": validation_sharpe,
+        "train_trade_count": train_trade_count,
+        "max_drawdown_pct": max_drawdown_pct,
         "strategy_reliability": reliability,
         "strategy_scorecard": {
             "composite_score": validation_snapshot.get("composite_score"),
@@ -265,39 +319,28 @@ def _fallback_today_picks(date: str | None = None) -> dict:
     if not recommendations.get("recommendations"):
         return {"picks": [], "auto_candidates": []}
 
-    # Phase 5: 최적화 결과 로드 (신뢰도 정보 추가용)
-    optimized_params = None
-    try:
-        from pathlib import Path
-        from config.backtest_universe import LOGS_DIR
-        opt_path = Path(__file__).parent.parent.parent / \
-            "config" / "optimized_params.json"
-        if opt_path.exists():
-            import json
-            optimized_params = json.loads(opt_path.read_text(encoding="utf-8"))
-    except Exception:
-        pass
+    optimized_params = _load_optimized_params_payload() or {}
+    per_symbol = optimized_params.get("per_symbol") if isinstance(optimized_params.get("per_symbol"), dict) else {}
 
     all_candidates = []
     for item in recommendations.get("recommendations", []):
         ticker = (item.get("ticker") or "").split(".")[0]
+        code = str(item.get("code") or ticker).strip().upper()
         market = _infer_recommendation_market(
             str(item.get("ticker") or ""),
             str(item.get("market") or ""),
-            str(item.get("code") or ticker),
+            code,
             str(item.get("name") or ""),
         )
 
-        # Phase 5: 최적화 결과에서 신뢰도 정보 추출
-        code = item.get("code") or ticker
-        opt_result = {}
-        if optimized_params and optimized_params.get("per_symbol", {}).get(code):
-            opt_result = optimized_params["per_symbol"][code]
+        opt_result = per_symbol.get(code) if code else None
+        opt_result = opt_result if isinstance(opt_result, dict) else {}
 
-        trade_count = int(opt_result.get("trade_count", 0))
-        validation_trades = int(opt_result.get("validation_trades", 0))
-        validation_sharpe = float(opt_result.get("validation_sharpe", 0.0))
-        max_drawdown_pct = opt_result.get("max_drawdown_pct")
+        trade_count = int(_coalesce(opt_result.get("trade_count"), 0) or 0)
+        validation_trades = int(_coalesce(opt_result.get("validation_trades"), 0) or 0)
+        validation_sharpe_raw = _coalesce(opt_result.get("validation_sharpe"), item.get("validation_sharpe"), 0.0)
+        validation_sharpe = float(validation_sharpe_raw or 0.0)
+        max_drawdown_pct = _coalesce(opt_result.get("max_drawdown_pct"), item.get("max_drawdown_pct"))
         reliability = assess_validation_reliability(
             trade_count=trade_count if trade_count > 0 else validation_trades,
             validation_signals=validation_trades,
@@ -307,7 +350,7 @@ def _fallback_today_picks(date: str | None = None) -> dict:
 
         candidate = {
             "name": item.get("name"),
-            "code": ticker,
+            "code": code,
             "market": market,
             "sector": item.get("sector"),
             "signal": item.get("signal"),
@@ -326,7 +369,7 @@ def _fallback_today_picks(date: str | None = None) -> dict:
             "gate_reasons": item.get("gate_reasons", []),
             "playbook_alignment": item.get("playbook_alignment"),
             "ai_thesis": item.get("ai_thesis"),
-            # Phase 5 추가 필드
+            "reliability": reliability.label,
             "strategy_reliability": reliability.label,
             "validation_trades": validation_trades,
             "validation_sharpe": validation_sharpe,

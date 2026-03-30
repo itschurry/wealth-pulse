@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from broker.kis_client import KISClient
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from broker.kis_client import KISClient
 
 
 class CacheState:

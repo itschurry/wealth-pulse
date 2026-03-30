@@ -11,11 +11,13 @@ import markdown2
 from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 
-from config.settings import REPORT_OUTPUT_DIR, BASE_DIR
+from config.settings import API_DIR, REPORT_OUTPUT_DIR, BASE_DIR
 from collectors.models import DailyData
 
 
-_TEMPLATE_DIR = BASE_DIR / "templates"
+_TEMPLATE_DIR = API_DIR / "templates"
+if not _TEMPLATE_DIR.exists():
+    _TEMPLATE_DIR = BASE_DIR / "templates"
 _KST = ZoneInfo("Asia/Seoul")
 
 
