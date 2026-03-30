@@ -10,13 +10,14 @@ function nowIso() {
 export function useConsoleLogs(initial: ConsoleLogEntry[] = []) {
   const [entries, setEntries] = useState<ConsoleLogEntry[]>(initial);
 
-  const push = useCallback((level: ConsoleLogLevel, message: string, context?: string) => {
+  const push = useCallback((level: ConsoleLogLevel, message: string, context?: string, source?: string) => {
     const next: ConsoleLogEntry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: nowIso(),
       level,
       message,
       context,
+      source,
     };
     setEntries((prev) => [next, ...prev].slice(0, MAX_LOGS));
   }, []);

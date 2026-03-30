@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { UI_TEXT } from '../constants/uiText';
 import { formatDateTime } from '../utils/format';
-import type { ActionBarAction, ActionBarStatusItem, ConsoleLogEntry } from '../types/consoleView';
+import type { ActionBarAction, ActionBarStatusItem, ConsoleLogEntry, ConsoleLogLevel } from '../types/consoleView';
 
 interface ConsoleActionBarProps {
   title: string;
@@ -16,6 +16,8 @@ interface ConsoleActionBarProps {
   logs: ConsoleLogEntry[];
   onClearLogs: () => void;
   settingsPanel?: ReactNode;
+  settingsDirty?: boolean;
+  settingsSavedAt?: string;
 }
 
 function levelText(level: ConsoleLogEntry['level']): string {
@@ -41,6 +43,7 @@ interface ConsoleConfirmDialogProps {
   open: boolean;
   title: string;
   message: string;
+  details?: string[];
   confirmLabel?: string;
   busy?: boolean;
   tone?: ActionBarAction['tone'];
@@ -48,36 +51,101 @@ interface ConsoleConfirmDialogProps {
   onCancel: () => void;
 }
 
+function sourceLabel(source: string): string {
+  if (source === 'backtest') return '백테스트';
+  if (source === 'optimization') return '최적화';
+  if (source === 'settings') return '설정';
+  if (source === 'paper') return '모의투자';
+  if (source === 'engine') return '엔진';
+  if (source === 'refresh') return '새로고침';
+  if (source === 'all') return '전체';
+  return source || '전체';
+}
+
 export function ConsoleConfirmDialog({
   open,
   title,
   message,
+  details = [],
   confirmLabel = UI_TEXT.confirm.confirmAction,
   busy = false,
   tone = 'danger',
   onConfirm,
   onCancel,
 }: ConsoleConfirmDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open || busy) return;
+    cancelButtonRef.current?.focus();
+  }, [busy, open]);
+
   if (!open) return null;
 
   return (
     <>
       <div className="console-overlay" onClick={busy ? undefined : onCancel} />
       <div className="console-confirm-shell" role="dialog" aria-modal="true" aria-labelledby="console-confirm-title">
-        <div className="console-confirm-card">
+        <div className="console-confirm-card" onKeyDown={(event) => {
+          if (event.key === 'Escape' && !busy) {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        >
           <div id="console-confirm-title" className="console-confirm-title">{title}</div>
           <div className="console-confirm-message">{message}</div>
+          {details.length > 0 && (
+            <ul className="console-confirm-list">
+              {details.map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          )}
           <div className="console-confirm-actions">
-            <button className="ghost-button" onClick={onCancel} disabled={busy}>
+            <button ref={cancelButtonRef} className="ghost-button" onClick={onCancel} disabled={busy}>
               {UI_TEXT.confirm.cancelAction}
             </button>
             <button className={actionClass(tone)} onClick={onConfirm} disabled={busy}>
-              {busy ? '처리 중...' : confirmLabel}
+              {busy ? (
+                <span className="button-content">
+                  <span className="button-spinner" aria-hidden="true" />
+                  처리 중...
+                </span>
+              ) : confirmLabel}
             </button>
           </div>
         </div>
       </div>
     </>
+  );
+}
+
+function renderButtonLabel(label: string, busy?: boolean, busyLabel?: string) {
+  if (!busy) return label;
+  return (
+    <span className="button-content">
+      <span className="button-spinner" aria-hidden="true" />
+      {busyLabel || '처리 중...'}
+    </span>
+  );
+}
+
+function renderLoadFailure(errorMessage: string, onRetry: () => void, onOpenLogs: () => void) {
+  return (
+    <div className="console-error-card" role="alert">
+      <div className="console-error-card-title">{UI_TEXT.errors.partialLoadFailed}</div>
+      <div className="console-error-card-copy">{errorMessage}</div>
+      <ul className="console-error-card-list">
+        <li>네트워크 지연 또는 API 일시 장애가 있었을 수 있습니다.</li>
+        <li>아직 수집되지 않은 데이터라 화면 일부가 비어 있을 수 있습니다.</li>
+        <li>인증 또는 백엔드 런타임 오류로 일부 엔드포인트가 실패했을 수 있습니다.</li>
+      </ul>
+      <div className="console-error-card-actions">
+        <button className="ghost-button" onClick={onRetry}>재시도</button>
+        <button className="ghost-button" onClick={onOpenLogs}>로그 보기</button>
+      </div>
+    </div>
   );
 }
 
@@ -93,19 +161,43 @@ export function ConsoleActionBar({
   logs,
   onClearLogs,
   settingsPanel,
+  settingsDirty = false,
+  settingsSavedAt = '',
 }: ConsoleActionBarProps) {
   const [logOpen, setLogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [levelFilter, setLevelFilter] = useState<'all' | ConsoleLogLevel>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | string>('all');
   const [confirmState, setConfirmState] = useState<{
     title: string;
     message: string;
     confirmLabel?: string;
     tone?: ActionBarAction['tone'];
+    details?: string[];
     onConfirm: () => void;
   } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
-  const recentLogs = useMemo(() => logs.slice(0, 40), [logs]);
   const updateText = formatDateTime(lastUpdated);
+
+  const logSources = useMemo(() => (
+    ['all', ...new Set(logs.map((log) => log.source).filter((source): source is string => Boolean(source)))]
+  ), [logs]);
+
+  const filteredLogs = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase();
+    return logs
+      .filter((log) => levelFilter === 'all' || log.level === levelFilter)
+      .filter((log) => sourceFilter === 'all' || log.source === sourceFilter)
+      .filter((log) => {
+        if (!keyword) return true;
+        return [log.message, log.context || '', log.source || '']
+          .join(' ')
+          .toLowerCase()
+          .includes(keyword);
+      })
+      .slice(0, 80);
+  }, [levelFilter, logs, searchText, sourceFilter]);
 
   function closeConfirm() {
     if (confirmBusy) return;
@@ -118,6 +210,7 @@ export function ConsoleActionBar({
       message: action.confirmMessage || UI_TEXT.confirm.defaultMessage,
       confirmLabel: action.confirmLabel,
       tone: action.tone,
+      details: action.confirmDetails,
       onConfirm: action.onClick,
     });
   }
@@ -144,13 +237,16 @@ export function ConsoleActionBar({
           </div>
           <div className="console-actionbar-buttons">
             <button className="ghost-button" onClick={onRefresh} disabled={loading}>
-              {loading ? '갱신 중' : '새로고침'}
+              {renderButtonLabel(loading ? '갱신 중' : '새로고침', loading, '갱신 중...')}
             </button>
             <button className="ghost-button" onClick={() => setLogOpen(true)}>
               로그 보기
             </button>
             <button className="ghost-button" onClick={() => setSettingsOpen(true)}>
-              설정
+              <span className="button-content">
+                설정
+                {settingsDirty && <span className="inline-badge is-warning">저장 필요</span>}
+              </span>
             </button>
             {actions.map((action) => (
               <button
@@ -165,7 +261,7 @@ export function ConsoleActionBar({
                 }}
                 disabled={Boolean(action.disabled) || Boolean(action.busy)}
               >
-                {action.busy ? (action.busyLabel || '처리 중...') : action.label}
+                {renderButtonLabel(action.label, action.busy, action.busyLabel)}
               </button>
             ))}
           </div>
@@ -180,7 +276,7 @@ export function ConsoleActionBar({
           ))}
         </div>
 
-        {errorMessage && <div className="console-error-line">{errorMessage}</div>}
+        {errorMessage && renderLoadFailure(errorMessage, onRefresh, () => setLogOpen(true))}
       </div>
 
       {(logOpen || settingsOpen) && (
@@ -189,13 +285,17 @@ export function ConsoleActionBar({
 
       <aside className={`console-drawer ${logOpen ? 'open' : ''}`} aria-hidden={!logOpen}>
         <div className="console-drawer-head">
-          <div className="console-drawer-title">실행 로그</div>
+          <div>
+            <div className="console-drawer-title">실행 로그</div>
+            <div className="console-drawer-caption">레벨/작업별로 빠르게 필터링할 수 있습니다.</div>
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               className="ghost-button"
               onClick={() => setConfirmState({
                 title: UI_TEXT.confirm.clearLogsTitle,
                 message: UI_TEXT.confirm.clearLogsMessage,
+                details: ['현재 화면에 쌓인 로그가 모두 제거됩니다.', '삭제 후에는 복구할 수 없습니다.'],
                 tone: 'danger',
                 onConfirm: onClearLogs,
               })}
@@ -205,15 +305,55 @@ export function ConsoleActionBar({
             <button className="ghost-button" onClick={() => setLogOpen(false)}>닫기</button>
           </div>
         </div>
+        <div className="console-drawer-toolbar">
+          <input
+            className="console-search-input"
+            type="search"
+            placeholder="메시지, 상세 문구, 작업명을 검색하세요"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            aria-label="로그 검색"
+          />
+          <div className="filter-chip-row" role="tablist" aria-label="로그 레벨 필터">
+            {(['all', 'info', 'success', 'warning', 'error'] as const).map((level) => (
+              <button
+                key={level}
+                className={`filter-chip ${levelFilter === level ? 'active' : ''}`}
+                onClick={() => setLevelFilter(level)}
+              >
+                {level === 'all' ? '전체' : levelText(level)}
+              </button>
+            ))}
+          </div>
+          <div className="filter-chip-row" role="tablist" aria-label="로그 작업 필터">
+            {logSources.map((source) => (
+              <button
+                key={source}
+                className={`filter-chip ${sourceFilter === source ? 'active' : ''}`}
+                onClick={() => setSourceFilter(source)}
+              >
+                {sourceLabel(source)}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="console-drawer-body">
-          {recentLogs.length === 0 && <div className="console-drawer-empty">{UI_TEXT.empty.noLogs}</div>}
-          {recentLogs.map((log) => (
+          {filteredLogs.length === 0 && (
+            <div className="console-drawer-empty">
+              {logs.length === 0 ? UI_TEXT.empty.noLogs : '선택한 조건과 일치하는 로그가 없습니다.'}
+            </div>
+          )}
+          {filteredLogs.map((log) => (
             <div key={log.id} className={`console-log-item is-${log.level}`}>
               <div className="console-log-head">
                 <span>{levelText(log.level)}</span>
                 <span>{formatDateTime(log.timestamp)}</span>
               </div>
               <div className="console-log-message">{log.message}</div>
+              <div className="console-log-meta">
+                <span>{sourceLabel(log.source || 'all')}</span>
+                {log.context && <span>상세 있음</span>}
+              </div>
               {log.context && <div className="console-log-context">{log.context}</div>}
             </div>
           ))}
@@ -222,7 +362,12 @@ export function ConsoleActionBar({
 
       <aside className={`console-drawer ${settingsOpen ? 'open' : ''}`} aria-hidden={!settingsOpen}>
         <div className="console-drawer-head">
-          <div className="console-drawer-title">설정</div>
+          <div>
+            <div className="console-drawer-title">설정</div>
+            <div className="console-drawer-caption">
+              {settingsDirty ? '저장되지 않은 변경 사항이 있습니다.' : settingsSavedAt ? `마지막 저장 ${formatDateTime(settingsSavedAt)}` : '저장된 설정이 아직 없습니다.'}
+            </div>
+          </div>
           <button className="ghost-button" onClick={() => setSettingsOpen(false)}>닫기</button>
         </div>
         <div className="console-drawer-body">
@@ -234,6 +379,7 @@ export function ConsoleActionBar({
         open={Boolean(confirmState)}
         title={confirmState?.title || UI_TEXT.confirm.defaultTitle}
         message={confirmState?.message || UI_TEXT.confirm.defaultMessage}
+        details={confirmState?.details}
         confirmLabel={confirmState?.confirmLabel}
         tone={confirmState?.tone}
         busy={confirmBusy}

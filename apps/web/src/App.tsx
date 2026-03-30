@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { UI_TEXT } from './constants/uiText';
 import { useConsoleData } from './hooks/useConsoleData';
+import { useValidationSettingsStore } from './hooks/useValidationSettingsStore';
 import { BacktestValidationPage } from './pages/BacktestValidationPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { PaperPortfolioPage } from './pages/PaperPortfolioPage';
@@ -27,6 +28,11 @@ const REPORT_TABS: Array<{ id: ReportTab; label: string; path: string }> = [
   { id: 'action-board', label: UI_TEXT.reportTabs.actionBoard, path: '/reports/action-board' },
   { id: 'watch-decision', label: UI_TEXT.reportTabs.watchDecision, path: '/reports/watch-decision' },
 ];
+
+const SECTION_COPY: Record<TopSection, string> = {
+  console: '운영 상태와 실행 제어를 한 곳에서 확인합니다.',
+  reports: '오늘 판단과 액션 포인트를 빠르게 검토합니다.',
+};
 
 function toRouteState(pathname: string): RouteState {
   const path = pathname.toLowerCase();
@@ -88,6 +94,7 @@ function replacePath(path: string) {
 export default function App() {
   const [route, setRoute] = useState<RouteState>(() => toRouteState(location.pathname));
   const { snapshot, loading, hasError, errorMessage, refresh } = useConsoleData();
+  const validationSettings = useValidationSettingsStore();
 
   useEffect(() => {
     const initial = toRouteState(location.pathname);
@@ -148,18 +155,18 @@ export default function App() {
             <button
               onClick={() => moveToSection('console')}
               className={`tab-button ${route.section === 'console' ? 'active' : ''}`}
+              aria-current={route.section === 'console' ? 'page' : undefined}
             >
               <span className="tab-step">01</span>
               <span className="tab-label">{UI_TEXT.topTabs.console}</span>
-              <span className="tab-help">{UI_TEXT.appName}</span>
             </button>
             <button
               onClick={() => moveToSection('reports')}
               className={`tab-button ${route.section === 'reports' ? 'active' : ''}`}
+              aria-current={route.section === 'reports' ? 'page' : undefined}
             >
               <span className="tab-step">02</span>
               <span className="tab-label">{UI_TEXT.topTabs.reports}</span>
-              <span className="tab-help">{UI_TEXT.appName}</span>
             </button>
           </div>
         </div>
@@ -173,10 +180,15 @@ export default function App() {
                 key={tab.id}
                 onClick={() => moveToConsoleTab(tab.id)}
                 className={`tab-button ${route.consoleTab === tab.id ? 'active' : ''}`}
+                aria-current={route.consoleTab === tab.id ? 'page' : undefined}
               >
                 <span className="tab-step">{String(index + 1).padStart(2, '0')}</span>
-                <span className="tab-label">{tab.label}</span>
-                <span className="tab-help">{UI_TEXT.topTabs.console}</span>
+                <span className="tab-label">
+                  {tab.label}
+                  {tab.id === 'validation' && validationSettings.unsaved && (
+                    <span className="tab-dirty-badge" aria-label="저장 필요">저장 필요</span>
+                  )}
+                </span>
               </button>
             ))}
             {route.section === 'reports' && REPORT_TABS.map((tab, index) => (
@@ -184,13 +196,17 @@ export default function App() {
                 key={tab.id}
                 onClick={() => moveToReportTab(tab.id)}
                 className={`tab-button ${route.reportTab === tab.id ? 'active' : ''}`}
+                aria-current={route.reportTab === tab.id ? 'page' : undefined}
               >
                 <span className="tab-step">{String(index + 1).padStart(2, '0')}</span>
                 <span className="tab-label">{tab.label}</span>
-                <span className="tab-help">{UI_TEXT.topTabs.reports}</span>
               </button>
             ))}
           </div>
+        </div>
+        <div className="tab-shell-caption">
+          <span className="tab-shell-caption-title">{route.section === 'console' ? UI_TEXT.appName : '리포트 워크스페이스'}</span>
+          <span className="tab-shell-caption-copy">{SECTION_COPY[route.section]}</span>
         </div>
       </div>
 

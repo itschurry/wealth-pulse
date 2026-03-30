@@ -3,6 +3,7 @@ import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { UI_TEXT } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { usePaperTrading } from '../hooks/usePaperTrading';
+import { useToast } from '../hooks/useToast';
 import type { ActionBarStatusItem, ConsoleSnapshot, PaperViewModel } from '../types/consoleView';
 import { formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
 
@@ -27,6 +28,7 @@ interface PaperSettings {
 }
 
 const SETTINGS_KEY = 'console_paper_settings_v1';
+const SETTINGS_META_KEY = 'console_paper_settings_meta_v1';
 
 function defaultSettings(): PaperSettings {
   return {
@@ -58,6 +60,18 @@ function readSettings(): PaperSettings {
 
 function saveSettings(settings: PaperSettings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  const savedAt = new Date().toISOString();
+  localStorage.setItem(SETTINGS_META_KEY, JSON.stringify({ savedAt }));
+  return savedAt;
+}
+
+function readSettingsSavedAt(): string {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SETTINGS_META_KEY) || 'null') as { savedAt?: string } | null;
+    return raw?.savedAt || '';
+  } catch {
+    return '';
+  }
 }
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -98,9 +112,13 @@ function engineStateLabel(raw: string | undefined, running: boolean): string {
 }
 
 export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh }: PaperPortfolioPageProps) {
+  const { pushToast } = useToast();
   const { entries, push, clear } = useConsoleLogs();
   const [settings, setSettings] = useState<PaperSettings>(() => readSettings());
-  const [pendingAction, setPendingAction] = useState<'engine-toggle' | 'reset' | null>(null);
+  const [savedSettings, setSavedSettings] = useState<PaperSettings>(() => readSettings());
+  const [settingsSavedAt, setSettingsSavedAt] = useState(() => readSettingsSavedAt());
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'engine-toggle' | 'pause' | 'resume' | 'reset' | null>(null);
   const {
     account,
     engineState,
@@ -142,6 +160,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const todayOrders = orders.filter((order) => isToday(order.ts));
   const todayBuyCount = todayOrders.filter((order) => order.side === 'buy').length;
   const todaySellCount = todayOrders.filter((order) => order.side === 'sell').length;
+  const settingsDirty = useMemo(() => JSON.stringify(settings) !== JSON.stringify(savedSettings), [savedSettings, settings]);
 
   const statusItems = useMemo<ActionBarStatusItem[]>(() => ([
     {
@@ -169,25 +188,46 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const handleRefreshAll = useCallback(async () => {
     onRefresh();
     await Promise.all([refresh(true), refreshEngineStatus(), refreshRuntimeLogs()]);
-    push('info', '모의투자 데이터와 콘솔 스냅샷을 새로고침했습니다.');
-  }, [onRefresh, push, refresh, refreshEngineStatus, refreshRuntimeLogs]);
+    push('info', '모의투자 데이터와 콘솔 스냅샷을 새로고침했습니다.', undefined, 'paper');
+    pushToast({
+      tone: 'info',
+      title: '모의투자 화면을 새로고침했습니다.',
+      description: '계좌, 엔진 상태, 런타임 로그를 다시 불러왔습니다.',
+    });
+  }, [onRefresh, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs]);
 
   const handleStartStop = useCallback(async () => {
+    if (pendingAction) return;
     setPendingAction('engine-toggle');
     try {
       if (engineState.running || engineState.engine_state === 'paused') {
         const result = await stopEngine();
         if (!result.ok) {
-          push('error', '모의투자 엔진 중지에 실패했습니다.', result.error || '');
+          push('error', '모의투자 엔진 중지에 실패했습니다.', result.error || '', 'paper');
+          pushToast({
+            tone: 'error',
+            title: '엔진 중지 실패',
+            description: result.error || '엔진 상태와 서버 로그를 확인해 주세요.',
+          });
           return;
         }
-        push('success', '모의투자 엔진을 중지했습니다.');
+        push('success', '모의투자 엔진을 중지했습니다.', undefined, 'paper');
+        pushToast({
+          tone: 'success',
+          title: '엔진 중지 완료',
+          description: '신규 평가와 자동 실행이 멈췄습니다.',
+        });
       } else {
         const markets: Array<'KOSPI' | 'NASDAQ'> = [];
         if (settings.runKospi) markets.push('KOSPI');
         if (settings.runNasdaq) markets.push('NASDAQ');
         if (markets.length === 0) {
-          push('warning', '시장 선택이 필요합니다.', '설정에서 KOSPI 또는 NASDAQ을 최소 1개 선택하세요.');
+          push('warning', '시장 선택이 필요합니다.', '설정에서 KOSPI 또는 NASDAQ을 최소 1개 선택하세요.', 'paper');
+          pushToast({
+            tone: 'warning',
+            title: '시장 선택 필요',
+            description: 'KOSPI 또는 NASDAQ을 최소 1개 선택해야 엔진을 시작할 수 있습니다.',
+          });
           return;
         }
         const result = await startEngine({
@@ -199,10 +239,20 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           max_orders_per_symbol_per_day: settings.maxOrdersPerSymbol,
         });
         if (!result.ok) {
-          push('error', '모의투자 엔진 시작에 실패했습니다.', result.error || '');
+          push('error', '모의투자 엔진 시작에 실패했습니다.', result.error || '', 'paper');
+          pushToast({
+            tone: 'error',
+            title: '엔진 시작 실패',
+            description: result.error || '설정값과 백엔드 상태를 확인해 주세요.',
+          });
           return;
         }
-        push('success', '모의투자 엔진을 시작했습니다.', `시장: ${markets.join(', ')}`);
+        push('success', '모의투자 엔진을 시작했습니다.', `시장: ${markets.join(', ')}`, 'paper');
+        pushToast({
+          tone: 'success',
+          title: '엔진 시작 완료',
+          description: `시장 ${markets.join(', ')} 기준으로 자동 실행을 시작했습니다.`,
+        });
       }
       await Promise.all([refresh(true), refreshEngineStatus(), refreshRuntimeLogs()]);
     } finally {
@@ -227,26 +277,59 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   ]);
 
   const handlePause = useCallback(async () => {
+    if (pendingAction) return;
+    setPendingAction('pause');
     const result = await pauseEngine();
-    if (!result.ok) {
-      push('error', '모의투자 엔진 일시정지에 실패했습니다.', result.error || '');
-      return;
+    try {
+      if (!result.ok) {
+        push('error', '모의투자 엔진 일시정지에 실패했습니다.', result.error || '', 'paper');
+        pushToast({
+          tone: 'error',
+          title: '엔진 일시정지 실패',
+          description: result.error || '현재 엔진 상태를 다시 확인해 주세요.',
+        });
+        return;
+      }
+      await Promise.all([refreshEngineStatus(), refreshRuntimeLogs()]);
+      push('success', '모의투자 엔진을 일시정지했습니다.', undefined, 'paper');
+      pushToast({
+        tone: 'success',
+        title: '엔진 일시정지',
+        description: '현재 포지션은 유지되고 신규 자동 실행만 멈춥니다.',
+      });
+    } finally {
+      setPendingAction(null);
     }
-    await Promise.all([refreshEngineStatus(), refreshRuntimeLogs()]);
-    push('success', '모의투자 엔진을 일시정지했습니다.');
-  }, [pauseEngine, push, refreshEngineStatus, refreshRuntimeLogs]);
+  }, [pauseEngine, pendingAction, push, pushToast, refreshEngineStatus, refreshRuntimeLogs]);
 
   const handleResume = useCallback(async () => {
+    if (pendingAction) return;
+    setPendingAction('resume');
     const result = await resumeEngine();
-    if (!result.ok) {
-      push('error', '모의투자 엔진 재개에 실패했습니다.', result.error || '');
-      return;
+    try {
+      if (!result.ok) {
+        push('error', '모의투자 엔진 재개에 실패했습니다.', result.error || '', 'paper');
+        pushToast({
+          tone: 'error',
+          title: '엔진 재개 실패',
+          description: result.error || '엔진 상태와 시장 선택을 다시 확인해 주세요.',
+        });
+        return;
+      }
+      await Promise.all([refreshEngineStatus(), refreshRuntimeLogs()]);
+      push('success', '모의투자 엔진을 재개했습니다.', undefined, 'paper');
+      pushToast({
+        tone: 'success',
+        title: '엔진 재개 완료',
+        description: '자동 실행 루프를 다시 시작했습니다.',
+      });
+    } finally {
+      setPendingAction(null);
     }
-    await Promise.all([refreshEngineStatus(), refreshRuntimeLogs()]);
-    push('success', '모의투자 엔진을 재개했습니다.');
-  }, [push, refreshEngineStatus, refreshRuntimeLogs, resumeEngine]);
+  }, [pendingAction, push, pushToast, refreshEngineStatus, refreshRuntimeLogs, resumeEngine]);
 
   const handleReset = useCallback(async () => {
+    if (pendingAction) return;
     setPendingAction('reset');
     try {
       const result = await reset({
@@ -255,19 +338,30 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         paper_days: settings.paperDays,
       });
       if (!result.ok) {
-        push('error', '모의투자 초기화에 실패했습니다.', result.error || '');
+        push('error', '모의투자 초기화에 실패했습니다.', result.error || '', 'paper');
+        pushToast({
+          tone: 'error',
+          title: '모의투자 초기화 실패',
+          description: result.error || '초기 자금과 엔진 상태를 다시 확인해 주세요.',
+        });
         return;
       }
       push(
         'success',
         '모의투자 계좌를 초기화했습니다.',
         `초기자금 KRW ${formatKRW(settings.initialCashKrw, true)} / USD ${formatUSD(settings.initialCashUsd, true)}`,
+        'paper',
       );
+      pushToast({
+        tone: 'success',
+        title: '모의투자 초기화 완료',
+        description: '계좌, 포지션, 로그 기준점이 새로 초기화되었습니다.',
+      });
       await Promise.all([refresh(true), refreshEngineStatus(), refreshRuntimeLogs()]);
     } finally {
       setPendingAction(null);
     }
-  }, [push, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, settings.initialCashKrw, settings.initialCashUsd, settings.paperDays]);
+  }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, settings.initialCashKrw, settings.initialCashUsd, settings.paperDays]);
 
   useEffect(() => {
     if (!(engineState.running || engineState.engine_state === 'paused')) return;
@@ -317,53 +411,74 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         <label><input type="checkbox" checked={settings.runNasdaq} onChange={(event) => setSettings((prev) => ({ ...prev, runNasdaq: event.target.checked }))} /> NASDAQ</label>
       </div>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최대 포지션 수</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최대 포지션 수(건)</span>
         <input
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
           type="number"
+          min={1}
           value={settings.maxPositions}
           onChange={(event) => setSettings((prev) => ({ ...prev, maxPositions: Math.max(1, Number(event.target.value) || 1) }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매수 제한</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매수 제한(건)</span>
         <input
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
           type="number"
+          min={1}
           value={settings.dailyBuyLimit}
           onChange={(event) => setSettings((prev) => ({ ...prev, dailyBuyLimit: Math.max(1, Number(event.target.value) || 1) }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매도 제한</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매도 제한(건)</span>
         <input
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
           type="number"
+          min={1}
           value={settings.dailySellLimit}
           onChange={(event) => setSettings((prev) => ({ ...prev, dailySellLimit: Math.max(1, Number(event.target.value) || 1) }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>종목당 일일 주문 제한</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>종목당 일일 주문 제한(건)</span>
         <input
           className="backtest-input-wrap"
           style={{ padding: '0 12px' }}
           type="number"
+          min={1}
           value={settings.maxOrdersPerSymbol}
           onChange={(event) => setSettings((prev) => ({ ...prev, maxOrdersPerSymbol: Math.max(1, Number(event.target.value) || 1) }))}
         />
       </label>
       <button
         className="console-action-button is-primary"
-        onClick={() => {
-          saveSettings(settings);
-          push('success', '모의투자 설정을 저장했습니다.');
+        disabled={settingsSaving}
+        onClick={async () => {
+          if (settingsSaving) return;
+          setSettingsSaving(true);
+          await new Promise((resolve) => window.setTimeout(resolve, 120));
+          const savedAt = saveSettings(settings);
+          setSavedSettings(settings);
+          setSettingsSavedAt(savedAt);
+          push('success', '모의투자 설정을 저장했습니다.', undefined, 'paper');
+          pushToast({
+            tone: 'success',
+            title: '모의투자 설정 저장 완료',
+            description: '저장 필요 배지가 사라지고 최신 설정이 기준값으로 반영되었습니다.',
+          });
+          setSettingsSaving(false);
         }}
       >
-        설정 저장
+        {settingsSaving ? (
+          <span className="button-content">
+            <span className="button-spinner" aria-hidden="true" />
+            저장 중...
+          </span>
+        ) : '설정 저장'}
       </button>
     </div>
   );
@@ -386,6 +501,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             onRefresh={handleRefreshAll}
             logs={entries}
             onClearLogs={clear}
+            settingsDirty={settingsDirty}
+            settingsSavedAt={settingsSavedAt}
             actions={[
               {
                 label: '엔진 시작',
@@ -402,12 +519,16 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 onClick: () => { void handlePause(); },
                 tone: 'default',
                 disabled: !engineState.running,
+                busy: pendingAction === 'pause',
+                busyLabel: '일시정지 중...',
               },
               {
                 label: '재개',
                 onClick: () => { void handleResume(); },
                 tone: 'default',
                 disabled: engineState.running || engineState.engine_state !== 'paused',
+                busy: pendingAction === 'resume',
+                busyLabel: '재개 중...',
               },
               {
                 label: '엔진 중지',
@@ -432,6 +553,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 busyLabel: '초기화 중...',
                 confirmTitle: UI_TEXT.confirm.resetPaperTitle,
                 confirmMessage: UI_TEXT.confirm.resetPaperMessage,
+                confirmDetails: ['계좌, 포지션, 주문/사이클 기준 데이터가 새 초기 자금으로 다시 설정됩니다.', '이 작업은 되돌릴 수 없습니다.'],
               },
             ]}
             settingsPanel={settingsPanel}

@@ -162,16 +162,24 @@ export function useBacktest(initialQuery: BacktestQuery = DEFAULT_BACKTEST_QUERY
   const [query, setQuery] = useState<BacktestQuery>(initialQuery);
   const [data, setData] = useState<BacktestData>({});
   const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
+  const [lastError, setLastError] = useState('');
 
   const run = useCallback(async (nextQuery: BacktestQuery) => {
     setStatus('loading');
+    setLastError('');
     try {
       const payload = await getJSON<BacktestData>(`/api/backtest/run?${buildQueryString(nextQuery)}`, { noStore: true });
       setData(payload);
       setQuery(nextQuery);
-      setStatus(payload.error ? 'error' : 'ok');
+      const ok = !payload.error;
+      setStatus(ok ? 'ok' : 'error');
+      setLastError(payload.error || '');
+      return { ok, payload, error: payload.error || '' };
     } catch {
       setStatus('error');
+      const error = '백테스트 응답을 불러오지 못했습니다.';
+      setLastError(error);
+      return { ok: false, payload: null, error };
     }
   }, []);
 
@@ -179,5 +187,5 @@ export function useBacktest(initialQuery: BacktestQuery = DEFAULT_BACKTEST_QUERY
     run(initialQuery);
   }, [initialQuery, run]);
 
-  return { data, query, status, run, setQuery };
+  return { data, query, status, lastError, run, setQuery };
 }

@@ -1,5 +1,5 @@
 export const UI_TEXT = {
-  appName: '자동투자 운영 콘솔',
+  appName: '투자도우미',
   topTabs: {
     console: '콘솔',
     reports: '리포트',
@@ -11,9 +11,9 @@ export const UI_TEXT = {
     validation: '백테스트/검증',
   },
   reportTabs: {
-    todayReport: '오늘 리포트',
+    todayReport: '오늘',
     actionBoard: '액션보드',
-    watchDecision: '관망/관심목표 판단',
+    watchDecision: '관망/관심목표',
   },
   common: {
     refresh: '새로고침',

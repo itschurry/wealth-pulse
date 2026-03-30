@@ -68,6 +68,7 @@ export interface ConsoleLogEntry {
   level: ConsoleLogLevel;
   message: string;
   context?: string;
+  source?: string;
 }
 
 export interface ActionBarStatusItem {
@@ -86,6 +87,7 @@ export interface ActionBarAction {
   confirmTitle?: string;
   confirmMessage?: string;
   confirmLabel?: string;
+  confirmDetails?: string[];
 }
 
 export interface PaperViewModel {
