@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,6 +77,7 @@ class KISClient:
         self.timeout = timeout
         self._access_token = ""
         self._token_expires_at = 0.0
+        self._token_lock = threading.RLock()
 
     @classmethod
     def from_env(cls, timeout: float = 10.0) -> "KISClient":
@@ -111,6 +113,7 @@ class KISClient:
         headers: dict[str, str] | None = None,
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
+        _retry_with_fresh_token: bool = True,
     ) -> tuple[dict[str, Any], requests.Response]:
         response = requests.request(
             method=method,
@@ -124,15 +127,47 @@ class KISClient:
             response.raise_for_status()
         except HTTPError as exc:
             message = response.text.strip() or str(exc)
+            if (
+                _retry_with_fresh_token
+                and self._can_retry_with_fresh_token(path, headers)
+                and self._is_expired_token_error(message)
+            ):
+                retry_headers = self._build_retry_headers(headers)
+                return self._request_full(
+                    method,
+                    path,
+                    headers=retry_headers,
+                    params=params,
+                    json_body=json_body,
+                    _retry_with_fresh_token=False,
+                )
             raise KISAPIError(message) from exc
         payload = response.json()
 
         rt_cd = str(payload.get("rt_cd") or "")
         if rt_cd and rt_cd != "0":
+            if (
+                _retry_with_fresh_token
+                and self._can_retry_with_fresh_token(path, headers)
+                and self._is_expired_token_error(payload)
+            ):
+                retry_headers = self._build_retry_headers(headers)
+                return self._request_full(
+                    method,
+                    path,
+                    headers=retry_headers,
+                    params=params,
+                    json_body=json_body,
+                    _retry_with_fresh_token=False,
+                )
             raise KISAPIError(payload.get("msg1") or f"KIS API 오류: {rt_cd}")
         return payload, response
 
     def issue_access_token(self, force_refresh: bool = False) -> str:
+        with self._token_lock:
+            return self._issue_access_token_locked(force_refresh=force_refresh)
+
+    def _issue_access_token_locked(self, force_refresh: bool = False) -> str:
         self._load_cached_token()
         if (
             self._access_token
@@ -161,6 +196,51 @@ class KISClient:
         self._token_expires_at = time.time() + max(expires_in - 60, 60)
         self._save_cached_token()
         return access_token
+
+    def _can_retry_with_fresh_token(
+        self,
+        path: str,
+        headers: dict[str, str] | None,
+    ) -> bool:
+        return path != "/oauth2/tokenP" and bool(headers and headers.get("authorization"))
+
+    def _build_retry_headers(
+        self,
+        headers: dict[str, str] | None,
+    ) -> dict[str, str]:
+        retry_headers = dict(headers or {})
+        stale_token = self._extract_bearer_token(retry_headers.get("authorization") or "")
+        fresh_token = self._recover_access_token(stale_token)
+        retry_headers["authorization"] = f"Bearer {fresh_token}"
+        return retry_headers
+
+    def _recover_access_token(self, stale_token: str) -> str:
+        with self._token_lock:
+            self._load_cached_token()
+            if (
+                self._access_token
+                and self._access_token != stale_token
+                and time.time() < self._token_expires_at
+            ):
+                return self._access_token
+            return self._issue_access_token_locked(force_refresh=True)
+
+    @staticmethod
+    def _extract_bearer_token(value: str) -> str:
+        prefix = "Bearer "
+        return value[len(prefix):] if value.startswith(prefix) else value
+
+    @staticmethod
+    def _is_expired_token_error(payload: dict[str, Any] | str) -> bool:
+        if isinstance(payload, dict):
+            message = " ".join(
+                str(payload.get(key) or "")
+                for key in ("msg_cd", "msg1", "error_code", "error_description")
+            )
+        else:
+            message = str(payload or "")
+        normalized = message.lower()
+        return "egw00123" in normalized or "기간이 만료된 token" in message
 
     def _auth_headers(self, tr_id: str) -> dict[str, str]:
         return {

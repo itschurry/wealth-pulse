@@ -60,7 +60,7 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
         code: rows for code, rows in histories.items() if len(rows) >= 80
     }
     if not available_histories:
-        raise RuntimeError("백테스트에 사용할 KOSPI100/S&P100 히스토리를 불러오지 못했습니다.")
+        raise RuntimeError(_history_load_failure_message(cfg.markets))
 
     all_dates = sorted(
         {
@@ -416,6 +416,25 @@ def _load_histories(
                 continue
             histories[code] = rows
     return histories
+
+
+def _history_load_failure_message(markets: tuple[str, ...]) -> str:
+    universe_label = _universe_label(markets)
+    base_message = f"백테스트에 사용할 {universe_label} 히스토리를 불러오지 못했습니다."
+    if not KISClient.is_configured():
+        return (
+            f"{base_message} KIS_APP_KEY와 KIS_APP_SECRET이 설정되지 않았습니다. "
+            "apps/api/.env를 확인하세요."
+        )
+    if _kis_unavailable:
+        return (
+            f"{base_message} KIS 연결을 초기화하지 못했습니다. "
+            "잠시 후 다시 시도하거나 KIS 연결 상태를 확인하세요."
+        )
+    return (
+        f"{base_message} KIS 토큰 또는 시세 API 응답 문제일 수 있습니다. "
+        "잠시 후 다시 시도하고, 반복되면 KIS 연결 테스트를 확인하세요."
+    )
 
 
 def _get_kis_client() -> KISClient | None:
