@@ -405,6 +405,11 @@ export interface BacktestData {
   generated_at?: string;
   universe?: string;
   strategy?: string;
+  scorecard?: {
+    composite_score?: number;
+    components?: Record<string, number>;
+    tail_risk?: Record<string, number>;
+  };
   config?: {
     initial_cash?: number;
     base_currency?: 'KRW' | 'USD';

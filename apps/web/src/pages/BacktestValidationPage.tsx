@@ -12,6 +12,15 @@ import {
 import { useToast } from '../hooks/useToast';
 import type { BacktestQuery, BacktestTrade } from '../types';
 import type { ActionBarStatusItem, BacktestViewModel, ConsoleSnapshot } from '../types/consoleView';
+import {
+  buildScoreComponentRows,
+  buildTailRiskRows,
+  describeScoreDecision,
+  extractStrategyScorecard,
+  strongestComponents,
+  tailRiskHeadline,
+  weakestComponents,
+} from '../utils/strategyScorecard';
 import { formatCount, formatDateTime, formatNumber, formatPercent } from '../utils/format';
 
 interface BacktestValidationPageProps {
@@ -272,6 +281,23 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   const validationPolicy = snapshot.engine.execution?.state?.validation_policy;
   const optimizedState = snapshot.engine.execution?.state?.optimized_params;
   const minTradesPolicy = Math.max(1, Number(validationPolicy?.validation_min_trades || 1));
+
+  const walkForwardScorecard = useMemo(
+    () => extractStrategyScorecard(snapshot.validation.scorecard || segmentOos?.strategy_scorecard),
+    [segmentOos, snapshot.validation.scorecard],
+  );
+  const latestBacktestScorecard = useMemo(
+    () => extractStrategyScorecard(data.scorecard),
+    [data.scorecard],
+  );
+  const primaryScorecard = walkForwardScorecard || latestBacktestScorecard;
+  const primaryScoreSource = walkForwardScorecard ? 'Walk-forward OOS' : latestBacktestScorecard ? '최근 백테스트' : '데이터 없음';
+  const scoreDecision = useMemo(() => describeScoreDecision(primaryScorecard), [primaryScorecard]);
+  const scoreComponentRows = useMemo(() => buildScoreComponentRows(primaryScorecard), [primaryScorecard]);
+  const tailRows = useMemo(() => buildTailRiskRows(primaryScorecard), [primaryScorecard]);
+  const bestComponents = useMemo(() => strongestComponents(primaryScorecard), [primaryScorecard]);
+  const weakComponents = useMemo(() => weakestComponents(primaryScorecard), [primaryScorecard]);
+  const tailHeadline = useMemo(() => tailRiskHeadline(primaryScorecard), [primaryScorecard]);
 
   const statusItems = useMemo<ActionBarStatusItem[]>(() => ([
     {
@@ -754,6 +780,85 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     detail={`min trades ${formatNumber(validationPolicy?.validation_min_trades, 0)} · optimized ${String(optimizedState?.version || '-')}`}
                   />
                 </div>
+              </div>
+
+              <div className="page-section" style={{ padding: 16 }}>
+                <div className="section-head-row">
+                  <div>
+                    <div className="section-title">전략 점수카드</div>
+                    <div className="section-copy">점수 하나로 끝내지 않고, 왜 채택/보류해야 하는지와 손실 꼬리를 같이 봅니다.</div>
+                  </div>
+                  <div className={`inline-badge ${scoreDecision.tone === 'good' ? 'is-success' : scoreDecision.tone === 'bad' ? 'is-danger' : 'is-warning'}`}>
+                    {primaryScoreSource}
+                  </div>
+                </div>
+
+                {primaryScorecard ? (
+                  <>
+                    <div className="summary-metric-grid" style={{ marginTop: 12 }}>
+                      <SummaryMetricCard
+                        label="복합 점수"
+                        value={primaryScorecard.compositeScore === null ? '-' : `${formatNumber(primaryScorecard.compositeScore, 1)}점`}
+                        detail={`${scoreDecision.label} · ${scoreDecision.detail}`}
+                        tone={scoreDecision.tone}
+                      />
+                      <SummaryMetricCard
+                        label="점수 끌어올린 항목"
+                        value={bestComponents.map((item) => item.label).join(' · ') || '-'}
+                        detail={bestComponents.length > 0 ? bestComponents.map((item) => `${item.label} ${formatNumber(item.value, 1)}점`).join(' / ') : '상승 기여 항목이 아직 없습니다.'}
+                        tone="good"
+                      />
+                      <SummaryMetricCard
+                        label="먼저 눌러야 할 리스크"
+                        value={tailHeadline.label}
+                        detail={weakComponents.length > 0 ? `${weakComponents.map((item) => item.label).join(' · ')} · ${tailHeadline.detail}` : tailHeadline.detail}
+                        tone={tailHeadline.tone}
+                      />
+                    </div>
+
+                    <div className="scorecard-detail-grid" style={{ marginTop: 12 }}>
+                      <div className="scorecard-panel">
+                        <div className="section-subtitle">점수 구성</div>
+                        <div className="scorecard-component-list">
+                          {scoreComponentRows.map((row) => (
+                            <div key={row.key} className={`scorecard-component-row is-${row.tone}`}>
+                              <div>
+                                <div className="scorecard-component-label">{row.label}</div>
+                                <div className="scorecard-component-copy">총점에 주는 기여도</div>
+                              </div>
+                              <div className="scorecard-component-value">{row.value >= 0 ? '+' : ''}{formatNumber(row.value, 1)}점</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="scorecard-panel">
+                        <div className="section-subtitle">테일 리스크 가드레일</div>
+                        <div className="scorecard-tail-grid">
+                          {tailRows.map((row) => (
+                            <div key={row.key} className={`scorecard-tail-card is-${row.tone}`}>
+                              <div className="scorecard-tail-label">{row.label}</div>
+                              <div className="scorecard-tail-value">{row.key === 'loss_rate_pct' ? formatPercent(row.value, 1) : formatPercent(row.value, 1)}</div>
+                              <div className="scorecard-tail-copy">
+                                {row.key === 'loss_rate_pct'
+                                  ? '손실 거래 비중'
+                                  : row.key === 'expected_shortfall_5_pct'
+                                    ? '하위 5% 평균 손실'
+                                    : row.key === 'return_p05_pct'
+                                      ? '하위 5% 경계값'
+                                      : '관측 최악 손실'}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="empty-inline" style={{ marginTop: 12 }}>
+                    점수카드 데이터가 아직 없습니다. 백테스트를 다시 실행하거나 최적화 결과를 생성하면 이 영역에 채택 판단 근거가 표시됩니다.
+                  </div>
+                )}
               </div>
 
               <div className="validation-report-grid">

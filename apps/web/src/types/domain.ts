@@ -7,6 +7,12 @@ export interface EVMetrics {
   reliability?: string;
 }
 
+export interface StrategyScorecardPayload {
+  composite_score?: number;
+  components?: Record<string, number>;
+  tail_risk?: Record<string, number>;
+}
+
 export interface SizeRecommendation {
   quantity?: number;
   reason?: string;
@@ -19,10 +25,23 @@ export interface DomainSignal {
   market?: string;
   sector?: string;
   strategy_type?: string;
+  score?: number;
   entry_allowed?: boolean;
   reason_codes?: string[];
   ev_metrics?: EVMetrics;
   size_recommendation?: SizeRecommendation;
+  strategy_scorecard?: StrategyScorecardPayload;
+  validation_snapshot?: {
+    composite_score?: number;
+    score_components?: Record<string, number>;
+    tail_risk?: Record<string, number>;
+    strategy_scorecard?: StrategyScorecardPayload;
+    validation_trades?: number;
+    trade_count?: number;
+    validation_sharpe?: number;
+    max_drawdown_pct?: number | null;
+    strategy_reliability?: string;
+  };
   execution_realism?: {
     slippage_model_version?: string;
     liquidity_gate_status?: string;
@@ -128,15 +147,17 @@ export interface PortfolioStateResponse {
 export interface ValidationResponse {
   ok?: boolean;
   metrics?: Record<string, number | string | Record<string, unknown>>;
+  scorecard?: StrategyScorecardPayload;
   segments?: {
-    train?: Record<string, number>;
-    validation?: Record<string, number>;
-    oos?: Record<string, number>;
+    train?: Record<string, number | string | Record<string, unknown>>;
+    validation?: Record<string, number | string | Record<string, unknown>>;
+    oos?: Record<string, number | string | Record<string, unknown>>;
   };
   summary?: {
     windows?: number;
     positive_windows?: number;
     oos_reliability?: string;
+    composite_score?: number;
   };
 }
 

@@ -6,7 +6,17 @@ import {
 } from '../adapters/consoleViewAdapter';
 import type { ReactNode } from 'react';
 import { UI_TEXT } from '../constants/uiText';
-import { formatCount, formatDateTime } from '../utils/format';
+import type { DomainSignal } from '../types/domain';
+import { formatCount, formatDateTime, formatNumber, formatPercent, formatSymbol } from '../utils/format';
+import {
+  buildScoreComponentRows,
+  buildTailRiskRows,
+  describeScoreDecision,
+  extractStrategyScorecard,
+  strongestComponents,
+  tailRiskHeadline,
+  weakestComponents,
+} from '../utils/strategyScorecard';
 import type { ConsoleSnapshot } from '../types/consoleView';
 import type { ReportTab } from '../types/navigation';
 
@@ -95,6 +105,44 @@ function tabDescription(tab: ReportTab): string {
   return '오늘 시장 판단과 운영 포인트를 빠르게 읽는 브리핑 화면입니다.';
 }
 
+interface ScorecardSignalCandidate {
+  signal: DomainSignal;
+  symbol: string;
+  compositeScore: number;
+  decision: ReturnType<typeof describeScoreDecision>;
+  tail: ReturnType<typeof tailRiskHeadline>;
+  best: string[];
+  risks: string[];
+}
+
+function buildScorecardCandidates(snapshot: ConsoleSnapshot): ScorecardSignalCandidate[] {
+  return (snapshot.signals.signals || [])
+    .map((signal) => {
+      const scorecard = extractStrategyScorecard(
+        signal.strategy_scorecard
+        || signal.validation_snapshot?.strategy_scorecard
+        || signal.validation_snapshot,
+      );
+      if (!scorecard || scorecard.compositeScore === null) return null;
+      return {
+        signal,
+        symbol: formatSymbol(signal.code, signal.name),
+        compositeScore: scorecard.compositeScore,
+        decision: describeScoreDecision(scorecard),
+        tail: tailRiskHeadline(scorecard),
+        best: strongestComponents(scorecard).map((item) => item.label),
+        risks: weakestComponents(scorecard).map((item) => item.label),
+      } satisfies ScorecardSignalCandidate;
+    })
+    .filter((item): item is ScorecardSignalCandidate => Boolean(item))
+    .sort((left, right) => {
+      if (Boolean(right.signal.entry_allowed) !== Boolean(left.signal.entry_allowed)) {
+        return Number(Boolean(right.signal.entry_allowed)) - Number(Boolean(left.signal.entry_allowed));
+      }
+      return right.compositeScore - left.compositeScore;
+    });
+}
+
 function renderTodayReport(snapshot: ConsoleSnapshot) {
   const view = buildTodayReportView(snapshot);
   const signals = snapshot.signals.signals || [];
@@ -114,6 +162,21 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
   const evidenceLines = [...view.summaryLines, ...view.judgmentLines]
     .filter((line, index, arr) => line && arr.indexOf(line) === index)
     .slice(0, 6);
+  const scorecardCandidates = buildScorecardCandidates(snapshot);
+  const approvedScorecards = scorecardCandidates.filter((item) => item.signal.entry_allowed);
+  const averageCompositeScore = approvedScorecards.length > 0
+    ? approvedScorecards.reduce((sum, item) => sum + item.compositeScore, 0) / approvedScorecards.length
+    : null;
+  const topScorecard = approvedScorecards[0] || scorecardCandidates[0];
+  const tailRiskWarningCount = approvedScorecards.filter((item) => item.tail.tone === 'bad').length;
+  const worstTailCandidate = [...approvedScorecards]
+    .sort((left, right) => {
+      const leftTail = extractStrategyScorecard(left.signal.strategy_scorecard || left.signal.validation_snapshot?.strategy_scorecard || left.signal.validation_snapshot);
+      const rightTail = extractStrategyScorecard(right.signal.strategy_scorecard || right.signal.validation_snapshot?.strategy_scorecard || right.signal.validation_snapshot);
+      const leftEs = buildTailRiskRows(leftTail).find((row) => row.key === 'expected_shortfall_5_pct')?.value ?? 0;
+      const rightEs = buildTailRiskRows(rightTail).find((row) => row.key === 'expected_shortfall_5_pct')?.value ?? 0;
+      return leftEs - rightEs;
+    })[0];
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -132,6 +195,93 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
           <div className="report-decision-chip">허용 {formatCount(allowedCount, '건')} / 차단 {formatCount(blockedCount, '건')}</div>
         </div>
       </div>
+
+      {scorecardCandidates.length > 0 && (
+        <>
+          <div className="report-grid-3">
+            <div className={`page-section report-visual-card ${topScorecard?.decision.tone === 'good' ? 'is-good' : topScorecard?.decision.tone === 'bad' ? 'is-bad' : ''}`}>
+              <div className="report-card-title">허용 후보 평균 점수</div>
+              <div className="report-card-value">{averageCompositeScore === null ? '-' : `${formatNumber(averageCompositeScore, 1)}점`}</div>
+              <div className="report-card-copy">점수카드가 있는 허용 후보 {formatCount(approvedScorecards.length, '건')} 기준</div>
+            </div>
+            <div className={`page-section report-visual-card ${topScorecard?.tail.tone === 'good' ? 'is-good' : topScorecard?.tail.tone === 'bad' ? 'is-bad' : ''}`}>
+              <div className="report-card-title">오늘 1순위 전략 상태</div>
+              <div className="report-card-value">{topScorecard?.decision.label || '-'}</div>
+              <div className="report-card-copy">{topScorecard ? `${topScorecard.symbol} · ${formatNumber(topScorecard.compositeScore, 1)}점` : '점수카드 후보 없음'}</div>
+            </div>
+            <div className={`page-section report-visual-card ${tailRiskWarningCount > 0 ? 'is-bad' : 'is-good'}`}>
+              <div className="report-card-title">테일리스크 경고</div>
+              <div className="report-card-value">{formatCount(tailRiskWarningCount, '건')}</div>
+              <div className="report-card-copy">{worstTailCandidate ? `${worstTailCandidate.symbol}가 가장 깊은 꼬리손실 구간입니다.` : '허용 후보 기준 뚜렷한 꼬리손실 경고가 없습니다.'}</div>
+            </div>
+          </div>
+
+          <div className="page-section" style={{ padding: 16 }}>
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">오늘 전략 점수판</div>
+                <div className="section-copy">EV만 보지 않고 점수 구성과 꼬리손실까지 함께 확인하는 운영용 카드입니다.</div>
+              </div>
+              <div className="inline-badge">상위 {formatCount(Math.min(scorecardCandidates.length, 3), '건')}</div>
+            </div>
+            <div className="operator-note-grid" style={{ marginTop: 12 }}>
+              {scorecardCandidates.slice(0, 3).map((item) => {
+                const scorecard = extractStrategyScorecard(item.signal.strategy_scorecard || item.signal.validation_snapshot?.strategy_scorecard || item.signal.validation_snapshot);
+                const componentRows = buildScoreComponentRows(scorecard).slice(0, 3);
+                const tailRows = buildTailRiskRows(scorecard).slice(0, 2);
+                return (
+                  <div
+                    key={`${item.signal.market || ''}:${item.signal.code || item.symbol}`}
+                    className={`operator-note-card scorecard-candidate-card ${item.decision.tone === 'good' ? 'is-good' : item.decision.tone === 'bad' ? 'is-bad' : ''}`}
+                  >
+                    <div className="scorecard-candidate-head">
+                      <div>
+                        <div className="operator-note-label">{item.symbol}</div>
+                        <div className="operator-note-copy">{item.signal.strategy_type || 'strategy'} · {item.signal.entry_allowed ? '진입 가능' : '차단'}</div>
+                      </div>
+                      <div className={`report-decision-chip ${item.signal.entry_allowed ? 'is-good' : 'is-bad'}`}>{item.decision.label}</div>
+                    </div>
+
+                    <div className="scorecard-kpi-row">
+                      <div className="scorecard-kpi">
+                        <span className="scorecard-kpi-label">복합 점수</span>
+                        <span className="scorecard-kpi-value">{formatNumber(item.compositeScore, 1)}점</span>
+                      </div>
+                      <div className="scorecard-kpi">
+                        <span className="scorecard-kpi-label">꼬리손실</span>
+                        <span className={`scorecard-kpi-value is-${item.tail.tone}`}>{item.tail.label}</span>
+                      </div>
+                    </div>
+
+                    <div className="scorecard-component-list is-compact">
+                      {componentRows.map((row) => (
+                        <div key={`${item.symbol}-${row.key}`} className={`scorecard-component-row is-${row.tone}`}>
+                          <div className="scorecard-component-label">{row.label}</div>
+                          <div className="scorecard-component-value">{row.value >= 0 ? '+' : ''}{formatNumber(row.value, 1)}점</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="scorecard-tail-inline">
+                      {tailRows.map((row) => (
+                        <div key={`${item.symbol}-${row.key}`} className={`scorecard-tail-pill is-${row.tone}`}>
+                          {row.label} {formatPercent(row.value, 1)}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="operator-note-copy">
+                      강점: {item.best.join(' · ') || '없음'}
+                      <br />
+                      주의: {item.risks.join(' · ') || item.tail.detail}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="report-grid-2">
         <div className="page-section report-visual-card">
@@ -330,7 +480,7 @@ function renderActionBoard(
         <div className="custom-checklist-form">
           <input
             className="console-search-input"
-            placeholder="추가 체크 항목"
+            placeholder="추가 체크 항목 제목"
             value={newItemLabel}
             onChange={(event) => setNewItemLabel(event.target.value)}
             aria-label="추가 체크 항목 제목"

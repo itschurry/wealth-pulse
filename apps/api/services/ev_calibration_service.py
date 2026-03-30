@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from services.reliability_service import assess_validation_reliability
+
 
 @dataclass(frozen=True)
 class EVPrior:
@@ -48,14 +50,20 @@ def _strategy_prior(strategy_type: str) -> EVPrior:
     return _STRATEGY_PRIORS.get(strategy_type, _STRATEGY_PRIORS["pullback"])
 
 
-def _reliability(validation_trades: int, validation_sharpe: float) -> str:
-    if validation_trades >= 25 and validation_sharpe >= 0.45:
-        return "high"
-    if validation_trades >= 12 and validation_sharpe >= 0.2:
-        return "medium"
-    if validation_trades >= 5 and validation_sharpe > 0:
-        return "low"
-    return "insufficient"
+def _reliability(
+    *,
+    trade_count: int,
+    validation_trades: int,
+    validation_sharpe: float,
+    max_drawdown_pct: float | None,
+) -> dict[str, Any]:
+    assessment = assess_validation_reliability(
+        trade_count=trade_count,
+        validation_signals=validation_trades,
+        validation_sharpe=validation_sharpe,
+        max_drawdown_pct=max_drawdown_pct,
+    )
+    return assessment.as_dict()
 
 
 def compute_ev_metrics(
@@ -64,8 +72,10 @@ def compute_ev_metrics(
     regime: str,
     score: float,
     confidence: float,
+    trade_count: int = 0,
     validation_trades: int = 0,
     validation_sharpe: float = 0.0,
+    max_drawdown_pct: float | None = None,
     market: str = "",
     sector: str = "",
 ) -> dict[str, Any]:
@@ -94,7 +104,12 @@ def compute_ev_metrics(
     expected_holding_days = max(2, int(round(prior.expected_holding_days * (1.0 - regime_adj * 0.7))))
     expected_value = (win_probability * expected_upside_pct) - ((1.0 - win_probability) * expected_downside_pct)
 
-    reliability = _reliability(sample_size, validation_sharpe)
+    reliability_detail = _reliability(
+        trade_count=max(sample_size, int(trade_count or 0)),
+        validation_trades=sample_size,
+        validation_sharpe=validation_sharpe,
+        max_drawdown_pct=max_drawdown_pct,
+    )
 
     return {
         "win_probability": round(win_probability, 4),
@@ -103,14 +118,20 @@ def compute_ev_metrics(
         "expected_holding_days": expected_holding_days,
         "expected_value": round(expected_value, 4),
         "confidence": round(_clamp(confidence, 0.0, 100.0), 2),
-        "reliability": reliability,
+        "reliability": str(reliability_detail.get("label") or "insufficient"),
+        "reliability_detail": reliability_detail,
         "calibration": {
             "sample_size": sample_size,
+            "trade_count": max(sample_size, int(trade_count or 0)),
             "validation_sharpe": round(validation_sharpe, 4),
+            "max_drawdown_pct": None if max_drawdown_pct is None else round(float(max_drawdown_pct), 4),
             "shrinkage_weight": round(shrinkage_weight, 4),
             "market": market,
             "sector": sector,
             "regime": regime,
             "strategy_type": strategy_type,
+            "reliability_reason": reliability_detail.get("reason"),
+            "passes_minimum_gate": bool(reliability_detail.get("passes_minimum_gate")),
+            "is_reliable": bool(reliability_detail.get("is_reliable")),
         },
     }

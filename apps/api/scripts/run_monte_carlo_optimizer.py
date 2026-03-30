@@ -15,6 +15,10 @@ from analyzer.monte_carlo import (
     run_portfolio_optimization,
 )
 from loguru import logger
+from services.reliability_policy import (
+    overlay_policy_metadata,
+    select_global_overlay_candidates,
+)
 
 import argparse
 import datetime
@@ -163,28 +167,32 @@ def _collect_price_data(
     return price_data
 
 
-def _compute_global_params(results: list[OptimizationResult]) -> dict:
+def _compute_global_params(results: list[OptimizationResult]) -> tuple[dict, str]:
     """신뢰 종목들의 파라미터 중앙값으로 글로벌 파라미터를 계산한다."""
     import numpy as np
-    reliable = [r for r in results if r.is_reliable]
-    if not reliable:
-        reliable = results  # 모두 신뢰 없으면 전체 사용
+    selected, source = select_global_overlay_candidates(
+        results,
+        is_reliable_getter=lambda r: bool(r.is_reliable),
+        reliability_reason_getter=lambda r: str(r.reliability_reason),
+    )
+    if not selected:
+        return {}, "all_results_fallback"
 
     return {
-        "stop_loss_pct": round(float(np.median([r.best_params["stop_loss_pct"] for r in reliable])), 1),
-        "take_profit_pct": round(float(np.median([r.best_params["take_profit_pct"] for r in reliable])), 1),
-        "max_holding_days": int(round(float(np.median([r.best_params["max_holding_days"] for r in reliable])))),
-        "rsi_min": round(float(np.median([r.best_params["rsi_min"] for r in reliable])), 1),
-        "rsi_max": round(float(np.median([r.best_params["rsi_max"] for r in reliable])), 1),
-        "volume_ratio_min": round(float(np.median([r.best_params.get("volume_ratio_min", 1.0) for r in reliable])), 2),
-        "adx_min": round(float(np.median([r.best_params.get("adx_min", 15.0) for r in reliable])), 1),
-        "mfi_min": round(float(np.median([r.best_params.get("mfi_min", 25.0) for r in reliable])), 1),
-        "mfi_max": round(float(np.median([r.best_params.get("mfi_max", 75.0) for r in reliable])), 1),
-        "bb_pct_min": round(float(np.median([r.best_params.get("bb_pct_min", 0.1) for r in reliable])), 3),
-        "bb_pct_max": round(float(np.median([r.best_params.get("bb_pct_max", 0.9) for r in reliable])), 3),
-        "stoch_k_min": round(float(np.median([r.best_params.get("stoch_k_min", 15.0) for r in reliable])), 1),
-        "stoch_k_max": round(float(np.median([r.best_params.get("stoch_k_max", 85.0) for r in reliable])), 1),
-    }
+        "stop_loss_pct": round(float(np.median([r.best_params["stop_loss_pct"] for r in selected])), 1),
+        "take_profit_pct": round(float(np.median([r.best_params["take_profit_pct"] for r in selected])), 1),
+        "max_holding_days": int(round(float(np.median([r.best_params["max_holding_days"] for r in selected])))),
+        "rsi_min": round(float(np.median([r.best_params["rsi_min"] for r in selected])), 1),
+        "rsi_max": round(float(np.median([r.best_params["rsi_max"] for r in selected])), 1),
+        "volume_ratio_min": round(float(np.median([r.best_params.get("volume_ratio_min", 1.0) for r in selected])), 2),
+        "adx_min": round(float(np.median([r.best_params.get("adx_min", 15.0) for r in selected])), 1),
+        "mfi_min": round(float(np.median([r.best_params.get("mfi_min", 25.0) for r in selected])), 1),
+        "mfi_max": round(float(np.median([r.best_params.get("mfi_max", 75.0) for r in selected])), 1),
+        "bb_pct_min": round(float(np.median([r.best_params.get("bb_pct_min", 0.1) for r in selected])), 3),
+        "bb_pct_max": round(float(np.median([r.best_params.get("bb_pct_max", 0.9) for r in selected])), 3),
+        "stoch_k_min": round(float(np.median([r.best_params.get("stoch_k_min", 15.0) for r in selected])), 1),
+        "stoch_k_max": round(float(np.median([r.best_params.get("stoch_k_max", 85.0) for r in selected])), 1),
+    }, source
 
 
 def _save_results(
@@ -194,7 +202,11 @@ def _save_results(
 ) -> None:
     """결과를 config/optimized_params.json에 저장한다."""
     reliable = [r for r in results if r.is_reliable]
-    global_params = _compute_global_params(results) if results else {}
+    medium = [r for r in results if (not r.is_reliable) and r.strategy_reliability == "medium"]
+    global_params: dict = {}
+    global_overlay_source = "all_results_fallback"
+    if results:
+        global_params, global_overlay_source = _compute_global_params(results)
 
     # 클램핑
     if global_params:
@@ -247,7 +259,11 @@ def _save_results(
             "validation_sharpe": float(round(r.validation_sharpe, 4)),
             "validation_trades": int(r.validation_trades),
             "is_reliable": bool(r.is_reliable),
+            "strategy_reliability": str(r.strategy_reliability),
             "reliability_reason": str(r.reliability_reason),
+            "composite_score": float(round(r.composite_score, 4)),
+            "score_components": r.score_components,
+            "tail_risk": r.tail_risk,
         }
 
     output = {
@@ -259,6 +275,9 @@ def _save_results(
             "method": sim_config.method,
             "n_symbols_optimized": len(results),
             "n_reliable": len(reliable),
+            "n_medium": len(medium),
+            "global_overlay_source": global_overlay_source,
+            "overlay_policy": overlay_policy_metadata(),
         },
     }
     _OPTIMIZED_PARAMS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -371,13 +390,14 @@ def main() -> None:
     logger.info("최적화 완료: {}개 종목, 신뢰할 수 있는 결과: {}개",
                 len(results), len(reliable))
 
-    if reliable:
-        gp = _compute_global_params(results)
+    if results:
+        gp, source = _compute_global_params(results)
         logger.info(
-            "글로벌 최적 파라미터 (신뢰 종목 중앙값): "
+            "글로벌 최적 파라미터 (source={}): "
             "stop_loss={stop_loss_pct}%, take_profit={take_profit_pct}%, "
             "max_holding={max_holding_days}일, rsi={rsi_min}~{rsi_max}, "
             "adx>={adx_min}, mfi={mfi_min}~{mfi_max}, bb%={bb_pct_min}~{bb_pct_max}, stoch={stoch_k_min}~{stoch_k_max}",
+            source,
             **gp,
         )
 

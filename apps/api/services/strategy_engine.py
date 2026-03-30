@@ -159,14 +159,18 @@ def build_signal_book(
             validation_payload = per_symbol.get(code, {}) if isinstance(per_symbol, dict) else {}
             validation_trades = int(validation_payload.get("validation_trades") or 0)
             validation_sharpe = _to_float(validation_payload.get("validation_sharpe"), 0.0)
+            trade_count = int(validation_payload.get("trade_count") or 0)
+            max_drawdown_pct = validation_payload.get("max_drawdown_pct")
 
             ev = compute_ev_metrics(
                 strategy_type=strategy_type,
                 regime=regime,
                 score=score,
                 confidence=confidence,
+                trade_count=trade_count,
                 validation_trades=validation_trades,
                 validation_sharpe=validation_sharpe,
+                max_drawdown_pct=_to_float(max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
                 market=market,
                 sector=sector,
             )
@@ -258,6 +262,17 @@ def build_signal_book(
                     "calibration": ev.get("calibration", {}),
                     "candidate_reasons": candidate.get("reasons", []),
                     "candidate_risks": candidate.get("risks", []),
+                },
+                "validation_snapshot": {
+                    "trade_count": trade_count,
+                    "validation_trades": validation_trades,
+                    "validation_sharpe": validation_sharpe,
+                    "max_drawdown_pct": _to_float(max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
+                    "strategy_reliability": ev.get("reliability"),
+                    "reliability_detail": ev.get("reliability_detail", {}),
+                    "composite_score": validation_payload.get("composite_score"),
+                    "score_components": validation_payload.get("score_components") if isinstance(validation_payload.get("score_components"), dict) else {},
+                    "tail_risk": validation_payload.get("tail_risk") if isinstance(validation_payload.get("tail_risk"), dict) else {},
                 },
                 "report_reasoning": {
                     "summary": candidate.get("ai_thesis") or candidate.get("summary") or "",

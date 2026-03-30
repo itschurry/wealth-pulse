@@ -41,6 +41,8 @@ from services.paper_runtime_store import (
     read_signal_snapshots,
     save_engine_state,
 )
+from services.reliability_service import assess_validation_reliability
+from services.reliability_policy import overlay_policy_metadata, should_apply_symbol_overlay
 from services.signal_service import (
     collect_pick_candidates as _signal_collect_pick_candidates,
     normalize_theme_focus as _signal_normalize_theme_focus,
@@ -132,7 +134,7 @@ def _default_validation_policy() -> dict[str, Any]:
     return {
         "validation_gate_enabled": True,
         "validation_min_trades": 8,
-        "validation_min_sharpe": 0.8,
+        "validation_min_sharpe": 0.2,
         "validation_block_on_low_reliability": True,
         "validation_require_optimized_reliability": True,
     }
@@ -158,6 +160,8 @@ def _optimized_params_status() -> dict[str, Any]:
         "optimized_at": optimized_at,
         "is_stale": stale,
         "source": str(_OPTIMIZED_PARAMS_PATH),
+        "global_overlay_source": ((payload.get("meta") or {}).get("global_overlay_source") if isinstance(payload.get("meta"), dict) else None),
+        "overlay_policy": ((payload.get("meta") or {}).get("overlay_policy") if isinstance(payload.get("meta"), dict) else overlay_policy_metadata()),
     }
 
 
@@ -221,24 +225,62 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
     }
 
 
-def _resolve_validation_snapshot(signal: dict[str, Any]) -> tuple[int, float, str]:
+def _resolve_validation_snapshot(signal: dict[str, Any]) -> dict[str, Any]:
     ev = signal.get("ev_metrics") if isinstance(signal.get("ev_metrics"), dict) else {}
     reasoning = signal.get("signal_reasoning") if isinstance(signal.get("signal_reasoning"), dict) else {}
     calibration = reasoning.get("calibration") if isinstance(reasoning.get("calibration"), dict) else {}
-    trades = int(calibration.get("sample_size") or signal.get("validation_trades") or 0)
-    sharpe = float(calibration.get("validation_sharpe") or signal.get("validation_sharpe") or 0.0)
-    reliability = str(ev.get("reliability") or signal.get("strategy_reliability") or "insufficient")
-    return trades, sharpe, reliability
+    validation_snapshot = signal.get("validation_snapshot") if isinstance(signal.get("validation_snapshot"), dict) else {}
+    reliability_detail = ev.get("reliability_detail") if isinstance(ev.get("reliability_detail"), dict) else {}
+
+    trade_count = int(
+        validation_snapshot.get("trade_count")
+        or calibration.get("trade_count")
+        or signal.get("trade_count")
+        or signal.get("validation_trades")
+        or 0
+    )
+    trades = int(
+        validation_snapshot.get("validation_trades")
+        or calibration.get("sample_size")
+        or signal.get("validation_trades")
+        or 0
+    )
+    sharpe = _to_float(
+        validation_snapshot.get("validation_sharpe")
+        or calibration.get("validation_sharpe")
+        or signal.get("validation_sharpe"),
+        0.0,
+    )
+    max_drawdown_pct = validation_snapshot.get("max_drawdown_pct")
+    if max_drawdown_pct is None:
+        max_drawdown_pct = calibration.get("max_drawdown_pct")
+    if max_drawdown_pct is None:
+        max_drawdown_pct = signal.get("max_drawdown_pct")
+
+    assessment = assess_validation_reliability(
+        trade_count=trade_count if trade_count > 0 else trades,
+        validation_signals=trades,
+        validation_sharpe=sharpe,
+        max_drawdown_pct=_to_float(max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
+    )
+    return {
+        "trade_count": trade_count if trade_count > 0 else trades,
+        "trades": trades,
+        "sharpe": round(sharpe, 4),
+        "max_drawdown_pct": None if max_drawdown_pct is None else round(_to_float(max_drawdown_pct, 0.0), 4),
+        "reliability": str(reliability_detail.get("label") or assessment.label),
+        "reliability_reason": str(reliability_detail.get("reason") or assessment.reason),
+        "passes_minimum_gate": bool(reliability_detail.get("passes_minimum_gate", assessment.passes_minimum_gate)),
+        "optimized_reliable": bool(reliability_detail.get("is_reliable", assessment.is_reliable)),
+    }
 
 
 def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
+    snapshot = _resolve_validation_snapshot(signal)
     if not bool(cfg.get("validation_gate_enabled", True)):
-        trades, sharpe, reliability = _resolve_validation_snapshot(signal)
         return True, [], {
             "enabled": False,
-            "trades": trades,
-            "sharpe": round(sharpe, 4),
-            "reliability": reliability,
+            **snapshot,
         }
 
     code = str(signal.get("code") or "").upper()
@@ -246,31 +288,41 @@ def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple
     per_symbol = optimized.get("per_symbol", {}) if isinstance(optimized, dict) else {}
     symbol_payload = per_symbol.get(code, {}) if isinstance(per_symbol, dict) else {}
 
-    trades, sharpe, reliability = _resolve_validation_snapshot(signal)
-    if int(symbol_payload.get("validation_trades") or 0) > 0:
-        trades = int(symbol_payload.get("validation_trades") or trades)
-    if symbol_payload.get("validation_sharpe") is not None:
-        sharpe = _to_float(symbol_payload.get("validation_sharpe"), sharpe)
-    if symbol_payload.get("strategy_reliability"):
-        reliability = str(symbol_payload.get("strategy_reliability"))
+    if symbol_payload:
+        trade_count = int(symbol_payload.get("trade_count") or snapshot.get("trade_count") or 0)
+        trades = int(symbol_payload.get("validation_trades") or snapshot.get("trades") or 0)
+        sharpe = _to_float(symbol_payload.get("validation_sharpe"), snapshot.get("sharpe", 0.0))
+        max_drawdown_pct = symbol_payload.get("max_drawdown_pct", snapshot.get("max_drawdown_pct"))
+        assessment = assess_validation_reliability(
+            trade_count=trade_count if trade_count > 0 else trades,
+            validation_signals=trades,
+            validation_sharpe=sharpe,
+            max_drawdown_pct=_to_float(max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
+        )
+        snapshot = {
+            "trade_count": trade_count if trade_count > 0 else trades,
+            "trades": trades,
+            "sharpe": round(sharpe, 4),
+            "max_drawdown_pct": None if max_drawdown_pct is None else round(_to_float(max_drawdown_pct, 0.0), 4),
+            "reliability": assessment.label,
+            "reliability_reason": assessment.reason,
+            "passes_minimum_gate": assessment.passes_minimum_gate,
+            "optimized_reliable": bool(symbol_payload.get("is_reliable", assessment.is_reliable)),
+        }
 
     reasons: list[str] = []
-    if trades < int(cfg.get("validation_min_trades", 8)):
+    if int(snapshot.get("trades") or 0) < int(cfg.get("validation_min_trades", 8)):
         reasons.append("validation_trades_low")
-    if sharpe < float(cfg.get("validation_min_sharpe", 0.8)):
+    if float(snapshot.get("sharpe") or 0.0) < float(cfg.get("validation_min_sharpe", 0.2)):
         reasons.append("validation_sharpe_low")
-    if bool(cfg.get("validation_block_on_low_reliability", True)) and reliability in {"low", "insufficient"}:
+    if bool(cfg.get("validation_block_on_low_reliability", True)) and str(snapshot.get("reliability") or "insufficient") in {"low", "insufficient"}:
         reasons.append("validation_reliability_low")
-    if bool(cfg.get("validation_require_optimized_reliability", True)):
-        if symbol_payload and not bool(symbol_payload.get("is_reliable", False)):
-            reasons.append("optimized_symbol_unreliable")
+    if bool(cfg.get("validation_require_optimized_reliability", True)) and symbol_payload and not bool(snapshot.get("passes_minimum_gate")):
+        reasons.append("optimized_validation_failed")
 
     return len(reasons) == 0, reasons, {
         "enabled": True,
-        "trades": trades,
-        "sharpe": round(sharpe, 4),
-        "reliability": reliability,
-        "optimized_reliable": bool(symbol_payload.get("is_reliable")) if symbol_payload else None,
+        **snapshot,
     }
 
 
@@ -303,7 +355,10 @@ def _get_symbol_optimized_params(code: str) -> dict:
     if not optimized:
         return {}
     symbol_data = optimized.get("per_symbol", {}).get(code, {})
-    if not symbol_data.get("is_reliable", False):
+    if not should_apply_symbol_overlay(
+        is_reliable=bool(symbol_data.get("is_reliable", False)),
+        reliability_reason=str(symbol_data.get("reliability_reason") or ""),
+    ):
         return {}
     return {
         k: symbol_data[k]
@@ -481,7 +536,7 @@ def _default_auto_trader_config() -> dict:
         "block_buy_when_risk_high": True,
         "validation_gate_enabled": True,
         "validation_min_trades": 8,
-        "validation_min_sharpe": 0.8,
+        "validation_min_sharpe": 0.2,
         "validation_block_on_low_reliability": True,
         "validation_require_optimized_reliability": True,
         "min_avg_volume": 100000,
@@ -1197,7 +1252,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         "validation_gate_summary": {
             "enabled": bool(cfg.get("validation_gate_enabled", True)),
             "min_trades": int(cfg.get("validation_min_trades", 8)),
-            "min_sharpe": float(cfg.get("validation_min_sharpe", 0.8)),
+            "min_sharpe": float(cfg.get("validation_min_sharpe", 0.2)),
             "blocked_reason_counts": blocked_reason_counts,
             "blocked_count_by_market": validation_blocked_counts_by_market,
         },
@@ -1337,7 +1392,7 @@ def _start_auto_trader(config: dict) -> dict:
             1.0, min(80.0, float(merged.get("slippage_bps_base") or 8.0)))
         merged["validation_gate_enabled"] = bool(merged.get("validation_gate_enabled", True))
         merged["validation_min_trades"] = max(0, min(200, int(merged.get("validation_min_trades") or 8)))
-        merged["validation_min_sharpe"] = max(-5.0, min(10.0, float(merged.get("validation_min_sharpe") or 0.8)))
+        merged["validation_min_sharpe"] = max(-5.0, min(10.0, float(merged.get("validation_min_sharpe") or 0.2)))
         merged["validation_block_on_low_reliability"] = bool(merged.get("validation_block_on_low_reliability", True))
         merged["validation_require_optimized_reliability"] = bool(merged.get("validation_require_optimized_reliability", True))
         merged.update(_parse_theme_gate_config(merged))

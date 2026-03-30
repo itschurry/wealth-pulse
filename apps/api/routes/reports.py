@@ -7,6 +7,7 @@ from routes.market import _build_market
 from market_utils import resolve_market
 from reporter.storage import load_latest_report, load_report
 from reporter.storage import list_report_dates as _storage_list_dates
+from services.reliability_service import assess_validation_reliability
 
 
 def _infer_recommendation_market(ticker: str, market: str = "", code: str = "", name: str = "") -> str:
@@ -133,8 +134,15 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
     ev_metrics = item.get("ev_metrics") if isinstance(item.get("ev_metrics"), dict) else {}
     expected_value = float(ev_metrics.get("expected_value") or 0.0)
     win_probability = float(ev_metrics.get("win_probability") or 0.5)
-    reliability = str(ev_metrics.get("reliability") or "insufficient")
     calibration = ev_metrics.get("calibration") if isinstance(ev_metrics.get("calibration"), dict) else {}
+    reliability_detail = ev_metrics.get("reliability_detail") if isinstance(ev_metrics.get("reliability_detail"), dict) else {}
+    validation_snapshot = item.get("validation_snapshot") if isinstance(item.get("validation_snapshot"), dict) else {}
+    reliability = str(
+        reliability_detail.get("label")
+        or validation_snapshot.get("strategy_reliability")
+        or ev_metrics.get("reliability")
+        or "insufficient"
+    )
     risk_inputs = item.get("risk_inputs") if isinstance(item.get("risk_inputs"), dict) else {}
     size_recommendation = item.get("size_recommendation") if isinstance(item.get("size_recommendation"), dict) else {}
     execution_realism = item.get("execution_realism") if isinstance(item.get("execution_realism"), dict) else {}
@@ -146,6 +154,8 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
     reason_codes = [str(reason) for reason in (item.get("reason_codes") or []) if reason]
     candidate_reasons = [str(reason) for reason in (reasoning.get("candidate_reasons") or []) if reason]
     candidate_risks = [str(reason) for reason in (reasoning.get("candidate_risks") or []) if reason]
+    score_components = validation_snapshot.get("score_components") if isinstance(validation_snapshot.get("score_components"), dict) else {}
+    tail_risk = validation_snapshot.get("tail_risk") if isinstance(validation_snapshot.get("tail_risk"), dict) else {}
 
     if not candidate_reasons:
         candidate_reasons = [
@@ -182,9 +192,17 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
         "expected_downside": ev_metrics.get("expected_downside"),
         "size_recommendation": size_recommendation,
         "reliability": reliability,
-        "validation_trades": int(calibration.get("sample_size") or 0),
+        "reliability_reason": reliability_detail.get("reason") or calibration.get("reliability_reason"),
+        "validation_trades": int(validation_snapshot.get("validation_trades") or calibration.get("sample_size") or 0),
         "validation_sharpe": calibration.get("validation_sharpe"),
+        "train_trade_count": int(validation_snapshot.get("trade_count") or calibration.get("trade_count") or 0),
+        "max_drawdown_pct": validation_snapshot.get("max_drawdown_pct", calibration.get("max_drawdown_pct")),
         "strategy_reliability": reliability,
+        "strategy_scorecard": {
+            "composite_score": validation_snapshot.get("composite_score"),
+            "components": score_components,
+            "tail_risk": tail_risk,
+        },
         "technical_snapshot": None,
         "execution_realism": execution_realism,
         "risk_inputs": risk_inputs,
@@ -276,21 +294,16 @@ def _fallback_today_picks(date: str | None = None) -> dict:
         if optimized_params and optimized_params.get("per_symbol", {}).get(code):
             opt_result = optimized_params["per_symbol"][code]
 
-        # 신뢰도 결정 (is_reliable 필드 기반)
-        is_reliable = bool(opt_result.get("is_reliable", False))
+        trade_count = int(opt_result.get("trade_count", 0))
         validation_trades = int(opt_result.get("validation_trades", 0))
         validation_sharpe = float(opt_result.get("validation_sharpe", 0.0))
-        reliability_reason = str(opt_result.get(
-            "reliability_reason", "unknown"))
-
-        # 신뢰도 레벨 결정
-        strategy_reliability = "insufficient"  # 기본값
-        if is_reliable and validation_sharpe > 0.1 and validation_trades >= 10:
-            strategy_reliability = "high"
-        elif validation_trades >= 5 and validation_sharpe > 0.0:
-            strategy_reliability = "medium"
-        elif validation_trades > 0:
-            strategy_reliability = "low"
+        max_drawdown_pct = opt_result.get("max_drawdown_pct")
+        reliability = assess_validation_reliability(
+            trade_count=trade_count if trade_count > 0 else validation_trades,
+            validation_signals=validation_trades,
+            validation_sharpe=validation_sharpe,
+            max_drawdown_pct=float(max_drawdown_pct) if max_drawdown_pct is not None else None,
+        )
 
         candidate = {
             "name": item.get("name"),
@@ -314,11 +327,18 @@ def _fallback_today_picks(date: str | None = None) -> dict:
             "playbook_alignment": item.get("playbook_alignment"),
             "ai_thesis": item.get("ai_thesis"),
             # Phase 5 추가 필드
-            "strategy_reliability": strategy_reliability,
+            "strategy_reliability": reliability.label,
             "validation_trades": validation_trades,
             "validation_sharpe": validation_sharpe,
-            "is_reliable": is_reliable,
-            "reliability_reason": reliability_reason,
+            "train_trade_count": trade_count,
+            "max_drawdown_pct": max_drawdown_pct,
+            "is_reliable": bool(opt_result.get("is_reliable", reliability.is_reliable)),
+            "reliability_reason": str(opt_result.get("reliability_reason", reliability.reason)),
+            "strategy_scorecard": {
+                "composite_score": opt_result.get("composite_score"),
+                "components": opt_result.get("score_components") if isinstance(opt_result.get("score_components"), dict) else {},
+                "tail_risk": opt_result.get("tail_risk") if isinstance(opt_result.get("tail_risk"), dict) else {},
+            },
         }
         all_candidates.append(candidate)
 

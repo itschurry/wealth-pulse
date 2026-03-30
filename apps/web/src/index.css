@@ -1817,6 +1817,189 @@ button:disabled {
   color: var(--text-3);
 }
 
+.scorecard-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.scorecard-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-panel) 90%, white 10%);
+}
+
+.scorecard-component-list {
+  display: grid;
+  gap: 8px;
+}
+
+.scorecard-component-list.is-compact {
+  margin-top: 4px;
+}
+
+.scorecard-component-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.scorecard-component-row.is-good {
+  border-color: var(--up-border);
+  background: var(--up-bg);
+}
+
+.scorecard-component-row.is-bad {
+  border-color: var(--down-border);
+  background: var(--down-bg);
+}
+
+.scorecard-component-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.scorecard-component-copy {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.scorecard-component-value {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
+.scorecard-tail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.scorecard-tail-card {
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.scorecard-tail-card.is-good {
+  border-color: var(--up-border);
+  background: var(--up-bg);
+}
+
+.scorecard-tail-card.is-bad {
+  border-color: var(--down-border);
+  background: var(--down-bg);
+}
+
+.scorecard-tail-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-4);
+}
+
+.scorecard-tail-value {
+  margin-top: 8px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-1);
+}
+
+.scorecard-tail-copy {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+.scorecard-candidate-card {
+  gap: 12px;
+}
+
+.scorecard-candidate-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.scorecard-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scorecard-kpi {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.scorecard-kpi-label {
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.scorecard-kpi-value {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-1);
+}
+
+.scorecard-kpi-value.is-good {
+  color: var(--up);
+}
+
+.scorecard-kpi-value.is-bad {
+  color: var(--down);
+}
+
+.scorecard-tail-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scorecard-tail-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.scorecard-tail-pill.is-good {
+  border-color: var(--up-border);
+  background: var(--up-bg);
+  color: var(--up);
+}
+
+.scorecard-tail-pill.is-bad {
+  border-color: var(--down-border);
+  background: var(--down-bg);
+  color: var(--down);
+}
+
 .checklist-card-head {
   display: flex;
   justify-content: space-between;
@@ -2652,7 +2835,8 @@ button:disabled {
   .section-head-row,
   .report-hero-title-row,
   .process-card-head,
-  .checklist-card-head {
+  .checklist-card-head,
+  .scorecard-candidate-head {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -2661,7 +2845,9 @@ button:disabled {
     justify-items: start;
   }
 
-  .custom-checklist-form {
+  .custom-checklist-form,
+  .scorecard-kpi-row,
+  .scorecard-detail-grid {
     grid-template-columns: 1fr;
   }
 
