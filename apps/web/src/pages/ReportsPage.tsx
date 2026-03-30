@@ -105,21 +105,75 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
   const riskLevel = String(snapshot.engine.allocator?.risk_level || snapshot.signals.risk_level || '-');
   const regime = String(snapshot.engine.allocator?.regime || snapshot.signals.regime || '-');
   const meterScore = riskScore(riskLevel);
+  const topAction = view.actionItems[0];
+  const modeLabel = guardAllowed ? (view.judgmentTitle || '중립') : '방어';
+  const todayActions = view.actionItems.slice(0, 4);
+  const avoidActions = [...view.watchPoints, ...view.judgmentLines]
+    .filter((line, index, arr) => line && arr.indexOf(line) === index)
+    .slice(0, 4);
+  const evidenceLines = [...view.summaryLines, ...view.judgmentLines]
+    .filter((line, index, arr) => line && arr.indexOf(line) === index)
+    .slice(0, 6);
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <div className="page-section report-hero-card">
+      <div className="page-section report-hero-card report-decision-hero">
         <div className="report-hero-topline">
-          <span className="report-hero-tag">Today Brief</span>
+          <span className="report-hero-tag">Decision First</span>
           <span className="report-hero-meta">리포트 생성 {formatDateTime(view.generatedAt)}</span>
         </div>
-        <div className="report-hero-title-row">
-          <div>
-            <div className="report-hero-title">오늘 판단</div>
-            <div className="report-hero-copy">장세, 리스크 가드, 신호 허용 비율만 먼저 보고 오늘 태도를 결정합니다.</div>
+        <div className="report-decision-title">오늘 결론: {modeLabel}</div>
+        <div className="report-hero-copy">근거보다 실행 순서를 먼저 고정합니다. 지금은 {guardAllowed ? '허용된 진입만 선별 실행' : '신규 진입 중단과 보유 리스크 관리'}이 우선입니다.</div>
+        <div className="report-decision-strip">
+          <div className={`report-decision-chip ${guardAllowed ? 'is-good' : 'is-bad'}`}>
+            진입 {guardAllowed ? '가능' : '제한'}
           </div>
-          <div className={`report-mode-chip is-${view.judgmentTitle === '공격' ? 'good' : view.judgmentTitle === '관망' ? 'bad' : 'neutral'}`}>
-            {view.judgmentTitle}
+          <div className="report-decision-chip">위험도 {riskLevel}</div>
+          <div className="report-decision-chip">허용 {formatCount(allowedCount, '건')} / 차단 {formatCount(blockedCount, '건')}</div>
+        </div>
+      </div>
+
+      <div className="report-grid-2">
+        <div className="page-section report-visual-card">
+          <div className="section-head-row">
+            <div>
+              <div className="section-title">오늘 실행</div>
+              <div className="section-copy">지금 바로 처리할 액션</div>
+            </div>
+            <div className="inline-badge is-success">{formatCount(todayActions.length, '개')}</div>
+          </div>
+          <div className="operator-note-grid">
+            {todayActions.map((item) => (
+              <div
+                key={item.label}
+                className={`operator-note-card ${item.tone === 'good' ? 'is-good' : item.tone === 'bad' ? 'is-bad' : ''}`}
+              >
+                <div className="operator-note-label">{item.label}</div>
+                <div className="operator-note-copy">{item.detail}</div>
+              </div>
+            ))}
+            {todayActions.length === 0 && (
+              <div className="operator-note-card">
+                <div className="operator-note-label">실행 대기</div>
+                <div className="operator-note-copy">오늘 액션 포인트가 아직 정리되지 않았습니다.</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="page-section report-visual-card">
+          <div className="section-head-row">
+            <div>
+              <div className="section-title">오늘 금지/회피</div>
+              <div className="section-copy">수익 기회보다 손실 회피 우선</div>
+            </div>
+            <div className="inline-badge is-danger">{formatCount(avoidActions.length, '개')}</div>
+          </div>
+          <div className="watch-grid">
+            {avoidActions.map((line, index) => (
+              <div key={`avoid-${index}`} className="watch-card">{line}</div>
+            ))}
+            {avoidActions.length === 0 && <div className="watch-card">현재 강한 회피 시그널은 없습니다. 진입은 가드 기준을 유지하세요.</div>}
           </div>
         </div>
       </div>
@@ -146,8 +200,8 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
 
         <div className="page-section report-visual-card">
           <div className="report-card-title">첫 액션</div>
-          <div className="report-card-value">{view.actionItems[0]?.label || '대기'}</div>
-          <div className="report-card-copy">{view.actionItems[0]?.detail || '오늘 액션 포인트가 아직 정리되지 않았습니다.'}</div>
+          <div className="report-card-value">{topAction?.label || '대기'}</div>
+          <div className="report-card-copy">{topAction?.detail || '오늘 액션 포인트가 아직 정리되지 않았습니다.'}</div>
         </div>
       </div>
 
@@ -160,6 +214,19 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
         </div>
       )}
 
+      <div className="page-section report-evidence-card" style={{ padding: 16 }}>
+        <div className="section-head-row">
+          <div>
+            <div className="section-title">근거 요약 (참고용)</div>
+            <div className="section-copy">최종 의사결정 이후에만 확인하는 보조 근거</div>
+          </div>
+          <div className="inline-badge">{formatCount(evidenceLines.length, '줄')}</div>
+        </div>
+        <div className="report-brief-list is-compact">
+          {renderIndexedBriefItems(evidenceLines, 'evidence')}
+        </div>
+      </div>
+
       <div className="report-grid-2">
         <div className="page-section" style={{ padding: 16 }}>
           <div className="section-title">시장 3줄 요약</div>
@@ -167,42 +234,11 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
             {renderIndexedBriefItems(view.summaryLines, 'summary')}
           </div>
         </div>
-
         <div className="page-section" style={{ padding: 16 }}>
           <div className="section-title">판단 근거</div>
           <div className="report-brief-list is-compact">
             {renderIndexedBriefItems(view.judgmentLines, 'judgment')}
           </div>
-        </div>
-      </div>
-
-      <div className="page-section" style={{ padding: 16 }}>
-        <div className="section-head-row">
-          <div>
-            <div className="section-title">오늘 해야 할 일</div>
-            <div className="section-copy">설명보다 액션 위주로 정리했습니다.</div>
-          </div>
-          <div className="inline-badge">{formatCount(view.actionItems.length, '개')}</div>
-        </div>
-        <div className="operator-note-grid">
-          {view.actionItems.map((item) => (
-            <div
-              key={item.label}
-              className={`operator-note-card ${item.tone === 'good' ? 'is-good' : item.tone === 'bad' ? 'is-bad' : ''}`}
-            >
-              <div className="operator-note-label">{item.label}</div>
-              <div className="operator-note-copy">{item.detail}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="page-section" style={{ padding: 16 }}>
-        <div className="section-title">관망/주의 포인트</div>
-        <div className="watch-grid">
-          {view.watchPoints.map((line, index) => (
-            <div key={`watch-${index}`} className="watch-card">{line}</div>
-          ))}
         </div>
       </div>
     </div>

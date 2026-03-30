@@ -2554,3 +2554,78 @@ button:disabled {
     font-size: 0.98rem;
   }
 }
+
+.report-decision-hero,
+.validation-decision-hero,
+.decision-state-card {
+  display: grid;
+  gap: 14px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--surface-panel-strong) 86%, white 14%), color-mix(in srgb, var(--accent-soft) 70%, white 30%));
+}
+
+.report-decision-title {
+  font-size: clamp(1.6rem, 2.5vw, 2.4rem);
+  line-height: 1.08;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: var(--text-1);
+}
+
+.report-decision-strip,
+.validation-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.report-decision-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.72);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.report-decision-chip.is-good {
+  border-color: var(--up-border);
+  background: var(--up-bg);
+  color: var(--up);
+}
+
+.report-decision-chip.is-bad {
+  border-color: var(--down-border);
+  background: var(--down-bg);
+  color: var(--down);
+}
+
+.report-evidence-card {
+  opacity: 0.86;
+}
+
+.validation-inline-status {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-panel) 88%, white 12%);
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.decision-state-card.is-good {
+  border-color: var(--up-border);
+}
+
+.decision-state-card.is-neutral {
+  border-color: var(--warning-border);
+}
+
+.decision-state-card.is-bad {
+  border-color: var(--down-border);
+}

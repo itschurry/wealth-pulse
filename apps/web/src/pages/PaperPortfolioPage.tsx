@@ -486,6 +486,40 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const stopLossPctDefault = toNumber(engineState.config?.stop_loss_pct, NaN);
   const takeProfitPctDefault = toNumber(engineState.config?.take_profit_pct, NaN);
   const skipReasonCounts = engineState.last_summary?.skip_reason_counts || {};
+  const entryAllowed = Boolean(snapshot.portfolio.risk_guard_state?.entry_allowed);
+  const todayFailCount = Number(engineState.today_order_counts?.failed || 0);
+  const trustScore = useMemo(() => {
+    let score = 100;
+    if (!engineState.running) score -= 25;
+    if (engineState.engine_state === 'paused') score -= 20;
+    if (engineState.last_error) score -= 25;
+    score -= Math.min(30, Number(engineState.today_order_counts?.failed || 0) * 6);
+    if (!entryAllowed) score -= 15;
+    return Math.max(10, score);
+  }, [engineState.engine_state, engineState.last_error, engineState.running, engineState.today_order_counts?.failed, entryAllowed]);
+
+  const trustState = trustScore >= 80 ? '높음' : trustScore >= 55 ? '보통' : '낮음';
+  const trustTone: 'good' | 'bad' | 'neutral' = trustState === '높음' ? 'good' : trustState === '낮음' ? 'bad' : 'neutral';
+  const riskyPositions = useMemo(() => {
+    return positions
+      .map((position) => {
+        const positionRaw = position as unknown as Record<string, unknown>;
+        const entryPrice = toNumber(position.avg_price_local, 0);
+        const currentPrice = toNumber(position.last_price_local, 0);
+        const pnlPct = toNumber(position.unrealized_pnl_pct, NaN);
+        const daysHeld = holdingDays(position.entry_ts);
+        const stopLossPct = toNumber(positionRaw.stop_loss_pct, stopLossPctDefault);
+        const stopLossPrice = Number.isFinite(stopLossPct) ? entryPrice * (1 - stopLossPct / 100) : NaN;
+        const nearStopLoss = Number.isFinite(stopLossPrice) && currentPrice > 0 && currentPrice <= stopLossPrice * 1.02;
+        const deepLoss = Number.isFinite(pnlPct) && pnlPct <= -4;
+        const longHoldWeak = daysHeld >= 10 && Number.isFinite(pnlPct) && pnlPct < 0;
+        const urgency = (nearStopLoss ? 3 : 0) + (deepLoss ? 2 : 0) + (longHoldWeak ? 1 : 0);
+        return { position, nearStopLoss, deepLoss, longHoldWeak, urgency, pnlPct, daysHeld };
+      })
+      .filter((item) => item.urgency > 0)
+      .sort((a, b) => b.urgency - a.urgency)
+      .slice(0, 6);
+  }, [positions, stopLossPctDefault]);
 
   return (
     <div className="app-shell">
@@ -559,34 +593,77 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             settingsPanel={settingsPanel}
           />
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
-            <div className="page-section" style={{ padding: 14 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>총자산(원화환산)</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatKRW(vm.totalEquityKrw, true)}</div>
+          <div className="page-section validation-decision-hero" style={{ padding: 18 }}>
+            <div className="report-hero-topline">
+              <span className="report-hero-tag">Risk First</span>
+              <span className={`report-decision-chip ${entryAllowed ? 'is-good' : 'is-bad'}`}>신규 진입 {entryAllowed ? '가능' : '차단'}</span>
             </div>
-            <div className="page-section" style={{ padding: 14 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>원화 현금</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatKRW(vm.cashKrw, true)}</div>
-            </div>
-            <div className="page-section" style={{ padding: 14 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>달러 현금</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatUSD(vm.cashUsd, true)}</div>
-            </div>
-            <div className="page-section" style={{ padding: 14 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>평가손익</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800, color: vm.unrealizedPnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>
-                {formatKRW(vm.unrealizedPnlKrw, true)}
+            <div className="report-decision-title">운용 우선순위: {riskyPositions.length > 0 || todayFailCount > 0 ? '리스크 정리 먼저' : '정상 운영 지속'}</div>
+            <div className="report-hero-copy">보유 포지션보다 먼저 위험 포지션, 오늘 체결/실패, 엔진 신뢰도, 신규 진입 허용 여부를 확인하는 화면으로 재정렬했습니다.</div>
+            <div className="validation-decision-grid">
+              <div className={`summary-metric-card ${riskyPositions.length > 0 ? 'is-bad' : 'is-good'}`}>
+                <div className="summary-metric-label">위험 포지션</div>
+                <div className="summary-metric-value">{formatCount(riskyPositions.length, '건')}</div>
+                <div className="summary-metric-detail">손실 심화 또는 장기 보유 포지션 수</div>
+              </div>
+              <div className={`summary-metric-card ${todayFailCount > 0 ? 'is-bad' : 'is-good'}`}>
+                <div className="summary-metric-label">오늘 주문</div>
+                <div className="summary-metric-value">{todayBuyCount} / {todaySellCount} / {todayFailCount}</div>
+                <div className="summary-metric-detail">매수 / 매도 / 실패</div>
+              </div>
+              <div className={`summary-metric-card ${trustTone === 'good' ? 'is-good' : trustTone === 'bad' ? 'is-bad' : ''}`}>
+                <div className="summary-metric-label">엔진 신뢰도</div>
+                <div className="summary-metric-value">{trustState} ({trustScore})</div>
+                <div className="summary-metric-detail">최근 오류 {engineState.last_error ? '있음' : '없음'} · validation gate {engineState.validation_policy?.validation_gate_enabled ? '활성' : '비활성'}</div>
               </div>
             </div>
-            <div className="page-section" style={{ padding: 14 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>실현손익</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800, color: vm.realizedPnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>
-                {formatKRW(vm.realizedPnlKrw, true)}
+          </div>
+
+          <div className="validation-report-grid">
+            <div className="page-section" style={{ padding: 16 }}>
+              <div className="section-title">운용 긴급도</div>
+              <div className="detail-list">
+                <div>신규 진입: {entryAllowed ? '허용된 종목만 선별 진입' : '금일 신규 진입 금지'}</div>
+                <div>위험 포지션: {formatCount(riskyPositions.length, '건')}</div>
+                <div>오늘 실패 주문: {formatCount(todayFailCount, '건')}</div>
+                <div>다음 실행 시각: {formatDateTime(engineState.next_run_at)}</div>
               </div>
             </div>
-            <div className="page-section" style={{ padding: 14 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>보유 포지션 수</div>
-              <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800 }}>{formatCount(vm.positionCount, '종목')}</div>
+            <div className="page-section" style={{ padding: 16 }}>
+              <div className="section-title">현금/자산 상태</div>
+              <div className="detail-list">
+                <div>총자산(원화환산): {formatKRW(vm.totalEquityKrw, true)}</div>
+                <div>원화 현금: {formatKRW(vm.cashKrw, true)}</div>
+                <div>달러 현금: {formatUSD(vm.cashUsd, true)}</div>
+                <div>평가손익 / 실현손익: {formatKRW(vm.unrealizedPnlKrw, true)} / {formatKRW(vm.realizedPnlKrw, true)}</div>
+              </div>
+            </div>
+            <div className="page-section" style={{ padding: 16 }}>
+              <div className="section-title">오늘 집행 결과</div>
+              <div className="detail-list">
+                <div>오늘 체결: {formatNumber(todayOrders.length, 0)}건</div>
+                <div>매수 체결: {formatCount(todayBuyCount, '건')}</div>
+                <div>매도 체결: {formatCount(todaySellCount, '건')}</div>
+                <div>순증가 포지션: {formatCount(todayBuyCount - todaySellCount, '건')}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="page-section" style={{ padding: 16 }}>
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">우선 확인할 위험 포지션</div>
+                <div className="section-copy">손실 심화 또는 오래 묶인 포지션을 위로 올렸습니다.</div>
+              </div>
+            </div>
+            <div className="history-list">
+              {riskyPositions.slice(0, 6).map(({ position, pnlPct, daysHeld }) => (
+                <div key={`risk-${position.market}-${position.code}`} className="history-item is-danger">
+                  <div>{formatSymbol(position.code, position.name)} · {String(position.market || '-')}</div>
+                  <div className="history-item-copy">손익 {formatPercent(pnlPct, 2)} · 보유 {formatCount(daysHeld, '일')} · 평가손익 {formatKRW(position.unrealized_pnl_krw, true)}</div>
+                </div>
+              ))}
+              {riskyPositions.length === 0 && <div className="empty-inline">즉시 정리할 위험 포지션은 없습니다.</div>}
             </div>
           </div>
 

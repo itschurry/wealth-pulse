@@ -100,6 +100,11 @@ export default function App() {
   const [route, setRoute] = useState<RouteState>(() => toRouteState(location.pathname));
   const { snapshot, loading, hasError, errorMessage, refresh } = useConsoleData();
   const validationSettings = useValidationSettingsStore();
+  const activeConsoleTab = CONSOLE_TABS.find((tab) => tab.id === route.consoleTab);
+  const activeReportTab = REPORT_TABS.find((tab) => tab.id === route.reportTab);
+  const activeLabel = route.section === 'console'
+    ? activeConsoleTab?.label || UI_TEXT.consoleTabs.overview
+    : activeReportTab?.label || UI_TEXT.reportTabs.todayReport;
 
   useEffect(() => {
     const initial = toRouteState(location.pathname);
@@ -154,64 +159,81 @@ export default function App() {
 
   return (
     <>
-      <div className="tab-shell">
-        <div className="tab-shell-row">
-          <div className="tab-strip">
-            <button
-              onClick={() => moveToSection('console')}
-              className={`tab-button ${route.section === 'console' ? 'active' : ''}`}
-              aria-current={route.section === 'console' ? 'page' : undefined}
-            >
-              <span className="tab-step">01</span>
-              <span className="tab-label">{UI_TEXT.topTabs.console}</span>
-            </button>
-            <button
-              onClick={() => moveToSection('reports')}
-              className={`tab-button ${route.section === 'reports' ? 'active' : ''}`}
-              aria-current={route.section === 'reports' ? 'page' : undefined}
-            >
-              <span className="tab-step">02</span>
-              <span className="tab-label">{UI_TEXT.topTabs.reports}</span>
-            </button>
+      <div className="app-chrome-shell">
+        <div className="app-chrome-header">
+          <div>
+            <div className="app-chrome-kicker">Daily Market Brief</div>
+            <div className="app-chrome-title">{activeLabel}</div>
+            <div className="app-chrome-copy">{SECTION_COPY[route.section]}</div>
+          </div>
+          <div className="app-chrome-meta">
+            <span className={`app-chrome-pill ${loading ? 'is-live' : ''}`}>{loading ? 'Syncing' : 'Ready'}</span>
+            <span className="app-chrome-pill">{SECTION_BADGE[route.section]}</span>
+            {route.section === 'console' && validationSettings.unsaved && (
+              <span className="app-chrome-pill is-warning">Validation draft</span>
+            )}
           </div>
         </div>
-      </div>
 
-      <div className="tab-shell" style={{ marginTop: 8 }}>
-        <div className="tab-shell-row">
-          <div className="tab-strip">
-            {route.section === 'console' && CONSOLE_TABS.map((tab, index) => (
+        <div className="tab-shell">
+          <div className="tab-shell-row">
+            <div className="tab-strip">
               <button
-                key={tab.id}
-                onClick={() => moveToConsoleTab(tab.id)}
-                className={`tab-button ${route.consoleTab === tab.id ? 'active' : ''}`}
-                aria-current={route.consoleTab === tab.id ? 'page' : undefined}
+                onClick={() => moveToSection('console')}
+                className={`tab-button ${route.section === 'console' ? 'active' : ''}`}
+                aria-current={route.section === 'console' ? 'page' : undefined}
               >
-                <span className="tab-step">{String(index + 1).padStart(2, '0')}</span>
-                <span className="tab-label">
-                  {tab.label}
-                  {tab.id === 'validation' && validationSettings.unsaved && (
-                    <span className="tab-dirty-badge" aria-label="저장 필요">저장 필요</span>
-                  )}
-                </span>
+                <span className="tab-step">01</span>
+                <span className="tab-label">{UI_TEXT.topTabs.console}</span>
               </button>
-            ))}
-            {route.section === 'reports' && REPORT_TABS.map((tab, index) => (
               <button
-                key={tab.id}
-                onClick={() => moveToReportTab(tab.id)}
-                className={`tab-button ${route.reportTab === tab.id ? 'active' : ''}`}
-                aria-current={route.reportTab === tab.id ? 'page' : undefined}
+                onClick={() => moveToSection('reports')}
+                className={`tab-button ${route.section === 'reports' ? 'active' : ''}`}
+                aria-current={route.section === 'reports' ? 'page' : undefined}
               >
-                <span className="tab-step">{String(index + 1).padStart(2, '0')}</span>
-                <span className="tab-label">{tab.label}</span>
+                <span className="tab-step">02</span>
+                <span className="tab-label">{UI_TEXT.topTabs.reports}</span>
               </button>
-            ))}
+            </div>
           </div>
         </div>
-        <div className="tab-shell-caption">
-          <span className="tab-shell-caption-title">{SECTION_BADGE[route.section]}</span>
-          <span className="tab-shell-caption-copy">{SECTION_COPY[route.section]}</span>
+
+        <div className="tab-shell tab-shell-secondary">
+          <div className="tab-shell-row">
+            <div className="tab-strip">
+              {route.section === 'console' && CONSOLE_TABS.map((tab, index) => (
+                <button
+                  key={tab.id}
+                  onClick={() => moveToConsoleTab(tab.id)}
+                  className={`tab-button ${route.consoleTab === tab.id ? 'active' : ''}`}
+                  aria-current={route.consoleTab === tab.id ? 'page' : undefined}
+                >
+                  <span className="tab-step">{String(index + 1).padStart(2, '0')}</span>
+                  <span className="tab-label">
+                    {tab.label}
+                    {tab.id === 'validation' && validationSettings.unsaved && (
+                      <span className="tab-dirty-badge" aria-label="저장 필요">저장 필요</span>
+                    )}
+                  </span>
+                </button>
+              ))}
+              {route.section === 'reports' && REPORT_TABS.map((tab, index) => (
+                <button
+                  key={tab.id}
+                  onClick={() => moveToReportTab(tab.id)}
+                  className={`tab-button ${route.reportTab === tab.id ? 'active' : ''}`}
+                  aria-current={route.reportTab === tab.id ? 'page' : undefined}
+                >
+                  <span className="tab-step">{String(index + 1).padStart(2, '0')}</span>
+                  <span className="tab-label">{tab.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="tab-shell-caption">
+            <span className="tab-shell-caption-title">{SECTION_BADGE[route.section]}</span>
+            <span className="tab-shell-caption-copy">{SECTION_COPY[route.section]}</span>
+          </div>
         </div>
       </div>
 

@@ -271,6 +271,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   const globalParams = (optimizedParams?.global_params as Record<string, unknown> | undefined) || {};
   const validationPolicy = snapshot.engine.execution?.state?.validation_policy;
   const optimizedState = snapshot.engine.execution?.state?.optimized_params;
+  const minTradesPolicy = Math.max(1, Number(validationPolicy?.validation_min_trades || 1));
 
   const statusItems = useMemo<ActionBarStatusItem[]>(() => ([
     {
@@ -294,6 +295,59 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       tone: viewModel.reliability === '낮음' ? 'bad' : 'neutral',
     },
   ]), [backtestPhase, optimizationPhase, validationStore.unsaved, viewModel.reliability]);
+
+  const adoptionDecision = useMemo(() => {
+    const oosReturn = viewModel.oosReturnPct ?? null;
+    const profitFactor = viewModel.profitFactor ?? null;
+    const drawdownAbs = Math.abs(viewModel.maxDrawdownPct ?? 0);
+    const tradeCount = viewModel.tradeCount ?? 0;
+    const reliability = viewModel.reliability || '-';
+    const gateEnabled = Boolean(validationPolicy?.validation_gate_enabled);
+
+    if (
+      oosReturn !== null
+      && oosReturn > 0
+      && reliability === '높음'
+      && (profitFactor ?? 0) >= 1.1
+      && drawdownAbs <= 20
+      && tradeCount >= minTradesPolicy
+    ) {
+      return {
+        label: '즉시 사용 가능',
+        tone: 'good' as const,
+        action: '현재 설정으로 실거래 반영 후보입니다. 포지션 한도만 보수적으로 시작하세요.',
+      };
+    }
+
+    if (
+      oosReturn === null
+      || reliability === '낮음'
+      || (profitFactor ?? 0) < 0.95
+      || oosReturn < -2
+      || drawdownAbs > 30
+      || (gateEnabled && tradeCount < minTradesPolicy)
+    ) {
+      return {
+        label: '거절',
+        tone: 'bad' as const,
+        action: '현재 상태로는 운영 반영 금지. 파라미터/기간 재설정 후 재검증이 필요합니다.',
+      };
+    }
+
+    return {
+      label: '보류',
+      tone: 'neutral' as const,
+      action: '결정 보류 상태입니다. 최적화 실행 후 OOS/낙폭 재확인 뒤 채택 여부를 결정하세요.',
+    };
+  }, [
+    minTradesPolicy,
+    validationPolicy?.validation_gate_enabled,
+    viewModel.maxDrawdownPct,
+    viewModel.oosReturnPct,
+    viewModel.profitFactor,
+    viewModel.reliability,
+    viewModel.tradeCount,
+  ]);
 
   const updateRunHistory = useCallback((next: RunHistoryItem[]) => {
     setRunHistory(next);
@@ -670,13 +724,69 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           />
 
           <div className="validation-layout">
+            <div className="validation-report-column">
+              <div className={`page-section validation-report-card decision-state-card is-${adoptionDecision.tone}`}>
+                <div className="section-kicker">Adoption Decision</div>
+                <div className="section-head-row">
+                  <div>
+                    <div className="section-title">전략 채택 상태: {adoptionDecision.label}</div>
+                    <div className="section-copy">{adoptionDecision.action}</div>
+                  </div>
+                  <div className={`inline-badge ${adoptionDecision.tone === 'good' ? 'is-success' : adoptionDecision.tone === 'bad' ? 'is-danger' : 'is-warning'}`}>
+                    {adoptionDecision.label}
+                  </div>
+                </div>
+                <div className="summary-metric-grid">
+                  <SummaryMetricCard
+                    label="OOS 수익률"
+                    value={formatPercent(viewModel.oosReturnPct, 2)}
+                    detail={`신뢰도 ${viewModel.reliability || '-'} · 윈도우 ${formatCount(snapshot.validation.summary?.windows, '개')}`}
+                    tone={(viewModel.oosReturnPct || 0) >= 0 ? 'good' : 'bad'}
+                  />
+                  <SummaryMetricCard
+                    label="낙폭 / PF"
+                    value={`${formatPercent(viewModel.maxDrawdownPct, 2)} / ${formatNumber(viewModel.profitFactor, 2)}`}
+                    detail={`거래 ${formatCount(viewModel.tradeCount, '건')} · 승률 ${formatPercent(viewModel.winRatePct, 2)}`}
+                  />
+                  <SummaryMetricCard
+                    label="정책 Gate"
+                    value={validationPolicy?.validation_gate_enabled ? '활성' : '비활성'}
+                    detail={`min trades ${formatNumber(validationPolicy?.validation_min_trades, 0)} · optimized ${String(optimizedState?.version || '-')}`}
+                  />
+                </div>
+              </div>
+
+              <div className="validation-report-grid">
+                <div className="page-section" style={{ padding: 16 }}>
+                  <div className="section-title">구간 성과</div>
+                  <div className="detail-list">
+                    <div>전략: {validationStore.draftSettings.strategy}</div>
+                    <div>시장: {validationStore.draftQuery.market_scope.toUpperCase()}</div>
+                    <div>학습 구간 수익률: {formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)}</div>
+                    <div>검증 구간 수익률: {formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}</div>
+                    <div>OOS 구간 수익률: {formatPercent(metricNumber(segmentOos, 'total_return_pct'), 2)}</div>
+                  </div>
+                </div>
+
+                <div className="page-section" style={{ padding: 16 }}>
+                  <div className="section-title">최적 파라미터</div>
+                  <div className="detail-list">
+                    {Object.entries(globalParams).slice(0, 8).map(([key, value]) => (
+                      <div key={key}>{key}: {typeof value === 'number' ? formatNumber(value, 4) : String(value)}</div>
+                    ))}
+                    {Object.keys(globalParams).length === 0 && <div className="empty-inline">{UI_TEXT.empty.noOptimizedParams}</div>}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="validation-console-column">
               <div className="page-section validation-console-card">
-                <div className="section-kicker">Operator Console</div>
+                <div className="section-kicker">Execution</div>
                 <div className="section-head-row">
                   <div>
                     <div className="section-title">실행 패널</div>
-                    <div className="section-copy">아래에서는 현재 설정 요약 확인과 실행만 수행합니다.</div>
+                    <div className="section-copy">설정 확인 후 백테스트/최적화만 빠르게 실행합니다.</div>
                   </div>
                   <div className={`inline-badge ${validationStore.unsaved ? 'is-warning' : 'is-success'}`}>
                     {validationStore.unsaved ? '저장 필요' : '저장됨'}
@@ -684,13 +794,13 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 </div>
 
                 <div className="summary-rail is-compact">
-                  {settingsSummaryLines.map((line) => (
+                  {settingsSummaryLines.slice(0, 3).map((line) => (
                     <div key={line} className="summary-rail-item">{line}</div>
                   ))}
                 </div>
 
                 {validationStore.unsaved && (
-                  <div className="inline-warning-card">저장하지 않은 변경 사항이 있습니다. 실행은 현재 초안 값으로 진행됩니다.</div>
+                  <div className="inline-warning-card">저장하지 않은 변경 사항이 있습니다. 실행값 확정 전 저장을 권장합니다.</div>
                 )}
 
                 <div className="execution-button-row is-split">
@@ -713,171 +823,86 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                       : '최적화 실행'}
                   </button>
                 </div>
+
+                <div className="validation-inline-status">
+                  <div>백테스트: {backtestPhaseLabel(backtestPhase)} · {backtestMessage}</div>
+                  <div>최적화: {optimizationPhaseLabel(optimizationPhase)} · {optimizationMessage}</div>
+                  <div>최근 실행: {runFinishedAt ? formatDateTime(runFinishedAt) : '없음'}</div>
+                </div>
               </div>
 
               <div className="process-grid">
                 <ProcessStepper
-                  title="백테스트 진행 상태"
-                  steps={['요청', '서버 계산', '결과 정리', backtestPhase === 'error' ? '실패' : '완료']}
+                  title="백테스트 진행"
+                  steps={['요청', '계산', '정리', backtestPhase === 'error' ? '실패' : '완료']}
                   activeIndex={buildPhaseIndex(backtestPhase)}
                   error={backtestPhase === 'error'}
-                  detail={`${backtestMessage} · 경과 ${formatElapsed(runStartedAt)}`}
+                  detail={`경과 ${formatElapsed(runStartedAt)}`}
                   timestamp={runStartedAt || runFinishedAt}
                 />
                 <ProcessStepper
-                  title="최적화 진행 상태"
-                  steps={['요청', '큐 등록', '백그라운드 실행', optimizationPhase === 'error' ? '실패' : '완료']}
+                  title="최적화 진행"
+                  steps={['요청', '큐', '실행', optimizationPhase === 'error' ? '실패' : '완료']}
                   activeIndex={buildOptimizationPhaseIndex(optimizationPhase)}
                   error={optimizationPhase === 'error'}
-                  detail={`${optimizationMessage} · 경과 ${formatElapsed(optimizationStartedAt)}`}
+                  detail={`경과 ${formatElapsed(optimizationStartedAt)}`}
                   timestamp={optimizationStartedAt || optimizationUpdatedAt}
                 />
               </div>
+            </div>
+          </div>
 
-              <div className="page-section" style={{ padding: 16 }}>
-                <div className="section-head-row">
-                  <div>
-                    <div className="section-title">최근 실행 이력</div>
-                    <div className="section-copy">실행/최적화/저장만 따로 모아 둔 운영 로그입니다.</div>
-                  </div>
-                </div>
-                <div className="validation-history-grid">
-                  <div>
-                    <div className="section-subtitle">백테스트</div>
-                    {renderHistoryList(runHistory.slice(0, 8), UI_TEXT.empty.noRunHistory, (item) => (
-                      <>
-                        <div>{formatDateTime(item.at)} · {item.market.toUpperCase()} · {item.lookbackDays}일</div>
-                        <div className="history-item-copy">상태 {item.status} · 수익률 {formatPercent(item.totalReturnPct, 2)}</div>
-                      </>
-                    ))}
-                  </div>
-                  <div>
-                    <div className="section-subtitle">최적화 / 저장</div>
-                    <div className="history-list">
-                      {optimizationHistory.slice(0, 4).map((item) => (
-                        <div key={item.id} className="history-item">
-                          <div>{formatDateTime(item.at)} · {item.status}</div>
-                          <div className="history-item-copy">{item.message}</div>
-                        </div>
-                      ))}
-                      {saveHistory.slice(0, 4).map((item) => (
-                        <div key={item.id} className="history-item">
-                          <div>{formatDateTime(item.at)} · {item.market.toUpperCase()}</div>
-                          <div className="history-item-copy">{item.lookbackDays}일 · {item.strategy}</div>
-                        </div>
-                      ))}
-                      {optimizationHistory.length === 0 && saveHistory.length === 0 && <div className="empty-inline">최근 이력이 없습니다.</div>}
-                    </div>
-                  </div>
-                </div>
+          <div className="page-section" style={{ padding: 16 }}>
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">참고 이력 / 로그</div>
+                <div className="section-copy">채택 판단 후 필요할 때만 보는 보조 기록입니다.</div>
               </div>
             </div>
-
-            <div className="validation-report-column">
-              <div className="page-section validation-report-card">
-                <div className="section-kicker">Validation Report</div>
-                <div className="section-head-row">
-                  <div>
-                    <div className="section-title">핵심 결과</div>
-                    <div className="section-copy">실행과 분리된 읽기 전용 결과 요약입니다.</div>
-                  </div>
-                  <div className="inline-badge">최근 실행 {runFinishedAt ? formatDateTime(runFinishedAt) : '없음'}</div>
-                </div>
-                <div className="summary-metric-grid">
-                  <SummaryMetricCard
-                    label="백테스트 수익률"
-                    value={formatPercent(viewModel.totalReturnPct, 2)}
-                    detail={`거래 ${formatCount(viewModel.tradeCount, '건')} · 승률 ${formatPercent(viewModel.winRatePct, 2)}`}
-                    tone={(viewModel.totalReturnPct || 0) >= 0 ? 'good' : 'bad'}
-                  />
-                  <SummaryMetricCard
-                    label="OOS 수익률"
-                    value={formatPercent(viewModel.oosReturnPct, 2)}
-                    detail={`신뢰도 ${viewModel.reliability || '-'} · 윈도우 ${formatCount(snapshot.validation.summary?.windows, '개')}`}
-                    tone={(viewModel.oosReturnPct || 0) >= 0 ? 'good' : 'bad'}
-                  />
-                  <SummaryMetricCard
-                    label="최대 낙폭 / PF"
-                    value={`${formatPercent(viewModel.maxDrawdownPct, 2)} / ${formatNumber(viewModel.profitFactor, 2)}`}
-                    detail={`학습 ${formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)} · 검증 ${formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}`}
-                  />
-                  <SummaryMetricCard
-                    label="정책 반영"
-                    value={validationPolicy?.validation_gate_enabled ? 'Gate 활성' : 'Gate 비활성'}
-                    detail={`min trades ${formatNumber(validationPolicy?.validation_min_trades, 0)} · optimized ${String(optimizedState?.version || '-')}`}
-                  />
+            <div className="validation-history-grid">
+              <div>
+                <div className="section-subtitle">실행 이력</div>
+                {renderHistoryList(runHistory.slice(0, 6), UI_TEXT.empty.noRunHistory, (item) => (
+                  <>
+                    <div>{formatDateTime(item.at)} · {item.market.toUpperCase()} · {item.lookbackDays}일</div>
+                    <div className="history-item-copy">상태 {item.status} · 수익률 {formatPercent(item.totalReturnPct, 2)}</div>
+                  </>
+                ))}
+              </div>
+              <div>
+                <div className="section-subtitle">최적화 / 저장 / 실패 로그</div>
+                <div className="history-list">
+                  {optimizationHistory.slice(0, 3).map((item) => (
+                    <div key={item.id} className="history-item">
+                      <div>{formatDateTime(item.at)} · {item.status}</div>
+                      <div className="history-item-copy">{item.message}</div>
+                    </div>
+                  ))}
+                  {saveHistory.slice(0, 3).map((item) => (
+                    <div key={item.id} className="history-item">
+                      <div>{formatDateTime(item.at)} · {item.market.toUpperCase()}</div>
+                      <div className="history-item-copy">{item.lookbackDays}일 · {item.strategy}</div>
+                    </div>
+                  ))}
+                  {entries.filter((item) => item.level === 'error').slice(0, 2).map((item) => (
+                    <div key={item.id} className="history-item is-danger">
+                      <div>{formatDateTime(item.timestamp)} · {item.message}</div>
+                      {item.context && <div className="history-item-copy">{item.context}</div>}
+                    </div>
+                  ))}
+                  {optimizationHistory.length === 0 && saveHistory.length === 0 && entries.every((item) => item.level !== 'error') && <div className="empty-inline">최근 이력이 없습니다.</div>}
                 </div>
               </div>
-
-              <div className="validation-report-grid">
-                <div className="page-section" style={{ padding: 16 }}>
-                  <div className="section-title">구간 성과</div>
-                  <div className="detail-list">
-                    <div>전략: {validationStore.draftSettings.strategy}</div>
-                    <div>시장: {validationStore.draftQuery.market_scope.toUpperCase()}</div>
-                    <div>학습 구간 수익률: {formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)}</div>
-                    <div>검증 구간 수익률: {formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}</div>
-                    <div>OOS 구간 수익률: {formatPercent(metricNumber(segmentOos, 'total_return_pct'), 2)}</div>
-                  </div>
-                </div>
-
-                <div className="page-section" style={{ padding: 16 }}>
-                  <div className="section-title">OOS 요약</div>
-                  <div className="detail-list">
-                    <div>윈도우 수: {formatCount(snapshot.validation.summary?.windows, '개')}</div>
-                    <div>양수 OOS 윈도우: {formatCount(snapshot.validation.summary?.positive_windows, '개')}</div>
-                    <div>신뢰도: {reliabilityToKorean(String(snapshot.validation.summary?.oos_reliability || ''))}</div>
-                    <div>최적화 시각: {formatDateTime(optimizedState?.optimized_at)}</div>
-                  </div>
-                </div>
-
-                <div className="page-section" style={{ padding: 16 }}>
-                  <div className="section-title">실행 정책</div>
-                  <div className="detail-list">
-                    <div>validation gate: {validationPolicy?.validation_gate_enabled ? '활성' : '비활성'}</div>
-                    <div>min trades: {formatNumber(validationPolicy?.validation_min_trades, 0)}</div>
-                    <div>min sharpe: {formatNumber(validationPolicy?.validation_min_sharpe, 2)}</div>
-                    <div>저신뢰 차단: {validationPolicy?.validation_block_on_low_reliability ? '예' : '아니오'}</div>
-                    <div>optimized 요구: {validationPolicy?.validation_require_optimized_reliability ? '예' : '아니오'}</div>
-                  </div>
-                </div>
-
-                <div className="page-section" style={{ padding: 16 }}>
-                  <div className="section-title">최적 파라미터</div>
-                  <div className="detail-list">
-                    {Object.entries(globalParams).slice(0, 8).map(([key, value]) => (
-                      <div key={key}>{key}: {typeof value === 'number' ? formatNumber(value, 4) : String(value)}</div>
-                    ))}
-                    {Object.keys(globalParams).length === 0 && <div className="empty-inline">{UI_TEXT.empty.noOptimizedParams}</div>}
-                  </div>
-                </div>
-              </div>
-
-              <div className="validation-report-grid">
-                <div className="page-section" style={{ padding: 16 }}>
-                  <div className="section-title">사유별 성과</div>
-                  <div className="history-list">
-                    {reasonRows.map((row) => (
-                      <div key={row.reason} className="history-item">
-                        <div>{row.reason}</div>
-                        <div className="history-item-copy">거래 {formatCount(row.count, '건')} · 평균 {formatPercent(row.avgPnlPct, 2)}</div>
-                      </div>
-                    ))}
-                    {reasonRows.length === 0 && <div className="empty-inline">{UI_TEXT.empty.noReasonBreakdown}</div>}
-                  </div>
-                </div>
-
-                <div className="page-section" style={{ padding: 16 }}>
-                  <div className="section-title">실패 로그</div>
-                  <div className="history-list">
-                    {entries.filter((item) => item.level === 'error').slice(0, 4).map((item) => (
-                      <div key={item.id} className="history-item is-danger">
-                        <div>{formatDateTime(item.timestamp)} · {item.message}</div>
-                        {item.context && <div className="history-item-copy">{item.context}</div>}
-                      </div>
-                    ))}
-                    {entries.every((item) => item.level !== 'error') && <div className="empty-inline">실패 로그가 없습니다.</div>}
-                  </div>
+              <div>
+                <div className="section-subtitle">사유별 성과</div>
+                <div className="history-list">
+                  {reasonRows.map((row) => (
+                    <div key={row.reason} className="history-item">
+                      <div>{row.reason}</div>
+                      <div className="history-item-copy">거래 {formatCount(row.count, '건')} · 평균 {formatPercent(row.avgPnlPct, 2)}</div>
+                    </div>
+                  ))}
+                  {reasonRows.length === 0 && <div className="empty-inline">{UI_TEXT.empty.noReasonBreakdown}</div>}
                 </div>
               </div>
             </div>
