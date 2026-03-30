@@ -2437,10 +2437,12 @@ button:disabled {
 
 @media (max-width: 640px) {
   .app-chrome-shell {
-    width: calc(100% - 16px);
-    margin-top: 12px;
-    padding: 14px;
-    border-radius: 24px;
+    top: 6px;
+    width: calc(100% - 12px);
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 18px;
+    box-shadow: 0 14px 34px rgba(16, 32, 51, 0.12);
   }
 
   .app-chrome-header,
@@ -2449,33 +2451,190 @@ button:disabled {
     align-items: flex-start;
   }
 
+  .app-chrome-header {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .app-chrome-kicker {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+
+  .app-chrome-title {
+    margin-top: 4px;
+    font-size: 1.15rem;
+    line-height: 1.12;
+  }
+
+  .app-chrome-copy,
+  .tab-shell-caption-copy,
+  .section-copy,
+  .report-hero-copy,
+  .console-actionbar-subtitle,
+  .report-card-copy,
+  .operator-note-copy,
+  .watch-card,
+  .checklist-copy {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .app-chrome-copy,
+  .tab-shell-caption,
+  .hero-topline-copy,
+  .report-description,
+  .report-card-copy,
+  .report-evidence-card,
+  .report-grid-2:last-child {
+    display: none;
+  }
+
+  .app-chrome-meta {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .app-chrome-pill {
+    gap: 6px;
+    padding: 6px 9px;
+    font-size: 10px;
+  }
+
   .app-shell {
-    padding: 18px 12px 32px;
+    padding: 12px 10px 24px;
+  }
+
+  .content-shell {
+    margin-top: 12px;
+    padding: 0;
   }
 
   .hero-banner,
   .summary-shell,
-  .page-section {
-    padding: 18px;
-    border-radius: 20px;
+  .page-section,
+  .report-hero-card,
+  .report-rail-card,
+  .summary-card,
+  .process-card,
+  .summary-metric-card {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .hero-banner {
+    padding: 16px;
   }
 
   .hero-title {
-    font-size: 2.2rem;
+    margin: 10px 0 8px;
+    font-size: 1.5rem;
+    max-width: none;
   }
 
   .hero-topline {
     flex-direction: column;
     align-items: flex-start;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+  }
+
+  .hero-chip-row,
+  .report-decision-strip,
+  .validation-decision-grid,
+  .console-status-grid,
+  .summary-grid,
+  .summary-rail,
+  .operator-note-grid,
+  .watch-grid,
+  .report-grid-3,
+  .report-grid-2,
+  .report-stat-grid,
+  .action-checklist-grid,
+  .validation-report-grid,
+  .validation-history-grid,
+  .process-grid,
+  .backtest-grid {
+    gap: 8px;
+  }
+
+  .hero-chip,
+  .report-decision-chip,
+  .inline-badge,
+  .filter-chip,
+  .checklist-toggle,
+  .backtest-pill {
+    padding: 6px 9px;
+    font-size: 10px;
+  }
+
+  .tab-shell {
+    padding: 6px;
+    border-radius: 16px;
+  }
+
+  .tab-shell-secondary {
+    margin-top: 6px;
+  }
+
+  .tab-strip {
+    gap: 6px;
   }
 
   .tab-button {
-    flex-basis: 190px;
-    min-width: 190px;
+    flex: 0 0 auto;
+    min-width: fit-content;
+    min-height: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    column-gap: 0;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.68);
+    box-shadow: none;
+  }
+
+  .tab-button.active::after,
+  .tab-step {
+    display: none;
+  }
+
+  .tab-label {
+    grid-column: auto;
+    gap: 6px;
+    flex-wrap: nowrap;
+    font-size: 12px;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .tab-dirty-badge {
+    padding: 2px 6px;
+    font-size: 9px;
+  }
+
+  .console-actionbar-shell,
+  .validation-console-card,
+  .validation-report-card,
+  .report-shell {
+    gap: 10px;
+    padding: 14px;
   }
 
   .console-actionbar-head {
     flex-direction: column;
+    gap: 10px;
+  }
+
+  .console-actionbar-title,
+  .report-decision-title,
+  .report-hero-title,
+  .report-title {
+    font-size: 1.2rem;
+    line-height: 1.14;
   }
 
   .console-actionbar-buttons {
@@ -2483,11 +2642,16 @@ button:disabled {
     justify-content: flex-start;
   }
 
+  .console-action-button,
+  .ghost-button {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
   .reports-toolbar,
   .section-head-row,
   .report-hero-title-row,
   .process-card-head,
-  .tab-shell-caption,
   .checklist-card-head {
     flex-direction: column;
     align-items: flex-start;
@@ -2508,50 +2672,78 @@ button:disabled {
   }
 
   .analysis-content {
-    padding: 24px 20px 30px;
+    padding: 18px 14px 22px;
   }
 
   .report-section-block {
-    padding: 18px;
-    border-radius: 22px;
-  }
-
-  .report-section-heading {
-    grid-template-columns: 52px minmax(0, 1fr);
-    gap: 12px;
-  }
-
-  .report-section-number {
-    width: 52px;
-    height: 52px;
-    border-radius: 16px;
-    font-size: 13px;
-  }
-
-  .report-section-title-text {
-    font-size: 1.14rem;
-  }
-
-  .report-subsection-block {
-    padding: 16px;
+    padding: 14px;
     border-radius: 18px;
   }
 
-  .report-subsection-heading {
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 12px;
+  .report-section-block + .report-section-block {
+    margin-top: 14px;
   }
 
-  .report-subsection-index {
+  .report-section-heading {
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .report-section-number {
     width: 38px;
     height: 38px;
     border-radius: 12px;
     font-size: 11px;
   }
 
+  .report-section-title-text {
+    font-size: 1rem;
+  }
+
+  .report-subsection-block {
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .report-subsection-heading {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .report-subsection-index {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    font-size: 10px;
+  }
+
   .report-subsection-title {
-    padding-top: 4px;
-    font-size: 0.98rem;
+    padding-top: 2px;
+    font-size: 0.92rem;
+  }
+
+  .report-decision-hero,
+  .validation-decision-hero,
+  .decision-state-card {
+    gap: 10px;
+  }
+
+  .report-decision-strip,
+  .validation-decision-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-brief-item,
+  .validation-inline-status,
+  .summary-rail-item,
+  .history-item,
+  .console-status-chip,
+  .console-log-item,
+  .operator-note-card,
+  .checklist-card {
+    padding: 10px 11px;
+    border-radius: 14px;
   }
 }
 
