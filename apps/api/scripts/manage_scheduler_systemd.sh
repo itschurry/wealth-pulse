@@ -53,11 +53,11 @@ run_root() {
 }
 
 ensure_requirements() {
-  echo "Syncing Python dependencies from apps/api/requirements.txt"
+  echo "Syncing Python dependencies from requirements.txt"
   if [[ "$PIP_BIN" == *" -m pip" ]]; then
-    $PYTHON_BIN -m pip install -r "$API_DIR/requirements.txt"
+    $PYTHON_BIN -m pip install -r "$PROJECT_ROOT/requirements.txt"
   else
-    "$PIP_BIN" install -r "$API_DIR/requirements.txt"
+    "$PIP_BIN" install -r "$PROJECT_ROOT/requirements.txt"
   fi
 }
 

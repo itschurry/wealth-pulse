@@ -25,7 +25,7 @@
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r apps/api/requirements.txt
+pip install -r requirements.txt
 
 cd apps/web
 npm install
@@ -153,7 +153,8 @@ cd apps/api
 bash scripts/manage_scheduler_systemd.sh install
 ```
 
-이 스크립트는 `storage/logs` 를 사용하고, `PYTHONPATH=apps/api` 기준으로 서비스를 설치합니다.
+이 스크립트는 루트 `requirements.txt` 를 동기화하고, `storage/logs` 를 사용하며,
+`PYTHONPATH=apps/api` 기준으로 서비스를 설치합니다.
 
 ## Test And Build
 백엔드 테스트:
@@ -170,6 +171,6 @@ npm run build
 
 Docker 빌드:
 ```bash
-docker build -t daily-market-brief-api ./apps/api
+docker compose build api
 docker build -t daily-market-brief-web ./apps/web
 ```
