@@ -389,7 +389,25 @@ function quantGuardrailReasonLabel(reason: string): string {
   if (reason === 'tail_risk_too_large') return '테일 리스크 과다';
   if (reason === 'optimizer_search_stale') return 'optimizer 탐색 결과가 오래됨';
   if (reason === 'optimizer_search_version_changed') return '탐색 버전이 바뀌어 재검증이 무효화됨';
+  if (reason === 'symbol_candidate_missing') return '종목 재검증 후보가 없음';
+  if (reason === 'symbol_validation_failed') return '종목 재검증 실패';
+  if (reason === 'symbol_validation_guardrail_blocked') return '종목 재검증 가드레일 차단';
+  if (reason === 'operator_approval_required') return '운영자 승인 필요';
+  if (reason === 'operator_approval_stale') return '승인 대상 후보가 최신이 아님';
+  if (reason === 'symbol_overlay_patch_missing') return '종목 overlay 파라미터 없음';
   return reason || '-';
+}
+
+function symbolApprovalTone(status: string | undefined): 'good' | 'bad' | 'neutral' {
+  if (status === 'approved') return 'good';
+  if (status === 'rejected') return 'bad';
+  return 'neutral';
+}
+
+function symbolApprovalLabel(status: string | undefined): string {
+  if (status === 'approved') return '승인';
+  if (status === 'rejected') return '거절';
+  return '보류';
 }
 
 function quantWorkflowCardTitle(status: string | undefined, fallback: string): string {
@@ -555,7 +573,24 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   const searchResult = workflowPayload?.search_result || null;
   const latestValidatedCandidate = workflowPayload?.latest_candidate || null;
   const savedValidatedCandidate = workflowPayload?.saved_candidate || null;
+  const symbolCandidates = workflowPayload?.symbol_candidates || [];
   const runtimeApplyState = workflowPayload?.runtime_apply || null;
+  const [selectedSymbol, setSelectedSymbol] = useState('');
+  const selectedSymbolWorkflow = useMemo(
+    () => symbolCandidates.find((item) => String(item.symbol || '') === selectedSymbol) || symbolCandidates[0] || null,
+    [selectedSymbol, symbolCandidates],
+  );
+
+  useEffect(() => {
+    if (symbolCandidates.length === 0) {
+      if (selectedSymbol) setSelectedSymbol('');
+      return;
+    }
+    const exists = symbolCandidates.some((item) => String(item.symbol || '') === selectedSymbol);
+    if (!exists) {
+      setSelectedSymbol(String(symbolCandidates[0]?.symbol || ''));
+    }
+  }, [selectedSymbol, symbolCandidates]);
   const diagnosisLines = diagnosticsResult?.diagnosis?.summary_lines || [];
   const diagnosisBlockers = diagnosticsResult?.diagnosis?.blockers || [];
   const diagnosisSuggestions = diagnosticsResult?.research?.suggestions || [];
@@ -643,6 +678,11 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       tone: quantDecisionTone(latestValidatedCandidate?.decision?.status),
     },
     {
+      label: '종목 승인',
+      value: formatCount(workflowPayload?.symbol_summary?.approved_count, '건'),
+      tone: (workflowPayload?.symbol_summary?.approved_count || 0) > 0 ? 'good' : 'neutral',
+    },
+    {
       label: 'Runtime',
       value: runtimeApplyState?.status === 'applied' ? '반영됨' : '미반영',
       tone: runtimeApplyState?.status === 'applied' ? 'good' : 'neutral',
@@ -652,7 +692,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       value: viewModel.reliability || '-',
       tone: viewModel.reliability === '낮음' ? 'bad' : 'neutral',
     },
-  ]), [backtestPhase, latestValidatedCandidate?.decision?.label, latestValidatedCandidate?.decision?.status, optimizationPhase, runtimeApplyState?.status, validationStore.unsaved, viewModel.reliability]);
+  ]), [backtestPhase, latestValidatedCandidate?.decision?.label, latestValidatedCandidate?.decision?.status, optimizationPhase, runtimeApplyState?.status, validationStore.unsaved, viewModel.reliability, workflowPayload?.symbol_summary?.approved_count]);
 
   const adoptionDecision = useMemo(() => {
     const oosReturn = viewModel.oosReturnPct ?? null;
@@ -861,6 +901,44 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     push('error', '후보 저장이 차단되었습니다.', payload?.error || quantWorkflow.lastError || 'guardrail 사유를 확인하세요.', 'quant-workflow');
     pushToast({ tone: 'error', title: '후보 저장 차단', description: payload?.error || quantWorkflow.lastError || 'guardrail 사유를 확인하세요.' });
   }, [latestValidatedCandidate?.id, push, pushToast, quantWorkflow]);
+
+  const handleRevalidateSymbolCandidate = useCallback(async (symbol: string) => {
+    if (validationStore.unsaved) {
+      push('warning', '저장된 설정 기준으로만 종목 후보 재검증을 실행합니다.', '초안은 먼저 저장해 주세요.', 'quant-workflow');
+      pushToast({ tone: 'warning', title: '먼저 설정 저장', description: '종목 후보 재검증도 저장된 설정 기준으로만 실행합니다.' });
+      return;
+    }
+    const payload = await quantWorkflow.revalidateSymbol(symbol, validationStore.savedQuery, validationStore.savedSettings);
+    if (payload?.ok) {
+      push('success', `${symbol} 종목 후보 재검증이 완료되었습니다.`, payload.candidate?.decision?.summary || '종목별 저장 가능 여부를 갱신했습니다.', 'quant-workflow');
+      pushToast({ tone: 'success', title: '종목 재검증 완료', description: `${symbol} 승인/저장 가드가 갱신되었습니다.` });
+      return;
+    }
+    push('error', `${symbol} 종목 후보 재검증이 실패했습니다.`, payload?.error || quantWorkflow.lastError || 'workflow 상태를 확인하세요.', 'quant-workflow');
+    pushToast({ tone: 'error', title: '종목 재검증 실패', description: payload?.error || quantWorkflow.lastError || 'workflow 상태를 확인하세요.' });
+  }, [push, pushToast, quantWorkflow, validationStore.savedQuery, validationStore.savedSettings, validationStore.unsaved]);
+
+  const handleSetSymbolApproval = useCallback(async (symbol: string, status: 'approved' | 'rejected' | 'hold') => {
+    const payload = await quantWorkflow.setSymbolApproval(symbol, status);
+    if (payload?.ok) {
+      push('success', `${symbol} 승인 상태를 갱신했습니다.`, `상태 ${symbolApprovalLabel(status)} · 저장 전 guardrail이 다시 계산됩니다.`, 'quant-workflow');
+      pushToast({ tone: 'success', title: '종목 승인 상태 갱신', description: `${symbol} → ${symbolApprovalLabel(status)}` });
+      return;
+    }
+    push('error', `${symbol} 승인 상태 갱신이 실패했습니다.`, payload?.error || quantWorkflow.lastError || 'workflow 상태를 확인하세요.', 'quant-workflow');
+    pushToast({ tone: 'error', title: '종목 승인 상태 실패', description: payload?.error || quantWorkflow.lastError || 'workflow 상태를 확인하세요.' });
+  }, [push, pushToast, quantWorkflow]);
+
+  const handleSaveSymbolCandidate = useCallback(async (symbol: string) => {
+    const payload = await quantWorkflow.saveSymbolCandidate(symbol);
+    if (payload?.ok) {
+      push('success', `${symbol} 종목 후보를 저장했습니다.`, payload.candidate?.decision?.summary || 'runtime apply 대상으로 승격됐습니다.', 'quant-workflow');
+      pushToast({ tone: 'success', title: '종목 후보 저장 완료', description: `${symbol} 저장 상태를 갱신했습니다.` });
+      return;
+    }
+    push('error', `${symbol} 종목 후보 저장이 차단되었습니다.`, payload?.error || quantWorkflow.lastError || 'guardrail 사유를 확인하세요.', 'quant-workflow');
+    pushToast({ tone: 'error', title: '종목 후보 저장 차단', description: payload?.error || quantWorkflow.lastError || 'guardrail 사유를 확인하세요.' });
+  }, [push, pushToast, quantWorkflow]);
 
   const handleApplyRuntimeCandidate = useCallback(async () => {
     const payload = await quantWorkflow.applyRuntime(savedValidatedCandidate?.id);
@@ -1371,6 +1449,117 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 </div>
               </div>
 
+              <div className="page-section" style={{ padding: 16 }}>
+                <div className="section-head-row">
+                  <div>
+                    <div className="section-title">Per-Symbol Candidate Approval</div>
+                    <div className="section-copy">종목 후보는 재검증 후 운영자가 승인/거절/보류를 명시해야 저장할 수 있습니다. 저장된 종목 후보만 runtime apply 시 반영됩니다.</div>
+                  </div>
+                  <div className={`inline-badge ${(workflowPayload?.symbol_summary?.saved_count || 0) > 0 ? 'is-success' : ''}`}>
+                    검색 {formatCount(workflowPayload?.symbol_summary?.search_count, '건')} · 승인 {formatCount(workflowPayload?.symbol_summary?.approved_count, '건')} · 저장 {formatCount(workflowPayload?.symbol_summary?.saved_count, '건')}
+                  </div>
+                </div>
+
+                {symbolCandidates.length > 0 ? (
+                  <>
+                    <div className="execution-button-row is-split" style={{ marginTop: 12 }}>
+                      <select
+                        className="backtest-input-wrap"
+                        style={{ padding: '0 12px', minWidth: 170 }}
+                        value={selectedSymbolWorkflow?.symbol || ''}
+                        onChange={(event) => setSelectedSymbol(event.target.value)}
+                      >
+                        {symbolCandidates.map((item) => (
+                          <option key={String(item.symbol || '')} value={String(item.symbol || '')}>
+                            {String(item.symbol || '')}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className="console-action-button"
+                        onClick={() => { if (selectedSymbolWorkflow?.symbol) void handleRevalidateSymbolCandidate(String(selectedSymbolWorkflow.symbol)); }}
+                        disabled={!selectedSymbolWorkflow?.symbol || validationStore.unsaved || quantWorkflow.busyAction === 'revalidate_symbol'}
+                      >
+                        {quantWorkflow.busyAction === 'revalidate_symbol' ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />종목 재검증 중...</span> : '선택 종목 재검증'}
+                      </button>
+                      <button
+                        className="console-action-button"
+                        onClick={() => { if (selectedSymbolWorkflow?.symbol) void handleSetSymbolApproval(String(selectedSymbolWorkflow.symbol), 'approved'); }}
+                        disabled={!selectedSymbolWorkflow?.latest_candidate || quantWorkflow.busyAction === 'approve_symbol'}
+                      >
+                        승인
+                      </button>
+                      <button
+                        className="console-action-button"
+                        onClick={() => { if (selectedSymbolWorkflow?.symbol) void handleSetSymbolApproval(String(selectedSymbolWorkflow.symbol), 'hold'); }}
+                        disabled={!selectedSymbolWorkflow?.latest_candidate || quantWorkflow.busyAction === 'approve_symbol'}
+                      >
+                        보류
+                      </button>
+                      <button
+                        className="console-action-button is-danger"
+                        onClick={() => { if (selectedSymbolWorkflow?.symbol) void handleSetSymbolApproval(String(selectedSymbolWorkflow.symbol), 'rejected'); }}
+                        disabled={!selectedSymbolWorkflow?.latest_candidate || quantWorkflow.busyAction === 'approve_symbol'}
+                      >
+                        거절
+                      </button>
+                      <button
+                        className="console-action-button is-primary"
+                        onClick={() => { if (selectedSymbolWorkflow?.symbol) void handleSaveSymbolCandidate(String(selectedSymbolWorkflow.symbol)); }}
+                        disabled={!selectedSymbolWorkflow?.latest_guardrails?.can_save || quantWorkflow.busyAction === 'save_symbol'}
+                      >
+                        {quantWorkflow.busyAction === 'save_symbol' ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />종목 저장 중...</span> : '선택 종목 저장'}
+                      </button>
+                    </div>
+
+                    {selectedSymbolWorkflow && (
+                      <>
+                        <div className="summary-metric-grid" style={{ marginTop: 12 }}>
+                          <SummaryMetricCard
+                            label="선택 종목"
+                            value={String(selectedSymbolWorkflow.symbol || '-')}
+                            detail={`승인 ${symbolApprovalLabel(selectedSymbolWorkflow.approval?.status)} · 저장 ${selectedSymbolWorkflow.saved_candidate?.saved_at ? '완료' : '대기'}`}
+                            tone={symbolApprovalTone(selectedSymbolWorkflow.approval?.status)}
+                          />
+                          <SummaryMetricCard
+                            label="재검증 상태"
+                            value={selectedSymbolWorkflow.latest_candidate?.decision?.label || '미실행'}
+                            detail={selectedSymbolWorkflow.latest_candidate?.decision?.summary || '재검증 후 승인/저장 단계를 진행하세요.'}
+                            tone={quantDecisionTone(selectedSymbolWorkflow.latest_candidate?.decision?.status)}
+                          />
+                          <SummaryMetricCard
+                            label="Runtime 반영"
+                            value={selectedSymbolWorkflow.runtime?.applied ? '반영됨' : '미반영'}
+                            detail={selectedSymbolWorkflow.runtime?.applied_at ? formatDateTime(selectedSymbolWorkflow.runtime.applied_at) : '아직 runtime apply 전'}
+                            tone={selectedSymbolWorkflow.runtime?.applied ? 'good' : 'neutral'}
+                          />
+                        </div>
+
+                        <div className="detail-list" style={{ marginTop: 12 }}>
+                          <div><strong>종목 후보 파라미터</strong></div>
+                          {(selectedSymbolWorkflow.search_candidate?.patch_lines || []).slice(0, 8).map((line) => (
+                            <div key={`${selectedSymbolWorkflow.symbol}-search-${line}`}>{line}</div>
+                          ))}
+                          {(!selectedSymbolWorkflow.search_candidate?.patch_lines || selectedSymbolWorkflow.search_candidate.patch_lines.length === 0) && <div>optimizer per-symbol 파라미터가 없습니다.</div>}
+                        </div>
+
+                        <div className="quant-ops-guardrail-list" style={{ marginTop: 12 }}>
+                          <div className="summary-rail-item"><strong>승인 상태</strong> {symbolApprovalLabel(selectedSymbolWorkflow.approval?.status)} · {selectedSymbolWorkflow.approval?.updated_at ? formatDateTime(selectedSymbolWorkflow.approval.updated_at) : '미지정'}</div>
+                          {(selectedSymbolWorkflow.latest_guardrails?.reasons || []).length === 0 && <div className="summary-rail-item">저장/반영 가드레일 차단 사유 없음</div>}
+                          {(selectedSymbolWorkflow.latest_guardrails?.reasons || []).map((reason) => (
+                            <div key={`${selectedSymbolWorkflow.symbol}-${reason}`} className="summary-rail-item">{quantGuardrailReasonLabel(reason)}</div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className="empty-inline" style={{ marginTop: 12 }}>
+                    optimizer per-symbol 후보가 아직 없습니다.
+                  </div>
+                )}
+              </div>
+
               {(diagnosticsResult?.ok || latestValidatedCandidate || savedValidatedCandidate) && (
                 <div className="validation-report-grid">
                   <div className="page-section" style={{ padding: 16 }}>
@@ -1759,7 +1948,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   <div>퀀트 백테스트: {backtestPhaseLabel(backtestPhase)} · {backtestMessage}</div>
                   <div>퀀트 최적화: {optimizationPhaseLabel(optimizationPhase)} · {optimizationMessage}</div>
                   <div>재검증 후보: {latestValidatedCandidate?.decision?.label || '없음'} · 저장 {latestValidatedCandidate?.guardrails?.can_save ? '가능' : '차단'}</div>
+                  <div>종목 승인/저장: {formatCount(workflowPayload?.symbol_summary?.approved_count, '건')} / {formatCount(workflowPayload?.symbol_summary?.saved_count, '건')}</div>
                   <div>저장 후보 / runtime: {savedValidatedCandidate?.saved_at ? formatDateTime(savedValidatedCandidate.saved_at) : '없음'} / {runtimeApplyState?.status === 'applied' ? formatDateTime(runtimeApplyState.applied_at) : '미반영'}</div>
+                  <div>runtime 종목 반영: {formatCount(runtimeApplyState?.applied_symbol_count, '건')} · {Array.isArray(runtimeApplyState?.applied_symbols) && runtimeApplyState?.applied_symbols?.length ? runtimeApplyState.applied_symbols.join(', ') : '없음'}</div>
                   <div>마지막 실행 시각: {executedRun?.executedAt ? formatDateTime(executedRun.executedAt) : runFinishedAt ? formatDateTime(runFinishedAt) : '없음'}</div>
                   <div>화면 새로고침은 상태만 다시 불러오고, 결과 카드는 다시 계산하지 않습니다.</div>
                 </div>

@@ -33,6 +33,9 @@ def _install_server_route_stubs() -> None:
             "handle_get_quant_ops_workflow": lambda: (200, {"ok": True}),
             "handle_quant_ops_apply_runtime": lambda payload: (200, {"payload": payload}),
             "handle_quant_ops_revalidate": lambda payload: (200, {"payload": payload}),
+            "handle_quant_ops_revalidate_symbol": lambda payload: (200, {"payload": payload}),
+            "handle_quant_ops_set_symbol_approval": lambda payload: (200, {"payload": payload}),
+            "handle_quant_ops_save_symbol_candidate": lambda payload: (200, {"payload": payload}),
             "handle_quant_ops_save_candidate": lambda payload: (200, {"payload": payload}),
         },
         "routes.reports": {

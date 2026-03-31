@@ -110,7 +110,28 @@ class QuantOpsWorkflowTests(unittest.TestCase):
                 "rsi_max": 72.0,
             },
             "per_symbol": {
-                "AAA": {"is_reliable": True, "strategy_reliability": "high"},
+                "AAA": {
+                    "is_reliable": True,
+                    "strategy_reliability": "high",
+                    "reliability_reason": "stable",
+                    "trade_count": 22,
+                    "validation_trades": 22,
+                    "validation_sharpe": 0.78,
+                    "max_drawdown_pct": -13.1,
+                    "stop_loss_pct": 4.2,
+                    "take_profit_pct": 15.8,
+                    "max_holding_days": 14,
+                },
+                "BBB": {
+                    "is_reliable": False,
+                    "strategy_reliability": "low",
+                    "reliability_reason": "insufficient_samples",
+                    "trade_count": 4,
+                    "validation_trades": 4,
+                    "validation_sharpe": -0.1,
+                    "max_drawdown_pct": -31.2,
+                    "stop_loss_pct": 7.0,
+                },
             },
             "meta": {
                 "n_symbols_optimized": 1,
@@ -156,6 +177,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertTrue(result["workflow"]["search_result"]["available"])
         self.assertEqual("adopt", result["workflow"]["stage_status"]["revalidation"])
         self.assertTrue(self.state_path.exists())
+        self.assertIn("symbol_candidates", result["workflow"])
 
     def test_save_blocks_when_revalidation_failed_guardrails(self):
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
@@ -204,6 +226,55 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertTrue(self.runtime_store["payload"])
         self.assertEqual("validated_candidate", self.runtime_store["payload"]["meta"]["global_overlay_source"])
         self.assertEqual(save_result["candidate"]["id"], self.runtime_store["payload"]["meta"]["applied_candidate_id"])
+
+    def test_symbol_candidate_requires_approval_then_saved_and_applied(self):
+        execution_stub = types.ModuleType("services.execution_service")
+        execution_stub.apply_quant_candidate_runtime_config = lambda candidate: {
+            "ok": True,
+            "state": {
+                "engine_state": "stopped",
+                "next_run_at": "",
+                "config": {"stop_loss_pct": candidate.get("patch", {}).get("stop_loss_pct")},
+            },
+        }
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", side_effect=lambda: self.runtime_store.get("payload") or None), \
+             patch.object(svc, "write_runtime_optimized_params", side_effect=self._runtime_writer), \
+             patch.object(svc, "run_validation_diagnostics", return_value=_adopt_diagnostics()), \
+             patch.dict(sys.modules, {"services.execution_service": execution_stub}):
+            svc.revalidate_optimizer_candidate({
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "운영 전략", "minTrades": 8},
+            })
+            revalidate_symbol = svc.revalidate_symbol_candidate({
+                "symbol": "AAA",
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "운영 전략", "minTrades": 8},
+            })
+            blocked_save = svc.save_symbol_candidate({"symbol": "AAA"})
+            approval = svc.set_symbol_candidate_approval({"symbol": "AAA", "status": "approved", "note": "operator ok"})
+            saved_symbol = svc.save_symbol_candidate({"symbol": "AAA"})
+            saved_global = svc.save_validated_candidate({"note": "global 저장"})
+            apply_result = svc.apply_saved_candidate_to_runtime({})
+
+        self.assertTrue(revalidate_symbol["ok"])
+        self.assertFalse(blocked_save["ok"])
+        self.assertEqual("symbol_save_guardrail_blocked", blocked_save["error"])
+        self.assertIn("operator_approval_required", blocked_save["guardrails"]["reasons"])
+        self.assertTrue(approval["ok"])
+        self.assertEqual("approved", approval["approval"]["status"])
+        self.assertTrue(saved_symbol["ok"])
+        self.assertEqual("AAA", saved_symbol["symbol"])
+        self.assertTrue(saved_global["ok"])
+        self.assertTrue(apply_result["ok"])
+        self.assertEqual(1, self.runtime_store["payload"]["meta"]["approved_symbol_count"])
+        self.assertEqual(["AAA"], self.runtime_store["payload"]["meta"]["approved_symbols"])
+        self.assertIn("AAA", self.runtime_store["payload"]["per_symbol"])
+        self.assertNotIn("BBB", self.runtime_store["payload"]["per_symbol"])
+        workflow = apply_result["workflow"]
+        self.assertEqual("applied", workflow["stage_status"]["symbol_runtime_apply"])
+        self.assertEqual(1, workflow["symbol_summary"]["runtime_applied_count"])
 
 
 if __name__ == "__main__":

@@ -3,13 +3,24 @@ import {
   applyQuantOpsRuntime,
   fetchQuantOpsWorkflow,
   revalidateQuantOpsCandidate,
+  revalidateQuantOpsSymbolCandidate,
+  saveQuantOpsSymbolCandidate,
   saveQuantOpsCandidate,
+  setQuantOpsSymbolApproval,
 } from '../api/domain';
 import type { QuantOpsActionResponse, QuantOpsWorkflowResponse } from '../types/domain';
 import type { BacktestQuery } from '../types';
 import type { ValidationSettings } from './useValidationSettingsStore';
 
-export type QuantOpsBusyAction = 'refresh' | 'revalidate' | 'save' | 'apply' | null;
+export type QuantOpsBusyAction =
+  | 'refresh'
+  | 'revalidate'
+  | 'revalidate_symbol'
+  | 'approve_symbol'
+  | 'save_symbol'
+  | 'save'
+  | 'apply'
+  | null;
 
 export function useQuantOpsWorkflow() {
   const [workflow, setWorkflow] = useState<QuantOpsWorkflowResponse | null>(null);
@@ -59,6 +70,36 @@ export function useQuantOpsWorkflow() {
     }
   }, [handleActionResponse]);
 
+  const revalidateSymbol = useCallback(async (symbol: string, query: BacktestQuery, settings: ValidationSettings) => {
+    setBusyAction('revalidate_symbol');
+    try {
+      const response = await revalidateQuantOpsSymbolCandidate(symbol, query, settings);
+      return handleActionResponse(response);
+    } finally {
+      setBusyAction(null);
+    }
+  }, [handleActionResponse]);
+
+  const setSymbolApproval = useCallback(async (symbol: string, status: 'approved' | 'rejected' | 'hold', note?: string) => {
+    setBusyAction('approve_symbol');
+    try {
+      const response = await setQuantOpsSymbolApproval(symbol, status, note);
+      return handleActionResponse(response);
+    } finally {
+      setBusyAction(null);
+    }
+  }, [handleActionResponse]);
+
+  const saveSymbolCandidate = useCallback(async (symbol: string, note?: string) => {
+    setBusyAction('save_symbol');
+    try {
+      const response = await saveQuantOpsSymbolCandidate(symbol, note);
+      return handleActionResponse(response);
+    } finally {
+      setBusyAction(null);
+    }
+  }, [handleActionResponse]);
+
   const saveCandidate = useCallback(async (candidateId?: string, note?: string) => {
     setBusyAction('save');
     try {
@@ -86,6 +127,9 @@ export function useQuantOpsWorkflow() {
     lastError,
     refresh,
     revalidate,
+    revalidateSymbol,
+    setSymbolApproval,
+    saveSymbolCandidate,
     saveCandidate,
     applyRuntime,
   };

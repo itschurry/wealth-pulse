@@ -16,7 +16,10 @@ from routes.quant_ops import (
     handle_get_quant_ops_workflow,
     handle_quant_ops_apply_runtime,
     handle_quant_ops_revalidate,
+    handle_quant_ops_revalidate_symbol,
+    handle_quant_ops_save_symbol_candidate,
     handle_quant_ops_save_candidate,
+    handle_quant_ops_set_symbol_approval,
 )
 from routes.reports import (
     handle_analysis,
@@ -141,6 +144,9 @@ POST_ROUTES: tuple[Route, ...] = (
     Route("/api/paper/engine/stop", lambda _path, _payload: handle_paper_engine_stop()),
     Route("/api/run-optimization", lambda _path, _payload: handle_run_optimization()),
     Route("/api/quant-ops/revalidate", lambda _path, payload: handle_quant_ops_revalidate(payload)),
+    Route("/api/quant-ops/revalidate-symbol", lambda _path, payload: handle_quant_ops_revalidate_symbol(payload)),
+    Route("/api/quant-ops/set-symbol-approval", lambda _path, payload: handle_quant_ops_set_symbol_approval(payload)),
+    Route("/api/quant-ops/save-symbol-candidate", lambda _path, payload: handle_quant_ops_save_symbol_candidate(payload)),
     Route("/api/quant-ops/save-candidate", lambda _path, payload: handle_quant_ops_save_candidate(payload)),
     Route("/api/quant-ops/apply-runtime", lambda _path, payload: handle_quant_ops_apply_runtime(payload)),
 )

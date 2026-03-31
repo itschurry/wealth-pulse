@@ -33,6 +33,9 @@ def _install_server_route_stubs() -> None:
             "handle_get_quant_ops_workflow": lambda: (200, {"ok": True}),
             "handle_quant_ops_apply_runtime": lambda payload: (200, {"payload": payload}),
             "handle_quant_ops_revalidate": lambda payload: (200, {"payload": payload}),
+            "handle_quant_ops_revalidate_symbol": lambda payload: (200, {"payload": payload}),
+            "handle_quant_ops_set_symbol_approval": lambda payload: (200, {"payload": payload}),
+            "handle_quant_ops_save_symbol_candidate": lambda payload: (200, {"payload": payload}),
             "handle_quant_ops_save_candidate": lambda payload: (200, {"payload": payload}),
         },
         "routes.reports": {
@@ -184,6 +187,13 @@ class ApiServerDispatchTests(unittest.TestCase):
 
         self.assertEqual((200, {"ok": True}), result)
         mock_handler.assert_called_once_with({"query": {"market_scope": "kospi"}})
+
+    def test_dispatch_post_routes_quant_ops_symbol_actions(self):
+        with patch("server.handle_quant_ops_set_symbol_approval", return_value=(200, {"ok": True})) as mock_handler:
+            result = dispatch_post("/api/quant-ops/set-symbol-approval", {"symbol": "AAPL", "status": "approved"})
+
+        self.assertEqual((200, {"ok": True}), result)
+        mock_handler.assert_called_once_with({"symbol": "AAPL", "status": "approved"})
 
     def test_dispatch_returns_none_for_unknown_route(self):
         self.assertIsNone(dispatch_get("/api/unknown", {}))

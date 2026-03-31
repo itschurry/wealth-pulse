@@ -85,6 +85,11 @@ Baseline 결과를 해부한다.
 목적:
 - 과적합인지, 실제로도 쓸 만한지 판별한다.
 
+#### Step 4-1. 종목별 재검증/승인
+- `per_symbol` 후보도 종목 단위로 별도 재검증한다.
+- 운영자는 종목마다 `승인(approved) / 보류(hold) / 거절(rejected)` 상태를 명시해야 한다.
+- 승인 상태가 아니거나, 탐색 버전이 바뀌었거나, 탐색 결과가 stale이면 저장/반영을 차단한다.
+
 ### Step 5. 채택 / 보류 / 거절
 재검증 결과를 바탕으로 의사결정한다.
 
@@ -97,12 +102,16 @@ Baseline 결과를 해부한다.
 
 저장 대상:
 - global optimized params
-- per-symbol overlay params
+- 승인된 per-symbol overlay params
 - reliability metadata
 - composite score / tail risk snapshot
 
 ### Step 7. Paper / Runtime 반영
 퀀트 라인과 AI 추천 라인을 병렬로 참고하되, 교집합 조건으로 묶지 않는다.
+
+중요 가드레일:
+- runtime 반영 시 `saved + approved` 종목 후보만 `runtime_optimized_params.json`의 `per_symbol`에 포함한다.
+- 저장되지 않았거나 승인되지 않은 종목 후보는 runtime에서 자동 제외한다.
 
 ### Step 8. 사후 모니터링
 실제 운용 후 계속 확인한다.
@@ -131,13 +140,16 @@ Baseline 결과를 해부한다.
 
 ### 코드
 - `quant_ops_state.json` 으로 latest candidate / saved candidate / runtime apply 상태를 분리 저장
+- `quant_ops_state.json`에 종목별 latest/saved/approval/runtime 상태도 분리 저장
 - `optimized_params.json`(탐색 결과)와 `runtime_optimized_params.json`(운영 반영본)을 분리
 - 저장 API와 runtime apply API가 재검증 guardrail 통과 전에는 실행되지 않도록 차단
 - paper engine current config가 저장 후보 반영 시 같이 갱신되도록 연결
+- 종목별 API(`revalidate-symbol`, `set-symbol-approval`, `save-symbol-candidate`)로 운영자 승인 흐름을 명시
 
 ### UI/UX
 - 퀀트 검증 화면 상단에 6단계 workflow 레일 추가
 - Search / Validated Candidate / Saved / Runtime Apply 상태를 각각 카드로 분리
+- Per-Symbol Candidate Approval 패널에서 종목별 재검증/승인/저장/가드레일 상태를 분리
 - baseline 진단과 optimizer 후보 재검증을 별도 버튼/영역으로 분리
 - 저장/반영 차단 사유를 guardrail 리스트로 표시
 

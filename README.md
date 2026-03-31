@@ -31,16 +31,19 @@
 2. **Diagnosis** — 차단 요인, tail risk, exit weakness 진단
 3. **Candidate Search** — optimizer 결과를 탐색 후보로만 취급
 4. **Re-validation** — optimizer global overlay를 현재 baseline 기준으로 다시 검증
-5. **Save** — 재검증 통과 후보만 저장
-6. **Runtime Apply** — 저장된 후보만 paper/runtime 설정으로 반영
+5. **Per-Symbol Approval** — 종목 후보를 재검증하고 운영자가 승인/보류/거절 상태를 명시
+6. **Save** — 재검증 통과 + 승인된 후보만 저장
+7. **Runtime Apply** — 저장된 후보만 paper/runtime 설정으로 반영
 
 중요한 분리:
 
 - `optimized_params.json` = **탐색 결과(search)**
 - `runtime_optimized_params.json` = **운영 반영(runtime)**
 - `storage/logs/quant_ops_state.json` = **후보 / 저장 / 반영 상태 추적**
+- 종목별로도 `latest/approval/saved/runtime-applied` 상태를 별도로 추적
 
 즉, optimizer 결과를 바로 런타임에 쓰지 않고, 중간에 재검증/저장 가드를 하나 더 둔다.
+종목 후보도 승인/저장 가드를 통과한 것만 runtime `per_symbol` overlay에 포함된다.
 
 ## 저장소 구조
 

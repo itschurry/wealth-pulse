@@ -77,6 +77,18 @@ export function revalidateQuantOpsCandidate(query: BacktestQuery, settings: Vali
   return postJSON<QuantOpsActionResponse>('/api/quant-ops/revalidate', { query, settings });
 }
 
+export function revalidateQuantOpsSymbolCandidate(symbol: string, query: BacktestQuery, settings: ValidationSettings) {
+  return postJSON<QuantOpsActionResponse>('/api/quant-ops/revalidate-symbol', { symbol, query, settings });
+}
+
+export function setQuantOpsSymbolApproval(symbol: string, status: 'approved' | 'rejected' | 'hold', note?: string) {
+  return postJSON<QuantOpsActionResponse>('/api/quant-ops/set-symbol-approval', { symbol, status, note });
+}
+
+export function saveQuantOpsSymbolCandidate(symbol: string, note?: string) {
+  return postJSON<QuantOpsActionResponse>('/api/quant-ops/save-symbol-candidate', { symbol, note });
+}
+
 export function saveQuantOpsCandidate(candidateId?: string, note?: string) {
   return postJSON<QuantOpsActionResponse>('/api/quant-ops/save-candidate', { candidate_id: candidateId, note });
 }

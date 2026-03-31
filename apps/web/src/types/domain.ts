@@ -457,6 +457,8 @@ export interface QuantOpsRuntimeApplyPayload {
   status?: string;
   candidate_id?: string;
   applied_at?: string;
+  applied_symbol_count?: number;
+  applied_symbols?: string[];
   version?: string;
   effective_source?: string;
   source?: string;
@@ -464,11 +466,54 @@ export interface QuantOpsRuntimeApplyPayload {
   next_run_at?: string;
 }
 
+export interface QuantOpsSymbolApprovalPayload {
+  status?: string;
+  note?: string;
+  reason?: string;
+  updated_at?: string;
+  candidate_id?: string;
+}
+
+export interface QuantOpsSymbolSearchPayload {
+  symbol?: string;
+  search_version?: string;
+  search_optimized_at?: string;
+  search_is_stale?: boolean;
+  patch?: Record<string, unknown>;
+  patch_lines?: string[];
+  snapshot?: Record<string, unknown>;
+}
+
+export interface QuantOpsSymbolWorkflowItemPayload {
+  symbol?: string;
+  search_candidate?: QuantOpsSymbolSearchPayload;
+  latest_candidate?: QuantOpsCandidatePayload;
+  approval?: QuantOpsSymbolApprovalPayload;
+  saved_candidate?: QuantOpsCandidatePayload;
+  latest_guardrails?: QuantOpsGuardrailsPayload;
+  saved_guardrails?: QuantOpsGuardrailsPayload;
+  runtime?: {
+    applied?: boolean;
+    candidate_id?: string;
+    applied_at?: string;
+  };
+}
+
 export interface QuantOpsWorkflowResponse {
   ok?: boolean;
   search_result?: QuantOpsSearchResultPayload;
   latest_candidate?: QuantOpsCandidatePayload;
   saved_candidate?: QuantOpsCandidatePayload;
+  symbol_candidates?: QuantOpsSymbolWorkflowItemPayload[];
+  symbol_summary?: {
+    search_count?: number;
+    validated_count?: number;
+    approved_count?: number;
+    saved_count?: number;
+    runtime_applied_count?: number;
+  };
+  latest_symbol_candidates?: Record<string, QuantOpsCandidatePayload>;
+  saved_symbol_candidates?: Record<string, QuantOpsCandidatePayload>;
   runtime_apply?: QuantOpsRuntimeApplyPayload;
   stage_status?: Record<string, string>;
   notes?: string[];
@@ -477,7 +522,11 @@ export interface QuantOpsWorkflowResponse {
 
 export interface QuantOpsActionResponse {
   ok?: boolean;
+  symbol?: string;
   candidate?: QuantOpsCandidatePayload;
+  approval?: QuantOpsSymbolApprovalPayload;
+  guardrails?: QuantOpsGuardrailsPayload;
+  symbol_apply?: Record<string, unknown>;
   runtime_apply?: QuantOpsRuntimeApplyPayload;
   workflow?: QuantOpsWorkflowResponse;
   engine?: EngineStatusResponse;
