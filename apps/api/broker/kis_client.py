@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 from requests import HTTPError
@@ -328,37 +329,44 @@ class KISClient:
         period_division: str = "D",
         adjusted_price: str = "0",
     ) -> list[dict[str, Any]]:
-        payload = self._request(
-            "GET",
-            "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
-            headers=self._auth_headers("FHKST03010100"),
-            params={
-                "FID_COND_MRKT_DIV_CODE": "J",
-                "FID_INPUT_ISCD": code,
-                "FID_INPUT_DATE_1": start_date,
-                "FID_INPUT_DATE_2": end_date,
-                "FID_PERIOD_DIV_CODE": period_division,
-                "FID_ORG_ADJ_PRC": adjusted_price,
-            },
+        def _fetch_page(page_end_date: str) -> list[dict[str, Any]]:
+            payload = self._request(
+                "GET",
+                "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+                headers=self._auth_headers("FHKST03010100"),
+                params={
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": code,
+                    "FID_INPUT_DATE_1": start_date,
+                    "FID_INPUT_DATE_2": page_end_date,
+                    "FID_PERIOD_DIV_CODE": period_division,
+                    "FID_ORG_ADJ_PRC": adjusted_price,
+                },
+            )
+            output = payload.get("output2") or payload.get("output") or []
+            history = []
+            for item in output:
+                date = str(item.get("stck_bsop_date") or item.get("xymd") or "")
+                close = _to_float(item.get("stck_clpr") or item.get("clos"))
+                high = _to_float(item.get("stck_hgpr") or item.get("hgpr"))
+                low = _to_float(item.get("stck_lwpr") or item.get("lwpr"))
+                volume = _to_float(item.get("acml_vol") or item.get("tvol"))
+                if not date or close is None:
+                    continue
+                history.append({
+                    "date": date,
+                    "close": close,
+                    "high": high,
+                    "low": low,
+                    "volume": volume,
+                })
+            return history
+
+        return self._paginate_daily_history(
+            fetch_page=_fetch_page,
+            start_date=start_date,
+            end_date=end_date,
         )
-        output = payload.get("output2") or payload.get("output") or []
-        history = []
-        for item in output:
-            date = str(item.get("stck_bsop_date") or item.get("xymd") or "")
-            close = _to_float(item.get("stck_clpr") or item.get("clos"))
-            high = _to_float(item.get("stck_hgpr") or item.get("hgpr"))
-            low = _to_float(item.get("stck_lwpr") or item.get("lwpr"))
-            volume = _to_float(item.get("acml_vol") or item.get("tvol"))
-            if not date or close is None:
-                continue
-            history.append({
-                "date": date,
-                "close": close,
-                "high": high,
-                "low": low,
-                "volume": volume,
-            })
-        return history
 
     def get_overseas_price(
         self,
@@ -461,55 +469,102 @@ class KISClient:
         if not end_date:
             end_date = time.strftime("%Y%m%d")
 
-        payload: dict[str, Any] | None = None
-        for exchange_code in self._normalize_overseas_exchange(exchange):
-            for tr_id in self._OVERSEAS_DAILY_TR_IDS:
-                try:
-                    payload = self._request(
-                        "GET",
-                        self._OVERSEAS_DAILY_PATH,
-                        headers=self._auth_headers(tr_id),
-                        params={
-                            "AUTH": "",
-                            "EXCD": exchange_code,
-                            "SYMB": normalized_symbol,
-                            "GUBN": "0",
-                            "BYMD": end_date,
-                            "MODP": "1",
-                        },
-                    )
-                except KISAPIError:
-                    continue
+        def _fetch_page(page_end_date: str) -> list[dict[str, Any]]:
+            payload: dict[str, Any] | None = None
+            for exchange_code in self._normalize_overseas_exchange(exchange):
+                for tr_id in self._OVERSEAS_DAILY_TR_IDS:
+                    try:
+                        payload = self._request(
+                            "GET",
+                            self._OVERSEAS_DAILY_PATH,
+                            headers=self._auth_headers(tr_id),
+                            params={
+                                "AUTH": "",
+                                "EXCD": exchange_code,
+                                "SYMB": normalized_symbol,
+                                "GUBN": "0",
+                                "BYMD": page_end_date,
+                                "MODP": "1",
+                            },
+                        )
+                    except KISAPIError:
+                        continue
+                    if payload:
+                        break
                 if payload:
                     break
-            if payload:
+
+            if not payload:
+                raise KISAPIError("해외 일봉 조회에 실패했습니다.")
+
+            output = payload.get("output2") or payload.get("output1") or payload.get("output") or []
+            history = []
+            for item in output:
+                date = str(item.get("xymd") or item.get("stck_bsop_date") or "")
+                close = _pick_float(item, "clos", "stck_clpr", "last")
+                high = _pick_float(item, "high", "hgpr", "stck_hgpr")
+                low = _pick_float(item, "low", "lwpr", "stck_lwpr")
+                volume = _pick_float(item, "tvol", "acml_vol", "volume")
+                if not date or close is None:
+                    continue
+                history.append({
+                    "date": date,
+                    "close": close,
+                    "high": high,
+                    "low": low,
+                    "volume": volume,
+                })
+            return history
+
+        return self._paginate_daily_history(
+            fetch_page=_fetch_page,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    def _paginate_daily_history(
+        self,
+        *,
+        fetch_page: Callable[[str], list[dict[str, Any]]],
+        start_date: str,
+        end_date: str,
+    ) -> list[dict[str, Any]]:
+        seen_dates: set[str] = set()
+        history_by_date: dict[str, dict[str, Any]] = {}
+        next_end_date = end_date
+        previous_oldest_date = ""
+
+        while next_end_date and (not start_date or next_end_date >= start_date):
+            page = fetch_page(next_end_date)
+            if not page:
                 break
 
-        if not payload:
-            raise KISAPIError("해외 일봉 조회에 실패했습니다.")
+            page_dates: list[str] = []
+            for item in page:
+                date = str(item.get("date") or "")
+                if not date:
+                    continue
+                if start_date and date < start_date:
+                    continue
+                if end_date and date > end_date:
+                    continue
+                page_dates.append(date)
+                if date in seen_dates:
+                    continue
+                seen_dates.add(date)
+                history_by_date[date] = item
 
-        output = payload.get("output2") or payload.get("output1") or payload.get("output") or []
-        history = []
-        for item in output:
-            date = str(item.get("xymd") or item.get("stck_bsop_date") or "")
-            close = _pick_float(item, "clos", "stck_clpr", "last")
-            high = _pick_float(item, "high", "hgpr", "stck_hgpr")
-            low = _pick_float(item, "low", "lwpr", "stck_lwpr")
-            volume = _pick_float(item, "tvol", "acml_vol", "volume")
-            if not date or close is None:
-                continue
-            if start_date and date < start_date:
-                continue
-            if end_date and date > end_date:
-                continue
-            history.append({
-                "date": date,
-                "close": close,
-                "high": high,
-                "low": low,
-                "volume": volume,
-            })
-        return history
+            if not page_dates:
+                break
+
+            oldest_date = min(page_dates)
+            if oldest_date <= start_date or oldest_date == previous_oldest_date:
+                break
+
+            previous_oldest_date = oldest_date
+            next_end_date = (dt.datetime.strptime(oldest_date, "%Y%m%d") - dt.timedelta(days=1)).strftime("%Y%m%d")
+
+        return [history_by_date[date] for date in sorted(history_by_date)]
 
     def _normalize_overseas_exchange(self, exchange: str) -> tuple[str, ...]:
         normalized = (exchange or "").strip().upper()

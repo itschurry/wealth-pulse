@@ -353,20 +353,26 @@ def run_walk_forward_validation(query: dict[str, list[str]]) -> dict[str, Any]:
         }
 
     n = len(equity_curve)
-    training_days = _query_int(query, "training_days", 180, 30, max(30, n - 40))
-    validation_days = _query_int(query, "validation_days", 60, 20, max(20, n - 20))
+    requested_training_days = _query_int(query, "training_days", 180, 30, 3650)
+    requested_validation_days = _query_int(query, "validation_days", 60, 20, 3650)
     walk_forward_enabled = _query_bool(query, "walk_forward", True)
 
-    oos_days = validation_days
-    required_points = training_days + validation_days + oos_days
+    effective_training_days = min(requested_training_days, max(30, n - 40))
+    effective_validation_days = min(requested_validation_days, max(20, n - 20))
+    oos_days = effective_validation_days
+    required_points = effective_training_days + effective_validation_days + oos_days
+    clipped = False
+    clipping_reason = None
     if required_points > n:
-        oos_days = max(20, min(validation_days, n // 5))
-        validation_days = max(20, min(validation_days, max(20, (n - oos_days) // 3)))
-        training_days = max(30, min(training_days, max(30, n - validation_days - oos_days)))
+        clipped = True
+        clipping_reason = "insufficient_equity_curve_length"
+        oos_days = max(20, min(effective_validation_days, n // 5))
+        effective_validation_days = max(20, min(effective_validation_days, max(20, (n - oos_days) // 3)))
+        effective_training_days = max(30, min(effective_training_days, max(30, n - effective_validation_days - oos_days)))
 
     oos_start = max(0, n - oos_days)
-    validation_start = max(0, oos_start - validation_days)
-    train_start = max(0, validation_start - training_days)
+    validation_start = max(0, oos_start - effective_validation_days)
+    train_start = max(0, validation_start - effective_training_days)
 
     train_curve = _slice_by_index(equity_curve, train_start, validation_start)
     validation_curve = _slice_by_index(equity_curve, validation_start, oos_start)
@@ -385,11 +391,11 @@ def run_walk_forward_validation(query: dict[str, list[str]]) -> dict[str, Any]:
 
     windows = []
     if walk_forward_enabled:
-        window_size = min(n, training_days + validation_days)
-        step = max(20, validation_days)
+        window_size = min(n, effective_training_days + effective_validation_days)
+        step = max(20, effective_validation_days)
         for start in range(0, max(1, n - window_size + 1), step):
-            train_end = start + training_days
-            eval_end = min(n, train_end + validation_days)
+            train_end = start + effective_training_days
+            eval_end = min(n, train_end + effective_validation_days)
             segment = _slice_by_index(equity_curve, train_end, eval_end)
             if len(segment) < 20:
                 continue
@@ -434,12 +440,20 @@ def run_walk_forward_validation(query: dict[str, list[str]]) -> dict[str, Any]:
         "config": {
             "markets": list(base_cfg.markets),
             "lookback_days": base_cfg.lookback_days,
-            "training_days": training_days,
-            "validation_days": validation_days,
+            "training_days": requested_training_days,
+            "validation_days": requested_validation_days,
             "walk_forward": walk_forward_enabled,
+            "effective_window": {
+                "available_points": n,
+                "training_days": effective_training_days,
+                "validation_days": effective_validation_days,
+                "oos_days": oos_days,
+                "clipped": clipped,
+                "clipping_reason": clipping_reason,
+            },
             "walk_forward_window": {
-                "window_size": (training_days + validation_days) if walk_forward_enabled else len(oos_curve),
-                "step": max(20, validation_days) if walk_forward_enabled else len(oos_curve),
+                "window_size": (effective_training_days + effective_validation_days) if walk_forward_enabled else len(oos_curve),
+                "step": max(20, effective_validation_days) if walk_forward_enabled else len(oos_curve),
             },
         },
         "segments": {

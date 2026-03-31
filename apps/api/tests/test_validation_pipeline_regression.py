@@ -140,6 +140,26 @@ class ValidationPipelineRegressionTests(unittest.TestCase):
             result["segments"]["oos"]["strategy_scorecard"]["composite_score"],
         )
 
+    def test_walk_forward_config_exposes_requested_and_effective_windows_when_clipped(self):
+        base_payload = _load_validation_payload()
+        walk_payload = _expand_for_walk_forward(base_payload, repeats=4)
+        stub = _StubBacktestService(payload_for_optional=base_payload, payload_for_run=walk_payload)
+
+        with patch("services.validation_service.get_backtest_service", return_value=stub):
+            result = run_walk_forward_validation({
+                "training_days": ["180"],
+                "validation_days": ["60"],
+            })
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(180, result["config"]["training_days"])
+        self.assertEqual(60, result["config"]["validation_days"])
+        self.assertIn("effective_window", result["config"])
+        self.assertTrue(result["config"]["effective_window"]["clipped"])
+        self.assertEqual("insufficient_equity_curve_length", result["config"]["effective_window"]["clipping_reason"])
+        self.assertLess(result["config"]["effective_window"]["training_days"], 180)
+        self.assertLess(result["config"]["effective_window"]["validation_days"], 60)
+
 
 if __name__ == "__main__":
     unittest.main()
