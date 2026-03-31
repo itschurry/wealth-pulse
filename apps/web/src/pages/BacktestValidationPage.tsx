@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getJSON, postJSON } from '../api/client';
+import { fetchValidationWalkForward } from '../api/domain';
 import { ConsoleActionBar, ConsoleConfirmDialog } from '../components/ConsoleActionBar';
 import { reliabilityToKorean, UI_TEXT } from '../constants/uiText';
 import { useBacktest } from '../hooks/useBacktest';
@@ -254,9 +255,10 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   const [optimizedParams, setOptimizedParams] = useState<Record<string, unknown> | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [validationResult, setValidationResult] = useState(snapshot.validation);
 
   const metrics = data.metrics as Record<string, unknown> | undefined;
-  const oos = snapshot.validation.segments?.oos;
+  const oos = validationResult.segments?.oos;
   const reasonRows = useMemo(() => aggregateByReason(data.trades || []), [data.trades]);
 
   const viewModel = useMemo<BacktestViewModel>(() => ({
@@ -266,25 +268,25 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     profitFactor: metricNumber(metrics, 'profit_factor'),
     winRatePct: metricNumber(metrics, 'win_rate_pct'),
     tradeCount: metricNumber(metrics, 'trade_count'),
-    reliability: reliabilityToKorean(String(snapshot.validation.summary?.oos_reliability || '')),
-  }), [metrics, oos, snapshot.validation.summary?.oos_reliability]);
+    reliability: reliabilityToKorean(String(validationResult.summary?.oos_reliability || '')),
+  }), [metrics, oos, validationResult.summary?.oos_reliability]);
 
   const settingsSummaryLines = useMemo(
     () => formatValidationSettingsLabel(validationStore.draftSettings, validationStore.draftQuery),
     [validationStore.draftQuery, validationStore.draftSettings],
   );
 
-  const segmentTrain = snapshot.validation.segments?.train as Record<string, unknown> | undefined;
-  const segmentValidation = snapshot.validation.segments?.validation as Record<string, unknown> | undefined;
-  const segmentOos = snapshot.validation.segments?.oos as Record<string, unknown> | undefined;
+  const segmentTrain = validationResult.segments?.train as Record<string, unknown> | undefined;
+  const segmentValidation = validationResult.segments?.validation as Record<string, unknown> | undefined;
+  const segmentOos = validationResult.segments?.oos as Record<string, unknown> | undefined;
   const globalParams = (optimizedParams?.global_params as Record<string, unknown> | undefined) || {};
   const validationPolicy = snapshot.engine.execution?.state?.validation_policy;
   const optimizedState = snapshot.engine.execution?.state?.optimized_params;
   const minTradesPolicy = Math.max(1, Number(validationPolicy?.validation_min_trades || 1));
 
   const walkForwardScorecard = useMemo(
-    () => extractStrategyScorecard(snapshot.validation.scorecard || segmentOos?.strategy_scorecard),
-    [segmentOos, snapshot.validation.scorecard],
+    () => extractStrategyScorecard(validationResult.scorecard || segmentOos?.strategy_scorecard),
+    [segmentOos, validationResult.scorecard],
   );
   const latestBacktestScorecard = useMemo(
     () => extractStrategyScorecard(data.scorecard),
@@ -471,15 +473,35 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     return () => window.clearInterval(timer);
   }, [optimizationHistory, optimizationRunning, push, pushToast, updateOptimizationHistory]);
 
+  const refreshValidationResult = useCallback(async (query = validationStore.draftQuery, settings = validationStore.draftSettings) => {
+    try {
+      const payload = await fetchValidationWalkForward(query, settings);
+      setValidationResult(payload);
+      return payload;
+    } catch {
+      push('warning', '검증 요약을 최신 설정으로 다시 계산하지 못했습니다.', '백엔드 validation 응답을 확인하세요.', 'backtest');
+      return null;
+    }
+  }, [push, validationStore.draftQuery, validationStore.draftSettings]);
+
+  useEffect(() => {
+    setValidationResult(snapshot.validation);
+  }, [snapshot.validation]);
+
+  useEffect(() => {
+    void refreshValidationResult(validationStore.savedQuery, validationStore.savedSettings);
+  }, [refreshValidationResult, validationStore.savedQuery, validationStore.savedSettings]);
+
   const handleRefreshAll = useCallback(() => {
     onRefresh();
+    void refreshValidationResult();
     push('info', '검증 화면 데이터를 새로고침했습니다.', '실행 상태와 리포트 스냅샷을 다시 불러옵니다.', 'refresh');
     pushToast({
       tone: 'info',
       title: '화면을 새로고침했습니다.',
       description: '실행 상태와 리포트 스냅샷을 최신 값으로 다시 불러옵니다.',
     });
-  }, [onRefresh, push, pushToast]);
+  }, [onRefresh, push, pushToast, refreshValidationResult]);
 
   const handleRunBacktest = useCallback(async () => {
     if (backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing') return;
@@ -509,6 +531,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     setBacktestMessage('서버에서 성과 계산과 검증 요약을 생성하고 있습니다.');
 
     const result = await run(validationStore.draftQuery);
+    await refreshValidationResult(validationStore.draftQuery, validationStore.draftSettings);
     setBacktestPhase('finalizing');
     setBacktestMessage('결과를 정리 중입니다.');
     await new Promise((resolve) => window.setTimeout(resolve, 180));
@@ -766,7 +789,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   <SummaryMetricCard
                     label="OOS 수익률"
                     value={formatPercent(viewModel.oosReturnPct, 2)}
-                    detail={`신뢰도 ${viewModel.reliability || '-'} · 윈도우 ${formatCount(snapshot.validation.summary?.windows, '개')}`}
+                    detail={`신뢰도 ${viewModel.reliability || '-'} · 윈도우 ${formatCount(validationResult.summary?.windows, '개')}`}
                     tone={(viewModel.oosReturnPct || 0) >= 0 ? 'good' : 'bad'}
                   />
                   <SummaryMetricCard

@@ -107,6 +107,24 @@ def _slice_by_index(seq: list[Any], start: int, end: int) -> list[Any]:
     return seq[start:end]
 
 
+def _query_int(query: dict[str, list[str]], name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = (query.get(name, [str(default)])[0] or str(default)).strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _query_bool(query: dict[str, list[str]], name: str, default: bool) -> bool:
+    raw = (query.get(name, [str(default)])[0] or str(default)).strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 def _exit_reason_stats(trades: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     stats: dict[str, dict[str, Any]] = {}
     for trade in trades:
@@ -335,34 +353,66 @@ def run_walk_forward_validation(query: dict[str, list[str]]) -> dict[str, Any]:
         }
 
     n = len(equity_curve)
-    train_end = int(n * 0.6)
-    val_end = int(n * 0.8)
+    training_days = _query_int(query, "training_days", 180, 30, max(30, n - 40))
+    validation_days = _query_int(query, "validation_days", 60, 20, max(20, n - 20))
+    walk_forward_enabled = _query_bool(query, "walk_forward", True)
 
-    train_curve = _slice_by_index(equity_curve, 0, train_end)
-    validation_curve = _slice_by_index(equity_curve, train_end, val_end)
-    oos_curve = _slice_by_index(equity_curve, val_end, n)
+    oos_days = validation_days
+    required_points = training_days + validation_days + oos_days
+    if required_points > n:
+        oos_days = max(20, min(validation_days, n // 5))
+        validation_days = max(20, min(validation_days, max(20, (n - oos_days) // 3)))
+        training_days = max(30, min(training_days, max(30, n - validation_days - oos_days)))
 
-    train_trades = [t for t in trades if t.get("exit_date") <= (train_curve[-1].get("date") if train_curve else "")]
-    val_trades = [t for t in trades if (validation_curve and validation_curve[0].get("date") <= t.get("exit_date") <= validation_curve[-1].get("date"))]
-    oos_trades = [t for t in trades if (oos_curve and t.get("exit_date") >= oos_curve[0].get("date"))]
+    oos_start = max(0, n - oos_days)
+    validation_start = max(0, oos_start - validation_days)
+    train_start = max(0, validation_start - training_days)
+
+    train_curve = _slice_by_index(equity_curve, train_start, validation_start)
+    validation_curve = _slice_by_index(equity_curve, validation_start, oos_start)
+    oos_curve = _slice_by_index(equity_curve, oos_start, n)
+
+    if not train_curve or not validation_curve or not oos_curve:
+        train_end = int(n * 0.6)
+        val_end = int(n * 0.8)
+        train_curve = _slice_by_index(equity_curve, 0, train_end)
+        validation_curve = _slice_by_index(equity_curve, train_end, val_end)
+        oos_curve = _slice_by_index(equity_curve, val_end, n)
+
+    train_trades = [t for t in trades if train_curve and str(t.get("exit_date") or "") <= str(train_curve[-1].get("date") or "")]
+    val_trades = [t for t in trades if (validation_curve and str(validation_curve[0].get("date") or "") <= str(t.get("exit_date") or "") <= str(validation_curve[-1].get("date") or ""))]
+    oos_trades = [t for t in trades if (oos_curve and str(t.get("exit_date") or "") >= str(oos_curve[0].get("date") or ""))]
 
     windows = []
-    window_size = max(45, min(252, n // 3))
-    step = max(20, window_size // 3)
-
-    for start in range(0, max(1, n - window_size), step):
-        end = min(n, start + window_size)
-        segment = _slice_by_index(equity_curve, start, end)
-        if len(segment) < 30:
-            continue
-        start_date = str(segment[0].get("date") or "")
-        end_date = str(segment[-1].get("date") or "")
-        segment_trades = [t for t in trades if start_date <= str(t.get("exit_date") or "") <= end_date]
+    if walk_forward_enabled:
+        window_size = min(n, training_days + validation_days)
+        step = max(20, validation_days)
+        for start in range(0, max(1, n - window_size + 1), step):
+            train_end = start + training_days
+            eval_end = min(n, train_end + validation_days)
+            segment = _slice_by_index(equity_curve, train_end, eval_end)
+            if len(segment) < 20:
+                continue
+            start_date = str(segment[0].get("date") or "")
+            end_date = str(segment[-1].get("date") or "")
+            segment_trades = [t for t in trades if start_date <= str(t.get("exit_date") or "") <= end_date]
+            windows.append(
+                {
+                    "train_start_date": str(equity_curve[start].get("date") or "") if start < len(equity_curve) else "",
+                    "train_end_date": str(equity_curve[max(start, train_end - 1)].get("date") or "") if train_end - 1 < len(equity_curve) else "",
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "metrics": _segment_metrics(segment, segment_trades),
+                }
+            )
+    else:
+        start_date = str(oos_curve[0].get("date") or "") if oos_curve else ""
+        end_date = str(oos_curve[-1].get("date") or "") if oos_curve else ""
         windows.append(
             {
                 "start_date": start_date,
                 "end_date": end_date,
-                "metrics": _segment_metrics(segment, segment_trades),
+                "metrics": _segment_metrics(oos_curve, oos_trades),
             }
         )
 
@@ -384,9 +434,12 @@ def run_walk_forward_validation(query: dict[str, list[str]]) -> dict[str, Any]:
         "config": {
             "markets": list(base_cfg.markets),
             "lookback_days": base_cfg.lookback_days,
+            "training_days": training_days,
+            "validation_days": validation_days,
+            "walk_forward": walk_forward_enabled,
             "walk_forward_window": {
-                "window_size": window_size,
-                "step": step,
+                "window_size": (training_days + validation_days) if walk_forward_enabled else len(oos_curve),
+                "step": max(20, validation_days) if walk_forward_enabled else len(oos_curve),
             },
         },
         "segments": {
