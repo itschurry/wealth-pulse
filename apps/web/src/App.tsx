@@ -25,13 +25,13 @@ const CONSOLE_TABS: Array<{ id: ConsoleTab; label: string; path: string }> = [
 
 const REPORT_TABS: Array<{ id: ReportTab; label: string; path: string }> = [
   { id: 'today-report', label: UI_TEXT.reportTabs.todayReport, path: '/reports/today-report' },
-  { id: 'action-board', label: UI_TEXT.reportTabs.actionBoard, path: '/reports/action-board' },
+  { id: 'alerts', label: UI_TEXT.reportTabs.alerts, path: '/reports/alerts' },
   { id: 'watch-decision', label: UI_TEXT.reportTabs.watchDecision, path: '/reports/watch-decision' },
 ];
 
 const SECTION_COPY: Record<TopSection, string> = {
   console: '실행 상태 확인, 제어, 검증 실행 같은 운영 작업용 화면입니다.',
-  reports: '오늘 판단, 우선순위, 체크리스트를 읽는 브리핑 화면입니다.',
+  reports: '오늘 판단, 운영 경고, 관심 포인트를 읽는 브리핑 화면입니다.',
 };
 
 const SECTION_BADGE: Record<TopSection, string> = {
@@ -53,6 +53,7 @@ function toRouteState(pathname: string): RouteState {
     '/reports/today': '/reports/today-report',
     '/reports/recommendations': '/reports/today-report',
     '/reports/today-recommendations': '/reports/today-report',
+    '/reports/action-board': '/reports/alerts',
     '/': '/console/overview',
   };
   if (legacyRedirects[path]) return normalize(legacyRedirects[path]);

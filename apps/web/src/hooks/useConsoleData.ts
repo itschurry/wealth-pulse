@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   fetchEngineStatus,
+  fetchNotificationStatus,
   fetchPortfolioState,
   fetchReportsExplain,
   fetchSignals,
@@ -21,6 +22,7 @@ function emptySnapshot(): ConsoleSnapshot {
     portfolio: {},
     validation: {},
     reports: {},
+    notifications: {},
     fetchedAt: nowIso,
   };
 }
@@ -54,6 +56,7 @@ export function useConsoleData() {
       if (key === 'signals') return fetchSignals(150);
       if (key === 'portfolio') return fetchPortfolioState(true);
       if (key === 'validation') return fetchValidationWalkForward();
+      if (key === 'notifications') return fetchNotificationStatus();
       return fetchReportsExplain();
     });
     const results = await Promise.allSettled(tasks);
@@ -73,7 +76,7 @@ export function useConsoleData() {
 
   const refresh = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, hasError: false, errorMessage: '' }));
-    await fetchPartition(['engine', 'signals', 'portfolio', 'validation', 'reports']);
+    await fetchPartition(['engine', 'signals', 'portfolio', 'validation', 'reports', 'notifications']);
   }, [fetchPartition]);
 
   useEffect(() => {
@@ -96,7 +99,7 @@ export function useConsoleData() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void fetchPartition(['validation', 'reports']);
+      void fetchPartition(['validation', 'reports', 'notifications']);
     }, SLOW_POLLING_MS);
     return () => window.clearInterval(timer);
   }, [fetchPartition]);

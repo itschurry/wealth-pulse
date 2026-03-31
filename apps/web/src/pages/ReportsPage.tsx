@@ -1,11 +1,10 @@
-import { startTransition, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
-  buildActionBoardView,
   buildTodayReportView,
   buildWatchDecisionView,
 } from '../adapters/consoleViewAdapter';
 import type { ReactNode } from 'react';
-import { UI_TEXT } from '../constants/uiText';
+import { UI_TEXT, reasonCodeToKorean, reliabilityToKorean } from '../constants/uiText';
 import type { DomainSignal } from '../types/domain';
 import { formatCount, formatDateTime, formatNumber, formatPercent, formatSymbol } from '../utils/format';
 import {
@@ -26,33 +25,6 @@ interface ReportsPageProps {
   errorMessage: string;
   reportTab: ReportTab;
   onRefresh: () => void;
-}
-
-interface CustomChecklistItem {
-  id: string;
-  label: string;
-  detail: string;
-}
-
-const ACTION_BOARD_STATE_KEY = 'reports_action_board_state_v1';
-
-function readActionBoardState() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(ACTION_BOARD_STATE_KEY) || 'null') as {
-      done?: Record<string, boolean>;
-      custom?: CustomChecklistItem[];
-    } | null;
-    return {
-      done: raw?.done || {},
-      custom: Array.isArray(raw?.custom) ? raw?.custom : [],
-    };
-  } catch {
-    return { done: {}, custom: [] as CustomChecklistItem[] };
-  }
-}
-
-function persistActionBoardState(done: Record<string, boolean>, custom: CustomChecklistItem[]) {
-  localStorage.setItem(ACTION_BOARD_STATE_KEY, JSON.stringify({ done, custom }));
 }
 
 function renderIndexedBriefItems(lines: string[], keyPrefix: string) {
@@ -94,13 +66,13 @@ function riskScore(value: string): number {
 }
 
 function tabHeadline(tab: ReportTab): string {
-  if (tab === 'action-board') return '액션보드';
+  if (tab === 'alerts') return '운영알림';
   if (tab === 'watch-decision') return '관망/관심목표 판단';
   return '오늘 리포트';
 }
 
 function tabDescription(tab: ReportTab): string {
-  if (tab === 'action-board') return '읽고 끝내는 화면이 아니라, 바로 체크하고 실행 준비를 끝내는 보드입니다.';
+  if (tab === 'alerts') return '지금 조치가 필요한 운영 이슈와 경고를 먼저 모아보는 화면입니다.';
   if (tab === 'watch-decision') return '신규 진입 태도와 집중 포인트만 짧게 정리한 판단 카드입니다.';
   return '오늘 시장 판단과 운영 포인트를 빠르게 읽는 브리핑 화면입니다.';
 }
@@ -395,106 +367,187 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
   );
 }
 
-function renderActionBoard(
-  snapshot: ConsoleSnapshot,
-  doneMap: Record<string, boolean>,
-  customItems: CustomChecklistItem[],
-  onToggle: (id: string, next: boolean) => void,
-  newItemLabel: string,
-  setNewItemLabel: (value: string) => void,
-  newItemDetail: string,
-  setNewItemDetail: (value: string) => void,
-  onAddItem: () => void,
-  onRemoveItem: (id: string) => void,
-) {
-  const view = buildActionBoardView(snapshot);
-  const checklist = [
-    ...view.checklist.map((item, index) => ({
-      id: `base-${index}`,
-      label: item.label,
-      detail: item.detail,
-      done: doneMap[`base-${index}`] ?? item.done,
-      custom: false,
-    })),
-    ...customItems.map((item) => ({
-      id: item.id,
-      label: item.label,
-      detail: item.detail,
-      done: doneMap[item.id] ?? false,
-      custom: true,
-    })),
+function severityTone(severity: number): 'good' | 'neutral' | 'bad' {
+  if (severity >= 2) return 'bad';
+  if (severity <= -1) return 'good';
+  return 'neutral';
+}
+
+function renderAlerts(snapshot: ConsoleSnapshot) {
+  const engineState = snapshot.engine.execution?.state || {};
+  const riskGuard = snapshot.engine.risk_guard_state || snapshot.portfolio.risk_guard_state || {};
+  const allocator = snapshot.engine.allocator || {};
+  const notifications = snapshot.notifications || {};
+  const validationSummary = snapshot.validation.summary || {};
+  const allowedSignals = Number(allocator.entry_allowed_count || 0);
+  const blockedSignals = Number(allocator.blocked_count || 0);
+  const failedOrders = Number(engineState.today_order_counts?.failed || 0);
+  const skippedCount = Number((engineState.last_summary as { skipped_count?: number } | undefined)?.skipped_count || 0);
+  const isRunning = Boolean(engineState.running);
+  const isPaused = engineState.engine_state === 'paused';
+  const staleOptimized = Boolean(engineState.optimized_params?.is_stale);
+  const guardBlocked = riskGuard.entry_allowed === false;
+  const validationGateEnabled = Boolean(engineState.validation_policy?.validation_gate_enabled);
+  const reliability = reliabilityToKorean(String(validationSummary.oos_reliability || '').toLowerCase());
+  const notificationConfigured = Boolean(notifications.enabled && notifications.configured && notifications.chat_id_configured);
+  const latestSignals = (snapshot.signals.signals || []).filter((item) => !item.entry_allowed).slice(0, 5);
+
+  const alerts = [
+    {
+      key: 'engine',
+      label: '엔진 상태',
+      value: isRunning ? '실행 중' : isPaused ? '일시정지' : engineState.engine_state === 'error' ? '오류' : '중지',
+      detail: engineState.last_error || (isRunning ? '자동 실행 루프가 동작 중입니다.' : '자동 실행이 멈춰 있습니다.'),
+      severity: engineState.engine_state === 'error' ? 3 : (!isRunning ? 2 : 0),
+    },
+    {
+      key: 'risk-guard',
+      label: '신규 진입 제한',
+      value: guardBlocked ? '차단' : '허용',
+      detail: guardBlocked
+        ? (riskGuard.reasons || []).map((reason) => reasonCodeToKorean(reason)).join(' · ') || '리스크 가드가 신규 진입을 막고 있습니다.'
+        : '현재 기준으로 신규 진입이 가능합니다.',
+      severity: guardBlocked ? 2 : -1,
+    },
+    {
+      key: 'optimized',
+      label: '최적화 파라미터',
+      value: staleOptimized ? 'stale' : '정상',
+      detail: staleOptimized
+        ? `버전 ${String(engineState.optimized_params?.version || '-')} · 최신 최적화 재실행 권장`
+        : `버전 ${String(engineState.optimized_params?.version || '-')} · ${formatDateTime(engineState.optimized_params?.optimized_at || '')}`,
+      severity: staleOptimized ? 2 : -1,
+    },
+    {
+      key: 'orders',
+      label: '실패/스킵',
+      value: `${formatCount(failedOrders, '건')} / ${formatCount(skippedCount, '건')}`,
+      detail: `실패 주문 ${formatCount(failedOrders, '건')} · 최근 스킵 ${formatCount(skippedCount, '건')}`,
+      severity: failedOrders > 0 || skippedCount >= 3 ? 2 : 0,
+    },
+    {
+      key: 'validation',
+      label: 'Validation Gate',
+      value: validationGateEnabled ? '활성' : '비활성',
+      detail: `OOS 신뢰도 ${reliability || '-'} · min trades ${formatCount(Number(engineState.validation_policy?.validation_min_trades || 0), '건')}`,
+      severity: validationGateEnabled && String(validationSummary.oos_reliability || '').toLowerCase() === 'low' ? 2 : 0,
+    },
+    {
+      key: 'notifications',
+      label: '알림 채널',
+      value: notifications.enabled ? '사용' : '꺼짐',
+      detail: notifications.enabled
+        ? notificationConfigured
+          ? `${String(notifications.channel || 'channel')} 연결 완료`
+          : `${String(notifications.channel || 'channel')} 설정 미완료`
+        : '알림 발송이 비활성 상태입니다.',
+      severity: notifications.enabled && !notificationConfigured ? 2 : (!notifications.enabled ? 1 : -1),
+    },
   ];
+
+  const actionLines = [
+    !isRunning ? '엔진이 멈춰 있으면 모의투자 화면에서 상태를 확인하고 시작 여부를 결정하세요.' : '',
+    guardBlocked ? '리스크 가드 차단 사유를 먼저 해소하거나 오늘은 신규 진입 없이 운영하세요.' : '',
+    staleOptimized ? '최적화 파라미터가 stale 상태면 검증 화면에서 최적화를 다시 돌리는 편이 안전합니다.' : '',
+    failedOrders > 0 ? '실패 주문이 있으면 최근 체결 내역과 엔진 이벤트 로그를 먼저 확인하세요.' : '',
+    notifications.enabled && !notificationConfigured ? '텔레그램 알림이 미완료 상태라면 운영 전에 채널 설정부터 맞추는 게 좋습니다.' : '',
+  ].filter(Boolean);
+
+  const riskReasons = (riskGuard.reasons || []).map((reason) => reasonCodeToKorean(reason));
+  const blockedReasonLines = latestSignals.flatMap((signal) => (signal.reason_codes || []).map((reason) => `${formatSymbol(signal.code, signal.name)} · ${reasonCodeToKorean(reason)}`));
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <div className="page-section report-hero-card">
+      <div className="page-section report-hero-card report-decision-hero">
         <div className="report-hero-topline">
-          <span className="report-hero-tag">Action Board</span>
-          <span className="report-hero-meta">운영 전 체크리스트</span>
+          <span className="report-hero-tag">Alert First</span>
+          <span className="report-hero-meta">운영 경고 우선 확인</span>
         </div>
-        <div className="report-hero-title">실행 준비 보드</div>
-        <div className="report-hero-copy">완료 여부만 빠르게 체크하고, 필요한 운영 항목만 추가합니다.</div>
-      </div>
-
-      <div className="page-section report-rules-card" style={{ padding: 16 }}>
-        <div className="section-title">기본 운영 규칙</div>
-        <div className="report-brief-list is-compact">
-          {renderIndexedBriefItems(view.rules, 'rule')}
+        <div className="report-decision-title">지금 조치 필요: {alerts.filter((item) => item.severity >= 2).length}건</div>
+        <div className="report-hero-copy">액션보드 대신 실제 운영에 영향을 주는 경고만 앞으로 모았습니다. 엔진 상태, 진입 차단, stale optimization, 실패 주문, 알림 이상부터 먼저 확인하면 됩니다.</div>
+        <div className="report-decision-strip">
+          <div className={`report-decision-chip ${isRunning ? 'is-good' : 'is-bad'}`}>엔진 {isRunning ? '실행 중' : '정지'}</div>
+          <div className={`report-decision-chip ${guardBlocked ? 'is-bad' : 'is-good'}`}>진입 {guardBlocked ? '차단' : '허용'}</div>
+          <div className={`report-decision-chip ${failedOrders > 0 ? 'is-bad' : 'is-good'}`}>실패 주문 {formatCount(failedOrders, '건')}</div>
         </div>
       </div>
 
-      <div className="page-section" style={{ padding: 16 }}>
+      <div className="report-grid-3">
+        {alerts.map((item) => (
+          <div key={item.key} className={`page-section report-visual-card ${severityTone(item.severity) === 'bad' ? 'is-bad' : severityTone(item.severity) === 'good' ? 'is-good' : ''}`}>
+            <div className="report-card-title">{item.label}</div>
+            <div className="report-card-value">{item.value}</div>
+            <div className="report-card-copy">{item.detail}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="report-grid-2">
+        <div className="page-section report-visual-card">
+          <div className="section-head-row">
+            <div>
+              <div className="section-title">지금 바로 할 일</div>
+              <div className="section-copy">운영자가 바로 처리할 항목만 추렸습니다.</div>
+            </div>
+            <div className="inline-badge is-danger">{formatCount(actionLines.length, '개')}</div>
+          </div>
+          <div className="watch-grid">
+            {actionLines.map((line, index) => (
+              <div key={`action-${index}`} className="watch-card">{line}</div>
+            ))}
+            {actionLines.length === 0 && <div className="watch-card">지금 당장 조치가 필요한 운영 이슈는 크지 않습니다.</div>}
+          </div>
+        </div>
+
+        <div className="page-section report-visual-card">
+          <div className="section-head-row">
+            <div>
+              <div className="section-title">운영 기준값</div>
+              <div className="section-copy">현재 런타임이 보는 핵심 기준입니다.</div>
+            </div>
+            <div className="inline-badge">실시간</div>
+          </div>
+          <div className="detail-list">
+            <div>허용 / 차단 신호: {formatCount(allowedSignals, '건')} / {formatCount(blockedSignals, '건')}</div>
+            <div>다음 실행 시각: {formatDateTime(engineState.next_run_at || '')}</div>
+            <div>최근 성공 시각: {formatDateTime(engineState.last_success_at || '')}</div>
+            <div>오늘 실현손익: {formatNumber(Number(engineState.today_realized_pnl || 0), 0)}원</div>
+            <div>일일 손실 잔여: {formatNumber(Number(riskGuard.daily_loss_left || 0), 0)}원</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="report-grid-2">
+        <div className="page-section" style={{ padding: 16 }}>
+          <div className="section-title">리스크 가드 사유</div>
+          <div className="report-brief-list is-compact">
+            {riskReasons.length > 0 ? renderIndexedBriefItems(riskReasons.slice(0, 6), 'risk-reason') : <div className="watch-card">현재 강한 차단 사유는 없습니다.</div>}
+          </div>
+        </div>
+
+        <div className="page-section" style={{ padding: 16 }}>
+          <div className="section-title">최근 차단 신호 예시</div>
+          <div className="report-brief-list is-compact">
+            {blockedReasonLines.length > 0 ? renderIndexedBriefItems(blockedReasonLines.slice(0, 6), 'blocked-signal') : <div className="watch-card">최근 차단 신호가 많지 않습니다.</div>}
+          </div>
+        </div>
+      </div>
+
+      <div className="page-section report-evidence-card" style={{ padding: 16 }}>
         <div className="section-head-row">
           <div>
-            <div className="section-title">체크리스트</div>
-            <div className="section-copy">설명은 줄이고 체크 동작을 앞으로 뺐습니다.</div>
+            <div className="section-title">알림 채널 상태</div>
+            <div className="section-copy">문제가 생기면 운영자가 놓치기 쉬운 부분입니다.</div>
           </div>
-          <div className="inline-badge is-success">완료 {formatCount(checklist.filter((item) => item.done).length, '건')}</div>
+          <div className={`inline-badge ${notificationConfigured ? 'is-success' : 'is-warning'}`}>{notificationConfigured ? '정상' : '점검 필요'}</div>
         </div>
-
-        <div className="action-checklist-grid">
-          {checklist.map((item) => (
-            <div key={item.id} className={`checklist-card ${item.done ? 'is-done' : ''}`}>
-              <div className="checklist-card-head">
-                <div className="checklist-title">{item.label}</div>
-                <button
-                  type="button"
-                  className={`checklist-toggle ${item.done ? 'is-done' : ''}`}
-                  onClick={() => onToggle(item.id, !item.done)}
-                  aria-pressed={item.done}
-                  aria-label={`${item.label} ${item.done ? '미완료로 변경' : '완료로 변경'}`}
-                >
-                  {item.done ? '완료' : '확인 필요'}
-                </button>
-              </div>
-              <div className="checklist-copy">{item.detail}</div>
-              {item.custom && (
-                <button type="button" className="ghost-button" onClick={() => onRemoveItem(item.id)}>
-                  항목 삭제
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="custom-checklist-form">
-          <input
-            className="console-search-input"
-            placeholder="추가 체크 항목 제목"
-            value={newItemLabel}
-            onChange={(event) => setNewItemLabel(event.target.value)}
-            aria-label="추가 체크 항목 제목"
-          />
-          <input
-            className="console-search-input"
-            placeholder="짧은 메모"
-            value={newItemDetail}
-            onChange={(event) => setNewItemDetail(event.target.value)}
-            aria-label="추가 체크 항목 메모"
-          />
-          <button className="console-action-button is-primary" onClick={onAddItem}>
-            항목 추가
-          </button>
+        <div className="detail-list">
+          <div>채널: {String(notifications.channel || '-')}</div>
+          <div>enabled: {notifications.enabled ? 'true' : 'false'}</div>
+          <div>configured: {notifications.configured ? 'true' : 'false'}</div>
+          <div>chat_id_configured: {notifications.chat_id_configured ? 'true' : 'false'}</div>
+          <div>last_sent_at: {formatDateTime(notifications.last_sent_at || '')}</div>
+          <div>last_error: {String(notifications.last_error || '-')}</div>
         </div>
       </div>
     </div>
@@ -554,65 +607,15 @@ function renderWatchDecision(snapshot: ConsoleSnapshot) {
 }
 
 export function ReportsPage({ snapshot, loading, errorMessage, reportTab, onRefresh }: ReportsPageProps) {
-  const initialActionBoardState = useMemo(() => readActionBoardState(), []);
-  const [doneMap, setDoneMap] = useState<Record<string, boolean>>(initialActionBoardState.done);
-  const [customItems, setCustomItems] = useState<CustomChecklistItem[]>(initialActionBoardState.custom);
-  const [newItemLabel, setNewItemLabel] = useState('');
-  const [newItemDetail, setNewItemDetail] = useState('');
-
   const body: ReactNode = useMemo(() => {
-    if (reportTab === 'action-board') {
-      return renderActionBoard(
-        snapshot,
-        doneMap,
-        customItems,
-        (id, next) => {
-          startTransition(() => {
-            setDoneMap((prev) => {
-              const updated = { ...prev, [id]: next };
-              persistActionBoardState(updated, customItems);
-              return updated;
-            });
-          });
-        },
-        newItemLabel,
-        setNewItemLabel,
-        newItemDetail,
-        setNewItemDetail,
-        () => {
-          const label = newItemLabel.trim();
-          const detail = newItemDetail.trim();
-          if (!label) return;
-          const nextCustomItem: CustomChecklistItem = {
-            id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            label,
-            detail: detail || '운영자 추가 메모',
-          };
-          startTransition(() => {
-            const nextItems = [nextCustomItem, ...customItems];
-            setCustomItems(nextItems);
-            persistActionBoardState(doneMap, nextItems);
-            setNewItemLabel('');
-            setNewItemDetail('');
-          });
-        },
-        (id) => {
-          startTransition(() => {
-            const nextCustomItems = customItems.filter((item) => item.id !== id);
-            const nextDoneMap = { ...doneMap };
-            delete nextDoneMap[id];
-            setCustomItems(nextCustomItems);
-            setDoneMap(nextDoneMap);
-            persistActionBoardState(nextDoneMap, nextCustomItems);
-          });
-        },
-      );
+    if (reportTab === 'alerts') {
+      return renderAlerts(snapshot);
     }
     if (reportTab === 'watch-decision') {
       return renderWatchDecision(snapshot);
     }
     return renderTodayReport(snapshot);
-  }, [customItems, doneMap, newItemDetail, newItemLabel, reportTab, snapshot]);
+  }, [reportTab, snapshot]);
 
   return (
     <div className="app-shell">

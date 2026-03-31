@@ -1,6 +1,7 @@
 import { getJSON } from './client';
 import type {
   EngineStatusResponse,
+  NotificationStatusResponse,
   PortfolioStateResponse,
   ReportsExplainResponse,
   SignalsRankResponse,
@@ -29,4 +30,8 @@ export function fetchValidationWalkForward() {
 
 export function fetchReportsExplain() {
   return getJSON<ReportsExplainResponse>('/api/reports/explain', { noStore: true });
+}
+
+export function fetchNotificationStatus() {
+  return getJSON<NotificationStatusResponse>('/api/system/notifications/status', { noStore: true });
 }

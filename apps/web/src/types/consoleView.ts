@@ -1,6 +1,7 @@
 import type {
   DomainSignal,
   EngineStatusResponse,
+  NotificationStatusResponse,
   PortfolioStateResponse,
   ReportsExplainResponse,
   SignalsRankResponse,
@@ -13,6 +14,7 @@ export interface ConsoleSnapshot {
   portfolio: PortfolioStateResponse;
   validation: ValidationResponse;
   reports: ReportsExplainResponse;
+  notifications: NotificationStatusResponse;
   fetchedAt: string;
 }
 
@@ -41,11 +43,6 @@ export interface TodayReportView {
   }>;
   watchPoints: string[];
   hasReportContent: boolean;
-}
-
-export interface ActionBoardView {
-  rules: string[];
-  checklist: Array<{ label: string; done: boolean; detail: string }>;
 }
 
 export interface WatchDecisionView {

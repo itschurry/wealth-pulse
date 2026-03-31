@@ -12,7 +12,7 @@ export const UI_TEXT = {
   },
   reportTabs: {
     todayReport: '오늘',
-    actionBoard: '액션보드',
+    alerts: '운영알림',
     watchDecision: '관망/관심목표',
   },
   common: {

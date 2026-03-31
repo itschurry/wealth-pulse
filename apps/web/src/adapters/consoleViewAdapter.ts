@@ -1,7 +1,6 @@
 import { reasonCodeToKorean, reliabilityToKorean } from '../constants/uiText';
 import { formatCount, formatDateTime, formatSymbol } from '../utils/format';
 import type {
-  ActionBoardView,
   ConsoleSnapshot,
   SignalTableRow,
   TodayReportView,
@@ -174,45 +173,6 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
     actionItems,
     watchPoints,
     hasReportContent,
-  };
-}
-
-export function buildActionBoardView(snapshot: ConsoleSnapshot): ActionBoardView {
-  const watch = classifyMode(snapshot);
-  const guardAllowed = Boolean(snapshot.engine.risk_guard_state?.entry_allowed);
-  const oosReliabilityRaw = String(snapshot.validation.summary?.oos_reliability || '').toLowerCase();
-  const oosReliability = reliabilityToKorean(oosReliabilityRaw);
-  const entryAllowedCount = Number(snapshot.engine.allocator?.entry_allowed_count || 0);
-  const blockedCount = Number(snapshot.engine.allocator?.blocked_count || 0);
-
-  return {
-    rules: [
-      `오늘 전략 포인트: ${watch.mode}`,
-      '손절/손실 한도 규칙을 우선 적용합니다.',
-      '차단 사유가 없는 신호만 진입 후보로 사용합니다.',
-    ],
-    checklist: [
-      {
-        label: '리스크 가드 상태 확인',
-        done: guardAllowed,
-        detail: guardAllowed ? '신규 진입 가능 상태입니다.' : '리스크 가드로 신규 진입이 제한됩니다.',
-      },
-      {
-        label: 'OOS 신뢰도 확인',
-        done: oosReliabilityRaw !== 'low',
-        detail: oosReliability ? `현재 OOS 신뢰도: ${oosReliability}` : 'OOS 신뢰도 데이터가 없습니다.',
-      },
-      {
-        label: '신규 진입 허용 여부 확인',
-        done: entryAllowedCount > 0,
-        detail: `허용 ${formatCount(entryAllowedCount, '건')} / 차단 ${formatCount(blockedCount, '건')}`,
-      },
-      {
-        label: '차단 사유 점검',
-        done: blockedCount === 0,
-        detail: blockedCount === 0 ? '차단 신호가 없습니다.' : '차단 사유를 확인하고 진입 제외 대상을 정리하세요.',
-      },
-    ],
   };
 }
 
