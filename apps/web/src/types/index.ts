@@ -382,7 +382,7 @@ export interface BacktestEquityPoint {
 }
 
 export interface BacktestQuery {
-  market_scope: 'kospi' | 'nasdaq';
+  market_scope: 'kospi' | 'nasdaq' | 'all';
   lookback_days: number;
   initial_cash: number;
   max_positions: number;

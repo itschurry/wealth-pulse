@@ -58,6 +58,23 @@ const BACKTEST_MARKET_PRESETS = {
     stoch_k_min: 10,
     stoch_k_max: 90,
   },
+  all: {
+    initial_cash: 10_000_000,
+    max_positions: 5,
+    max_holding_days: 20,
+    rsi_min: 45,
+    rsi_max: 65,
+    volume_ratio_min: 1.0,
+    stop_loss_pct: 5,
+    take_profit_pct: null,
+    adx_min: 10,
+    mfi_min: 20,
+    mfi_max: 80,
+    bb_pct_min: 0.05,
+    bb_pct_max: 0.95,
+    stoch_k_min: 10,
+    stoch_k_max: 90,
+  },
 };
 export function defaultBacktestQuery(marketScope: BacktestQuery['market_scope'] = 'kospi'): BacktestQuery {
   const preset = BACKTEST_MARKET_PRESETS[marketScope];
@@ -123,7 +140,11 @@ function readNullableNumber(value: unknown, fallback: number | null | undefined)
 
 function normalizeBacktestQuery(value: unknown): BacktestQuery {
   const raw = value && typeof value === 'object' ? (value as Partial<BacktestQuery>) : {};
-  const marketScope = raw.market_scope === 'nasdaq' ? 'nasdaq' : 'kospi';
+  const marketScope = raw.market_scope === 'nasdaq'
+    ? 'nasdaq'
+    : raw.market_scope === 'all'
+      ? 'all'
+      : 'kospi';
   const preset = defaultBacktestQuery(marketScope);
   return {
     market_scope: marketScope,

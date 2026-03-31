@@ -587,7 +587,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     setRunFinishedAt('');
     setBacktestPhase('requesting');
     setBacktestMessage('저장된 설정으로 백테스트 요청을 전송했습니다.');
-    push('info', '백테스트 실행을 시작했습니다.', `시장 ${executedQuery.market_scope.toUpperCase()}, 기간 ${executedQuery.lookback_days}일`, 'backtest');
+    push('info', '백테스트 실행을 시작했습니다.', `시장 ${executedQuery.market_scope === 'kospi' ? 'KOSPI' : executedQuery.market_scope === 'nasdaq' ? 'NASDAQ' : 'KOSPI+NASDAQ'}, 기간 ${executedQuery.lookback_days}일`, 'backtest');
     pushToast({ tone: 'info', title: '백테스트 실행 시작', description: '저장된 설정 기준으로 결과를 고정합니다.' });
 
     await Promise.resolve();
@@ -714,7 +714,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       strategy: validationStore.draftSettings.strategy,
     };
     updateSaveHistory([historyItem, ...saveHistory].slice(0, 30));
-    push('success', '검증 설정을 저장했습니다.', `${validationStore.draftQuery.market_scope.toUpperCase()} · ${validationStore.draftQuery.lookback_days}일`, 'settings');
+    push('success', '검증 설정을 저장했습니다.', `${validationStore.draftQuery.market_scope === 'kospi' ? 'KOSPI' : validationStore.draftQuery.market_scope === 'nasdaq' ? 'NASDAQ' : 'KOSPI+NASDAQ'} · ${validationStore.draftQuery.lookback_days}일`, 'settings');
     pushToast({ tone: 'success', title: '설정 저장 완료', description: '실행 패널 요약과 저장 필요 배지가 즉시 갱신되었습니다.' });
     setSettingsSaving(false);
   }, [push, pushToast, saveHistory, settingsSaving, updateSaveHistory, validationStore]);
@@ -762,6 +762,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           >
             <option value="kospi">KOSPI</option>
             <option value="nasdaq">NASDAQ</option>
+            <option value="all">KOSPI+NASDAQ</option>
           </select>
         </FieldBlock>
 
@@ -1033,7 +1034,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   <div className="section-title">구간 성과</div>
                   <div className="detail-list">
                     <div>전략: {executedRun?.settings.strategy || validationStore.savedSettings.strategy}</div>
-                    <div>시장: {(executedRun?.query.market_scope || validationStore.savedQuery.market_scope).toUpperCase()}</div>
+                    <div>시장: {(executedRun?.query.market_scope || validationStore.savedQuery.market_scope) === 'kospi' ? 'KOSPI' : (executedRun?.query.market_scope || validationStore.savedQuery.market_scope) === 'nasdaq' ? 'NASDAQ' : 'KOSPI+NASDAQ'}</div>
                     <div>학습 구간 수익률: {formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)}</div>
                     <div>검증 구간 수익률: {formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}</div>
                     <div>OOS 구간 수익률: {formatPercent(metricNumber(segmentOos, 'total_return_pct'), 2)}</div>

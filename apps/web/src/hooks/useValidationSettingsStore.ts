@@ -174,7 +174,7 @@ export function useValidationSettingsStore() {
 
 export function formatValidationSettingsLabel(settings: ValidationSettings, query: BacktestQuery): string[] {
   return [
-    `${query.market_scope.toUpperCase()} · 기간 ${query.lookback_days}일`,
+    `${query.market_scope === 'kospi' ? 'KOSPI' : query.market_scope === 'nasdaq' ? 'NASDAQ' : 'KOSPI+NASDAQ'} · 기간 ${query.lookback_days}일`,
     `${settings.strategy} · 학습 ${settings.trainingDays}일 / 검증 ${settings.validationDays}일`,
     `${settings.walkForward ? 'Walk-forward 사용' : 'Walk-forward 미사용'} · 최소 거래수 ${settings.minTrades}건 · ${settings.objective}`,
   ];
