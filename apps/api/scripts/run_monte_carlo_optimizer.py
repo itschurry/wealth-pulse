@@ -50,6 +50,17 @@ def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
+def _safe_warning(message: str, *args) -> None:
+    """로그 warning 메서드가 없을 때 info로 폴백한다."""
+    warn = getattr(logger, "warning", None)
+    if callable(warn):
+        warn(message, *args)
+        return
+    info = getattr(logger, "info", None)
+    if callable(info):
+        info(message, *args)
+
+
 def _fetch_kis_history(code: str, market: str, days: int) -> list[dict]:
     """KIS API로 일봉 히스토리를 가져온다. 실패 시 빈 리스트 반환."""
     try:
@@ -205,7 +216,7 @@ def _save_results(
 ) -> bool:
     """결과를 config/optimized_params.json에 저장한다."""
     if not results:
-        logger.warning(
+        _safe_warning(
             "저장 가능한 최적화 결과가 없어 optimized_params.json 갱신을 건너뜁니다: {}",
             _OPTIMIZED_PARAMS_PATH,
         )
@@ -406,7 +417,7 @@ def main() -> None:
         sym_pairs, price_data, sim_config=sim_config)
 
     if not results:
-        logger.warning("1차 최적화 결과가 없습니다. 완화된 필터로 재시도합니다.")
+        _safe_warning("1차 최적화 결과가 없습니다. 완화된 필터로 재시도합니다.")
         relaxed_grid = ParamGrid(
             stop_loss_pct=[5.0, 10.0],
             take_profit_pct=[12.0, 20.0],
