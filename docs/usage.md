@@ -694,3 +694,14 @@ docker compose up -d --build
 ---
 
 추가 API 호출 예시와 엔드포인트 설명은 [`api.md`](./api.md) 참고.
+
+
+## 실행 후보 소스 모드
+
+실행 단계에서는 리서치 후보와 퀀트 검증 후보를 같은 것으로 취급하지 않는다.
+
+- `quant_only`가 기본값이다. 저장된 quant candidate / runtime overlay만 실행 후보로 사용한다.
+- `research_only`는 브리프 기반 후보만 실행 후보로 사용한다.
+- `hybrid`는 둘을 분리 수집한 뒤 합집합 후보 풀로 노출한다.
+
+안전한 운영 시작점은 계속 `quant_only` 다.

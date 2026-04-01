@@ -14,6 +14,13 @@ import type {
 import type { BacktestQuery } from '../types';
 import type { ValidationSettings } from '../hooks/useValidationSettingsStore';
 
+function serializeValidationSettings(settings: ValidationSettings) {
+  return {
+    ...settings,
+    runtime_candidate_source_mode: settings.runtimeCandidateSourceMode,
+  };
+}
+
 function buildValidationQueryString(query?: BacktestQuery, settings?: ValidationSettings) {
   const params = new URLSearchParams();
   if (query) {
@@ -41,6 +48,7 @@ function buildValidationQueryString(query?: BacktestQuery, settings?: Validation
     params.set('walk_forward', settings.walkForward ? 'true' : 'false');
     params.set('validation_min_trades', String(settings.minTrades));
     params.set('objective', settings.objective);
+    params.set('runtime_candidate_source_mode', settings.runtimeCandidateSourceMode);
   }
   const queryString = params.toString();
   return queryString ? `?${queryString}` : '';
@@ -75,7 +83,7 @@ export function fetchValidationSettings() {
 }
 
 export async function saveValidationSettings(query: BacktestQuery, settings: ValidationSettings): Promise<PersistedValidationSettingsResponse> {
-  const response = await postJSON<PersistedValidationSettingsResponse>('/api/validation/settings/save', { query, settings });
+  const response = await postJSON<PersistedValidationSettingsResponse>('/api/validation/settings/save', { query, settings: serializeValidationSettings(settings) });
   return response.data;
 }
 
@@ -89,11 +97,11 @@ export function fetchQuantOpsWorkflow() {
 }
 
 export function revalidateQuantOpsCandidate(query: BacktestQuery, settings: ValidationSettings) {
-  return postJSON<QuantOpsActionResponse>('/api/quant-ops/revalidate', { query, settings });
+  return postJSON<QuantOpsActionResponse>('/api/quant-ops/revalidate', { query, settings: serializeValidationSettings(settings) });
 }
 
 export function revalidateQuantOpsSymbolCandidate(symbol: string, query: BacktestQuery, settings: ValidationSettings) {
-  return postJSON<QuantOpsActionResponse>('/api/quant-ops/revalidate-symbol', { symbol, query, settings });
+  return postJSON<QuantOpsActionResponse>('/api/quant-ops/revalidate-symbol', { symbol, query, settings: serializeValidationSettings(settings) });
 }
 
 export function setQuantOpsSymbolApproval(symbol: string, status: 'approved' | 'rejected' | 'hold', note?: string) {

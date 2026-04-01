@@ -157,3 +157,19 @@ Baseline 결과를 해부한다.
 
 ## 한 줄 요약
 최적화는 후보 탐색이고, 재검증이 최종 판단이며, 저장은 재검증 통과 후에만 한다.
+
+
+## Runtime candidate source mode
+
+퀀트 검증 경로와 리서치 후보 경로는 같은 것이 아니야.
+
+- quant 경로: backtest / walk-forward / search / revalidate / save / apply 로 이어지는 실행 경로
+- research 경로: reports / today-picks / recommendations 로 이어지는 브리프 경로
+
+`runtime_candidate_source_mode` 는 이 둘을 runtime 후보 풀에서 어떻게 노출할지 결정한다.
+
+- `quant_only`: 저장된 quant candidate / runtime overlay만 사용
+- `research_only`: 리서치 후보만 사용
+- `hybrid`: 두 경로를 분리 유지한 채 후보 풀에서 합집합으로 병합
+
+운영 기본값은 `quant_only` 로 유지한다.

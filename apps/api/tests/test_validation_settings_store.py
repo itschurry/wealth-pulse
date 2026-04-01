@@ -65,7 +65,17 @@ class ValidationSettingsStoreTests(unittest.TestCase):
         self.assertEqual(1.0, payload["query"]["bb_pct_max"])
         self.assertEqual("공유 검증 전략", payload["settings"]["strategy"])
         self.assertFalse(payload["settings"]["walkForward"])
+        self.assertEqual("quant_only", payload["settings"]["runtime_candidate_source_mode"])
         self.assertTrue(self.path.exists())
+
+    def test_save_normalizes_runtime_candidate_source_mode(self):
+        with patch.object(store, "BACKTEST_VALIDATION_SETTINGS_PATH", self.path):
+            payload = store.save_persisted_validation_settings({
+                "settings": {"runtime_candidate_source_mode": "RESEARCH_ONLY"},
+            })
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual("research_only", payload["settings"]["runtime_candidate_source_mode"])
 
     def test_reset_persists_defaults(self):
         with patch.object(store, "BACKTEST_VALIDATION_SETTINGS_PATH", self.path):
@@ -80,6 +90,7 @@ class ValidationSettingsStoreTests(unittest.TestCase):
         self.assertEqual(1095, payload["query"]["lookback_days"])
         self.assertEqual("퀀트 전략 엔진", payload["settings"]["strategy"])
         self.assertTrue(payload["settings"]["walkForward"])
+        self.assertEqual("quant_only", payload["settings"]["runtime_candidate_source_mode"])
 
 
 if __name__ == "__main__":

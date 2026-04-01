@@ -39,6 +39,12 @@ curl http://127.0.0.1:8081/api/system/mode
 
 즉, 실무에서는 아래 3개를 같이 보는 게 안전해.
 
+추가로 이 시스템은 **리서치 후보 경로**와 **퀀트 실행 경로**를 분리해서 다룬다. `runtime_candidate_source_mode` 는 그 둘을 runtime 후보 풀에 어떻게 노출할지 정하는 운영 스위치다.
+
+- `quant_only`: 퀀트 검증/저장/runtime overlay 후보만 사용. 기본값이자 안전 모드
+- `research_only`: today picks / recommendations 같은 리서치 후보만 사용
+- `hybrid`: 두 경로를 분리 수집한 뒤 runtime 후보 풀에서 합집합으로 병합
+
 1. HTTP status code
 2. `ok` 필드 존재 여부
 3. `error` 필드 존재 여부

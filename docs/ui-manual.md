@@ -814,3 +814,14 @@
 
 - 사용 매뉴얼: [`usage.md`](./usage.md)
 - API 문서: [`api.md`](./api.md)
+
+
+## 전략 검증 랩 설정 - Runtime 후보 소스 모드
+
+전략 검증 랩 설정 패널에서 `Runtime 후보 소스 모드` 를 고를 수 있다.
+
+- `quant_only`: 퀀트 검증 후보만 runtime 후보 풀에 노출
+- `research_only`: today picks / recommendations 같은 리서치 후보만 runtime 후보 풀에 노출
+- `hybrid`: 퀀트와 리서치 경로를 분리 유지한 채 최종 후보 풀에서 함께 노출
+
+이 값은 서버 저장 설정으로 관리되며, 브라우저를 바꿔도 같은 값으로 다시 불러온다.

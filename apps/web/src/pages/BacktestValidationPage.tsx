@@ -541,6 +541,18 @@ function quantRuntimeSourceLabel(source: string | undefined): string {
   return source || '-';
 }
 
+function runtimeCandidateSourceModeLabel(mode: string | undefined): string {
+  if (mode === 'research_only') return 'research_only';
+  if (mode === 'hybrid') return 'hybrid';
+  return 'quant_only';
+}
+
+function runtimeCandidateSourceModeDescription(mode: string | undefined): string {
+  if (mode === 'research_only') return '리서치 경로만 사용해 today picks / recommendations 후보만 runtime 후보 풀로 씁니다. 퀀트 검증 후보는 실행 소스에서 제외합니다.';
+  if (mode === 'hybrid') return '퀀트와 리서치 경로를 섞어 평가하지 않고 분리해 수집한 뒤, runtime 후보 풀에서 합집합으로 병합합니다.';
+  return '퀀트 검증 경로만 사용해 저장된 validation/runtime overlay 후보만 runtime 후보 풀로 씁니다. 기본값이자 안전 모드입니다.';
+}
+
 export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefresh }: BacktestValidationPageProps) {
   const { pushToast } = useToast();
   const { entries, push, clear } = useConsoleLogs();
@@ -1418,7 +1430,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     <div className="settings-panel-grid">
       <section className="settings-flow-card">
         <div className="settings-flow-title">전략 검증 순서</div>
-        <div className="settings-flow-copy">설정 저장 후에 백테스트와 진단을 실행하면 이후 Search/Revalidate/Save/Apply 단계가 끊기지 않습니다.</div>
+        <div className="settings-flow-copy">설정 저장 후에 백테스트와 진단을 실행하면 이후 Search/Revalidate/Save/Apply 단계가 끊기지 않습니다. 퀀트 검증 경로와 리서치 후보 경로는 분리되어 있고, runtime 후보 소스 모드에서 둘을 어떻게 노출할지 결정합니다.</div>
         <div className="settings-flow-list">
           <div><strong>1)</strong> 설정 저장</div>
           <div><strong>2)</strong> 저장 기준 백테스트 실행</div>
@@ -1527,6 +1539,22 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             <option>수익+안정 균형</option>
           </select>
         </FieldBlock>
+
+        <FieldBlock label="Runtime 후보 소스 모드" help="퀀트 실행 경로와 리서치 후보 경로를 어떻게 runtime 후보 풀에 노출할지 고릅니다. 기본값은 quant_only 입니다.">
+          <select
+            className="backtest-input-wrap"
+            style={{ padding: '0 12px' }}
+            value={validationStore.draftSettings.runtimeCandidateSourceMode}
+            onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, runtimeCandidateSourceMode: event.target.value as typeof prev.runtimeCandidateSourceMode }))}
+          >
+            <option value="quant_only">quant_only · 퀀트 검증 후보만 사용</option>
+            <option value="research_only">research_only · 리서치 후보만 사용</option>
+            <option value="hybrid">hybrid · 분리 수집 후 합집합 사용</option>
+          </select>
+          <div className="settings-field-help" style={{ marginTop: 8 }}>
+            {runtimeCandidateSourceModeDescription(validationStore.draftSettings.runtimeCandidateSourceMode)}
+          </div>
+        </FieldBlock>
       </SettingsSection>
 
       <SettingsSection title="고급 룰 파라미터" description="진입·청산 파라미터를 조정한 뒤 저장하면 백테스트와 최적화에 반영됩니다.">
@@ -1605,7 +1633,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       </div>
       <div className="detail-list" style={{ marginTop: 8 }}>
         <div>저장값은 서버 JSON 파일에 보관되어 브라우저/기기/세션이 달라도 같은 기준으로 불러옵니다.</div>
-        <div>이 저장값은 runtime optimized params와 분리되며, baseline·진단·재검증 기준만 공유합니다.</div>
+        <div>이 저장값은 runtime optimized params와 분리되며, baseline·진단·재검증 기준만 공유합니다. 다만 runtime 후보 소스 모드는 여기서 함께 저장되어 API/UI 전체에 같은 값으로 반영됩니다.</div>
         <div>마지막 서버 저장: {validationStore.lastSavedAt ? formatDateTime(validationStore.lastSavedAt) : '없음'}</div>
         {validationStore.syncMessage && <div>동기화 상태: {validationStore.syncMessage}</div>}
       </div>
@@ -1618,7 +1646,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="전략 검증 랩"
-            subtitle="리서치에서 올라온 아이디어를 실행 가능한 전략으로 압축하는 화면입니다. quant 전략만 다루며 paper/live handoff 전 검증 게이트를 관리합니다."
+            subtitle="리서치와 퀀트 실행 경로를 분리한 채, quant 전략 검증과 runtime handoff를 관리하는 화면입니다. 리서치 후보는 여기서 실행 소스 모드로만 연결합니다."
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
@@ -1642,7 +1670,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             <div className="page-section" style={{ padding: 16 }}>
               <div className="section-kicker">Mode 02</div>
               <div className="section-title">AI/테마/뉴스 리서치</div>
-              <div className="section-copy">투자 브리프, 관심 시나리오, paper 실행 후보 선택에서 따로 읽습니다. 둘을 교집합으로 묶지 않고 downstream에서는 합집합 후보 흐름으로 봅니다.</div>
+              <div className="section-copy">투자 브리프, 관심 시나리오, paper 실행 후보 선택에서 따로 읽습니다. 퀀트 검증 경로와 직접 섞지 않고 분리 운영하며, runtime 후보 소스 모드가 hybrid일 때만 downstream 후보 풀에서 합집합으로 병합합니다.</div>
             </div>
           </div>
 
@@ -1652,7 +1680,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 <div className="section-head-row">
                   <div>
                     <div className="section-title">Validation → Runtime 실행 흐름</div>
-                    <div className="section-copy">권장 순서는 설정 저장 → 백테스트 → (필요 시) Baseline 진단 → Search → Revalidate → Save → Apply 입니다. Search는 후보 풀이고, latest candidate는 같은 search 버전을 baseline 기준으로 다시 판정한 실행 후보입니다.</div>
+                    <div className="section-copy">권장 순서는 설정 저장 → 백테스트 → (필요 시) Baseline 진단 → Search → Revalidate → Save → Apply 입니다. Search는 후보 풀이고, latest candidate는 같은 search 버전을 baseline 기준으로 다시 판정한 실행 후보입니다. 리서치 후보 경로는 별도이며, runtime 후보 소스 모드에서 quant_only / research_only / hybrid 중 하나로 실제 실행 노출 범위를 정합니다.</div>
                   </div>
                   <div className={`inline-badge ${quantWorkflow.busyAction ? 'is-warning' : latestCandidateMatchesSearch ? 'is-success' : 'is-warning'}`}>
                     {quantWorkflow.busyAction ? `작업 중 · ${quantWorkflow.busyAction}` : latestCandidateMatchesSearch ? '최신 handoff 완료' : '단계 확인 필요'}
@@ -1684,7 +1712,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   </div>
                   <div className={`operator-note-card ${runtimeApplyState?.status === 'applied' && runtimeApplyReasons.length === 0 ? 'is-good' : runtimeApplyReasons.length > 0 ? 'is-bad' : ''}`}>
                     <div className="operator-note-label">실제 runtime 적용본</div>
-                    <div className="operator-note-copy">{quantRuntimeSourceLabel(runtimeApplyState?.effective_source)} · candidate {String(runtimeApplyState?.candidate_id || '-')}<br />{runtimeApplyReasons[0] || (runtimeApplyState?.applied_at ? `${formatDateTime(runtimeApplyState.applied_at)} 반영` : '아직 runtime apply 전')}</div>
+                    <div className="operator-note-copy">{quantRuntimeSourceLabel(runtimeApplyState?.effective_source)} · mode {runtimeCandidateSourceModeLabel(runtimeApplyState?.runtime_candidate_source_mode || validationStore.savedSettings.runtimeCandidateSourceMode)} · candidate {String(runtimeApplyState?.candidate_id || '-')}<br />{runtimeApplyReasons[0] || runtimeCandidateSourceModeDescription(runtimeApplyState?.runtime_candidate_source_mode || validationStore.savedSettings.runtimeCandidateSourceMode)}</div>
                   </div>
                 </div>
 
@@ -1984,6 +2012,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     <div className="summary-metric-grid" style={{ marginTop: 12 }}>
                       <SummaryMetricCard label="저장 후보 스냅샷" value={savedValidatedCandidate?.saved_at ? formatDateTime(savedValidatedCandidate.saved_at) : '-'} detail={savedCandidateStateReasons[0] || savedValidatedCandidate?.decision?.summary || '저장된 후보가 아직 없습니다.'} tone={savedValidatedCandidate?.saved_at ? 'good' : 'neutral'} />
                       <SummaryMetricCard label="현재 runtime source" value={quantRuntimeSourceLabel(runtimeApplyState?.effective_source)} detail={runtimeApplyReasons[0] || (runtimeApplyState?.applied_at ? `반영 ${formatDateTime(runtimeApplyState.applied_at)}` : '아직 runtime apply 전')} tone={runtimeApplyState?.status === 'applied' && runtimeApplyReasons.length === 0 ? 'good' : runtimeApplyReasons.length > 0 ? 'bad' : 'neutral'} />
+                      <SummaryMetricCard label="후보 소스 모드" value={runtimeCandidateSourceModeLabel(runtimeApplyState?.runtime_candidate_source_mode || validationStore.savedSettings.runtimeCandidateSourceMode)} detail={runtimeCandidateSourceModeDescription(runtimeApplyState?.runtime_candidate_source_mode || validationStore.savedSettings.runtimeCandidateSourceMode)} tone={runtimeApplyState?.runtime_candidate_source_mode === 'research_only' ? 'bad' : runtimeApplyState?.runtime_candidate_source_mode === 'hybrid' ? 'neutral' : 'good'} />
                       <SummaryMetricCard label="적용 candidate" value={String(runtimeApplyState?.candidate_id || '-')} detail={runtimeApplyState?.next_run_at ? `다음 실행 ${formatDateTime(runtimeApplyState.next_run_at)}` : '다음 cycle부터 현재 config 사용'} tone={runtimeApplyState?.status === 'applied' ? 'good' : 'neutral'} />
                     </div>
                     <div className="detail-list" style={{ marginTop: 12 }}>

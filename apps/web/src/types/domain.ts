@@ -489,6 +489,7 @@ export interface QuantOpsCandidatePayload {
   research?: ValidationDiagnosticsResponse['research'];
   validation?: ValidationResponse;
   save_note?: string;
+  runtime_candidate_source_mode?: string;
 }
 
 export interface QuantOpsCandidateStatePayload {
@@ -514,6 +515,7 @@ export interface QuantOpsRuntimeApplyPayload {
   source?: string;
   engine_state?: string;
   next_run_at?: string;
+  runtime_candidate_source_mode?: string;
 }
 
 export interface QuantOpsSymbolApprovalPayload {
