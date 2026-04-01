@@ -911,6 +911,12 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
         candidate.get("patch"), dict) else {}
     settings = candidate.get("settings") if isinstance(
         candidate.get("settings"), dict) else {}
+    runtime_candidate_source_mode = str(
+        candidate.get("runtime_candidate_source_mode")
+        or settings.get("runtime_candidate_source_mode")
+        or merged.get("runtime_candidate_source_mode")
+        or "quant_only"
+    ).strip().lower()
 
     for key, value in patch.items():
         if key in _OPTIMIZABLE_KEYS and value not in (None, ""):
@@ -933,6 +939,8 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
     if settings.get("walkForward") is not None:
         merged["validation_gate_enabled"] = bool(
             merged.get("validation_gate_enabled", True))
+    if runtime_candidate_source_mode in {"quant_only", "research_only", "hybrid"}:
+        merged["runtime_candidate_source_mode"] = runtime_candidate_source_mode
     merged = _sync_primary_strategy_fields(merged)
     return merged
 

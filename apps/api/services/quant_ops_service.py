@@ -23,6 +23,7 @@ from services.optimized_params_store import (
     write_runtime_optimized_params,
 )
 from services.validation_service import run_validation_diagnostics
+from services.signal_service import normalize_runtime_candidate_source_mode
 
 
 _QUANT_OPS_STATE_PATH = LOGS_DIR / "quant_ops_state.json"
@@ -710,10 +711,12 @@ def _build_candidate(
         search_is_stale=bool(search.get("is_stale")),
         search_version_changed=search_version_changed,
     )
+    runtime_candidate_source_mode = normalize_runtime_candidate_source_mode(settings.get("runtime_candidate_source_mode"))
     return {
         "id": f"cand-{uuid.uuid4().hex[:12]}",
         "created_at": _now_iso(),
         "source": "optimizer_global_overlay",
+        "runtime_candidate_source_mode": runtime_candidate_source_mode,
         "strategy_label": str(settings.get("strategy") or "퀀트 전략 엔진"),
         "search_version": str(search.get("version") or ""),
         "search_optimized_at": str(search.get("optimized_at") or ""),
@@ -884,6 +887,7 @@ def _build_symbol_candidate(
     return {
         **base,
         "id": f"symcand-{symbol.lower()}-{uuid.uuid4().hex[:10]}",
+        "runtime_candidate_source_mode": base.get("runtime_candidate_source_mode", "quant_only"),
         "symbol": symbol,
         "source": "optimizer_symbol_overlay",
         "patch": patch,
@@ -1005,6 +1009,9 @@ def _runtime_summary(runtime_payload: dict[str, Any] | None, state_runtime: dict
     return {
         "available": bool(runtime_payload),
         "status": "applied" if runtime_payload else "missing",
+        "runtime_candidate_source_mode": normalize_runtime_candidate_source_mode(
+            runtime_payload.get("runtime_candidate_source_mode") or meta.get("runtime_candidate_source_mode") or "quant_only"
+        ),
         "candidate_id": str(meta.get("applied_candidate_id") or state_runtime.get("candidate_id") or ""),
         "applied_at": str(runtime_payload.get("applied_at") or state_runtime.get("applied_at") or ""),
         "applied_symbol_count": _to_int(meta.get("approved_symbol_count"), _to_int(state_runtime.get("applied_symbol_count"), 0)),
@@ -1170,6 +1177,9 @@ def _revalidate_optimizer_candidate_impl(query: dict[str, Any], settings: dict[s
         mutated_query=mutated_query,
         settings=resolved_settings,
         diagnostics=diagnostics,
+    )
+    candidate["runtime_candidate_source_mode"] = normalize_runtime_candidate_source_mode(
+        settings.get("runtime_candidate_source_mode")
     )
     state = _load_state()
     state["latest_candidate"] = candidate
@@ -1411,6 +1421,9 @@ def revalidate_symbol_candidate(payload: dict[str, Any]) -> dict[str, Any]:
         settings=resolved_settings,
         diagnostics=diagnostics,
     )
+    candidate["runtime_candidate_source_mode"] = normalize_runtime_candidate_source_mode(
+        settings.get("runtime_candidate_source_mode")
+    )
     state = _load_state()
     latest_symbol_candidates = state.get("latest_symbol_candidates") if isinstance(state.get("latest_symbol_candidates"), dict) else {}
     latest_symbol_candidates[symbol] = candidate
@@ -1558,6 +1571,7 @@ def _global_runtime_validation_baseline(candidate: dict[str, Any]) -> dict[str, 
     return {
         "source": "validated_candidate",
         "candidate_id": candidate.get("id"),
+        "runtime_candidate_source_mode": normalize_runtime_candidate_source_mode(candidate.get("runtime_candidate_source_mode")),
         "trade_count": trade_count,
         "validation_trades": validation_trades,
         "validation_sharpe": round(validation_sharpe, 4),
@@ -1587,11 +1601,13 @@ def _build_runtime_payload(
         for symbol, item in symbol_candidates.items()
         if isinstance(item, dict)
     }
+    runtime_candidate_source_mode = normalize_runtime_candidate_source_mode(candidate.get("runtime_candidate_source_mode"))
     return {
         "optimized_at": applied_at,
         "applied_at": applied_at,
         "version": f"runtime-{candidate.get('id')}",
         "global_params": dict(candidate.get("patch") or {}),
+        "runtime_candidate_source_mode": runtime_candidate_source_mode,
         "validation_baseline": _global_runtime_validation_baseline(candidate),
         "per_symbol": per_symbol_overlay,
         "meta": {
@@ -1601,6 +1617,7 @@ def _build_runtime_payload(
             "applied_from": "quant_ops_saved_candidate",
             "search_version": candidate.get("search_version"),
             "search_optimized_at": candidate.get("search_optimized_at"),
+            "runtime_candidate_source_mode": runtime_candidate_source_mode,
             "global_overlay_source": "validated_candidate",
             "validation_baseline_source": "validated_candidate",
             "approved_symbol_count": len(per_symbol_overlay),

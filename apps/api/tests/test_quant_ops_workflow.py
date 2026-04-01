@@ -184,6 +184,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         candidate = result["candidate"]
         self.assertEqual("optimizer_global_overlay", candidate["source"])
+        self.assertEqual("quant_only", candidate["runtime_candidate_source_mode"])
         self.assertEqual("adopt", candidate["decision"]["status"])
         self.assertTrue(candidate["guardrails"]["can_save"])
         self.assertIn("stop_loss_pct: 5.0 → 6.0", candidate["patch_lines"])
@@ -700,7 +701,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
              patch.dict(sys.modules, {"services.execution_service": execution_stub}):
             svc.revalidate_optimizer_candidate({
                 "query": {"market_scope": "kospi", "lookback_days": 365, "stop_loss_pct": 5.0},
-                "settings": {"strategy": "운영 전략", "minTrades": 8},
+                "settings": {"strategy": "운영 전략", "minTrades": 8, "runtime_candidate_source_mode": "hybrid"},
             })
             save_result = svc.save_validated_candidate({"note": "operator 승인"})
             apply_result = svc.apply_saved_candidate_to_runtime({})
@@ -712,6 +713,8 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertTrue(self.runtime_store["payload"])
         self.assertEqual("validated_candidate", self.runtime_store["payload"]["meta"]["global_overlay_source"])
         self.assertEqual(save_result["candidate"]["id"], self.runtime_store["payload"]["meta"]["applied_candidate_id"])
+        self.assertEqual("hybrid", self.runtime_store["payload"]["meta"]["runtime_candidate_source_mode"])
+        self.assertEqual("hybrid", apply_result["workflow"]["runtime_apply"]["runtime_candidate_source_mode"])
         self.assertEqual("validated_candidate", self.runtime_store["payload"]["meta"]["validation_baseline_source"])
         self.assertEqual(18, self.runtime_store["payload"]["validation_baseline"]["validation_trades"])
         self.assertAlmostEqual(0.93, self.runtime_store["payload"]["validation_baseline"]["validation_sharpe"])

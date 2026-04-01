@@ -18,6 +18,23 @@ _RUNTIME_CANDIDATE_SOURCE_MODES = {"quant_only", "research_only", "hybrid"}
 RuntimeCandidateSourceMode = Literal["quant_only", "research_only", "hybrid"]
 
 
+try:
+    from analyzer.technical_snapshot import fetch_technical_snapshot as _fetch_technical_snapshot_impl
+except Exception:  # pragma: no cover - optional dependency in lightweight tests
+    _fetch_technical_snapshot_impl = None
+
+
+
+def fetch_technical_snapshot(code: str, market: str) -> dict[str, Any] | None:
+    if _fetch_technical_snapshot_impl is None:
+        return None
+    try:
+        return _fetch_technical_snapshot_impl(code, market)
+    except Exception:
+        return None
+
+
+
 def normalize_theme_focus(raw) -> list[str]:
     if not isinstance(raw, list):
         return list(DEFAULT_THEME_FOCUS)
@@ -105,6 +122,90 @@ def _quant_candidate_confidence(payload: dict[str, Any]) -> float:
     return 50.0
 
 
+def _merge_runtime_technical_snapshot(item: dict[str, Any], fetched: dict[str, Any] | None) -> dict[str, Any]:
+    existing = item.get("technical_snapshot") if isinstance(item.get("technical_snapshot"), dict) else {}
+    snapshot = dict(fetched or {})
+    snapshot.update({key: value for key, value in existing.items() if value not in (None, "")})
+
+    if snapshot.get("current_price") in (None, ""):
+        for key in ("last_price_local", "current_price", "price"):
+            value = item.get(key)
+            if value not in (None, ""):
+                snapshot["current_price"] = value
+                break
+    return snapshot
+
+
+
+def _build_quant_runtime_candidate(
+    *,
+    code: str,
+    item: dict[str, Any],
+    item_market: str,
+    listing: dict[str, Any],
+    runtime_source_mode: RuntimeCandidateSourceMode,
+) -> dict[str, Any]:
+    fetched_snapshot = fetch_technical_snapshot(code, item_market)
+    technical_snapshot = _merge_runtime_technical_snapshot(item, fetched_snapshot)
+    score = _quant_candidate_score(item)
+    sharpe = item.get("validation_sharpe")
+    trade_count = item.get("validation_trades") or item.get("trade_count") or 0
+    reliability = str(item.get("strategy_reliability") or ("high" if item.get("is_reliable") else "insufficient"))
+    current_price = technical_snapshot.get("current_price")
+    volume_avg20 = technical_snapshot.get("volume_avg20")
+    reasons = [
+        f"quant_runtime:{reliability}",
+        f"validation_trades:{trade_count}",
+    ]
+    if sharpe not in (None, ""):
+        reasons.append(f"validation_sharpe:{sharpe}")
+    if current_price not in (None, ""):
+        reasons.append(f"current_price:{current_price}")
+    if volume_avg20 not in (None, ""):
+        reasons.append(f"volume_avg20:{volume_avg20}")
+
+    return {
+        "code": code,
+        "name": listing.get("name") or code,
+        "market": normalize_market(item_market),
+        "sector": listing.get("sector") or item.get("sector") or "미분류",
+        "score": round(score, 2),
+        "priority_score": round(score, 2),
+        "signal": "BUY",
+        "confidence": _quant_candidate_confidence(item),
+        "gate_status": "passed",
+        "gate_reasons": [],
+        "theme_score": 0.0,
+        "matched_themes": [],
+        "keyword_gate_passed": False,
+        "related_news": [],
+        "theme_news_count": 0,
+        "reasons": reasons,
+        "risks": [],
+        "ai_thesis": str(item.get("ai_thesis") or "runtime quant validated candidate").strip(),
+        "price": item.get("price") if item.get("price") not in (None, "") else current_price,
+        "current_price": item.get("current_price") if item.get("current_price") not in (None, "") else current_price,
+        "last_price_local": item.get("last_price_local") if item.get("last_price_local") not in (None, "") else current_price,
+        "technical_snapshot": technical_snapshot,
+        "validation_snapshot": {
+            "validation_source": "quant_runtime",
+            "trade_count": int(item.get("trade_count") or item.get("validation_trades") or 0),
+            "validation_trades": int(item.get("validation_trades") or item.get("trade_count") or 0),
+            "validation_sharpe": float(item.get("validation_sharpe") or 0.0),
+            "max_drawdown_pct": item.get("max_drawdown_pct"),
+            "strategy_reliability": reliability,
+            "reliability_reason": str(item.get("reliability_reason") or "runtime_overlay"),
+            "passes_minimum_gate": bool(item.get("validation_trades") or item.get("trade_count")),
+            "is_reliable": bool(item.get("is_reliable", reliability in {"high", "medium"})),
+            "composite_score": item.get("composite_score"),
+        },
+        "source": "quant_runtime",
+        "source_label": "quant_runtime",
+        "runtime_candidate_source_mode": runtime_source_mode,
+    }
+
+
+
 def collect_quant_runtime_candidates(market: str, cfg: dict | None = None) -> list[dict]:
     payload = load_execution_optimized_params() or {}
     per_symbol = payload.get("per_symbol") if isinstance(payload.get("per_symbol"), dict) else {}
@@ -114,6 +215,7 @@ def collect_quant_runtime_candidates(market: str, cfg: dict | None = None) -> li
 
     min_score = 0.0
     raw_cfg = cfg or {}
+    runtime_source_mode = normalize_runtime_candidate_source_mode(raw_cfg.get("runtime_candidate_source_mode"))
     try:
         min_score = float(raw_cfg.get("min_score", 0.0))
     except (TypeError, ValueError):
@@ -132,51 +234,14 @@ def collect_quant_runtime_candidates(market: str, cfg: dict | None = None) -> li
         score = _quant_candidate_score(item)
         if score < min_score:
             continue
-        sharpe = item.get("validation_sharpe")
-        trade_count = item.get("validation_trades") or item.get("trade_count") or 0
-        reliability = str(item.get("strategy_reliability") or ("high" if item.get("is_reliable") else "insufficient"))
-        reasons = [
-            f"quant_runtime:{reliability}",
-            f"validation_trades:{trade_count}",
-        ]
-        if sharpe not in (None, ""):
-            reasons.append(f"validation_sharpe:{sharpe}")
         candidates.append(
-            {
-                "code": code,
-                "name": listing.get("name") or code,
-                "market": normalize_market(item_market),
-                "sector": listing.get("sector") or item.get("sector") or "미분류",
-                "score": round(score, 2),
-                "priority_score": round(score, 2),
-                "signal": "BUY",
-                "confidence": _quant_candidate_confidence(item),
-                "gate_status": "passed",
-                "gate_reasons": [],
-                "theme_score": 0.0,
-                "matched_themes": [],
-                "keyword_gate_passed": False,
-                "related_news": [],
-                "theme_news_count": 0,
-                "reasons": reasons,
-                "risks": [],
-                "ai_thesis": "runtime quant validated candidate",
-                "technical_snapshot": item.get("technical_snapshot") if isinstance(item.get("technical_snapshot"), dict) else {},
-                "validation_snapshot": {
-                    "validation_source": "quant_runtime",
-                    "trade_count": int(item.get("trade_count") or item.get("validation_trades") or 0),
-                    "validation_trades": int(item.get("validation_trades") or item.get("trade_count") or 0),
-                    "validation_sharpe": float(item.get("validation_sharpe") or 0.0),
-                    "max_drawdown_pct": item.get("max_drawdown_pct"),
-                    "strategy_reliability": reliability,
-                    "reliability_reason": str(item.get("reliability_reason") or "runtime_overlay"),
-                    "passes_minimum_gate": bool(item.get("validation_trades") or item.get("trade_count")),
-                    "is_reliable": bool(item.get("is_reliable", reliability in {"high", "medium"})),
-                    "composite_score": item.get("composite_score"),
-                },
-                "source": "quant_runtime",
-                "source_label": "quant_runtime",
-            }
+            _build_quant_runtime_candidate(
+                code=code,
+                item=item,
+                item_market=item_market,
+                listing=listing,
+                runtime_source_mode=runtime_source_mode,
+            )
         )
 
     return sorted(

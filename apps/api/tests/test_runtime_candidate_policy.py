@@ -64,13 +64,22 @@ class RuntimeCandidatePolicyTests(unittest.TestCase):
                 }
             }
         }
-        with patch.object(svc, "load_execution_optimized_params", return_value=runtime_payload):
+        with patch.object(svc, "load_execution_optimized_params", return_value=runtime_payload), \
+             patch.object(svc, "fetch_technical_snapshot", return_value={
+                 "current_price": 201.5,
+                 "volume_avg20": 1500000,
+                 "volume_ratio": 1.4,
+             }):
             candidates = svc.collect_runtime_candidates("NASDAQ", cfg={})
 
         self.assertEqual(1, len(candidates))
         self.assertEqual("AAPL", candidates[0]["code"])
         self.assertEqual("quant_runtime", candidates[0]["source"])
         self.assertEqual("quant_runtime", candidates[0]["validation_snapshot"]["validation_source"])
+        self.assertEqual(201.5, candidates[0]["technical_snapshot"]["current_price"])
+        self.assertEqual(201.5, candidates[0]["current_price"])
+        self.assertEqual(1500000, candidates[0]["technical_snapshot"]["volume_avg20"])
+        self.assertEqual("quant_only", candidates[0]["runtime_candidate_source_mode"])
 
     def test_runtime_collection_hybrid_merges_only_in_policy_layer(self):
         runtime_payload = {
@@ -88,6 +97,7 @@ class RuntimeCandidatePolicyTests(unittest.TestCase):
             }
         }
         with patch.object(svc, "load_execution_optimized_params", return_value=runtime_payload), \
+             patch.object(svc, "fetch_technical_snapshot", return_value=None), \
              patch.object(svc, "_get_today_picks", return_value={
                  "auto_candidates": [
                      {
