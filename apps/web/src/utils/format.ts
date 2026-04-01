@@ -65,6 +65,37 @@ export function formatDateTime(value: string | null | undefined): string {
   return `${KST_DATE_TIME_FMT.format(date).replace(',', '')} KST`;
 }
 
+export function formatRelativeAge(value: string | null | undefined): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  const diffMs = Date.now() - date.getTime();
+  const isFuture = diffMs < 0;
+  const absMs = Math.abs(diffMs);
+  const absSeconds = Math.round(absMs / 1000);
+
+  if (absSeconds < 45) return isFuture ? '곧' : '방금';
+  if (absSeconds < 3600) {
+    const minutes = Math.round(absSeconds / 60);
+    return `${minutes}분 ${isFuture ? '후' : '전'}`;
+  }
+  if (absSeconds < 86400) {
+    const hours = Math.round(absSeconds / 3600);
+    return `${hours}시간 ${isFuture ? '후' : '전'}`;
+  }
+  const days = Math.round(absSeconds / 86400);
+  return `${days}일 ${isFuture ? '후' : '전'}`;
+}
+
+export function formatDateTimeWithAge(value: string | null | undefined): string {
+  const formatted = formatDateTime(value);
+  const age = formatRelativeAge(value);
+  if (formatted === '-') return '-';
+  if (age === '-') return formatted;
+  return `${formatted} · ${age}`;
+}
+
 export function formatCount(value: number | string | null | undefined, unit: string): string {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return `- ${unit}`;

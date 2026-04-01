@@ -120,6 +120,24 @@ function paperSkipReasonLabel(reason: string): string {
   return explainOrderFailureReason(reason);
 }
 
+function marketCurrency(market: unknown): 'KRW' | 'USD' {
+  const normalized = String(market || '').toUpperCase();
+  if (normalized === 'NASDAQ' || normalized === 'NYSE' || normalized === 'AMEX' || normalized === 'US') {
+    return 'USD';
+  }
+  return 'KRW';
+}
+
+function formatLocalPrice(value: number | null | undefined, market: unknown): string {
+  if (marketCurrency(market) === 'USD') return formatUSD(value, true);
+  return formatKRW(value, true);
+}
+
+function formatMarketWithCurrency(market: unknown): string {
+  const normalized = String(market || '-');
+  return `${normalized} · ${marketCurrency(market)}`;
+}
+
 export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh }: PaperPortfolioPageProps) {
   const { pushToast } = useToast();
   const { entries, push, clear } = useConsoleLogs();
@@ -700,19 +718,20 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           </div>
 
           <div className="page-section" style={{ padding: 0, overflow: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
+            <div style={{ padding: '14px 16px 0', fontSize: 12, color: 'var(--text-4)' }}>가격은 현지통화 기준, 평가손익은 원화 환산 기준으로 표기합니다.</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1260 }}>
               <thead>
                 <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
                   <th style={{ padding: 12, fontSize: 12 }}>종목</th>
-                  <th style={{ padding: 12, fontSize: 12 }}>시장</th>
+                  <th style={{ padding: 12, fontSize: 12 }}>시장 / 통화</th>
                   <th style={{ padding: 12, fontSize: 12 }}>수량</th>
-                  <th style={{ padding: 12, fontSize: 12 }}>진입가</th>
-                  <th style={{ padding: 12, fontSize: 12 }}>현재가</th>
-                  <th style={{ padding: 12, fontSize: 12 }}>평가손익</th>
+                  <th style={{ padding: 12, fontSize: 12 }}>진입가(현지)</th>
+                  <th style={{ padding: 12, fontSize: 12 }}>현재가(현지)</th>
+                  <th style={{ padding: 12, fontSize: 12 }}>평가손익(KRW)</th>
                   <th style={{ padding: 12, fontSize: 12 }}>수익률</th>
                   <th style={{ padding: 12, fontSize: 12 }}>보유기간</th>
-                  <th style={{ padding: 12, fontSize: 12 }}>손절가/손절률</th>
-                  <th style={{ padding: 12, fontSize: 12 }}>익절가/익절률</th>
+                  <th style={{ padding: 12, fontSize: 12 }}>손절가 / 손절률</th>
+                  <th style={{ padding: 12, fontSize: 12 }}>익절가 / 익절률</th>
                   <th style={{ padding: 12, fontSize: 12 }}>전략 태그</th>
                   <th style={{ padding: 12, fontSize: 12 }}>상태</th>
                 </tr>
@@ -734,20 +753,20 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   return (
                     <tr key={`${position.market}:${code}`} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatSymbol(code, name)}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{String(position.market || '-')}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatMarketWithCurrency(position.market)}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatCount(position.quantity, '주')}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(entryPrice, 2)}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(currentPrice, 2)}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatLocalPrice(entryPrice, position.market)}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatLocalPrice(currentPrice, position.market)}</td>
                       <td style={{ padding: 12, fontSize: 12, color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw, true)}</td>
                       <td style={{ padding: 12, fontSize: 12, color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>
                         {formatPercent(pnlPct, 2)}
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(holdingDays(position.entry_ts), 0)}일</td>
                       <td style={{ padding: 12, fontSize: 12 }}>
-                        {Number.isFinite(stopLossPrice) ? formatNumber(stopLossPrice, 2) : '-'} / {formatPercent(stopLossPct, 2)}
+                        {Number.isFinite(stopLossPrice) ? formatLocalPrice(stopLossPrice, position.market) : '-'} / {formatPercent(stopLossPct, 2)}
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
-                        {Number.isFinite(takeProfitPrice) ? formatNumber(takeProfitPrice, 2) : '-'} / {formatPercent(takeProfitPct, 2)}
+                        {Number.isFinite(takeProfitPrice) ? formatLocalPrice(takeProfitPrice, position.market) : '-'} / {formatPercent(takeProfitPct, 2)}
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>{strategyTag}</td>
                       <td style={{ padding: 12, fontSize: 12, fontWeight: 700 }}>보유</td>
@@ -804,6 +823,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     ts?: string;
                     code?: string;
                     name?: string;
+                    market?: string;
                     side?: string;
                     quantity?: number;
                     filled_price_local?: number;
@@ -820,7 +840,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       </span>
                     </div>
                     <div style={{ marginTop: 4, color: 'var(--text-3)' }}>
-                      수량 {formatCount(item.quantity, '주')} · 체결가 {formatNumber(item.filled_price_local, 2)} · {formatDateTime(item.timestamp || item.ts)}
+                      {item.market ? `${formatMarketWithCurrency(item.market)} · ` : ''}수량 {formatCount(item.quantity, '주')} · 체결가 {formatLocalPrice(item.filled_price_local, item.market)} · {formatDateTime(item.timestamp || item.ts)}
                     </div>
                     {!isSuccess && (
                       <div style={{ marginTop: 4, color: 'var(--down)' }}>실패 사유: {explainOrderFailureReason(item.failure_reason)}</div>

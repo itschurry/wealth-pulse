@@ -1,11 +1,13 @@
-import { reasonCodeToKorean, reliabilityToKorean } from '../constants/uiText';
-import { formatCount, formatDateTime, formatSymbol } from '../utils/format';
+import { reasonCodeToKorean, reliabilityToKorean, strategyTypeToKorean } from '../constants/uiText';
+import { explainSizeRecommendation, formatCount, formatDateTime, formatNumber, formatPercent, formatSymbol } from '../utils/format';
 import type {
   ConsoleSnapshot,
   SignalTableRow,
   TodayReportView,
+  WatchDecisionCandidate,
   WatchDecisionView,
 } from '../types/consoleView';
+import type { DomainSignal } from '../types/domain';
 
 function translateReasons(reasons: string[]): string[] {
   return reasons.map((reason) => reasonCodeToKorean(reason));
@@ -23,6 +25,66 @@ function dedupeKeepOrder(lines: string[]): string[] {
   return out;
 }
 
+function sortSignalsForWatch(signals: DomainSignal[]): DomainSignal[] {
+  return [...signals].sort((left, right) => {
+    const evGap = Number(right.ev_metrics?.expected_value ?? Number.NEGATIVE_INFINITY)
+      - Number(left.ev_metrics?.expected_value ?? Number.NEGATIVE_INFINITY);
+    if (Number.isFinite(evGap) && evGap !== 0) return evGap;
+
+    const scoreGap = Number(right.score ?? Number.NEGATIVE_INFINITY)
+      - Number(left.score ?? Number.NEGATIVE_INFINITY);
+    if (Number.isFinite(scoreGap) && scoreGap !== 0) return scoreGap;
+
+    return String(left.code || '').localeCompare(String(right.code || ''));
+  });
+}
+
+function buildWatchCandidate(signal: DomainSignal, index: number): WatchDecisionCandidate {
+  const reasons = translateReasons(signal.reason_codes || []);
+  const reliabilityRaw = String(signal.ev_metrics?.reliability || signal.validation_snapshot?.strategy_reliability || '').toLowerCase();
+  const reliabilityLabel = reliabilityToKorean(reliabilityRaw) || '-';
+  const strategyLabel = strategyTypeToKorean(signal.strategy_type || '');
+  const sizeSummary = explainSizeRecommendation(signal.size_recommendation);
+  const liquidity = String(signal.execution_realism?.liquidity_gate_status || '미확인');
+  const slippage = signal.execution_realism?.slippage_bps;
+  const scoreLabel = formatNumber(signal.score, 1);
+  const evLabel = formatNumber(signal.ev_metrics?.expected_value, 2);
+  const winRateLabel = formatPercent(signal.ev_metrics?.win_probability, 1, true);
+  const primaryReason = reasons[0] || (signal.entry_allowed ? '현재 차단 사유 없음' : '차단 사유 데이터 없음');
+
+  const chips = [
+    String(signal.market || '-'),
+    strategyLabel,
+    scoreLabel !== '-' ? `점수 ${scoreLabel}` : '',
+    evLabel !== '-' ? `EV ${evLabel}` : '',
+    winRateLabel !== '-' ? `승률 ${winRateLabel}` : '',
+    reliabilityLabel !== '-' ? `검증 ${reliabilityLabel}` : '',
+  ].filter(Boolean).slice(0, 5);
+
+  const secondaryDetail = signal.entry_allowed
+    ? sizeSummary !== '-'
+      ? `권장 수량 ${sizeSummary}`
+      : `유동성 ${liquidity}${slippage === undefined ? '' : ` · 슬리피지 ${formatNumber(slippage, 2)} bps`}`
+    : reasons[1]
+      ? `${primaryReason} · ${reasons[1]}`
+      : `차단 사유 ${primaryReason}${slippage === undefined ? '' : ` · 슬리피지 ${formatNumber(slippage, 2)} bps`}`;
+
+  return {
+    key: `${signal.market || 'market'}:${signal.code || 'signal'}:${index}`,
+    symbol: formatSymbol(signal.code, signal.name),
+    market: String(signal.market || '-'),
+    strategyLabel,
+    actionLabel: signal.entry_allowed ? '우선 검토' : '차단 사유 확인',
+    actionTone: signal.entry_allowed ? 'good' : 'bad',
+    scoreLabel,
+    evLabel,
+    reliabilityLabel,
+    primaryReason,
+    secondaryDetail,
+    chips,
+  };
+}
+
 export function buildSignalRows(snapshot: ConsoleSnapshot): SignalTableRow[] {
   const signals = snapshot.signals.signals || [];
   return signals.map((signal) => {
@@ -36,7 +98,7 @@ export function buildSignalRows(snapshot: ConsoleSnapshot): SignalTableRow[] {
   });
 }
 
-function classifyMode(snapshot: ConsoleSnapshot): WatchDecisionView {
+function classifyMode(snapshot: ConsoleSnapshot): Pick<WatchDecisionView, 'mode' | 'rationale' | 'stanceTitle' | 'stanceSummary'> {
   const riskLevel = String(snapshot.engine.allocator?.risk_level || snapshot.portfolio.risk_level || '');
   const guardAllowed = Boolean(snapshot.engine.risk_guard_state?.entry_allowed);
   const oosReliabilityRaw = String(snapshot.validation.summary?.oos_reliability || '').toLowerCase();
@@ -48,6 +110,8 @@ function classifyMode(snapshot: ConsoleSnapshot): WatchDecisionView {
   if (!guardAllowed || riskLevel === '높음' || oosReliabilityRaw === 'low') {
     return {
       mode: '관망',
+      stanceTitle: '신규 진입보다 방어 우선',
+      stanceSummary: '이 탭은 매수 확정 화면이 아니라 오늘 무엇을 계속 볼지 정리하는 관찰 보드로 쓰는 편이 맞습니다. 차단 사유 해소 전까지는 허용 후보보다 리스크 관리가 먼저입니다.',
       rationale: [
         `리스크 가드 또는 검증 신뢰도(${oosReliabilityLabel}) 조건이 보수 구간입니다.`,
         '신규 진입보다 기존 포지션 방어와 손실 제한을 우선합니다.',
@@ -57,6 +121,8 @@ function classifyMode(snapshot: ConsoleSnapshot): WatchDecisionView {
   if (riskLevel === '중간' || allowRatio < 0.35) {
     return {
       mode: '선별',
+      stanceTitle: '허용 후보를 좁게 선별',
+      stanceSummary: '관심 시나리오는 많이 보는 탭이 아니라 상위 후보만 추리는 필터 탭으로 보는 편이 낫습니다. 허용 후보와 막힌 후보를 섞지 말고 분리해서 읽으면 됩니다.',
       rationale: [
         '허용 신호 비율이 낮아 상위 EV 신호만 선별 진입합니다.',
         '유동성/리스크 제한 사유가 없는 종목 위주로 좁게 대응합니다.',
@@ -66,6 +132,8 @@ function classifyMode(snapshot: ConsoleSnapshot): WatchDecisionView {
   if (riskLevel === '낮음' && oosReliabilityRaw === 'high' && allowRatio >= 0.6) {
     return {
       mode: '공격',
+      stanceTitle: '허용 후보 빠르게 검토 가능',
+      stanceSummary: '공격 모드여도 이 화면의 역할은 우선순위 정리입니다. 상위 허용 후보를 먼저 보고, 막힌 후보는 왜 빠졌는지만 짧게 확인하면 충분합니다.',
       rationale: [
         '시장 위험도와 OOS 신뢰도가 양호해 적극 운용 가능한 구간입니다.',
         '단, 일일 손실 한도와 섹터 익스포저 캡은 동일하게 준수합니다.',
@@ -74,6 +142,8 @@ function classifyMode(snapshot: ConsoleSnapshot): WatchDecisionView {
   }
   return {
     mode: '축소',
+    stanceTitle: '포지션 크기 보수적으로 유지',
+    stanceSummary: '완전 관망은 아니지만 확대 근거도 강하지 않습니다. 허용 후보는 검토하되, 수량과 유동성 조건이 맞는 종목만 남기는 용도로 보면 됩니다.',
     rationale: [
       '중립 구간으로 포지션 크기를 보수적으로 조절합니다.',
       '신규 진입은 EV 우위가 뚜렷한 신호에 제한합니다.',
@@ -177,5 +247,36 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
 }
 
 export function buildWatchDecisionView(snapshot: ConsoleSnapshot): WatchDecisionView {
-  return classifyMode(snapshot);
+  const signals = snapshot.signals.signals || [];
+  const decision = classifyMode(snapshot);
+  const allowedSignals = sortSignalsForWatch(signals.filter((signal) => signal.entry_allowed));
+  const blockedSignals = sortSignalsForWatch(signals.filter((signal) => !signal.entry_allowed));
+  const repeatedBlockedReasons = dedupeKeepOrder(
+    blockedSignals.flatMap((signal) => translateReasons(signal.reason_codes || [])),
+  ).slice(0, 3);
+
+  const focusCandidates = allowedSignals.slice(0, 3).map((signal, index) => buildWatchCandidate(signal, index));
+  const blockedCandidates = blockedSignals.slice(0, 3).map((signal, index) => buildWatchCandidate(signal, index));
+
+  const researchQueue = dedupeKeepOrder([
+    ...decision.rationale,
+    focusCandidates[0]
+      ? `${focusCandidates[0].symbol} 등 허용 후보는 EV·승률·권장 수량이 같이 버티는지부터 확인합니다.`
+      : '현재 허용 후보가 적어 관심 시나리오는 관찰/보류 중심으로 읽는 편이 안전합니다.',
+    blockedCandidates[0]
+      ? `${blockedCandidates[0].symbol} 등 막힌 후보는 ${blockedCandidates[0].primaryReason} 해소 전까지 관찰 전용으로 둡니다.`
+      : '강하게 막힌 후보가 적어 오늘은 허용 후보 우선순위 정리에 집중하면 됩니다.',
+    repeatedBlockedReasons.length > 0
+      ? `반복 차단 사유: ${repeatedBlockedReasons.join(' · ')}`
+      : '',
+  ]).slice(0, 5);
+
+  return {
+    ...decision,
+    allowedCount: allowedSignals.length,
+    blockedCount: blockedSignals.length,
+    focusCandidates,
+    blockedCandidates,
+    researchQueue,
+  };
 }

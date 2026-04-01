@@ -6,7 +6,7 @@ import {
 import type { ReactNode } from 'react';
 import { UI_TEXT, reasonCodeToKorean, reliabilityToKorean } from '../constants/uiText';
 import type { DomainSignal } from '../types/domain';
-import { formatCount, formatDateTime, formatNumber, formatPercent, formatSymbol } from '../utils/format';
+import { formatCount, formatDateTime, formatDateTimeWithAge, formatKRW, formatNumber, formatPercent, formatSymbol } from '../utils/format';
 import {
   buildScoreComponentRows,
   buildTailRiskRows,
@@ -73,7 +73,7 @@ function tabHeadline(tab: ReportTab): string {
 
 function tabDescription(tab: ReportTab): string {
   if (tab === 'alerts') return '실행 전·실행 중 조치가 필요한 운영 리스크를 먼저 모아보는 화면입니다.';
-  if (tab === 'watch-decision') return '오늘 신규 진입 태도와 추가 리서치할 관심 시나리오만 짧게 정리한 카드입니다.';
+  if (tab === 'watch-decision') return '이 탭은 매수 확정판이 아니라 오늘 다시 볼 허용 후보와 막힌 후보를 분리해 두는 research queue입니다.';
   return '리서치 요약, 검증 결과, 실행 우선순위를 한 번에 읽는 투자 브리프입니다.';
 }
 
@@ -155,7 +155,7 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
       <div className="page-section report-hero-card report-decision-hero">
         <div className="report-hero-topline">
           <span className="report-hero-tag">Decision First</span>
-          <span className="report-hero-meta">브리프 생성 {formatDateTime(view.generatedAt)}</span>
+          <span className="report-hero-meta">브리프 생성 {formatDateTimeWithAge(view.generatedAt)}</span>
         </div>
         <div className="report-decision-title">오늘 결론: {modeLabel}</div>
         <div className="report-hero-copy">시장 요약보다 먼저 연구 → 검증 → 실행 순서를 고정합니다. 지금은 {guardAllowed ? '허용된 진입만 선별 실행' : '신규 진입 중단과 보유 리스크 관리'}이 우선입니다. 이 투자 브리프는 quant 검증 결과와 AI·테마·뉴스 리서치를 함께 읽되, 둘을 교집합으로 묶진 않습니다.</div>
@@ -527,8 +527,8 @@ function renderAlerts(snapshot: ConsoleSnapshot) {
             <div>허용 / 차단 신호: {formatCount(allowedSignals, '건')} / {formatCount(blockedSignals, '건')}</div>
             <div>다음 실행 시각: {formatDateTime(engineState.next_run_at || '')}</div>
             <div>최근 성공 시각: {formatDateTime(engineState.last_success_at || '')}</div>
-            <div>오늘 실현손익: {formatNumber(Number(engineState.today_realized_pnl || 0), 0)}원</div>
-            <div>일일 손실 잔여: {formatNumber(Number(riskGuard.daily_loss_left || 0), 0)}원</div>
+            <div>오늘 실현손익: {formatKRW(Number(engineState.today_realized_pnl || 0), true)}</div>
+            <div>일일 손실 잔여: {formatKRW(Number(riskGuard.daily_loss_left || 0), true)}</div>
           </div>
         </div>
       </div>
@@ -574,41 +574,135 @@ function renderWatchDecision(snapshot: ConsoleSnapshot) {
   const view = buildWatchDecisionView(snapshot);
   const guardAllowed = Boolean(snapshot.engine.risk_guard_state?.entry_allowed);
   const riskLevel = String(snapshot.engine.allocator?.risk_level || snapshot.signals.risk_level || '-');
-  const allowedCount = (snapshot.signals.signals || []).filter((signal) => signal.entry_allowed).length;
+  const signalsAsOf = snapshot.signals.generated_at || snapshot.fetchedAt;
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <div className="page-section report-hero-card">
+      <div className="page-section report-hero-card report-decision-hero">
         <div className="report-hero-topline">
-          <span className="report-hero-tag">Watch Decision</span>
-          <span className="report-hero-meta">관심 시나리오 요약</span>
+          <span className="report-hero-tag">Research Queue</span>
+          <span className="report-hero-meta">신호 기준 {formatDateTimeWithAge(signalsAsOf)}</span>
         </div>
         <div className="report-hero-title-row">
           <div>
             <div className="report-hero-title">관심 시나리오</div>
-            <div className="report-hero-copy">오늘 신규 진입 태도와 추가 리서치할 집중 포인트만 남겨 둔 짧은 판단 화면입니다. quant 검증과 AI·테마·뉴스 리서치를 함께 읽지만, 둘을 동시에 만족해야만 후보가 되는 구조는 아닙니다.</div>
+            <div className="report-hero-copy">이제 이 탭은 짧은 모드 문장만 보여주는 화면이 아니라, 오늘 다시 볼 허용 후보와 막혀 있지만 계속 볼 후보를 나눠 두는 research queue로 읽으면 됩니다. 매수 확정판이 아니라 우선순위 정리판에 가깝습니다.</div>
           </div>
           <div className={`report-mode-chip is-${view.mode === '공격' ? 'good' : view.mode === '관망' ? 'bad' : 'neutral'}`}>
             {view.mode}
           </div>
         </div>
+        <div className="report-decision-strip">
+          <div className={`report-decision-chip ${guardAllowed ? 'is-good' : 'is-bad'}`}>신규 진입 {guardAllowed ? '가능' : '제한'}</div>
+          <div className="report-decision-chip">위험도 {riskLevel}</div>
+          <div className="report-decision-chip">허용 {formatCount(view.allowedCount, '건')} / 차단 {formatCount(view.blockedCount, '건')}</div>
+        </div>
       </div>
 
       <div className="report-grid-3">
         <div className="page-section report-visual-card">
-          <div className="report-card-title">신규 진입</div>
-          <div className="report-card-value">{guardAllowed ? '가능' : '제한'}</div>
-          <div className="report-card-copy">리스크 가드 기준</div>
+          <div className="report-card-title">오늘 태도</div>
+          <div className="report-card-value">{view.stanceTitle}</div>
+          <div className="report-card-copy">{view.stanceSummary}</div>
         </div>
         <div className="page-section report-visual-card">
-          <div className="report-card-title">위험도</div>
-          <div className="report-card-value">{riskLevel}</div>
-          <div className="report-card-copy">allocator / signals 기준</div>
+          <div className="report-card-title">지금 볼 허용 후보</div>
+          <div className="report-card-value">{formatCount(view.focusCandidates.length, '건')}</div>
+          <div className="report-card-copy">진입 가능 신호 중 EV/점수 상위 후보만 먼저 올렸습니다.</div>
         </div>
         <div className="page-section report-visual-card">
-          <div className="report-card-title">허용 신호</div>
-          <div className="report-card-value">{formatCount(allowedCount, '건')}</div>
-          <div className="report-card-copy">오늘 진입 후보 수</div>
+          <div className="report-card-title">막혀 있지만 계속 볼 후보</div>
+          <div className="report-card-value">{formatCount(view.blockedCandidates.length, '건')}</div>
+          <div className="report-card-copy">차단 사유가 뚜렷한 후보를 따로 남겨서 허용 후보와 섞이지 않게 했습니다.</div>
+        </div>
+      </div>
+
+      <div className="report-grid-2">
+        <div className="page-section report-visual-card">
+          <div className="section-head-row">
+            <div>
+              <div className="section-title">지금 볼 허용 후보</div>
+              <div className="section-copy">바로 진입한다는 뜻이 아니라, 오늘 우선순위로 다시 확인할 후보입니다.</div>
+            </div>
+            <div className="inline-badge is-success">{formatCount(view.focusCandidates.length, '건')}</div>
+          </div>
+          <div className="operator-note-grid">
+            {view.focusCandidates.map((item) => (
+              <div key={item.key} className="operator-note-card watch-scenario-card is-good">
+                <div className="scorecard-candidate-head">
+                  <div>
+                    <div className="operator-note-label">{item.symbol}</div>
+                    <div className="operator-note-copy">{item.market} · {item.strategyLabel}</div>
+                  </div>
+                  <div className="inline-badge is-success">{item.actionLabel}</div>
+                </div>
+                <div className="signal-chip-row">
+                  {item.chips.map((chip) => <span key={`${item.key}-${chip}`} className="signal-meta-chip">{chip}</span>)}
+                </div>
+                <div className="operator-note-copy">
+                  <strong style={{ color: 'var(--text-1)' }}>핵심 포인트</strong> {item.primaryReason}
+                  <br />
+                  {item.secondaryDetail}
+                </div>
+              </div>
+            ))}
+            {view.focusCandidates.length === 0 && (
+              <div className="operator-note-card">
+                <div className="operator-note-label">허용 후보 없음</div>
+                <div className="operator-note-copy">현재는 신규 진입보다 기존 포지션 관리와 차단 사유 확인이 우선입니다.</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="page-section report-visual-card">
+          <div className="section-head-row">
+            <div>
+              <div className="section-title">막혀 있지만 계속 볼 후보</div>
+              <div className="section-copy">막힌 이유를 먼저 확인하려고 남겨 둔 관찰 리스트입니다.</div>
+            </div>
+            <div className="inline-badge is-warning">{formatCount(view.blockedCandidates.length, '건')}</div>
+          </div>
+          <div className="operator-note-grid">
+            {view.blockedCandidates.map((item) => (
+              <div key={item.key} className="operator-note-card watch-scenario-card is-bad">
+                <div className="scorecard-candidate-head">
+                  <div>
+                    <div className="operator-note-label">{item.symbol}</div>
+                    <div className="operator-note-copy">{item.market} · {item.strategyLabel}</div>
+                  </div>
+                  <div className="inline-badge is-danger">{item.actionLabel}</div>
+                </div>
+                <div className="signal-chip-row">
+                  {item.chips.map((chip) => <span key={`${item.key}-${chip}`} className="signal-meta-chip">{chip}</span>)}
+                </div>
+                <div className="operator-note-copy">
+                  <strong style={{ color: 'var(--text-1)' }}>막힌 이유</strong> {item.primaryReason}
+                  <br />
+                  {item.secondaryDetail}
+                </div>
+              </div>
+            ))}
+            {view.blockedCandidates.length === 0 && (
+              <div className="operator-note-card">
+                <div className="operator-note-label">강한 차단 후보 적음</div>
+                <div className="operator-note-copy">오늘은 허용 후보 우선순위만 빠르게 정리해도 충분합니다.</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="page-section report-rationale-card" style={{ padding: 16 }}>
+        <div className="section-head-row">
+          <div>
+            <div className="section-title">추가 리서치 체크리스트</div>
+            <div className="section-copy">이 탭을 본 뒤 바로 신호 화면이나 포트폴리오 화면으로 넘어갈 때 체크할 항목입니다.</div>
+          </div>
+          <div className="inline-badge">{formatCount(view.researchQueue.length, '줄')}</div>
+        </div>
+        <div className="report-brief-list is-compact">
+          {renderIndexedBriefItems(view.researchQueue, 'research-queue')}
         </div>
       </div>
 
@@ -645,7 +739,7 @@ export function ReportsPage({ snapshot, loading, errorMessage, reportTab, onRefr
             </div>
             <div className="reports-toolbar-actions">
               <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
-                콘솔 데이터 기준 시각 {formatDateTime(snapshot.fetchedAt)}
+                콘솔 기준 {formatDateTimeWithAge(snapshot.fetchedAt)}
               </div>
               <button className="ghost-button" onClick={onRefresh}>{UI_TEXT.common.refresh}</button>
             </div>

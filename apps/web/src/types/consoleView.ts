@@ -45,9 +45,31 @@ export interface TodayReportView {
   hasReportContent: boolean;
 }
 
+export interface WatchDecisionCandidate {
+  key: string;
+  symbol: string;
+  market: string;
+  strategyLabel: string;
+  actionLabel: string;
+  actionTone: 'good' | 'neutral' | 'bad';
+  scoreLabel: string;
+  evLabel: string;
+  reliabilityLabel: string;
+  primaryReason: string;
+  secondaryDetail: string;
+  chips: string[];
+}
+
 export interface WatchDecisionView {
   mode: '관망' | '선별' | '공격' | '축소';
   rationale: string[];
+  stanceTitle: string;
+  stanceSummary: string;
+  allowedCount: number;
+  blockedCount: number;
+  focusCandidates: WatchDecisionCandidate[];
+  blockedCandidates: WatchDecisionCandidate[];
+  researchQueue: string[];
 }
 
 export interface SignalTableRow {
