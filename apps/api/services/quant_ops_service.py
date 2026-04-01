@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import LOGS_DIR
+from services.backtest_params_store import (
+    BACKTEST_VALIDATION_SETTINGS_PATH,
+    _normalize_query as _normalize_saved_query,
+    _normalize_settings as _normalize_saved_settings,
+    load_persisted_validation_settings,
+)
 from services.optimized_params_store import (
     RUNTIME_OPTIMIZED_PARAMS_PATH,
     SEARCH_OPTIMIZED_PARAMS_PATH,
@@ -105,6 +111,17 @@ def _is_stale(optimized_at: str) -> bool:
         return True
 
 
+def _age_seconds(timestamp: str) -> float | None:
+    if not timestamp:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(timestamp)
+        now = dt.datetime.now(dt.timezone.utc)
+        return max(0.0, (now - parsed.astimezone(dt.timezone.utc)).total_seconds())
+    except Exception:
+        return None
+
+
 def _search_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
     payload = payload or {}
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
@@ -127,6 +144,151 @@ def _search_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
         "context": search_context,
         "source": str(SEARCH_OPTIMIZED_PARAMS_PATH),
     }
+
+
+def _load_current_validation_baseline() -> dict[str, Any]:
+    try:
+        payload = load_persisted_validation_settings()
+    except Exception:
+        payload = {}
+    saved_at = str((payload or {}).get("saved_at") or "")
+    return {
+        "available": bool(saved_at or BACKTEST_VALIDATION_SETTINGS_PATH.exists()),
+        "query": _normalize_saved_query(payload.get("query") if isinstance(payload, dict) else None),
+        "settings": _normalize_saved_settings(payload.get("settings") if isinstance(payload, dict) else None),
+        "saved_at": saved_at,
+    }
+
+
+def _matches_validation_baseline(
+    query: dict[str, Any] | None,
+    settings: dict[str, Any] | None,
+    baseline: dict[str, Any],
+) -> bool:
+    if not baseline.get("available"):
+        return True
+    return (
+        _normalize_saved_query(query if isinstance(query, dict) else None) == dict(baseline.get("query") or {})
+        and _normalize_saved_settings(settings if isinstance(settings, dict) else None) == dict(baseline.get("settings") or {})
+    )
+
+
+def _candidate_activity_state(
+    candidate: dict[str, Any] | None,
+    search: dict[str, Any],
+    baseline: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        return {
+            "status": "missing",
+            "active": False,
+            "reasons": ["candidate_missing"],
+            "candidate_id": "",
+            "search_version": "",
+            "baseline_matches": False,
+        }
+
+    reasons: list[str] = []
+    baseline_matches = _matches_validation_baseline(
+        candidate.get("base_query") if isinstance(candidate.get("base_query"), dict) else None,
+        candidate.get("settings") if isinstance(candidate.get("settings"), dict) else None,
+        baseline,
+    )
+    if not baseline_matches:
+        reasons.append("validation_settings_changed")
+    if not search.get("available"):
+        reasons.append("optimizer_search_missing")
+    elif str(candidate.get("search_version") or "") != str(search.get("version") or ""):
+        reasons.append("optimizer_search_version_changed")
+
+    return {
+        "status": "active" if not reasons else "stale",
+        "active": len(reasons) == 0,
+        "reasons": reasons,
+        "candidate_id": str(candidate.get("id") or ""),
+        "search_version": str(candidate.get("search_version") or ""),
+        "baseline_matches": baseline_matches,
+    }
+
+
+def _canonicalize_runtime_summary(runtime_payload: dict[str, Any], saved_candidate: dict[str, Any] | None) -> dict[str, Any]:
+    summary = copy.deepcopy(runtime_payload)
+    reasons: list[str] = []
+    if not summary.get("available"):
+        summary["status"] = "missing"
+        summary["active"] = False
+        summary["reasons"] = []
+        return summary
+
+    if not isinstance(saved_candidate, dict):
+        reasons.append("saved_candidate_missing")
+    elif str(summary.get("candidate_id") or "") != str(saved_candidate.get("id") or ""):
+        reasons.append("runtime_candidate_mismatch")
+
+    summary["status"] = "applied" if not reasons else "stale"
+    summary["active"] = len(reasons) == 0
+    summary["reasons"] = reasons
+    return summary
+
+
+def _canonicalize_search_handoff(
+    handoff: dict[str, Any] | None,
+    *,
+    search: dict[str, Any],
+    baseline: dict[str, Any],
+    latest_candidate: dict[str, Any] | None,
+    latest_candidate_state: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not isinstance(handoff, dict):
+        return None
+
+    normalized = copy.deepcopy(handoff)
+    reasons: list[str] = []
+    baseline_matches = _matches_validation_baseline(
+        normalized.get("query") if isinstance(normalized.get("query"), dict) else None,
+        normalized.get("settings") if isinstance(normalized.get("settings"), dict) else None,
+        baseline,
+    )
+    if not baseline_matches:
+        reasons.append("validation_settings_changed")
+
+    search_available = bool(search.get("available"))
+    current_search_version = str(search.get("version") or "")
+    handoff_search_version = str(normalized.get("search_version") or "")
+    if search_available and handoff_search_version and handoff_search_version != current_search_version:
+        reasons.append("optimizer_search_version_changed")
+
+    status = str(normalized.get("status") or "unknown")
+    if status == "pending":
+        if (
+            latest_candidate_state.get("active")
+            and isinstance(latest_candidate, dict)
+            and str(latest_candidate.get("search_version") or "") == current_search_version
+            and baseline_matches
+        ):
+            decision = latest_candidate.get("decision") if isinstance(latest_candidate.get("decision"), dict) else {}
+            status = "candidate_updated"
+            normalized.setdefault("candidate_id", str(latest_candidate.get("id") or ""))
+            normalized.setdefault("search_version", str(latest_candidate.get("search_version") or ""))
+            normalized.setdefault("decision_status", str(decision.get("status") or ""))
+            normalized.setdefault("decision_label", str(decision.get("label") or ""))
+        elif not search_available:
+            pending_age = _age_seconds(str(normalized.get("requested_at") or ""))
+            if pending_age is not None and pending_age > 3900:
+                status = "stale"
+                reasons.append("optimizer_handoff_expired")
+        elif search_available:
+            status = "pending_revalidation"
+
+    if status not in {"optimizer_failed", "revalidate_failed", "candidate_updated", "pending", "pending_revalidation"} and reasons:
+        status = "stale"
+
+    normalized["status"] = status
+    normalized["active"] = status in {"candidate_updated", "pending", "pending_revalidation"} and len(reasons) == 0
+    normalized["baseline_matches"] = baseline_matches
+    normalized["search_available"] = search_available
+    normalized["reasons"] = reasons
+    return normalized
 
 
 def _build_service_query(query: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, list[str]]:
@@ -516,6 +678,7 @@ def _refresh_symbol_states(
     state: dict[str, Any],
     search: dict[str, Any],
     search_items: dict[str, dict[str, Any]],
+    baseline: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], dict[str, Any]]:
     latest_map = state.get("latest_symbol_candidates") if isinstance(state.get("latest_symbol_candidates"), dict) else {}
     saved_map = state.get("saved_symbol_candidates") if isinstance(state.get("saved_symbol_candidates"), dict) else {}
@@ -531,23 +694,27 @@ def _refresh_symbol_states(
     runtime_count = 0
     for symbol in symbols:
         search_item = search_items.get(symbol)
-        latest_candidate = _refresh_symbol_candidate(
+        latest_candidate_raw = _refresh_symbol_candidate(
             latest_map.get(symbol) if isinstance(latest_map.get(symbol), dict) else None,
             search,
             search_item,
         )
+        latest_candidate_state = _candidate_activity_state(latest_candidate_raw, search, baseline)
+        latest_candidate = latest_candidate_raw if latest_candidate_state.get("active") else None
         if latest_candidate:
             refreshed_latest[symbol] = latest_candidate
         approval = _read_symbol_approval(state, symbol)
-        if approval.get("status") == "approved":
+        if latest_candidate and approval.get("status") == "approved":
             approved_count += 1
         latest_guardrails = _symbol_save_guardrails(latest_candidate, approval, search=search, search_item=search_item)
 
-        saved_candidate = _refresh_symbol_candidate(
+        saved_candidate_raw = _refresh_symbol_candidate(
             saved_map.get(symbol) if isinstance(saved_map.get(symbol), dict) else None,
             search,
             search_item,
         )
+        saved_candidate_state = _candidate_activity_state(saved_candidate_raw, search, baseline)
+        saved_candidate = saved_candidate_raw if saved_candidate_state.get("active") else None
         if saved_candidate:
             refreshed_saved[symbol] = saved_candidate
             saved_count += 1
@@ -559,12 +726,18 @@ def _refresh_symbol_states(
         if runtime_applied:
             runtime_count += 1
 
+        should_include_row = bool(search_item or latest_candidate or saved_candidate or runtime_candidate_id or approval.get("status") != "hold")
+        if not should_include_row:
+            continue
+
         rows.append({
             "symbol": symbol,
             "search_candidate": search_item,
             "latest_candidate": latest_candidate,
+            "latest_candidate_state": latest_candidate_state,
             "approval": approval,
             "saved_candidate": saved_candidate,
+            "saved_candidate_state": saved_candidate_state,
             "latest_guardrails": latest_guardrails,
             "saved_guardrails": saved_guardrails,
             "runtime": {
@@ -605,18 +778,37 @@ def _runtime_summary(runtime_payload: dict[str, Any] | None, state_runtime: dict
 
 def get_quant_ops_workflow() -> dict[str, Any]:
     state = _load_state()
+    baseline = _load_current_validation_baseline()
     search_payload = load_search_optimized_params()
     search = _search_summary(search_payload)
     search_items = _symbol_search_candidates(search_payload, search)
-    latest_candidate = _refresh_candidate(state.get("latest_candidate"), search)
-    saved_candidate = _refresh_candidate(state.get("saved_candidate"), search)
+
+    latest_candidate_raw = _refresh_candidate(state.get("latest_candidate"), search)
+    latest_candidate_state = _candidate_activity_state(latest_candidate_raw, search, baseline)
+    latest_candidate = latest_candidate_raw if latest_candidate_state.get("active") else None
+
+    saved_candidate_raw = _refresh_candidate(state.get("saved_candidate"), search)
+    saved_candidate_state = _candidate_activity_state(saved_candidate_raw, search, baseline)
+    saved_candidate = saved_candidate_raw if saved_candidate_state.get("active") else None
+
     symbol_rows, refreshed_latest_symbols, refreshed_saved_symbols, symbol_summary = _refresh_symbol_states(
         state,
         search,
         search_items,
+        baseline,
     )
-    runtime_apply = _runtime_summary(load_runtime_optimized_params(), state.get("runtime_apply"))
-    search_handoff = state.get("pending_search_handoff") if isinstance(state.get("pending_search_handoff"), dict) else state.get("last_search_handoff")
+    runtime_apply = _canonicalize_runtime_summary(
+        _runtime_summary(load_runtime_optimized_params(), state.get("runtime_apply")),
+        saved_candidate,
+    )
+    raw_search_handoff = state.get("pending_search_handoff") if isinstance(state.get("pending_search_handoff"), dict) else state.get("last_search_handoff")
+    search_handoff = _canonicalize_search_handoff(
+        raw_search_handoff,
+        search=search,
+        baseline=baseline,
+        latest_candidate=latest_candidate,
+        latest_candidate_state=latest_candidate_state,
+    )
 
     stage_status = {
         "candidate_search": "ready" if search.get("available") else "missing",
@@ -632,14 +824,19 @@ def get_quant_ops_workflow() -> dict[str, Any]:
     return {
         "ok": True,
         "search_result": search,
+        "search_available": bool(search.get("available")),
+        "candidate_search": stage_status["candidate_search"],
         "latest_candidate": latest_candidate,
+        "latest_candidate_state": latest_candidate_state,
         "saved_candidate": saved_candidate,
+        "saved_candidate_state": saved_candidate_state,
         "symbol_candidates": symbol_rows,
         "symbol_summary": symbol_summary,
         "latest_symbol_candidates": refreshed_latest_symbols,
         "saved_symbol_candidates": refreshed_saved_symbols,
         "runtime_apply": runtime_apply,
         "search_handoff": search_handoff,
+        "validation_baseline": baseline,
         "stage_status": stage_status,
         "notes": [
             "optimizer 결과는 후보 탐색용이고, latest_candidate는 재검증이 끝난 운영 후보입니다.",

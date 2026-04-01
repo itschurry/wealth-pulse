@@ -213,6 +213,104 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual(self.search_payload["version"], workflow["latest_candidate"]["search_version"])
         self.assertEqual("adopt", workflow["stage_status"]["revalidation"])
 
+    def test_workflow_hides_orphan_candidates_when_search_file_is_missing(self):
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None), \
+             patch.object(svc, "run_validation_diagnostics", return_value=_adopt_diagnostics()):
+            svc.revalidate_optimizer_candidate({
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "운영 전략", "minTrades": 8},
+            })
+            save_result = svc.save_validated_candidate({"note": "saved"})
+
+        self.assertTrue(save_result["ok"])
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=None), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None):
+            workflow = svc.get_quant_ops_workflow()
+
+        self.assertFalse(workflow["search_available"])
+        self.assertEqual("missing", workflow["candidate_search"])
+        self.assertFalse(workflow["search_result"]["available"])
+        self.assertIsNone(workflow["latest_candidate"])
+        self.assertEqual("stale", workflow["latest_candidate_state"]["status"])
+        self.assertIn("optimizer_search_missing", workflow["latest_candidate_state"]["reasons"])
+        self.assertIsNone(workflow["saved_candidate"])
+        self.assertEqual("stale", workflow["saved_candidate_state"]["status"])
+        self.assertEqual("missing", workflow["stage_status"]["revalidation"])
+        self.assertEqual("missing", workflow["stage_status"]["save"])
+
+    def test_workflow_invalidates_candidates_when_saved_validation_settings_change(self):
+        query = {
+            "market_scope": "kospi",
+            "lookback_days": 365,
+            "stop_loss_pct": 5.0,
+            "take_profit_pct": 15.0,
+        }
+        settings = {
+            "strategy": "운영 전략",
+            "trainingDays": 180,
+            "validationDays": 60,
+            "walkForward": True,
+            "minTrades": 8,
+        }
+        baseline_payload = {"query": query, "settings": settings, "saved_at": _NOW}
+        changed_payload = {
+            "query": {**query, "lookback_days": 730},
+            "settings": {**settings, "validationDays": 90},
+            "saved_at": _NOW,
+        }
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None), \
+             patch.object(svc, "load_persisted_validation_settings", return_value=baseline_payload), \
+             patch.object(svc, "run_validation_diagnostics", return_value=_adopt_diagnostics()):
+            svc.revalidate_optimizer_candidate({"query": query, "settings": settings})
+            save_result = svc.save_validated_candidate({"note": "saved"})
+
+        self.assertTrue(save_result["ok"])
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None), \
+             patch.object(svc, "load_persisted_validation_settings", return_value=changed_payload):
+            workflow = svc.get_quant_ops_workflow()
+
+        self.assertTrue(workflow["search_available"])
+        self.assertEqual("ready", workflow["candidate_search"])
+        self.assertIsNone(workflow["latest_candidate"])
+        self.assertIn("validation_settings_changed", workflow["latest_candidate_state"]["reasons"])
+        self.assertIsNone(workflow["saved_candidate"])
+        self.assertIn("validation_settings_changed", workflow["saved_candidate_state"]["reasons"])
+        self.assertEqual("missing", workflow["stage_status"]["revalidation"])
+        self.assertEqual("missing", workflow["stage_status"]["save"])
+
+    def test_workflow_marks_expired_pending_handoff_as_stale(self):
+        stale_requested_at = (
+            dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        ).astimezone().isoformat(timespec="seconds")
+        state = {
+            "pending_search_handoff": {
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "handoff", "trainingDays": 180, "validationDays": 60, "walkForward": True, "minTrades": 8},
+                "requested_at": stale_requested_at,
+                "status": "pending",
+            }
+        }
+        self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=None), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None):
+            workflow = svc.get_quant_ops_workflow()
+
+        self.assertEqual("stale", workflow["search_handoff"]["status"])
+        self.assertIn("optimizer_handoff_expired", workflow["search_handoff"]["reasons"])
+        self.assertFalse(workflow["search_handoff"]["active"])
+
     def test_save_blocks_when_revalidation_failed_guardrails(self):
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
              patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
