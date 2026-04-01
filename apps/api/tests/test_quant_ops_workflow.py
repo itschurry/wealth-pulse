@@ -213,6 +213,79 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual(self.search_payload["version"], workflow["latest_candidate"]["search_version"])
         self.assertEqual("adopt", workflow["stage_status"]["revalidation"])
 
+
+    def test_workflow_recovers_pending_handoff_when_search_finished_but_callback_was_missed(self):
+        requested_at = (
+            dt.datetime.fromisoformat(_NOW).astimezone(dt.timezone.utc) - dt.timedelta(minutes=5)
+        ).astimezone().isoformat(timespec="seconds")
+        state = {
+            "pending_search_handoff": {
+                "query": {
+                    "market_scope": "nasdaq",
+                    "lookback_days": 365,
+                    "stop_loss_pct": 4.5,
+                    "take_profit_pct": 11.0,
+                },
+                "settings": {
+                    "strategy": "자동 handoff 전략",
+                    "trainingDays": 200,
+                    "validationDays": 50,
+                    "walkForward": True,
+                    "minTrades": 8,
+                },
+                "requested_at": requested_at,
+                "status": "pending",
+            }
+        }
+        self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None), \
+             patch.object(svc, "run_validation_diagnostics", return_value=_adopt_diagnostics()):
+            workflow = svc.get_quant_ops_workflow()
+
+        persisted = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual("candidate_updated", workflow["search_handoff"]["status"])
+        self.assertIsNone(persisted["pending_search_handoff"])
+        self.assertEqual("candidate_updated", persisted["last_search_handoff"]["status"])
+        self.assertIsNotNone(workflow["latest_candidate"])
+        self.assertEqual(self.search_payload["version"], workflow["latest_candidate"]["search_version"])
+        self.assertEqual("adopt", workflow["stage_status"]["revalidation"])
+
+    def test_finalize_handoff_marks_revalidation_exception_without_leaving_pending(self):
+        payload = {
+            "query": {
+                "market_scope": "nasdaq",
+                "lookback_days": 365,
+                "stop_loss_pct": 4.5,
+                "take_profit_pct": 11.0,
+            },
+            "settings": {
+                "strategy": "자동 handoff 전략",
+                "trainingDays": 200,
+                "validationDays": 50,
+                "walkForward": True,
+                "minTrades": 8,
+            },
+        }
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None), \
+             patch.object(svc, "run_validation_diagnostics", side_effect=RuntimeError("boom")):
+            svc.register_optimizer_search_handoff(payload)
+            result = svc.finalize_optimizer_search_handoff(success=True)
+            workflow = svc.get_quant_ops_workflow()
+
+        persisted = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertFalse(result["ok"])
+        self.assertEqual("boom", result["error"])
+        self.assertEqual("revalidate_failed", result["handoff"]["status"])
+        self.assertEqual("revalidate_failed", workflow["search_handoff"]["status"])
+        self.assertEqual("boom", workflow["search_handoff"]["error"])
+        self.assertIsNone(persisted["pending_search_handoff"])
+
     def test_workflow_hides_orphan_candidates_when_search_file_is_missing(self):
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
              patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
@@ -288,7 +361,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual("missing", workflow["stage_status"]["revalidation"])
         self.assertEqual("missing", workflow["stage_status"]["save"])
 
-    def test_workflow_marks_expired_pending_handoff_as_stale(self):
+    def test_workflow_marks_expired_pending_handoff_as_optimizer_failed(self):
         stale_requested_at = (
             dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
         ).astimezone().isoformat(timespec="seconds")
@@ -307,8 +380,8 @@ class QuantOpsWorkflowTests(unittest.TestCase):
              patch.object(svc, "load_runtime_optimized_params", return_value=None):
             workflow = svc.get_quant_ops_workflow()
 
-        self.assertEqual("stale", workflow["search_handoff"]["status"])
-        self.assertIn("optimizer_handoff_expired", workflow["search_handoff"]["reasons"])
+        self.assertEqual("optimizer_failed", workflow["search_handoff"]["status"])
+        self.assertEqual("optimizer_handoff_expired", workflow["search_handoff"]["error"])
         self.assertFalse(workflow["search_handoff"]["active"])
 
     def test_save_blocks_when_revalidation_failed_guardrails(self):

@@ -122,6 +122,15 @@ def _age_seconds(timestamp: str) -> float | None:
         return None
 
 
+def _parse_iso_timestamp(timestamp: str) -> dt.datetime | None:
+    if not timestamp:
+        return None
+    try:
+        return dt.datetime.fromisoformat(timestamp).astimezone(dt.timezone.utc)
+    except Exception:
+        return None
+
+
 def _search_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
     payload = payload or {}
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
@@ -279,6 +288,9 @@ def _canonicalize_search_handoff(
                 reasons.append("optimizer_handoff_expired")
         elif search_available:
             status = "pending_revalidation"
+
+    if status in {"pending", "pending_revalidation"} and reasons:
+        status = "stale"
 
     if status not in {"optimizer_failed", "revalidate_failed", "candidate_updated", "pending", "pending_revalidation"} and reasons:
         status = "stale"
@@ -781,6 +793,8 @@ def get_quant_ops_workflow() -> dict[str, Any]:
     baseline = _load_current_validation_baseline()
     search_payload = load_search_optimized_params()
     search = _search_summary(search_payload)
+    if _recover_pending_search_handoff(search, baseline) is not None:
+        state = _load_state()
     search_items = _symbol_search_candidates(search_payload, search)
 
     latest_candidate_raw = _refresh_candidate(state.get("latest_candidate"), search)
@@ -901,48 +915,12 @@ def _finalize_search_handoff_record(
     return finalized
 
 
-def finalize_optimizer_search_handoff(*, success: bool, error: str = "") -> dict[str, Any] | None:
-    state = _load_state()
-    pending = state.get("pending_search_handoff") if isinstance(state.get("pending_search_handoff"), dict) else None
-    if not pending:
-        return None
-    if not success:
-        finalized = _finalize_search_handoff_record(pending, status="optimizer_failed", error=error)
-        return {
-            "ok": False,
-            "error": error or "optimizer_failed",
-            "handoff": finalized,
-            "workflow": get_quant_ops_workflow(),
-        }
-
-    result = revalidate_optimizer_candidate({
-        "query": pending.get("query") if isinstance(pending.get("query"), dict) else {},
-        "settings": pending.get("settings") if isinstance(pending.get("settings"), dict) else {},
-    })
-    candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else None
-    finalized = _finalize_search_handoff_record(
-        pending,
-        status="candidate_updated" if result.get("ok") else "revalidate_failed",
-        error=str(result.get("error") or error or ""),
-        candidate=candidate,
-    )
-    return {
-        "ok": bool(result.get("ok")),
-        "error": str(result.get("error") or error or ""),
-        "handoff": finalized,
-        "candidate": candidate,
-        "workflow": result.get("workflow"),
-    }
-
-
-def revalidate_optimizer_candidate(payload: dict[str, Any]) -> dict[str, Any]:
-    query = payload.get("query") if isinstance(payload.get("query"), dict) else {}
-    settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+def _revalidate_optimizer_candidate_impl(query: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     search = _search_summary(load_search_optimized_params())
     if not search.get("available"):
-        return {"ok": False, "error": "optimizer_search_missing", "workflow": get_quant_ops_workflow()}
+        return {"ok": False, "error": "optimizer_search_missing"}
     if not search.get("global_params"):
-        return {"ok": False, "error": "optimizer_global_params_missing", "workflow": get_quant_ops_workflow()}
+        return {"ok": False, "error": "optimizer_global_params_missing"}
 
     mutated_query = _merge_query_patch(query, search.get("global_params") or {})
     diagnostics = run_validation_diagnostics(_build_service_query(mutated_query, settings))
@@ -951,7 +929,6 @@ def revalidate_optimizer_candidate(payload: dict[str, Any]) -> dict[str, Any]:
             "ok": False,
             "error": str((diagnostics or {}).get("error") or "candidate_revalidation_failed"),
             "details": diagnostics,
-            "workflow": get_quant_ops_workflow(),
         }
 
     candidate = _build_candidate(
@@ -971,8 +948,126 @@ def revalidate_optimizer_candidate(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "candidate": candidate,
+    }
+
+
+def _recover_pending_search_handoff(search: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any] | None:
+    state = _load_state()
+    pending = state.get("pending_search_handoff") if isinstance(state.get("pending_search_handoff"), dict) else None
+    if not pending:
+        return None
+
+    status = str(pending.get("status") or "pending")
+    if status not in {"pending", "pending_revalidation"}:
+        return None
+
+    pending_query = pending.get("query") if isinstance(pending.get("query"), dict) else {}
+    pending_settings = pending.get("settings") if isinstance(pending.get("settings"), dict) else {}
+    baseline_matches = _matches_validation_baseline(pending_query, pending_settings, baseline)
+    if not baseline_matches:
+        return _finalize_search_handoff_record(
+            pending,
+            status="revalidate_failed",
+            error="validation_settings_changed",
+        )
+
+    if not search.get("available"):
+        pending_age = _age_seconds(str(pending.get("requested_at") or ""))
+        if pending_age is not None and pending_age > 3900:
+            return _finalize_search_handoff_record(
+                pending,
+                status="optimizer_failed",
+                error="optimizer_handoff_expired",
+            )
+        return None
+
+    requested_at = _parse_iso_timestamp(str(pending.get("requested_at") or ""))
+    optimized_at = _parse_iso_timestamp(str(search.get("optimized_at") or ""))
+    if requested_at and optimized_at and optimized_at < requested_at:
+        return None
+
+    latest_candidate_raw = state.get("latest_candidate") if isinstance(state.get("latest_candidate"), dict) else None
+    latest_candidate = _refresh_candidate(latest_candidate_raw, search)
+    latest_candidate_state = _candidate_activity_state(latest_candidate, search, baseline)
+    if (
+        latest_candidate_state.get("active")
+        and isinstance(latest_candidate, dict)
+        and str(latest_candidate.get("search_version") or "") == str(search.get("version") or "")
+    ):
+        return _finalize_search_handoff_record(
+            pending,
+            status="candidate_updated",
+            candidate=latest_candidate,
+        )
+
+    try:
+        result = _revalidate_optimizer_candidate_impl(pending_query, pending_settings)
+    except Exception as exc:
+        return _finalize_search_handoff_record(
+            pending,
+            status="revalidate_failed",
+            error=str(exc),
+        )
+
+    candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else None
+    return _finalize_search_handoff_record(
+        pending,
+        status="candidate_updated" if result.get("ok") else "revalidate_failed",
+        error=str(result.get("error") or ""),
+        candidate=candidate,
+    )
+
+
+def finalize_optimizer_search_handoff(*, success: bool, error: str = "") -> dict[str, Any] | None:
+    state = _load_state()
+    pending = state.get("pending_search_handoff") if isinstance(state.get("pending_search_handoff"), dict) else None
+    if not pending:
+        return None
+    if not success:
+        finalized = _finalize_search_handoff_record(pending, status="optimizer_failed", error=error)
+        return {
+            "ok": False,
+            "error": error or "optimizer_failed",
+            "handoff": finalized,
+            "workflow": get_quant_ops_workflow(),
+        }
+
+    try:
+        result = _revalidate_optimizer_candidate_impl(
+            pending.get("query") if isinstance(pending.get("query"), dict) else {},
+            pending.get("settings") if isinstance(pending.get("settings"), dict) else {},
+        )
+    except Exception as exc:
+        finalized = _finalize_search_handoff_record(pending, status="revalidate_failed", error=str(exc))
+        return {
+            "ok": False,
+            "error": str(exc),
+            "handoff": finalized,
+            "workflow": get_quant_ops_workflow(),
+        }
+
+    candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else None
+    finalized = _finalize_search_handoff_record(
+        pending,
+        status="candidate_updated" if result.get("ok") else "revalidate_failed",
+        error=str(result.get("error") or error or ""),
+        candidate=candidate,
+    )
+    return {
+        "ok": bool(result.get("ok")),
+        "error": str(result.get("error") or error or ""),
+        "handoff": finalized,
+        "candidate": candidate,
         "workflow": get_quant_ops_workflow(),
     }
+
+
+def revalidate_optimizer_candidate(payload: dict[str, Any]) -> dict[str, Any]:
+    query = payload.get("query") if isinstance(payload.get("query"), dict) else {}
+    settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+    result = _revalidate_optimizer_candidate_impl(query, settings)
+    result["workflow"] = get_quant_ops_workflow()
+    return result
 
 
 def _resolve_candidate_for_save(candidate_id: str | None = None) -> dict[str, Any] | None:
