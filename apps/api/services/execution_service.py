@@ -992,7 +992,7 @@ def _auto_invest_picks(
         "max_positions_per_market": int(max_positions),
     })
 
-    engine = _get_paper_engine()
+    engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
     account = engine.get_account(refresh_quotes=True)
     held_codes = {
         str(position.get("code") or "").upper()
@@ -1105,7 +1105,7 @@ def _auto_invest_picks(
 
 def _run_auto_trader_cycle(cfg: dict) -> dict:
     global _last_daily_loss_notified_day
-    engine = _get_paper_engine()
+    engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
     notifier = get_notification_service()
     cycle_id = f"cycle-{datetime.datetime.now(_KST).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     started_at = _now_iso()
@@ -1785,7 +1785,7 @@ def _auto_trader_status() -> dict:
             _auto_trader_state["engine_state"] = "stopped"
             _auto_trader_state["running"] = False
             _persist_auto_trader_state_locked()
-    engine = _get_paper_engine()
+    engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
     account = engine.get_account(refresh_quotes=False)
     return _build_status_payload(state, account)
 
@@ -1811,7 +1811,7 @@ def apply_quant_candidate_runtime_config(candidate: dict[str, Any]) -> dict[str,
 
 def handle_paper_account(refresh_quotes: bool) -> tuple[int, dict]:
     try:
-        engine = _get_paper_engine()
+        engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
         return 200, engine.get_account(refresh_quotes=refresh_quotes)
     except Exception as exc:
         return 500, {"error": str(exc)}
@@ -1834,7 +1834,7 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
                 None, "") else None
         except (TypeError, ValueError):
             limit_price = None
-        engine = _get_paper_engine()
+        engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
         result = engine.place_order(
             side=side,
             code=code,
@@ -1930,7 +1930,7 @@ def handle_paper_reset(payload: dict) -> tuple[int, dict]:
             initial_cash_usd_raw) if initial_cash_usd_raw not in (None, "") else None
         paper_days = int(paper_days_raw) if paper_days_raw not in (
             None, "") else None
-        engine = _get_paper_engine()
+        engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
         account = engine.reset(
             initial_cash_krw=initial_cash_krw,
             initial_cash_usd=initial_cash_usd,
