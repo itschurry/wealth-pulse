@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ChangeEvent, ReactNode } from 'react';
+import type { ChangeEvent, FocusEvent, ReactNode } from 'react';
 import { getJSON, postJSON } from '../api/client';
 import { fetchValidationDiagnostics, fetchValidationWalkForward } from '../api/domain';
 import { ConsoleActionBar, ConsoleConfirmDialog } from '../components/ConsoleActionBar';
@@ -340,6 +340,63 @@ function FieldBlock({ label, help, children }: { label: string; help?: string; c
       {help && <span className="settings-field-help">{help}</span>}
       {children}
     </label>
+  );
+}
+
+function formatMoneyInput(value: number) {
+  const normalized = Math.max(1, Math.floor(Number(value) || 1));
+  return new Intl.NumberFormat('en-US').format(normalized);
+}
+
+function MoneyValueInput({
+  value,
+  min = 1,
+  onChange,
+  placeholder,
+}: {
+  value: number;
+  min?: number;
+  onChange: (next: number) => void;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(() => formatMoneyInput(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(formatMoneyInput(value));
+    }
+  }, [focused, value]);
+
+  return (
+    <input
+      className="backtest-input-wrap"
+      style={{ padding: '0 12px' }}
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      placeholder={placeholder}
+      onFocus={(event) => {
+        setFocused(true);
+        setDraft(String(Math.max(min, Math.floor(Number(value) || min))));
+        requestAnimationFrame(() => event.currentTarget.select());
+      }}
+      onChange={(event) => {
+        const digitsOnly = event.target.value.replace(/[^\d]/g, '');
+        setDraft(digitsOnly);
+        if (digitsOnly.trim() === '') return;
+        const parsed = Number(digitsOnly);
+        if (!Number.isFinite(parsed)) return;
+        onChange(Math.max(min, Math.floor(parsed)));
+      }}
+      onBlur={() => {
+        const parsed = Number(draft.replace(/[^\d]/g, ''));
+        const normalized = Number.isFinite(parsed) ? Math.max(min, Math.floor(parsed)) : min;
+        onChange(normalized);
+        setDraft(formatMoneyInput(normalized));
+        setFocused(false);
+      }}
+    />
   );
 }
 
@@ -1277,6 +1334,10 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     }
   }, [push, pushToast, settingsSyncBusy, validationStore]);
 
+  const selectAllOnFocus = useCallback((event: FocusEvent<HTMLInputElement>) => {
+    requestAnimationFrame(() => event.currentTarget.select());
+  }, []);
+
   const updateDraftQueryNumber = useCallback((key: keyof BacktestQuery, fallback: number, min?: number) => (event: ChangeEvent<HTMLInputElement>) => {
     const raw = Number(event.target.value);
     const nextValue = Number.isFinite(raw) ? raw : fallback;
@@ -1303,7 +1364,35 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
   const settingsPanel = (
     <div className="settings-panel-grid">
-      <SettingsSection title="기본 quant 설정" description="시장, 기간, 검증 기준을 여기서 관리합니다. AI·테마·뉴스 추천 모드는 이 패널에서 다루지 않습니다.">
+      <section className="settings-flow-card">
+        <div className="settings-flow-title">전략 검증 순서</div>
+        <div className="settings-flow-copy">설정 저장 후에 백테스트와 진단을 실행하면 이후 Search/Revalidate/Save/Apply 단계가 끊기지 않습니다.</div>
+        <div className="settings-flow-list">
+          <div><strong>1)</strong> 설정 저장</div>
+          <div><strong>2)</strong> 저장 기준 백테스트 실행</div>
+          <div><strong>3)</strong> Baseline 진단 (필요 시)</div>
+          <div><strong>4)</strong> 아래 Workflow에서 Search → Revalidate → Save → Apply</div>
+        </div>
+        <div className="settings-panel-actions">
+          <button className="console-action-button is-primary" onClick={() => { void handleSaveSettings(); }} disabled={settingsSyncBusy}>
+            {settingsSaving ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />저장 중...</span> : '1) 설정 저장'}
+          </button>
+          <button
+            className="console-action-button"
+            onClick={() => { void handleRunBacktest(); }}
+            disabled={backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing'}
+          >
+            {backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing'
+              ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />백테스트 실행 중...</span>
+              : '2) 저장 기준 백테스트'}
+          </button>
+          <button className="console-action-button" onClick={() => { void handleRunDiagnosis(); }} disabled={validationStore.unsaved}>
+            3) Baseline 진단
+          </button>
+        </div>
+      </section>
+
+      <SettingsSection title="기본 전략 설정" description="시장·기간·검증 기준을 정한 뒤 저장하면 백테스트와 재검증 기준이 확정됩니다.">
         <FieldBlock label="시장" help="백테스트 대상 시장을 선택합니다.">
           <select
             className="backtest-input-wrap"
@@ -1328,7 +1417,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         </FieldBlock>
 
         <FieldBlock label="백테스트 기간(일)" help="최소 180일, 30일 단위 권장">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={180} step={30} value={validationStore.draftQuery.lookback_days} onChange={updateDraftQueryNumber('lookback_days', 180, 180)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={180} step={30} value={validationStore.draftQuery.lookback_days} onChange={updateDraftQueryNumber('lookback_days', 180, 180)} onFocus={selectAllOnFocus} />
         </FieldBlock>
 
         <FieldBlock label="학습 기간(일)" help="최소 30일, 10일 단위">
@@ -1340,6 +1429,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             step={10}
             value={validationStore.draftSettings.trainingDays}
             onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, trainingDays: Math.max(30, Number(event.target.value) || 30) }))}
+            onFocus={selectAllOnFocus}
           />
         </FieldBlock>
 
@@ -1352,6 +1442,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             step={10}
             value={validationStore.draftSettings.validationDays}
             onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, validationDays: Math.max(20, Number(event.target.value) || 20) }))}
+            onFocus={selectAllOnFocus}
           />
         </FieldBlock>
 
@@ -1376,6 +1467,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             step={1}
             value={validationStore.draftSettings.minTrades}
             onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, minTrades: Math.max(1, Number(event.target.value) || 1) }))}
+            onFocus={selectAllOnFocus}
           />
         </FieldBlock>
 
@@ -1392,60 +1484,65 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         </FieldBlock>
       </SettingsSection>
 
-      <SettingsSection title="고급 quant 룰" description="실제 진입·청산 파라미터를 바로 조정합니다. 백테스트/최적화에만 반영됩니다.">
+      <SettingsSection title="고급 룰 파라미터" description="진입·청산 파라미터를 조정한 뒤 저장하면 백테스트와 최적화에 반영됩니다.">
         <FieldBlock label="초기 자금" help="시장 기본 통화 기준입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={1} step={1} value={validationStore.draftQuery.initial_cash} onChange={updateDraftQueryNumber('initial_cash', validationStore.draftQuery.initial_cash, 1)} />
+          <MoneyValueInput
+            value={validationStore.draftQuery.initial_cash}
+            onChange={(next) => validationStore.setDraftQuery((prev) => ({ ...prev, initial_cash: next }))}
+            min={1}
+            placeholder="예: 100,000,000"
+          />
         </FieldBlock>
         <FieldBlock label="최대 보유 종목 수" help="동시 보유 가능한 포지션 수입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={1} step={1} value={validationStore.draftQuery.max_positions} onChange={updateDraftQueryNumber('max_positions', validationStore.draftQuery.max_positions, 1)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={1} step={1} value={validationStore.draftQuery.max_positions} onChange={updateDraftQueryNumber('max_positions', validationStore.draftQuery.max_positions, 1)} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="최대 보유 일수" help="포지션 강제 정리 기준입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={1} step={1} value={validationStore.draftQuery.max_holding_days} onChange={updateDraftQueryNumber('max_holding_days', validationStore.draftQuery.max_holding_days, 1)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={1} step={1} value={validationStore.draftQuery.max_holding_days} onChange={updateDraftQueryNumber('max_holding_days', validationStore.draftQuery.max_holding_days, 1)} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="RSI 최소" help="진입 허용 하한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={1} value={validationStore.draftQuery.rsi_min} onChange={updateDraftQueryNumber('rsi_min', validationStore.draftQuery.rsi_min)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={1} value={validationStore.draftQuery.rsi_min} onChange={updateDraftQueryNumber('rsi_min', validationStore.draftQuery.rsi_min)} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="RSI 최대" help="진입 허용 상한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={1} value={validationStore.draftQuery.rsi_max} onChange={updateDraftQueryNumber('rsi_max', validationStore.draftQuery.rsi_max)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={1} value={validationStore.draftQuery.rsi_max} onChange={updateDraftQueryNumber('rsi_max', validationStore.draftQuery.rsi_max)} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="거래량 배수 최소" help="평균 대비 거래량 필터입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.volume_ratio_min} onChange={updateDraftQueryNumber('volume_ratio_min', validationStore.draftQuery.volume_ratio_min, 0)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.volume_ratio_min} onChange={updateDraftQueryNumber('volume_ratio_min', validationStore.draftQuery.volume_ratio_min, 0)} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="손절 폭(%)" help="비우면 손절 조건을 끕니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.stop_loss_pct ?? ''} onChange={updateDraftQueryNullableNumber('stop_loss_pct', 0)} placeholder="예: 5" />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.stop_loss_pct ?? ''} onChange={updateDraftQueryNullableNumber('stop_loss_pct', 0)} placeholder="예: 5" onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="익절 폭(%)" help="비우면 익절 조건을 끕니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.take_profit_pct ?? ''} onChange={updateDraftQueryNullableNumber('take_profit_pct', 0)} placeholder="예: 12" />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.take_profit_pct ?? ''} onChange={updateDraftQueryNullableNumber('take_profit_pct', 0)} placeholder="예: 12" onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="ADX 최소" help="추세 강도 필터입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.adx_min ?? ''} onChange={updateDraftQueryNullableNumber('adx_min', 0)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.adx_min ?? ''} onChange={updateDraftQueryNullableNumber('adx_min', 0)} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="MFI 최소" help="자금 유입 하한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.mfi_min ?? ''} onChange={updateDraftQueryNullableNumber('mfi_min')} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.mfi_min ?? ''} onChange={updateDraftQueryNullableNumber('mfi_min')} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="MFI 최대" help="과열 차단 상한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.mfi_max ?? ''} onChange={updateDraftQueryNullableNumber('mfi_max')} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.mfi_max ?? ''} onChange={updateDraftQueryNullableNumber('mfi_max')} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="BB 위치 최소" help="볼린저 밴드 위치 하한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} max={1} step={0.01} value={validationStore.draftQuery.bb_pct_min ?? ''} onChange={updateDraftQueryNullableNumber('bb_pct_min', 0)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} max={1} step={0.01} value={validationStore.draftQuery.bb_pct_min ?? ''} onChange={updateDraftQueryNullableNumber('bb_pct_min', 0)} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="BB 위치 최대" help="볼린저 밴드 위치 상한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} max={1} step={0.01} value={validationStore.draftQuery.bb_pct_max ?? ''} onChange={updateDraftQueryNullableNumber('bb_pct_max', 0)} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} max={1} step={0.01} value={validationStore.draftQuery.bb_pct_max ?? ''} onChange={updateDraftQueryNullableNumber('bb_pct_max', 0)} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="Stoch K 최소" help="모멘텀 하한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.stoch_k_min ?? ''} onChange={updateDraftQueryNullableNumber('stoch_k_min')} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.stoch_k_min ?? ''} onChange={updateDraftQueryNullableNumber('stoch_k_min')} onFocus={selectAllOnFocus} />
         </FieldBlock>
         <FieldBlock label="Stoch K 최대" help="모멘텀 상한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.stoch_k_max ?? ''} onChange={updateDraftQueryNullableNumber('stoch_k_max')} />
+          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.stoch_k_max ?? ''} onChange={updateDraftQueryNullableNumber('stoch_k_max')} onFocus={selectAllOnFocus} />
         </FieldBlock>
       </SettingsSection>
 
       <div className="settings-panel-actions">
         <button className="console-action-button is-primary" onClick={() => { void handleSaveSettings(); }} disabled={settingsSyncBusy}>
-          {settingsSaving ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />서버 저장 중...</span> : '서버에 저장'}
+          {settingsSaving ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />저장 중...</span> : '설정 저장'}
         </button>
         <button className="console-action-button" onClick={() => { void handleLoadSavedSettings(); }} disabled={settingsSyncBusy}>
-          {settingsLoading ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />불러오는 중...</span> : '저장값 불러오기'}
+          {settingsLoading ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />불러오는 중...</span> : '저장값 다시 불러오기'}
         </button>
         <button className="console-action-button is-danger" onClick={() => setResetConfirmOpen(true)} disabled={settingsSyncBusy}>
           {settingsResetting ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />초기화 중...</span> : '서버 저장 초기화'}
@@ -1499,8 +1596,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
               <div className="page-section" style={{ padding: 16 }}>
                 <div className="section-head-row">
                   <div>
-                    <div className="section-title">Validation → Runtime Handoff</div>
-                    <div className="section-copy">optimizer search → re-validation → save → runtime apply 순서로 끊어서 보여줍니다. search는 후보 풀이고, latest candidate는 그 search 버전을 baseline 기준으로 다시 검증한 실행 후보입니다.</div>
+                    <div className="section-title">Validation → Runtime 실행 흐름</div>
+                    <div className="section-copy">권장 순서는 설정 저장 → 백테스트 → (필요 시) Baseline 진단 → Search → Revalidate → Save → Apply 입니다. Search는 후보 풀이고, latest candidate는 같은 search 버전을 baseline 기준으로 다시 판정한 실행 후보입니다.</div>
                   </div>
                   <div className={`inline-badge ${quantWorkflow.busyAction ? 'is-warning' : latestCandidateMatchesSearch ? 'is-success' : 'is-warning'}`}>
                     {quantWorkflow.busyAction ? `작업 중 · ${quantWorkflow.busyAction}` : latestCandidateMatchesSearch ? '최신 handoff 완료' : '단계 확인 필요'}
@@ -1543,9 +1640,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 )}
 
                 <div className="detail-list" style={{ marginTop: 12 }}>
-                  <div><strong>실행 순서</strong> 1) Search 2) Revalidate 3) Save 4) Apply</div>
-                  <div>Search는 optimizer를 돌려 후보 풀을 만들고, Revalidate는 그 결과를 현재 baseline 기준으로 다시 판정합니다.</div>
-                  <div>Baseline 진단은 보조 단계입니다. search 전에 막힌 요인만 다시 확인할 때 써 주세요.</div>
+                  <div><strong>실행 순서</strong> 1) 설정 저장 2) 백테스트 3) Search 4) Revalidate 5) Save 6) Apply</div>
+                  <div>Search는 optimizer로 후보 풀을 만들고, Revalidate는 같은 버전을 현재 baseline 기준으로 다시 판정합니다.</div>
+                  <div>Baseline 진단은 보조 단계이며, Search 전에 막힌 이유를 빠르게 확인할 때 사용합니다.</div>
                 </div>
 
                 <div className="execution-button-row" style={{ marginTop: 12 }}>
@@ -2090,7 +2187,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 <div className="section-head-row">
                   <div>
                     <div className="section-title">퀀트 실행 패널</div>
-                    <div className="section-copy">브라우저 초안, 서버 저장값, 마지막 quant 실행 결과를 분리해서 보여줍니다.</div>
+                    <div className="section-copy">초안/서버 저장값/마지막 실행 결과를 분리해 보여주며, 실행은 저장된 기준으로만 진행됩니다.</div>
                   </div>
                   <div className={`inline-badge ${validationStore.unsaved ? 'is-warning' : 'is-success'}`}>
                     {validationStore.unsaved ? '초안 변경 있음' : '저장된 설정과 동일'}
@@ -2135,7 +2232,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 </div>
 
                 <div className="detail-list" style={{ marginTop: 8 }}>
-                  <div>optimizer search / 재검증 / 저장 / runtime apply 버튼은 위 Quant Ops Workflow 카드에서 순서대로 실행하세요.</div>
+                  <div>설정 패널에서 저장과 백테스트를 먼저 실행한 뒤, 위 Workflow 카드에서 Search → Revalidate → Save → Apply를 진행하세요.</div>
                 </div>
 
                 <div className="validation-inline-status">

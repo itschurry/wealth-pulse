@@ -263,7 +263,7 @@ export function ConsoleActionBar({
             </button>
             <button className="ghost-button" onClick={() => setSettingsOpen(true)}>
               <span className="button-content">
-                설정
+                설정/실행
                 {settingsDirty && <span className="inline-badge is-warning">저장 필요</span>}
               </span>
             </button>
@@ -400,7 +400,7 @@ export function ConsoleActionBar({
       <aside className={`console-drawer ${settingsOpen ? 'open' : ''}`} aria-hidden={!settingsOpen}>
         <div className="console-drawer-head">
           <div>
-            <div className="console-drawer-title">설정</div>
+            <div className="console-drawer-title">전략 설정 · 실행 준비</div>
             <div className="console-drawer-caption">
               {settingsDirty ? '저장되지 않은 변경 사항이 있습니다.' : settingsSavedAt ? `마지막 저장 ${formatDateTime(settingsSavedAt)}` : '저장된 설정이 아직 없습니다.'}
             </div>
