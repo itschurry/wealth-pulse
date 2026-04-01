@@ -84,6 +84,8 @@ def _fetch_yahoo_history(code: str, market: str, days: int) -> list[dict]:
     """Yahoo Finance Chart API로 일봉 OHLCV를 가져온다. 실패 시 빈 리스트 반환.
 
     KOSPI 종목은 '{code}.KS' 형식으로 조회한다.
+    days는 필요한 거래일 수가 아니라 달력 기간에 가깝기 때문에,
+    충분한 히스토리를 확보할 수 있도록 넉넉한 range 구간으로 매핑한다.
     """
     try:
         import urllib.request
@@ -91,13 +93,19 @@ def _fetch_yahoo_history(code: str, market: str, days: int) -> list[dict]:
         import json as _json
 
         ticker = f"{code}.KS" if market == "KOSPI" else code
-        # days → Yahoo range 문자열 (6mo ≈ 126일, 1y ≈ 252일, 2y ≈ 504일)
+        # days → Yahoo range 문자열
+        # 검색/검증 기준 일수는 달력일·거래일 해석이 섞여 들어오므로
+        # 부족한 바를 피하려고 한 단계 넉넉하게 매핑한다.
         if days <= 130:
             range_str = "6mo"
         elif days <= 260:
             range_str = "1y"
-        else:
+        elif days <= 520:
             range_str = "2y"
+        elif days <= 1300:
+            range_str = "5y"
+        else:
+            range_str = "max"
 
         url = (
             f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker)}"
@@ -150,6 +158,13 @@ def _fetch_price_history(code: str, market: str, days: int, min_rows: int = 80) 
     logger.debug("{}/{}: Yahoo Finance {} 건 (필요 {} 건) — 데이터 부족",
                  code, market, len(rows), min_rows)
     return []
+
+
+def _estimate_required_calendar_days(min_rows: int) -> int:
+    """필요 거래일 수를 충족할 가능성이 높은 달력일 수로 변환한다."""
+    rows = max(1, int(min_rows))
+    # 대략 거래일 비중 60~70%를 감안해 2배 + 완충치로 잡는다.
+    return max(rows + 50, rows * 2 + 30)
 
 
 def _collect_price_data(
@@ -407,7 +422,7 @@ def main() -> None:
 
     # 실제로 필요한 최소 데이터 건수 = 학습 + 검증 기간
     min_rows = sim_config.lookback_days + sim_config.validation_days
-    required_days = min_rows + 50
+    required_days = _estimate_required_calendar_days(min_rows)
     logger.info("가격 데이터 수집 중 (최근 {}일, 최소 {}건)...", required_days, min_rows)
     price_data = _collect_price_data(
         sym_pairs, required_days, min_rows=min_rows)
