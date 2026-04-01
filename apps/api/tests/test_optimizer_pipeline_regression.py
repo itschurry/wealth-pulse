@@ -18,7 +18,7 @@ if "loguru" not in sys.modules:
     )
 
 from analyzer.monte_carlo import OptimizationResult, SimulationConfig
-from scripts.run_monte_carlo_optimizer import _compute_global_params, _save_results
+from scripts.run_monte_carlo_optimizer import _compute_global_params, _save_results, _write_text_atomic
 
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -92,6 +92,38 @@ class OptimizerPipelineRegressionTests(unittest.TestCase):
         self.assertEqual("medium_fallback", saved["meta"]["global_overlay_source"])
         self.assertEqual(6.5, saved["global_params"]["stop_loss_pct"])
         self.assertEqual(16.0, saved["global_params"]["take_profit_pct"])
+
+    def test_save_results_keeps_previous_artifact_when_results_are_empty(self):
+        sim_config = SimulationConfig(n_simulations=200, method="gbm")
+        previous_payload = {
+            "optimized_at": "2026-04-01T19:00:00+09:00",
+            "version": "search-2026-04-01T19:00:00+09:00",
+            "global_params": {"stop_loss_pct": 5.0},
+            "per_symbol": {"AAA": {"stop_loss_pct": 5.0}},
+            "meta": {"n_symbols_optimized": 1},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "optimized_params.json"
+            output_path.write_text(json.dumps(previous_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            with patch("scripts.run_monte_carlo_optimizer._OPTIMIZED_PARAMS_PATH", output_path):
+                written = _save_results([], sim_config)
+
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertFalse(written)
+        self.assertEqual(previous_payload, saved)
+
+    def test_write_text_atomic_replaces_file_without_leaving_temp_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "optimized_params.json"
+            output_path.write_text("old", encoding="utf-8")
+
+            _write_text_atomic(output_path, '{"version":"search-atomic"}')
+
+            self.assertEqual('{"version":"search-atomic"}', output_path.read_text(encoding="utf-8"))
+            self.assertEqual([], sorted(Path(tmpdir).glob(".optimized_params.json.*.tmp")))
 
 
 if __name__ == "__main__":

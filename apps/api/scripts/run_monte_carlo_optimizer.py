@@ -23,7 +23,9 @@ from services.reliability_policy import (
 import argparse
 import datetime
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 # 프로젝트 루트를 sys.path에 추가
@@ -200,8 +202,15 @@ def _save_results(
     sim_config: SimulationConfig,
     name_map: dict[str, str] | None = None,
     search_context: dict | None = None,
-) -> None:
+) -> bool:
     """결과를 config/optimized_params.json에 저장한다."""
+    if not results:
+        logger.warning(
+            "저장 가능한 최적화 결과가 없어 optimized_params.json 갱신을 건너뜁니다: {}",
+            _OPTIMIZED_PARAMS_PATH,
+        )
+        return False
+
     reliable = [r for r in results if r.is_reliable]
     medium = [r for r in results if (not r.is_reliable) and r.strategy_reliability == "medium"]
     global_params: dict = {}
@@ -284,11 +293,36 @@ def _save_results(
             "search_context": search_context or {},
         },
     }
-    _OPTIMIZED_PARAMS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _OPTIMIZED_PARAMS_PATH.write_text(
-        json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8"
+    _write_text_atomic(
+        _OPTIMIZED_PARAMS_PATH,
+        json.dumps(output, ensure_ascii=False, indent=2),
     )
     logger.info("결과 저장: {}", _OPTIMIZED_PARAMS_PATH)
+    return True
+
+
+def _write_text_atomic(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """원자적 교체로 텍스트 파일을 저장한다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding=encoding,
+            dir=str(path.parent),
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp_file:
+            tmp_file.write(content)
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+            tmp_path = Path(tmp_file.name)
+        tmp_path.replace(path)
+    except Exception:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def _build_symbol_list(args: argparse.Namespace) -> list[tuple[str, str, str]]:
@@ -393,8 +427,7 @@ def main() -> None:
         )
 
     if not results:
-        logger.error("최적화 결과가 없어 빈 결과 파일을 저장합니다.")
-        _save_results([], sim_config, name_map=name_map, search_context=search_context)
+        logger.error("최적화 결과가 없어 기존 optimized_params.json을 유지합니다.")
         return
 
     reliable = [r for r in results if r.is_reliable]
