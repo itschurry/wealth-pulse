@@ -47,6 +47,24 @@ _OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
 _SYMBOL_APPROVAL_STATUSES = {"approved", "rejected", "hold"}
 
 
+def _default_state() -> dict[str, Any]:
+    return {
+        "latest_candidate": None,
+        "candidate_history": [],
+        "saved_candidate": None,
+        "saved_history": [],
+        "runtime_apply": None,
+        "pending_search_handoff": None,
+        "last_search_handoff": None,
+        "latest_symbol_candidates": {},
+        "symbol_candidate_history": {},
+        "symbol_approvals": {},
+        "saved_symbol_candidates": {},
+        "saved_symbol_history": {},
+        "runtime_symbol_apply": {},
+    }
+
+
 def _now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -64,29 +82,55 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _normalize_state(raw_state: dict[str, Any] | None) -> tuple[dict[str, Any], bool]:
+    default_state = _default_state()
+    source = raw_state if isinstance(raw_state, dict) else {}
+    normalized: dict[str, Any] = {}
+    changed = not isinstance(raw_state, dict)
+
+    for key, default_value in default_state.items():
+        if key not in source:
+            normalized[key] = copy.deepcopy(default_value)
+            changed = True
+            continue
+
+        value = source.get(key)
+        if default_value is None:
+            normalized[key] = copy.deepcopy(value)
+        elif isinstance(default_value, list):
+            if isinstance(value, list):
+                normalized[key] = copy.deepcopy(value)
+            else:
+                normalized[key] = copy.deepcopy(default_value)
+                changed = True
+        elif isinstance(default_value, dict):
+            if isinstance(value, dict):
+                normalized[key] = copy.deepcopy(value)
+            else:
+                normalized[key] = copy.deepcopy(default_value)
+                changed = True
+        elif value is None:
+            normalized[key] = copy.deepcopy(default_value)
+            changed = True
+        else:
+            normalized[key] = copy.deepcopy(value)
+
+    for key, value in source.items():
+        if key not in normalized:
+            normalized[key] = copy.deepcopy(value)
+
+    return normalized, changed
+
+
 def _load_state() -> dict[str, Any]:
-    return _read_json(
-        _QUANT_OPS_STATE_PATH,
-        {
-            "latest_candidate": None,
-            "candidate_history": [],
-            "saved_candidate": None,
-            "saved_history": [],
-            "runtime_apply": None,
-            "pending_search_handoff": None,
-            "last_search_handoff": None,
-            "latest_symbol_candidates": {},
-            "symbol_candidate_history": {},
-            "symbol_approvals": {},
-            "saved_symbol_candidates": {},
-            "saved_symbol_history": {},
-            "runtime_symbol_apply": {},
-        },
-    )
+    payload = _read_json(_QUANT_OPS_STATE_PATH, _default_state())
+    normalized, _ = _normalize_state(payload)
+    return normalized
 
 
 def _save_state(state: dict[str, Any]) -> None:
-    _write_json(_QUANT_OPS_STATE_PATH, state)
+    normalized, _ = _normalize_state(state)
+    _write_json(_QUANT_OPS_STATE_PATH, normalized)
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -165,14 +209,18 @@ def _optimizer_job_active() -> bool:
 
 
 def _search_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
-    payload = payload or {}
+    raw_payload = payload
+    payload = payload if isinstance(payload, dict) else {}
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
     global_params = payload.get("global_params") if isinstance(payload.get("global_params"), dict) else {}
     per_symbol = payload.get("per_symbol") if isinstance(payload.get("per_symbol"), dict) else {}
     optimized_at = str(payload.get("optimized_at") or "")
     search_context = meta.get("search_context") if isinstance(meta.get("search_context"), dict) else {}
+    artifact_present = isinstance(raw_payload, dict)
+    has_materialized_payload = bool(payload) or bool(global_params) or bool(per_symbol) or bool(meta) or bool(optimized_at)
     return {
-        "available": bool(payload),
+        "available": bool(artifact_present),
+        "has_materialized_payload": bool(has_materialized_payload),
         "version": str(payload.get("version") or optimized_at or "not_optimized"),
         "optimized_at": optimized_at,
         "is_stale": _is_stale(optimized_at),
@@ -186,6 +234,71 @@ def _search_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
         "context": search_context,
         "source": str(SEARCH_OPTIMIZED_PARAMS_PATH),
     }
+
+
+def _reconstructed_runtime_apply_state(runtime_payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(runtime_payload, dict) or not runtime_payload:
+        return None
+    meta = runtime_payload.get("meta") if isinstance(runtime_payload.get("meta"), dict) else {}
+    candidate_id = str(meta.get("applied_candidate_id") or "")
+    applied_at = str(runtime_payload.get("applied_at") or "")
+    approved_symbols = meta.get("approved_symbols") if isinstance(meta.get("approved_symbols"), list) else []
+    approved_symbol_count = _to_int(meta.get("approved_symbol_count"), len(approved_symbols))
+    if not candidate_id and not applied_at and approved_symbol_count <= 0:
+        return None
+    return {
+        "candidate_id": candidate_id,
+        "applied_at": applied_at,
+        "applied_symbol_count": approved_symbol_count,
+        "engine_state": None,
+        "next_run_at": None,
+    }
+
+
+def _reconstructed_runtime_symbol_apply_state(runtime_payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(runtime_payload, dict) or not runtime_payload:
+        return None
+    per_symbol = runtime_payload.get("per_symbol") if isinstance(runtime_payload.get("per_symbol"), dict) else {}
+    if not per_symbol:
+        return None
+    candidate_ids: dict[str, str] = {}
+    for raw_symbol, raw_payload in per_symbol.items():
+        symbol = _symbol_code(raw_symbol)
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
+        candidate_id = str(payload.get("approved_candidate_id") or "")
+        if symbol and candidate_id:
+            candidate_ids[symbol] = candidate_id
+    return {
+        "applied_at": str(runtime_payload.get("applied_at") or ""),
+        "candidate_ids": candidate_ids,
+        "symbol_count": len(candidate_ids),
+        "skipped_symbols": {},
+    }
+
+
+def _self_heal_state(runtime_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    state_exists = _QUANT_OPS_STATE_PATH.exists()
+    raw_state = _read_json(_QUANT_OPS_STATE_PATH, _default_state()) if state_exists else _default_state()
+    state, changed = _normalize_state(raw_state)
+
+    reconstructed_runtime_apply = _reconstructed_runtime_apply_state(runtime_payload)
+    if reconstructed_runtime_apply and not isinstance(state.get("runtime_apply"), dict):
+        state["runtime_apply"] = reconstructed_runtime_apply
+        changed = True
+
+    reconstructed_runtime_symbol_apply = _reconstructed_runtime_symbol_apply_state(runtime_payload)
+    current_runtime_symbol_apply = state.get("runtime_symbol_apply")
+    if reconstructed_runtime_symbol_apply and (
+        not isinstance(current_runtime_symbol_apply, dict)
+        or not isinstance(current_runtime_symbol_apply.get("candidate_ids"), dict)
+        or not current_runtime_symbol_apply.get("candidate_ids")
+    ):
+        state["runtime_symbol_apply"] = reconstructed_runtime_symbol_apply
+        changed = True
+
+    if (not state_exists) or changed:
+        _save_state(state)
+    return state
 
 
 def _load_current_validation_baseline() -> dict[str, Any]:
@@ -262,10 +375,9 @@ def _canonicalize_runtime_summary(runtime_payload: dict[str, Any], saved_candida
         summary["reasons"] = []
         return summary
 
-    if not isinstance(saved_candidate, dict):
-        reasons.append("saved_candidate_missing")
-    elif str(summary.get("candidate_id") or "") != str(saved_candidate.get("id") or ""):
-        reasons.append("runtime_candidate_mismatch")
+    if isinstance(saved_candidate, dict):
+        if str(summary.get("candidate_id") or "") != str(saved_candidate.get("id") or ""):
+            reasons.append("runtime_candidate_mismatch")
 
     summary["status"] = "applied" if not reasons else "stale"
     summary["active"] = len(reasons) == 0
@@ -767,7 +879,7 @@ def _refresh_symbol_states(
 
         runtime_candidate_id = str(runtime_candidates.get(symbol) or "")
         runtime_applied_at = str(runtime_map.get("applied_at") or "")
-        runtime_applied = bool(runtime_candidate_id and saved_candidate and str(saved_candidate.get("id") or "") == runtime_candidate_id)
+        runtime_applied = bool(runtime_candidate_id and (not saved_candidate or str(saved_candidate.get("id") or "") == runtime_candidate_id))
         if runtime_applied:
             runtime_count += 1
 
@@ -822,12 +934,13 @@ def _runtime_summary(runtime_payload: dict[str, Any] | None, state_runtime: dict
 
 
 def get_quant_ops_workflow() -> dict[str, Any]:
-    state = _load_state()
+    runtime_payload = load_runtime_optimized_params()
+    state = _self_heal_state(runtime_payload)
     baseline = _load_current_validation_baseline()
     search_payload = load_search_optimized_params()
     search = _search_summary(search_payload)
     if _recover_pending_search_handoff(search, baseline) is not None:
-        state = _load_state()
+        state = _self_heal_state(runtime_payload)
     search_items = _symbol_search_candidates(search_payload, search)
 
     latest_candidate_raw = _refresh_candidate(state.get("latest_candidate"), search)
@@ -845,7 +958,7 @@ def get_quant_ops_workflow() -> dict[str, Any]:
         baseline,
     )
     runtime_apply = _canonicalize_runtime_summary(
-        _runtime_summary(load_runtime_optimized_params(), state.get("runtime_apply")),
+        _runtime_summary(runtime_payload, state.get("runtime_apply")),
         saved_candidate,
     )
     raw_search_handoff = state.get("pending_search_handoff") if isinstance(state.get("pending_search_handoff"), dict) else state.get("last_search_handoff")

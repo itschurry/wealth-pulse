@@ -299,6 +299,77 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual("boom", workflow["search_handoff"]["error"])
         self.assertIsNone(persisted["pending_search_handoff"])
 
+    def test_workflow_surfaces_empty_search_artifact_as_present(self):
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path),              patch.object(svc, "load_search_optimized_params", return_value={}),              patch.object(svc, "load_runtime_optimized_params", return_value=None):
+            workflow = svc.get_quant_ops_workflow()
+
+        self.assertTrue(workflow["search_available"])
+        self.assertEqual("ready", workflow["candidate_search"])
+        self.assertTrue(workflow["search_result"]["available"])
+        self.assertFalse(workflow["search_result"]["has_materialized_payload"])
+        self.assertEqual({}, workflow["search_result"]["global_params"])
+        self.assertEqual("missing", workflow["stage_status"]["revalidation"])
+
+    def test_workflow_self_heals_missing_state_file_when_search_artifact_exists(self):
+        self.assertFalse(self.state_path.exists())
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None):
+            workflow = svc.get_quant_ops_workflow()
+
+        persisted = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertTrue(workflow["search_available"])
+        self.assertEqual("ready", workflow["candidate_search"])
+        self.assertTrue(workflow["search_result"]["available"])
+        self.assertIsNone(workflow["latest_candidate"])
+        self.assertIsNone(workflow["saved_candidate"])
+        self.assertEqual("missing", workflow["stage_status"]["revalidation"])
+        self.assertEqual("missing", workflow["stage_status"]["save"])
+        self.assertIn("runtime_apply", persisted)
+        self.assertIn("latest_symbol_candidates", persisted)
+        self.assertIn("runtime_symbol_apply", persisted)
+
+    def test_workflow_reconstructs_runtime_apply_from_runtime_artifact_without_state_file(self):
+        runtime_payload = {
+            "optimized_at": _NOW,
+            "applied_at": _NOW,
+            "version": "runtime-cand-runtime-001",
+            "global_params": {
+                "stop_loss_pct": 6.0,
+                "take_profit_pct": 18.0,
+            },
+            "per_symbol": {
+                "AAA": {
+                    "approved_candidate_id": "symcand-aaa-runtime-001",
+                    "approved_saved_at": _NOW,
+                    "approved_by_quant_ops": True,
+                },
+            },
+            "meta": {
+                "applied_candidate_id": "cand-runtime-001",
+                "approved_symbol_count": 1,
+                "approved_symbols": ["AAA"],
+                "search_version": self.search_payload["version"],
+                "search_optimized_at": self.search_payload["optimized_at"],
+            },
+        }
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=runtime_payload):
+            workflow = svc.get_quant_ops_workflow()
+
+        persisted = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual("applied", workflow["runtime_apply"]["status"])
+        self.assertTrue(workflow["runtime_apply"]["active"])
+        self.assertEqual("cand-runtime-001", workflow["runtime_apply"]["candidate_id"])
+        self.assertEqual(1, workflow["runtime_apply"]["applied_symbol_count"])
+        self.assertEqual("applied", workflow["stage_status"]["runtime_apply"])
+        self.assertEqual("applied", workflow["stage_status"]["symbol_runtime_apply"])
+        self.assertEqual("cand-runtime-001", persisted["runtime_apply"]["candidate_id"])
+        self.assertEqual("symcand-aaa-runtime-001", persisted["runtime_symbol_apply"]["candidate_ids"]["AAA"])
+
     def test_workflow_hides_orphan_candidates_when_search_file_is_missing(self):
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
              patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
