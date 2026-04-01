@@ -55,8 +55,8 @@ class OptimizationRouteTests(unittest.TestCase):
                 return 0
 
         payload = {
-            "query": {"market_scope": "nasdaq", "lookback_days": 1095},
-            "settings": {"trainingDays": 180, "validationDays": 60},
+            "query": {"market_scope": "nasdaq", "lookback_days": 1095, "stop_loss_pct": 5.0},
+            "settings": {"trainingDays": 180, "validationDays": 60, "objective": "안정성 우선"},
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -83,6 +83,9 @@ class OptimizationRouteTests(unittest.TestCase):
         validation_index = commands[0].index("--validation-days")
         self.assertEqual("1095", commands[0][lookback_index + 1])
         self.assertEqual("60", commands[0][validation_index + 1])
+        self.assertIn("--objective", commands[0])
+        self.assertIn("안정성 우선", commands[0])
+        self.assertIn("--base-query-json", commands[0])
         mock_register.assert_called_once_with(payload)
         mock_finalize.assert_called_once_with(success=True)
 

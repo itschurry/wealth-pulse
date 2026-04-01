@@ -46,6 +46,104 @@ _BB_PCT_RANGE = (0.0, 1.0)
 _STOCH_K_RANGE = (0.0, 100.0)
 
 
+def _normalize_objective(raw: str | None) -> str:
+    value = str(raw or "수익 우선").strip()
+    return value or "수익 우선"
+
+
+def _coerce_float(value: object, fallback: float | None) -> float | None:
+    if value in (None, ""):
+        return fallback
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _coerce_int(value: object, fallback: int) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return int(fallback)
+
+
+def _unique_sorted_numbers(values: list[float | int], *, cast_int: bool = False) -> list[float] | list[int]:
+    cleaned: list[float | int] = []
+    seen: set[float | int] = set()
+    for value in values:
+        normalized = int(round(float(value))) if cast_int else round(float(value), 3)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(normalized)
+    return sorted(cleaned)
+
+
+def build_stage1_param_grid(base_query: dict[str, object] | None = None) -> ParamGrid:
+    baseline = {
+        "market_scope": "kospi",
+        "lookback_days": 1095,
+        "initial_cash": 10_000_000,
+        "max_positions": 5,
+        "max_holding_days": 15,
+        "rsi_min": 45,
+        "rsi_max": 62,
+        "volume_ratio_min": 1.0,
+        "stop_loss_pct": 5.0,
+        "take_profit_pct": None,
+        "adx_min": 10.0,
+        "mfi_min": 20.0,
+        "mfi_max": 80.0,
+        "bb_pct_min": 0.05,
+        "bb_pct_max": 0.95,
+        "stoch_k_min": 10.0,
+        "stoch_k_max": 90.0,
+    }
+    if isinstance(base_query, dict):
+        baseline.update({k: v for k, v in base_query.items() if v is not None})
+
+    stop_loss = _coerce_float(baseline.get("stop_loss_pct"), 5.0) or 5.0
+    take_profit = _coerce_float(baseline.get("take_profit_pct"), None)
+    if take_profit is None:
+        take_profit = max(12.0, round(stop_loss * 2.4, 1))
+    holding_days = _coerce_int(baseline.get("max_holding_days"), 15)
+    adx_min = _coerce_float(baseline.get("adx_min"), 10.0)
+
+    stop_loss_grid = _unique_sorted_numbers([
+        _clamp(stop_loss - 2.0, *_STOP_LOSS_RANGE),
+        _clamp(stop_loss, *_STOP_LOSS_RANGE),
+        _clamp(stop_loss + 2.0, *_STOP_LOSS_RANGE),
+        _clamp(stop_loss + 4.0, *_STOP_LOSS_RANGE),
+    ])
+    take_profit_grid = _unique_sorted_numbers([
+        _clamp(take_profit - 4.0, *_TAKE_PROFIT_RANGE),
+        _clamp(take_profit, *_TAKE_PROFIT_RANGE),
+        _clamp(take_profit + 4.0, *_TAKE_PROFIT_RANGE),
+        _clamp(take_profit + 8.0, *_TAKE_PROFIT_RANGE),
+    ])
+    holding_grid = _unique_sorted_numbers([
+        _clamp(holding_days - 5, *_HOLDING_DAYS_RANGE),
+        _clamp(holding_days, *_HOLDING_DAYS_RANGE),
+        _clamp(holding_days + 5, *_HOLDING_DAYS_RANGE),
+    ], cast_int=True)
+
+    return ParamGrid(
+        stop_loss_pct=stop_loss_grid,
+        take_profit_pct=take_profit_grid,
+        max_holding_days=holding_grid,
+        rsi_min=[float(baseline.get("rsi_min", 45.0))],
+        rsi_max=[float(baseline.get("rsi_max", 62.0))],
+        volume_ratio_min=[round(float(baseline.get("volume_ratio_min", 1.0)), 2)],
+        adx_min=[round(float(adx_min if adx_min is not None else 10.0), 1)],
+        mfi_min=[float(baseline.get("mfi_min", 20.0))],
+        mfi_max=[float(baseline.get("mfi_max", 80.0))],
+        bb_pct_min=[round(float(baseline.get("bb_pct_min", 0.05)), 3)],
+        bb_pct_max=[round(float(baseline.get("bb_pct_max", 0.95)), 3)],
+        stoch_k_min=[float(baseline.get("stoch_k_min", 10.0))],
+        stoch_k_max=[float(baseline.get("stoch_k_max", 90.0))],
+    )
+
+
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
@@ -393,6 +491,10 @@ def main() -> None:
                         help="학습 기간 일수 (기본: SimulationConfig 기본값 252)")
     parser.add_argument("--validation-days", type=int, default=None,
                         help="검증 기간 일수 (기본: SimulationConfig 기본값 63)")
+    parser.add_argument("--objective", type=str, default="수익 우선",
+                        help="탐색 점수카드 목표함수 (예: 수익 우선, 안정성 우선, 수익+안정 균형)")
+    parser.add_argument("--base-query-json", type=str, default=None,
+                        help="기준 validation query JSON. stage-1 reduced-dimension 탐색의 고정 기준값으로 사용")
     args = parser.parse_args()
 
     symbols = _build_symbol_list(args)
@@ -406,18 +508,37 @@ def main() -> None:
     logger.info("=== 몬테카를로 최적화 시작: {}개 종목 ===", len(sym_pairs))
 
     sim_kwargs: dict = {
-        "n_simulations": args.simulations, "method": args.method}
+        "n_simulations": args.simulations,
+        "method": args.method,
+        "objective": _normalize_objective(args.objective),
+    }
     if args.lookback_days is not None:
         sim_kwargs["lookback_days"] = args.lookback_days
     if args.validation_days is not None:
         sim_kwargs["validation_days"] = args.validation_days
     sim_config = SimulationConfig(**sim_kwargs)
+    base_query = {}
+    if args.base_query_json:
+        try:
+            parsed = json.loads(args.base_query_json)
+            base_query = parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            logger.warning("base_query_json 파싱 실패 — 기본 baseline으로 진행합니다.")
+            base_query = {}
+
     search_context = {
         "market": args.market or "all",
         "top_n": args.top_n,
         "symbols": [code for code, _, _ in symbols],
         "lookback_days": sim_config.lookback_days,
         "validation_days": sim_config.validation_days,
+        "objective": sim_config.objective,
+        "search_strategy": "stage1_reduced_dimension",
+        "optimized_dimensions": ["stop_loss_pct", "take_profit_pct", "max_holding_days"],
+        "fixed_dimensions": [
+            "rsi_min", "rsi_max", "volume_ratio_min", "adx_min", "mfi_min", "mfi_max", "bb_pct_min", "bb_pct_max", "stoch_k_min", "stoch_k_max",
+        ],
+        "base_query": base_query,
     }
 
     # 실제로 필요한 최소 데이터 건수 = 학습 + 검증 기간
@@ -427,27 +548,32 @@ def main() -> None:
     price_data = _collect_price_data(
         sym_pairs, required_days, min_rows=min_rows)
 
-    logger.info("파라미터 최적화 실행 중...")
+    param_grid = build_stage1_param_grid(base_query)
+    logger.info(
+        "파라미터 최적화 실행 중... stage-1 reduced-dimension search (SL=%s, TP=%s, HOLD=%s, ADX=%s)",
+        param_grid.stop_loss_pct,
+        param_grid.take_profit_pct,
+        param_grid.max_holding_days,
+        param_grid.adx_min,
+    )
     results = run_portfolio_optimization(
-        sym_pairs, price_data, sim_config=sim_config)
+        sym_pairs, price_data, param_grid=param_grid, sim_config=sim_config)
 
     if not results:
         _safe_warning("1차 최적화 결과가 없습니다. 완화된 필터로 재시도합니다.")
-        relaxed_grid = ParamGrid(
-            stop_loss_pct=[5.0, 10.0],
-            take_profit_pct=[12.0, 20.0],
-            max_holding_days=[15, 25],
-            rsi_min=[30.0],
-            rsi_max=[80.0],
-            volume_ratio_min=[0.6],
-            adx_min=[5.0],
-            mfi_min=[0.0],
-            mfi_max=[100.0],
-            bb_pct_min=[0.0],
-            bb_pct_max=[1.0],
-            stoch_k_min=[0.0],
-            stoch_k_max=[100.0],
-        )
+        relaxed_grid = build_stage1_param_grid({
+            **base_query,
+            "rsi_min": 30.0,
+            "rsi_max": 80.0,
+            "volume_ratio_min": 0.6,
+            "adx_min": 5.0,
+            "mfi_min": 0.0,
+            "mfi_max": 100.0,
+            "bb_pct_min": 0.0,
+            "bb_pct_max": 1.0,
+            "stoch_k_min": 0.0,
+            "stoch_k_max": 100.0,
+        })
         results = run_portfolio_optimization(
             sym_pairs, price_data, param_grid=relaxed_grid, sim_config=sim_config
         )

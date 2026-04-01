@@ -27,6 +27,7 @@ class SimulationConfig:
     simulation_days: int = 20
     method: str = "bootstrap"   # "bootstrap" | "gbm"
     random_seed: int = 42
+    objective: str = "수익 우선"
 
 
 @dataclass
@@ -425,8 +426,66 @@ def _tail_risk_snapshot(metrics: dict[str, float]) -> dict[str, float]:
     }
 
 
-def _compute_score_components(metrics: dict[str, float]) -> dict[str, float]:
+def _score_profile(objective: str) -> dict[str, float]:
+    normalized = str(objective or "수익 우선").strip()
+    if "안정" in normalized and "수익" not in normalized:
+        return {
+            "sharpe_multiplier": 18.0,
+            "return_multiplier": 1.0,
+            "win_rate_multiplier": 0.6,
+            "sample_bonus_high": 12.0,
+            "sample_bonus_mid": 7.0,
+            "sample_bonus_low": -2.0,
+            "sample_penalty": -12.0,
+            "drawdown_bonus": 6.0,
+            "drawdown_penalty_light": -10.0,
+            "drawdown_penalty_mid": -22.0,
+            "drawdown_penalty_heavy": -36.0,
+            "tail_bonus": 6.0,
+            "tail_penalty_light": -10.0,
+            "tail_penalty_mid": -20.0,
+            "tail_penalty_heavy": -34.0,
+        }
+    if "균형" in normalized:
+        return {
+            "sharpe_multiplier": 20.0,
+            "return_multiplier": 1.45,
+            "win_rate_multiplier": 0.65,
+            "sample_bonus_high": 11.0,
+            "sample_bonus_mid": 6.0,
+            "sample_bonus_low": -3.0,
+            "sample_penalty": -15.0,
+            "drawdown_bonus": 5.0,
+            "drawdown_penalty_light": -8.0,
+            "drawdown_penalty_mid": -18.0,
+            "drawdown_penalty_heavy": -32.0,
+            "tail_bonus": 5.0,
+            "tail_penalty_light": -8.0,
+            "tail_penalty_mid": -17.0,
+            "tail_penalty_heavy": -30.0,
+        }
+    return {
+        "sharpe_multiplier": 22.0,
+        "return_multiplier": 1.8,
+        "win_rate_multiplier": 0.7,
+        "sample_bonus_high": 10.0,
+        "sample_bonus_mid": 5.0,
+        "sample_bonus_low": -4.0,
+        "sample_penalty": -18.0,
+        "drawdown_bonus": 4.0,
+        "drawdown_penalty_light": -6.0,
+        "drawdown_penalty_mid": -16.0,
+        "drawdown_penalty_heavy": -28.0,
+        "tail_bonus": 4.0,
+        "tail_penalty_light": -6.0,
+        "tail_penalty_mid": -14.0,
+        "tail_penalty_heavy": -26.0,
+    }
+
+
+def _compute_score_components(metrics: dict[str, float], objective: str = "수익 우선") -> dict[str, float]:
     """Sharpe 일변도 대신 구성 요소를 분리한 점수 카드."""
+    profile = _score_profile(objective)
     sharpe = float(metrics.get("sharpe_ratio", 0.0) or 0.0)
     avg_return_pct = float(metrics.get("avg_return_pct", 0.0) or 0.0)
     win_rate_pct = _safe_pct(metrics.get("win_rate_pct", metrics.get("win_rate", 0.0)))
@@ -434,36 +493,36 @@ def _compute_score_components(metrics: dict[str, float]) -> dict[str, float]:
     max_dd = float(metrics.get("max_drawdown_pct", 0.0) or 0.0)
     tail_risk = _tail_risk_snapshot(metrics)
 
-    sharpe_component = max(-24.0, min(55.0, sharpe * 22.0))
-    return_component = max(-16.0, min(28.0, avg_return_pct * 1.8))
-    win_rate_component = max(-15.0, min(15.0, (win_rate_pct - 50.0) * 0.7))
+    sharpe_component = max(-24.0, min(55.0, sharpe * profile["sharpe_multiplier"]))
+    return_component = max(-16.0, min(28.0, avg_return_pct * profile["return_multiplier"]))
+    win_rate_component = max(-15.0, min(15.0, (win_rate_pct - 50.0) * profile["win_rate_multiplier"]))
 
     if trade_count >= 40:
-        sample_component = 10.0
+        sample_component = profile["sample_bonus_high"]
     elif trade_count >= 30:
-        sample_component = 5.0
+        sample_component = profile["sample_bonus_mid"]
     elif trade_count >= 20:
-        sample_component = -4.0
+        sample_component = profile["sample_bonus_low"]
     else:
-        sample_component = -18.0
+        sample_component = profile["sample_penalty"]
 
     if max_dd < -30.0:
-        drawdown_component = -28.0
+        drawdown_component = profile["drawdown_penalty_heavy"]
     elif max_dd < -20.0:
-        drawdown_component = -16.0
+        drawdown_component = profile["drawdown_penalty_mid"]
     elif max_dd < -12.0:
-        drawdown_component = -6.0
+        drawdown_component = profile["drawdown_penalty_light"]
     else:
-        drawdown_component = 4.0
+        drawdown_component = profile["drawdown_bonus"]
 
     if tail_risk["expected_shortfall_5_pct"] < -20.0 or tail_risk["return_p05_pct"] < -15.0:
-        tail_component = -26.0
+        tail_component = profile["tail_penalty_heavy"]
     elif tail_risk["expected_shortfall_5_pct"] < -14.0 or tail_risk["return_p05_pct"] < -10.0:
-        tail_component = -14.0
+        tail_component = profile["tail_penalty_mid"]
     elif tail_risk["expected_shortfall_5_pct"] < -8.0 or tail_risk["return_p05_pct"] < -6.0:
-        tail_component = -6.0
+        tail_component = profile["tail_penalty_light"]
     else:
-        tail_component = 4.0
+        tail_component = profile["tail_bonus"]
 
     total_score = (
         sharpe_component
@@ -475,6 +534,7 @@ def _compute_score_components(metrics: dict[str, float]) -> dict[str, float]:
     )
 
     return {
+        "objective": str(objective or "수익 우선"),
         "sharpe_component": round(sharpe_component, 2),
         "return_component": round(return_component, 2),
         "win_rate_component": round(win_rate_component, 2),
@@ -485,14 +545,14 @@ def _compute_score_components(metrics: dict[str, float]) -> dict[str, float]:
     }
 
 
-def _compute_composite_score(metrics: dict[str, float]) -> float:
+def _compute_composite_score(metrics: dict[str, float], objective: str = "수익 우선") -> float:
     """
     다중 지표 기반 복합 점수 계산 (Phase 4 - 분해 가능한 점수 카드)
 
     목표: Sharpe만이 아니라 평균수익, 승률, 표본 수, drawdown, tail-risk를
     별도 구성요소로 나눠서 과대해석을 줄인다.
     """
-    return _compute_score_components(metrics)["total_score"]
+    return _compute_score_components(metrics, objective)["total_score"]
 
 
 def _should_use_result(result: OptimizationResult) -> bool:
@@ -631,7 +691,7 @@ def optimize_params(
 
             metrics = simulate_strategy(train_paths, sl, tp, hd)
             metrics["trade_count"] = int(len(entry_idx))
-            score_components = _compute_score_components(metrics)
+            score_components = _compute_score_components(metrics, sim_config.objective)
             composite_score = score_components["total_score"]
             if composite_score > best_score:
                 best_score = composite_score

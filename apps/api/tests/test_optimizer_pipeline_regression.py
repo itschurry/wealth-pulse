@@ -17,8 +17,8 @@ if "loguru" not in sys.modules:
         logger=types.SimpleNamespace(debug=lambda *a, **k: None, info=lambda *a, **k: None, warning=lambda *a, **k: None)
     )
 
-from analyzer.monte_carlo import OptimizationResult, SimulationConfig
-from scripts.run_monte_carlo_optimizer import _compute_global_params, _save_results, _write_text_atomic
+from analyzer.monte_carlo import OptimizationResult, SimulationConfig, _compute_score_components
+from scripts.run_monte_carlo_optimizer import _compute_global_params, _save_results, _write_text_atomic, build_stage1_param_grid
 
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -124,6 +124,69 @@ class OptimizerPipelineRegressionTests(unittest.TestCase):
 
             self.assertEqual('{"version":"search-atomic"}', output_path.read_text(encoding="utf-8"))
             self.assertEqual([], sorted(Path(tmpdir).glob(".optimized_params.json.*.tmp")))
+
+    def test_stage1_param_grid_only_expands_exit_dimensions(self):
+        grid = build_stage1_param_grid({
+            "stop_loss_pct": 6.0,
+            "take_profit_pct": 14.0,
+            "max_holding_days": 18,
+            "rsi_min": 44,
+            "rsi_max": 61,
+            "volume_ratio_min": 1.1,
+            "adx_min": 12.0,
+            "mfi_min": 22.0,
+            "mfi_max": 78.0,
+            "bb_pct_min": 0.08,
+            "bb_pct_max": 0.92,
+            "stoch_k_min": 12.0,
+            "stoch_k_max": 88.0,
+        })
+
+        self.assertGreater(len(grid.stop_loss_pct), 1)
+        self.assertGreater(len(grid.take_profit_pct), 1)
+        self.assertGreater(len(grid.max_holding_days), 1)
+        self.assertEqual([44.0], grid.rsi_min)
+        self.assertEqual([61.0], grid.rsi_max)
+        self.assertEqual([1.1], grid.volume_ratio_min)
+        self.assertEqual([12.0], grid.adx_min)
+        self.assertEqual([22.0], grid.mfi_min)
+        self.assertEqual([78.0], grid.mfi_max)
+        self.assertEqual([0.08], grid.bb_pct_min)
+        self.assertEqual([0.92], grid.bb_pct_max)
+        self.assertEqual([12.0], grid.stoch_k_min)
+        self.assertEqual([88.0], grid.stoch_k_max)
+
+    def test_score_components_reflect_objective_profile(self):
+        aggressive = {
+            "sharpe_ratio": 2.8,
+            "avg_return_pct": 18.0,
+            "win_rate_pct": 60.0,
+            "trade_count": 45,
+            "max_drawdown_pct": -24.0,
+            "return_p05_pct": -11.0,
+            "expected_shortfall_5_pct": -16.0,
+        }
+        defensive = {
+            "sharpe_ratio": 1.0,
+            "avg_return_pct": 3.8,
+            "win_rate_pct": 55.0,
+            "trade_count": 42,
+            "max_drawdown_pct": -9.0,
+            "return_p05_pct": -4.5,
+            "expected_shortfall_5_pct": -6.0,
+        }
+
+        profit_scores = {
+            "aggressive": _compute_score_components(aggressive, "수익 우선")["total_score"],
+            "defensive": _compute_score_components(defensive, "수익 우선")["total_score"],
+        }
+        stability_scores = {
+            "aggressive": _compute_score_components(aggressive, "안정성 우선")["total_score"],
+            "defensive": _compute_score_components(defensive, "안정성 우선")["total_score"],
+        }
+
+        self.assertGreater(profit_scores["aggressive"], profit_scores["defensive"])
+        self.assertGreater(stability_scores["defensive"], stability_scores["aggressive"])
 
 
 if __name__ == "__main__":

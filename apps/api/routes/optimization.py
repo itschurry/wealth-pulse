@@ -128,6 +128,10 @@ def _build_optimizer_command(payload: dict[str, Any] | None) -> list[str]:
         str(lookback_days),
         "--validation-days",
         str(validation_days),
+        "--objective",
+        str(settings.get("objective") or "수익 우선"),
+        "--base-query-json",
+        __import__("json").dumps(query, ensure_ascii=False),
     ]
     # Optimizer script currently exposes lookback/validation only.
     # Keep training_days normalized here so future script support can pass it without
