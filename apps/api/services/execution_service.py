@@ -57,6 +57,15 @@ from services.signal_service import (
 )
 from services.strategy_engine import build_signal_book, select_entry_candidates
 
+from broker.kis_client import KISClient
+from broker.execution_engine import (
+    EngineConfig,
+    LiveBrokerExecutionEngine,
+    PaperExecutionEngine,
+)
+from config.settings import LOGS_DIR
+
+
 _DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]
 _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
 
@@ -103,6 +112,7 @@ _auto_trader_state: dict[str, Any] = {
     "validation_policy": {},
     "optimized_params": {},
 }
+_live_engine: LiveBrokerExecutionEngine | None = None
 
 
 def _mask_chat_id(chat_id: str) -> str:
@@ -156,7 +166,8 @@ def _order_failure_summary() -> dict[str, Any]:
     insufficient_cash_failed = 0
 
     for item in failures:
-        reason = str(item.get("failure_reason") or "order_failed").strip() or "order_failed"
+        reason = str(item.get("failure_reason")
+                     or "order_failed").strip() or "order_failed"
         reason_counts[reason] = reason_counts.get(reason, 0) + 1
         if "현금이 부족" not in reason:
             continue
@@ -172,14 +183,17 @@ def _order_failure_summary() -> dict[str, Any]:
             "reason": reason,
         }
         bucket["count"] = int(bucket.get("count") or 0) + 1
-        bucket["last_at"] = str(item.get("timestamp") or bucket.get("last_at") or "")
+        bucket["last_at"] = str(item.get("timestamp")
+                                or bucket.get("last_at") or "")
         bucket["reason"] = reason
         insufficient_symbol_counts[key] = bucket
 
     latest_failure = failures[0]
-    top_reason, top_reason_count = max(reason_counts.items(), key=lambda entry: entry[1])
+    top_reason, top_reason_count = max(
+        reason_counts.items(), key=lambda entry: entry[1])
     repeated_insufficient_cash = sorted(
-        [item for item in insufficient_symbol_counts.values() if int(item.get("count") or 0) >= 2],
+        [item for item in insufficient_symbol_counts.values() if int(
+            item.get("count") or 0) >= 2],
         key=lambda item: int(item.get("count") or 0),
         reverse=True,
     )[:5]
@@ -230,7 +244,8 @@ def _optimized_params_status() -> dict[str, Any]:
     search_payload = load_search_optimized_params() or {}
     runtime_payload = load_runtime_optimized_params() or {}
     optimized_at = str(effective_payload.get("optimized_at") or "")
-    version = str(effective_payload.get("version") or optimized_at or "unknown")
+    version = str(effective_payload.get("version")
+                  or optimized_at or "unknown")
     stale = False
     if optimized_at:
         try:
@@ -242,8 +257,10 @@ def _optimized_params_status() -> dict[str, Any]:
             stale = age_days > _OPTIMIZED_PARAMS_MAX_AGE_DAYS
         except Exception:
             stale = True
-    runtime_meta = runtime_payload.get("meta") if isinstance(runtime_payload.get("meta"), dict) else {}
-    effective_meta = effective_payload.get("meta") if isinstance(effective_payload.get("meta"), dict) else {}
+    runtime_meta = runtime_payload.get("meta") if isinstance(
+        runtime_payload.get("meta"), dict) else {}
+    effective_meta = effective_payload.get("meta") if isinstance(
+        effective_payload.get("meta"), dict) else {}
     return {
         "version": version,
         "optimized_at": optimized_at,
@@ -275,7 +292,8 @@ def _hydrate_auto_trader_state() -> None:
     loaded = load_engine_state(default={})
     merged = dict(_auto_trader_state)
     merged.update(loaded if isinstance(loaded, dict) else {})
-    config = merged.get("current_config") or merged.get("config") or _default_auto_trader_config()
+    config = merged.get("current_config") or merged.get(
+        "config") or _default_auto_trader_config()
     if not isinstance(config, dict):
         config = _default_auto_trader_config()
     merged["current_config"] = _sync_primary_strategy_fields(dict(config))
@@ -314,7 +332,8 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
     payload_state["today_order_counts"] = today_counts
     payload_state["order_failure_summary"] = _order_failure_summary()
     payload_state["today_realized_pnl"] = _today_realized_pnl(account)
-    payload_state["current_equity"] = round(_to_float(account.get("equity_krw"), 0.0), 2)
+    payload_state["current_equity"] = round(
+        _to_float(account.get("equity_krw"), 0.0), 2)
     return {
         "ok": True,
         "state": payload_state,
@@ -323,11 +342,16 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
 
 
 def _resolve_validation_snapshot(signal: dict[str, Any]) -> dict[str, Any]:
-    ev = signal.get("ev_metrics") if isinstance(signal.get("ev_metrics"), dict) else {}
-    reasoning = signal.get("signal_reasoning") if isinstance(signal.get("signal_reasoning"), dict) else {}
-    calibration = reasoning.get("calibration") if isinstance(reasoning.get("calibration"), dict) else {}
-    validation_snapshot = signal.get("validation_snapshot") if isinstance(signal.get("validation_snapshot"), dict) else {}
-    reliability_detail = ev.get("reliability_detail") if isinstance(ev.get("reliability_detail"), dict) else {}
+    ev = signal.get("ev_metrics") if isinstance(
+        signal.get("ev_metrics"), dict) else {}
+    reasoning = signal.get("signal_reasoning") if isinstance(
+        signal.get("signal_reasoning"), dict) else {}
+    calibration = reasoning.get("calibration") if isinstance(
+        reasoning.get("calibration"), dict) else {}
+    validation_snapshot = signal.get("validation_snapshot") if isinstance(
+        signal.get("validation_snapshot"), dict) else {}
+    reliability_detail = ev.get("reliability_detail") if isinstance(
+        ev.get("reliability_detail"), dict) else {}
 
     trade_count = int(
         validation_snapshot.get("trade_count")
@@ -358,7 +382,8 @@ def _resolve_validation_snapshot(signal: dict[str, Any]) -> dict[str, Any]:
         trade_count=trade_count if trade_count > 0 else trades,
         validation_signals=trades,
         validation_sharpe=sharpe,
-        max_drawdown_pct=_to_float(max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
+        max_drawdown_pct=_to_float(
+            max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
     )
     return {
         "trade_count": trade_count if trade_count > 0 else trades,
@@ -376,10 +401,12 @@ def _resolve_validation_snapshot(signal: dict[str, Any]) -> dict[str, Any]:
             or assessment.reason
         ),
         "passes_minimum_gate": bool(
-            validation_snapshot.get("passes_minimum_gate", reliability_detail.get("passes_minimum_gate", assessment.passes_minimum_gate))
+            validation_snapshot.get("passes_minimum_gate", reliability_detail.get(
+                "passes_minimum_gate", assessment.passes_minimum_gate))
         ),
         "optimized_reliable": bool(
-            validation_snapshot.get("is_reliable", reliability_detail.get("is_reliable", assessment.is_reliable))
+            validation_snapshot.get("is_reliable", reliability_detail.get(
+                "is_reliable", assessment.is_reliable))
         ),
         "source": str(validation_snapshot.get("validation_source") or "signal"),
     }
@@ -402,8 +429,10 @@ def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple
 
     code = str(signal.get("code") or "").upper()
     optimized = _load_optimized_params() or {}
-    per_symbol = optimized.get("per_symbol", {}) if isinstance(optimized, dict) else {}
-    symbol_payload = per_symbol.get(code, {}) if isinstance(per_symbol, dict) else {}
+    per_symbol = optimized.get("per_symbol", {}) if isinstance(
+        optimized, dict) else {}
+    symbol_payload = per_symbol.get(
+        code, {}) if isinstance(per_symbol, dict) else {}
     global_baseline = _optimized_validation_baseline(optimized)
     optimized_validation_payload = symbol_payload if symbol_payload else global_baseline
     validation_source = "signal"
@@ -432,7 +461,8 @@ def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple
             trade_count=trade_count if trade_count > 0 else trades,
             validation_signals=trades,
             validation_sharpe=sharpe,
-            max_drawdown_pct=_to_float(max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
+            max_drawdown_pct=_to_float(
+                max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
         )
         snapshot = {
             "trade_count": trade_count if trade_count > 0 else trades,
@@ -449,10 +479,12 @@ def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple
                 or assessment.reason
             ),
             "passes_minimum_gate": bool(
-                optimized_validation_payload.get("passes_minimum_gate", assessment.passes_minimum_gate)
+                optimized_validation_payload.get(
+                    "passes_minimum_gate", assessment.passes_minimum_gate)
             ),
             "optimized_reliable": bool(
-                optimized_validation_payload.get("is_reliable", assessment.is_reliable)
+                optimized_validation_payload.get(
+                    "is_reliable", assessment.is_reliable)
             ),
         }
         validation_source = "symbol" if symbol_payload else "global"
@@ -476,6 +508,7 @@ def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple
 
 def _notification_order_hook(event: dict[str, Any], _account: dict[str, Any]) -> None:
     get_notification_service().notify_order_filled(event)
+
 
 def _load_optimized_params() -> dict | None:
     """탐색 결과(search) 또는 적용된 runtime overlay 중 현재 유효한 payload를 반환한다."""
@@ -544,6 +577,43 @@ def _get_paper_engine() -> PaperExecutionEngine:
             fx_provider=_paper_fx_rate,
         )
     return _paper_engine
+
+
+def _get_live_engine() -> LiveBrokerExecutionEngine:
+    """KISClient가 연결된 실거래 엔진을 반환한다 (싱글턴).
+
+    실거래 전환 시: get_execution_engine()에서 이 함수를 호출하도록 분기 추가.
+    """
+    global _live_engine
+    if _live_engine is None:
+        kis = KISClient.from_env()
+        _live_engine = LiveBrokerExecutionEngine(
+            kis_client=kis,
+            quote_provider=_resolve_stock_quote,   # 기존 quote provider 재사용
+            fx_provider=_paper_fx_rate,            # 기존 fx provider 재사용
+            config=EngineConfig(
+                state_path=LOGS_DIR / "live_account_state.json",  # paper와 분리
+            ),
+        )
+    return _live_engine
+
+
+# ── 엔진 선택 함수 (기존 get_execution_engine 또는 유사 함수 교체) ────────────
+
+def get_execution_engine(mode: str = "paper") -> PaperExecutionEngine | LiveBrokerExecutionEngine:
+    """실행 모드에 따라 엔진을 반환한다.
+
+    mode:
+      'paper' - 내부 가상계좌 (현재 운영 중, 기본값)
+      'live'  - KIS 실거래 주문 (실거래 전환 시 사용)
+
+    전환 방법:
+      .env 또는 API 파라미터로 EXECUTION_MODE=live 설정 후 이 함수에 전달.
+      절대로 코드를 직접 수정하지 말고 이 함수의 mode 인자로만 제어할 것.
+    """
+    if mode == "live":
+        return _get_live_engine()
+    return _get_paper_engine()  # 기존 함수 그대로 유지
 
 
 def _normalize_pick_market(market: str) -> str:
@@ -835,14 +905,17 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
 
 def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     merged = dict(cfg or _default_auto_trader_config())
-    patch = candidate.get("patch") if isinstance(candidate.get("patch"), dict) else {}
-    settings = candidate.get("settings") if isinstance(candidate.get("settings"), dict) else {}
+    patch = candidate.get("patch") if isinstance(
+        candidate.get("patch"), dict) else {}
+    settings = candidate.get("settings") if isinstance(
+        candidate.get("settings"), dict) else {}
 
     for key, value in patch.items():
         if key in _OPTIMIZABLE_KEYS and value not in (None, ""):
             merged[key] = value
 
-    profile_map = merged.get("market_profiles") if isinstance(merged.get("market_profiles"), dict) else _auto_trader_profile_map(merged)
+    profile_map = merged.get("market_profiles") if isinstance(
+        merged.get("market_profiles"), dict) else _auto_trader_profile_map(merged)
     next_profile_map: dict[str, dict[str, Any]] = {}
     for market, payload in profile_map.items():
         current_payload = dict(payload) if isinstance(payload, dict) else {}
@@ -853,9 +926,11 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
     merged["market_profiles"] = next_profile_map
 
     if settings.get("minTrades") not in (None, ""):
-        merged["validation_min_trades"] = max(0, min(200, int(settings.get("minTrades") or 0)))
+        merged["validation_min_trades"] = max(
+            0, min(200, int(settings.get("minTrades") or 0)))
     if settings.get("walkForward") is not None:
-        merged["validation_gate_enabled"] = bool(merged.get("validation_gate_enabled", True))
+        merged["validation_gate_enabled"] = bool(
+            merged.get("validation_gate_enabled", True))
     merged = _sync_primary_strategy_fields(merged)
     return merged
 
@@ -952,7 +1027,8 @@ def _auto_invest_picks(
 
     for item in entry_candidates:
         if remaining_slots <= 0:
-            skipped.append({"code": item.get("code"), "reason": "max_positions"})
+            skipped.append({"code": item.get("code"),
+                           "reason": "max_positions"})
             continue
 
         code = str(item.get("code") or "").upper()
@@ -960,13 +1036,16 @@ def _auto_invest_picks(
             skipped.append({"code": code, "reason": "already_holding"})
             continue
 
-        size_recommendation = item.get("size_recommendation") if isinstance(item.get("size_recommendation"), dict) else {}
+        size_recommendation = item.get("size_recommendation") if isinstance(
+            item.get("size_recommendation"), dict) else {}
         quantity = int(size_recommendation.get("quantity") or 0)
         if quantity <= 0:
-            skipped.append({"code": code, "reason": size_recommendation.get("reason") or "size_zero"})
+            skipped.append(
+                {"code": code, "reason": size_recommendation.get("reason") or "size_zero"})
             continue
 
-        risk_inputs = item.get("risk_inputs") if isinstance(item.get("risk_inputs"), dict) else {}
+        risk_inputs = item.get("risk_inputs") if isinstance(
+            item.get("risk_inputs"), dict) else {}
         stop_loss_pct = risk_inputs.get("stop_loss_pct")
 
         order_result = engine.place_order(
@@ -980,11 +1059,13 @@ def _auto_invest_picks(
             take_profit_pct=None,
         )
         if not order_result.get("ok"):
-            skipped.append({"code": code, "reason": order_result.get("error") or "order_failed"})
+            skipped.append(
+                {"code": code, "reason": order_result.get("error") or "order_failed"})
             continue
 
         event = order_result.get("event") or {}
-        ev_metrics = item.get("ev_metrics") if isinstance(item.get("ev_metrics"), dict) else {}
+        ev_metrics = item.get("ev_metrics") if isinstance(
+            item.get("ev_metrics"), dict) else {}
         executed.append({
             "code": code,
             "name": item.get("name"),
@@ -1098,7 +1179,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     candidate_counts_by_market: dict[str, int] = {
         market: 0 for market in markets}
     signal_snapshots: list[dict[str, Any]] = []
-    validation_blocked_counts_by_market: dict[str, int] = {market: 0 for market in markets}
+    validation_blocked_counts_by_market: dict[str, int] = {
+        market: 0 for market in markets}
     risk_guard_state: dict[str, Any] = {}
 
     _MARKET_TO_CALENDAR = {"KOSPI": "KR", "NASDAQ": "US"}
@@ -1219,35 +1301,46 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             })
             continue
         buy_count = _count_orders(market, "buy")
-        signal_book = build_signal_book(markets=[market], cfg=cfg, account=account)
-        risk_guard_state = signal_book.get("risk_guard_state", risk_guard_state)
-        market_signals = signal_book.get("signals", []) if isinstance(signal_book.get("signals"), list) else []
+        signal_book = build_signal_book(
+            markets=[market], cfg=cfg, account=account)
+        risk_guard_state = signal_book.get(
+            "risk_guard_state", risk_guard_state)
+        market_signals = signal_book.get("signals", []) if isinstance(
+            signal_book.get("signals"), list) else []
         effective_candidates: list[dict[str, Any]] = []
         validation_blocked = 0
         for signal in market_signals:
             if not isinstance(signal, dict):
                 continue
             candidate = dict(signal)
-            allowed_by_gate, gate_reasons, gate_meta = _apply_validation_gate(candidate, cfg)
+            allowed_by_gate, gate_reasons, gate_meta = _apply_validation_gate(
+                candidate, cfg)
             merged_reasons = list(candidate.get("reason_codes") or [])
-            entry_allowed = bool(candidate.get("entry_allowed")) and allowed_by_gate
+            entry_allowed = bool(candidate.get(
+                "entry_allowed")) and allowed_by_gate
             if not entry_allowed:
                 if gate_reasons:
                     validation_blocked += 1
-                merged_reasons = list(dict.fromkeys([*merged_reasons, *gate_reasons]))
+                merged_reasons = list(dict.fromkeys(
+                    [*merged_reasons, *gate_reasons]))
                 for reason in merged_reasons:
                     key = str(reason or "unknown")
-                    blocked_reason_counts[key] = blocked_reason_counts.get(key, 0) + 1
+                    blocked_reason_counts[key] = blocked_reason_counts.get(
+                        key, 0) + 1
             candidate["entry_allowed"] = entry_allowed
             candidate["reason_codes"] = merged_reasons
             candidate["validation_gate"] = gate_meta
             if entry_allowed:
                 effective_candidates.append(candidate)
 
-            ev_metrics = candidate.get("ev_metrics") if isinstance(candidate.get("ev_metrics"), dict) else {}
-            size_reco = candidate.get("size_recommendation") if isinstance(candidate.get("size_recommendation"), dict) else {}
-            realism = candidate.get("execution_realism") if isinstance(candidate.get("execution_realism"), dict) else {}
-            report_reasoning = candidate.get("report_reasoning") if isinstance(candidate.get("report_reasoning"), dict) else {}
+            ev_metrics = candidate.get("ev_metrics") if isinstance(
+                candidate.get("ev_metrics"), dict) else {}
+            size_reco = candidate.get("size_recommendation") if isinstance(
+                candidate.get("size_recommendation"), dict) else {}
+            realism = candidate.get("execution_realism") if isinstance(
+                candidate.get("execution_realism"), dict) else {}
+            report_reasoning = candidate.get("report_reasoning") if isinstance(
+                candidate.get("report_reasoning"), dict) else {}
             signal_snapshots.append({
                 "timestamp": started_at,
                 "cycle_id": cycle_id,
@@ -1286,7 +1379,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             if _symbol_order_count(market, "buy", code) >= max_orders_per_symbol:
                 continue
 
-            size_recommendation = candidate.get("size_recommendation") if isinstance(candidate.get("size_recommendation"), dict) else {}
+            size_recommendation = candidate.get("size_recommendation") if isinstance(
+                candidate.get("size_recommendation"), dict) else {}
             quantity = int(size_recommendation.get("quantity") or 0)
             if quantity <= 0:
                 skipped.append({
@@ -1297,7 +1391,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 })
                 continue
 
-            risk_inputs = candidate.get("risk_inputs") if isinstance(candidate.get("risk_inputs"), dict) else {}
+            risk_inputs = candidate.get("risk_inputs") if isinstance(
+                candidate.get("risk_inputs"), dict) else {}
             stop_loss_pct = risk_inputs.get("stop_loss_pct")
 
             result = engine.place_order(
@@ -1314,7 +1409,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 slots -= 1
                 held_codes.add(code)
                 event = result.get("event") or {}
-                ev_metrics = candidate.get("ev_metrics") if isinstance(candidate.get("ev_metrics"), dict) else {}
+                ev_metrics = candidate.get("ev_metrics") if isinstance(
+                    candidate.get("ev_metrics"), dict) else {}
                 executed_buys.append({
                     "code": code,
                     "name": cand_name,
@@ -1472,7 +1568,8 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
         with _auto_trader_lock:
             cfg = dict(_auto_trader_state.get(
                 "current_config") or _default_auto_trader_config())
-            engine_state = str(_auto_trader_state.get("engine_state") or "stopped")
+            engine_state = str(_auto_trader_state.get(
+                "engine_state") or "stopped")
         if engine_state == "paused":
             stop_event.wait(1.0)
             continue
@@ -1487,9 +1584,12 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
                 _auto_trader_state["last_summary"] = summary
                 _auto_trader_state["last_error"] = ""
                 _auto_trader_state["last_error_at"] = ""
-                _auto_trader_state["latest_cycle_id"] = summary.get("cycle_id") or ""
-                _auto_trader_state["next_run_at"] = _next_run_at(int(cfg.get("interval_seconds") or 300))
-                _auto_trader_state["optimized_params"] = _optimized_params_status()
+                _auto_trader_state["latest_cycle_id"] = summary.get(
+                    "cycle_id") or ""
+                _auto_trader_state["next_run_at"] = _next_run_at(
+                    int(cfg.get("interval_seconds") or 300))
+                _auto_trader_state["optimized_params"] = _optimized_params_status(
+                )
                 _persist_auto_trader_state_locked()
         except Exception as exc:
             logger.warning("auto trader cycle 실패: {}", exc)
@@ -1503,7 +1603,8 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
                 _persist_auto_trader_state_locked()
                 notifier.notify_engine_error(
                     error=str(exc),
-                    cycle_id=str(_auto_trader_state.get("latest_cycle_id") or ""),
+                    cycle_id=str(_auto_trader_state.get(
+                        "latest_cycle_id") or ""),
                 )
             append_engine_cycle({
                 "ok": False,
@@ -1526,7 +1627,8 @@ def _start_auto_trader(config: dict) -> dict:
     global _auto_trader_stop_event, _auto_trader_thread
     _hydrate_auto_trader_state()
     with _auto_trader_lock:
-        current_state = str(_auto_trader_state.get("engine_state") or "stopped")
+        current_state = str(_auto_trader_state.get(
+            "engine_state") or "stopped")
         if current_state in {"running", "paused"} and _auto_trader_thread and _auto_trader_thread.is_alive():
             return _build_status_payload(dict(_auto_trader_state), _get_paper_engine().get_account(refresh_quotes=False))
         merged = _default_auto_trader_config()
@@ -1563,11 +1665,16 @@ def _start_auto_trader(config: dict) -> dict:
             0.0, float(merged.get("min_avg_notional_krw") or 50000000))
         merged["slippage_bps_base"] = max(
             1.0, min(80.0, float(merged.get("slippage_bps_base") or 8.0)))
-        merged["validation_gate_enabled"] = bool(merged.get("validation_gate_enabled", True))
-        merged["validation_min_trades"] = max(0, min(200, int(merged.get("validation_min_trades") or 8)))
-        merged["validation_min_sharpe"] = max(-5.0, min(10.0, float(merged.get("validation_min_sharpe") or 0.2)))
-        merged["validation_block_on_low_reliability"] = bool(merged.get("validation_block_on_low_reliability", True))
-        merged["validation_require_optimized_reliability"] = bool(merged.get("validation_require_optimized_reliability", True))
+        merged["validation_gate_enabled"] = bool(
+            merged.get("validation_gate_enabled", True))
+        merged["validation_min_trades"] = max(
+            0, min(200, int(merged.get("validation_min_trades") or 8)))
+        merged["validation_min_sharpe"] = max(
+            -5.0, min(10.0, float(merged.get("validation_min_sharpe") or 0.2)))
+        merged["validation_block_on_low_reliability"] = bool(
+            merged.get("validation_block_on_low_reliability", True))
+        merged["validation_require_optimized_reliability"] = bool(
+            merged.get("validation_require_optimized_reliability", True))
         merged.update(_parse_theme_gate_config(merged))
         markets = merged.get("markets") or ["KOSPI", "NASDAQ"]
         if not isinstance(markets, list):
@@ -1587,7 +1694,8 @@ def _start_auto_trader(config: dict) -> dict:
         _auto_trader_state["started_at"] = _now_iso()
         _auto_trader_state["paused_at"] = ""
         _auto_trader_state["stopped_at"] = ""
-        _auto_trader_state["next_run_at"] = _next_run_at(int(merged.get("interval_seconds") or 300))
+        _auto_trader_state["next_run_at"] = _next_run_at(
+            int(merged.get("interval_seconds") or 300))
         _auto_trader_state["current_config"] = merged
         _auto_trader_state["config"] = dict(merged)
         _auto_trader_state["validation_policy"] = {
@@ -1648,12 +1756,14 @@ def _resume_auto_trader() -> dict:
             return _build_status_payload(dict(_auto_trader_state), _get_paper_engine().get_account(refresh_quotes=False))
         if _auto_trader_thread is None or not _auto_trader_thread.is_alive():
             # 정지된 스레드는 재시작 시 start 흐름을 재사용한다.
-            start_cfg = dict(_auto_trader_state.get("current_config") or _default_auto_trader_config())
+            start_cfg = dict(_auto_trader_state.get(
+                "current_config") or _default_auto_trader_config())
         else:
             _auto_trader_state["engine_state"] = "running"
             _auto_trader_state["running"] = True
             _auto_trader_state["paused_at"] = ""
-            _auto_trader_state["next_run_at"] = _next_run_at(int((_auto_trader_state.get("current_config") or {}).get("interval_seconds") or 300))
+            _auto_trader_state["next_run_at"] = _next_run_at(int(
+                (_auto_trader_state.get("current_config") or {}).get("interval_seconds") or 300))
             _persist_auto_trader_state_locked()
             state = dict(_auto_trader_state)
     if start_cfg is not None:
@@ -1683,7 +1793,8 @@ def _auto_trader_status() -> dict:
 def apply_quant_candidate_runtime_config(candidate: dict[str, Any]) -> dict[str, Any]:
     _hydrate_auto_trader_state()
     with _auto_trader_lock:
-        base_cfg = dict(_auto_trader_state.get("current_config") or _default_auto_trader_config())
+        base_cfg = dict(_auto_trader_state.get("current_config")
+                        or _default_auto_trader_config())
         merged = _apply_quant_candidate_patch(base_cfg, candidate)
         _auto_trader_state["current_config"] = merged
         _auto_trader_state["config"] = dict(merged)
@@ -1754,7 +1865,8 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
                 "quote_fetched_at": event.get("quote_fetched_at"),
                 "quote_is_stale": event.get("quote_is_stale"),
             })
-            account = result.get("account") if isinstance(result.get("account"), dict) else engine.get_account(refresh_quotes=False)
+            account = result.get("account") if isinstance(result.get(
+                "account"), dict) else engine.get_account(refresh_quotes=False)
             unrealized = sum(
                 _to_float(item.get("unrealized_pnl_krw"), 0.0)
                 for item in account.get("positions", [])

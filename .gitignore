@@ -45,3 +45,14 @@ refactoring-result.md
 revision.md
 apps/api/config/optimized_params.json
 monte.md
+
+# KIS 토큰 캐시 — access_token 평문 저장됨, 절대 커밋 금지
+storage/logs/kis_token_cache.json
+
+# 실거래/모의 계좌 상태 파일 — 잔고/주문 내역 포함
+storage/logs/paper_account_state.json
+storage/logs/live_account_state.json
+
+# 환경 변수 — 이미 있겠지만 확인
+.env
+apps/api/.env
