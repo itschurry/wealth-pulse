@@ -80,6 +80,51 @@ class OptimizationRouteTests(unittest.TestCase):
         mock_register.assert_called_once_with(payload)
         mock_finalize.assert_called_once_with(success=True)
 
+    def test_run_optimization_self_heals_orphan_in_memory_running_state(self):
+        commands: list[list[str]] = []
+
+        class _FakePopen:
+            def __init__(self, command, stdout=None, stderr=None):
+                commands.append(list(command))
+                self.pid = 12345
+                self.returncode = 0
+
+            def wait(self, timeout=None):
+                self.returncode = 0
+                return 0
+
+        route._optimization_running = True
+        with tempfile.TemporaryDirectory() as tmpdir:
+            flag_path = Path(tmpdir) / "optimization_running"
+            log_path = Path(tmpdir) / "optimization.log"
+            with patch.object(route, "_OPT_RUNNING_FLAG", flag_path), \
+                 patch.object(route, "_LOG_PATH", log_path), \
+                 patch.object(route, "register_optimizer_search_handoff") as mock_register, \
+                 patch.object(route, "finalize_optimizer_search_handoff", return_value={"ok": True}), \
+                 patch.object(route.threading, "Thread", _ImmediateThread), \
+                 patch.object(route.subprocess, "Popen", _FakePopen):
+                status, response = route.handle_run_optimization({"query": {}, "settings": {}})
+
+        self.assertEqual(200, status)
+        self.assertEqual("started", response["status"])
+        self.assertEqual(1, len(commands))
+        self.assertFalse(route._optimization_running)
+        mock_register.assert_called_once()
+
+    def test_run_optimization_returns_already_running_only_for_live_optimizer_process(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            flag_path = Path(tmpdir) / "optimization_running"
+            flag_path.write_text("34567", encoding="utf-8")
+            with patch.object(route, "_OPT_RUNNING_FLAG", flag_path), \
+                 patch.object(route, "_pid_exists", return_value=True), \
+                 patch.object(route, "_pid_looks_like_optimizer", return_value=True), \
+                 patch.object(route, "register_optimizer_search_handoff") as mock_register:
+                status, response = route.handle_run_optimization({"query": {}, "settings": {}})
+
+        self.assertEqual(200, status)
+        self.assertEqual("already_running", response["status"])
+        mock_register.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

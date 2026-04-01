@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,8 @@ from services.validation_service import run_validation_diagnostics
 
 
 _QUANT_OPS_STATE_PATH = LOGS_DIR / "quant_ops_state.json"
+_OPT_RUNNING_FLAG = Path("/tmp/optimization_running")
+_OPTIMIZER_SCRIPT_NAME = "run_monte_carlo_optimizer.py"
 _OPTIMIZABLE_KEYS = {
     "stop_loss_pct",
     "take_profit_pct",
@@ -129,6 +132,36 @@ def _parse_iso_timestamp(timestamp: str) -> dt.datetime | None:
         return dt.datetime.fromisoformat(timestamp).astimezone(dt.timezone.utc)
     except Exception:
         return None
+
+
+def _optimizer_job_active() -> bool:
+    if not _OPT_RUNNING_FLAG.exists():
+        return False
+    try:
+        pid = int(_OPT_RUNNING_FLAG.read_text(encoding="utf-8").strip())
+        if pid <= 0:
+            _OPT_RUNNING_FLAG.unlink(missing_ok=True)
+            return False
+    except Exception:
+        _OPT_RUNNING_FLAG.unlink(missing_ok=True)
+        return False
+
+    try:
+        os.kill(pid, 0)
+    except Exception:
+        _OPT_RUNNING_FLAG.unlink(missing_ok=True)
+        return False
+
+    cmdline_path = Path(f"/proc/{pid}/cmdline")
+    try:
+        cmdline = cmdline_path.read_bytes().decode("utf-8", errors="ignore").replace("\x00", " ")
+    except Exception:
+        # 프로세스 명령행을 확인할 수 없는 환경에서는 보수적으로 활성 상태로 취급한다.
+        return True
+    if _OPTIMIZER_SCRIPT_NAME not in cmdline:
+        _OPT_RUNNING_FLAG.unlink(missing_ok=True)
+        return False
+    return True
 
 
 def _search_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -963,6 +996,8 @@ def _recover_pending_search_handoff(search: dict[str, Any], baseline: dict[str, 
 
     pending_query = pending.get("query") if isinstance(pending.get("query"), dict) else {}
     pending_settings = pending.get("settings") if isinstance(pending.get("settings"), dict) else {}
+    pending_age = _age_seconds(str(pending.get("requested_at") or ""))
+    optimizer_active = _optimizer_job_active()
     baseline_matches = _matches_validation_baseline(pending_query, pending_settings, baseline)
     if not baseline_matches:
         return _finalize_search_handoff_record(
@@ -972,19 +1007,30 @@ def _recover_pending_search_handoff(search: dict[str, Any], baseline: dict[str, 
         )
 
     if not search.get("available"):
-        pending_age = _age_seconds(str(pending.get("requested_at") or ""))
         if pending_age is not None and pending_age > 3900:
             return _finalize_search_handoff_record(
                 pending,
                 status="optimizer_failed",
                 error="optimizer_handoff_expired",
             )
+        if not optimizer_active:
+            return _finalize_search_handoff_record(
+                pending,
+                status="optimizer_failed",
+                error="optimizer_not_running",
+            )
         return None
 
     requested_at = _parse_iso_timestamp(str(pending.get("requested_at") or ""))
     optimized_at = _parse_iso_timestamp(str(search.get("optimized_at") or ""))
     if requested_at and optimized_at and optimized_at < requested_at:
-        return None
+        if optimizer_active and (pending_age is None or pending_age <= 3900):
+            return None
+        return _finalize_search_handoff_record(
+            pending,
+            status="optimizer_failed",
+            error="optimizer_result_obsolete",
+        )
 
     latest_candidate_raw = state.get("latest_candidate") if isinstance(state.get("latest_candidate"), dict) else None
     latest_candidate = _refresh_candidate(latest_candidate_raw, search)

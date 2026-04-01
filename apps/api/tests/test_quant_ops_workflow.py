@@ -397,6 +397,56 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual("optimizer_handoff_expired", workflow["search_handoff"]["error"])
         self.assertFalse(workflow["search_handoff"]["active"])
 
+    def test_workflow_clears_pending_when_optimizer_not_running_and_search_missing(self):
+        requested_at = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+        state = {
+            "pending_search_handoff": {
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "handoff", "trainingDays": 180, "validationDays": 60, "walkForward": True, "minTrades": 8},
+                "requested_at": requested_at,
+                "status": "pending",
+            }
+        }
+        self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=None), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None), \
+             patch.object(svc, "_optimizer_job_active", return_value=False):
+            workflow = svc.get_quant_ops_workflow()
+
+        persisted = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual("optimizer_failed", workflow["search_handoff"]["status"])
+        self.assertEqual("optimizer_not_running", workflow["search_handoff"]["error"])
+        self.assertFalse(workflow["search_handoff"]["active"])
+        self.assertIsNone(persisted["pending_search_handoff"])
+
+    def test_workflow_marks_pending_as_obsolete_when_search_is_older_than_request(self):
+        requested_at = (
+            dt.datetime.fromisoformat(_NOW).astimezone(dt.timezone.utc) + dt.timedelta(minutes=5)
+        ).astimezone().isoformat(timespec="seconds")
+        state = {
+            "pending_search_handoff": {
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "handoff", "trainingDays": 180, "validationDays": 60, "walkForward": True, "minTrades": 8},
+                "requested_at": requested_at,
+                "status": "pending",
+            }
+        }
+        self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=None), \
+             patch.object(svc, "_optimizer_job_active", return_value=False):
+            workflow = svc.get_quant_ops_workflow()
+
+        persisted = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual("optimizer_failed", workflow["search_handoff"]["status"])
+        self.assertEqual("optimizer_result_obsolete", workflow["search_handoff"]["error"])
+        self.assertFalse(workflow["search_handoff"]["active"])
+        self.assertIsNone(persisted["pending_search_handoff"])
+
     def test_save_blocks_when_revalidation_failed_guardrails(self):
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
              patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \

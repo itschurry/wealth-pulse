@@ -21,24 +21,65 @@ _OPT_RUNNING_FLAG = Path("/tmp/optimization_running")
 _LOG_PATH = Path("/tmp/optimization.log")
 
 
-def _is_running() -> bool:
-    """메모리 플래그 또는 플래그 파일 기준으로 실행 중 여부 반환."""
-    if _optimization_running:
+def _optimizer_script_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "scripts" / "run_monte_carlo_optimizer.py"
+
+
+def _read_pid_from_flag() -> int | None:
+    try:
+        raw = _OPT_RUNNING_FLAG.read_text(encoding="utf-8").strip()
+        pid = int(raw)
+        return pid if pid > 0 else None
+    except Exception:
+        return None
+
+
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
         return True
-    # 서버 재시작 후에도 파일이 남아있으면 실행 중으로 간주
-    # (단, 프로세스가 실제로 살아있는지 PID로 확인)
-    if _OPT_RUNNING_FLAG.exists():
-        try:
-            pid = int(_OPT_RUNNING_FLAG.read_text().strip())
-            os.kill(pid, 0)  # PID가 살아있으면 예외 없이 통과
-            return True
-        except Exception:
-            _OPT_RUNNING_FLAG.unlink(missing_ok=True)
+    except Exception:
+        return False
+
+
+def _pid_looks_like_optimizer(pid: int) -> bool:
+    cmdline_path = Path(f"/proc/{pid}/cmdline")
+    try:
+        cmdline = cmdline_path.read_bytes().decode("utf-8", errors="ignore").replace("\x00", " ").strip()
+    except Exception:
+        # 명령행을 읽을 수 없는 환경이면 보수적으로 살아있는 프로세스로 간주한다.
+        return True
+
+    script_name = _optimizer_script_path().name
+    return script_name in cmdline
+
+
+def _reconcile_running_state() -> bool:
+    """메모리/플래그 상태를 실제 optimizer 프로세스 기준으로 정규화한다."""
+    global _optimization_running
+
+    had_marker = _optimization_running or _OPT_RUNNING_FLAG.exists()
+    pid = _read_pid_from_flag() if _OPT_RUNNING_FLAG.exists() else None
+    has_live_optimizer = bool(
+        isinstance(pid, int)
+        and _pid_exists(pid)
+        and _pid_looks_like_optimizer(pid)
+    )
+
+    if has_live_optimizer:
+        _optimization_running = True
+        return True
+
+    _optimization_running = False
+    if had_marker:
+        _OPT_RUNNING_FLAG.unlink(missing_ok=True)
     return False
 
 
-def _optimizer_script_path() -> Path:
-    return Path(__file__).resolve().parents[1] / "scripts" / "run_monte_carlo_optimizer.py"
+def _is_running() -> bool:
+    """메모리 플래그 또는 플래그 파일 기준으로 실행 중 여부 반환."""
+    with _optimization_lock:
+        return _reconcile_running_state()
 
 
 def _to_int(value: Any, default: int, *, minimum: int) -> int:
@@ -95,7 +136,7 @@ def handle_run_optimization(payload: dict[str, Any] | None = None) -> tuple[int,
     global _optimization_running
 
     with _optimization_lock:
-        if _is_running():
+        if _reconcile_running_state():
             return 200, {"status": "already_running"}
         _optimization_running = True
 
@@ -113,7 +154,7 @@ def handle_run_optimization(payload: dict[str, Any] | None = None) -> tuple[int,
                     stdout=log_f,
                     stderr=log_f,
                 )
-                _OPT_RUNNING_FLAG.write_text(str(proc.pid))
+                _OPT_RUNNING_FLAG.write_text(str(proc.pid), encoding="utf-8")
                 proc.wait(timeout=3600)
                 if proc.returncode != 0:
                     logger.error(
