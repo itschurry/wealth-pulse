@@ -51,6 +51,7 @@ def collect_pick_candidates(market: str, cfg: dict) -> list[dict]:
         {
             "min_score": cfg.get("min_score", 50.0),
             "include_neutral": cfg.get("include_neutral", True),
+            "allow_recommendation_fallback": bool(cfg.get("allow_recommendation_fallback", False)),
             **parse_theme_gate_config(cfg),
         }
     )

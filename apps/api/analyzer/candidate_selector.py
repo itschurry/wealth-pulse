@@ -18,6 +18,7 @@ class CandidateSelectionConfig:
     theme_min_score: float = 2.5
     theme_min_news: int = 1
     theme_priority_bonus: float = 2.0
+    allow_recommendation_fallback: bool = True
 
 
 def normalize_candidate_selection_config(raw: Mapping[str, Any] | None = None) -> CandidateSelectionConfig:
@@ -45,6 +46,7 @@ def normalize_candidate_selection_config(raw: Mapping[str, Any] | None = None) -
         theme_min_score=max(0.0, min(30.0, theme_min_score)),
         theme_min_news=max(0, min(10, theme_min_news)),
         theme_priority_bonus=max(0.0, min(10.0, theme_priority_bonus)),
+        allow_recommendation_fallback=bool(payload.get("allow_recommendation_fallback", True)),
     )
 
 
@@ -88,11 +90,12 @@ def _select_market_candidates_with_source(
     if prepared:
         return _sort_candidates(prepared, cfg), "today_picks"
 
-    recommendation_payload = recommendations if isinstance(recommendations, Mapping) else {}
-    raw_recommendations = recommendation_payload.get("recommendations", [])
-    prepared = _prepare_recommendation_candidates(raw_recommendations, normalized_market, allowed_signals, cfg)
-    if prepared:
-        return _sort_candidates(prepared, cfg), "recommendations"
+    if cfg.allow_recommendation_fallback:
+        recommendation_payload = recommendations if isinstance(recommendations, Mapping) else {}
+        raw_recommendations = recommendation_payload.get("recommendations", [])
+        prepared = _prepare_recommendation_candidates(raw_recommendations, normalized_market, allowed_signals, cfg)
+        if prepared:
+            return _sort_candidates(prepared, cfg), "recommendations"
     if today_picks:
         return [], "today_picks"
     if recommendations:
