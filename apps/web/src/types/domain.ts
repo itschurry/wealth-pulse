@@ -215,6 +215,7 @@ export interface StrategyRegistryItem {
   approved_at?: string;
   entry_rule?: string;
   exit_rule?: string;
+  params?: Record<string, unknown>;
   risk_limits?: {
     max_positions?: number;
     position_size_pct?: number;

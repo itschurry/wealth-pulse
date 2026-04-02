@@ -33,6 +33,8 @@ interface BacktestValidationPageProps {
   onRefresh: () => void;
 }
 
+const STRATEGY_VALIDATION_TRANSFER_KEY = 'console_strategy_validation_transfer_v1';
+
 type ValidationStoreSnapshot = ReturnType<typeof useValidationSettingsStore>;
 
 interface RunHistoryItem {
@@ -808,7 +810,43 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   }, [selectedSymbol, symbolCandidates]);
 
   useEffect(() => {
-    void validationStore.loadSavedFromServer().catch(() => {
+    void validationStore.loadSavedFromServer().then(() => {
+      try {
+        const raw = localStorage.getItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+        if (!raw) return;
+        const preset = JSON.parse(raw) as Record<string, unknown>;
+        localStorage.removeItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+        const params = (preset.params && typeof preset.params === 'object') ? preset.params as Record<string, unknown> : {};
+        const riskLimits = (preset.risk_limits && typeof preset.risk_limits === 'object') ? preset.risk_limits as Record<string, unknown> : {};
+        const market = String(preset.market || 'KOSPI').toUpperCase();
+        validationStore.setDraftSettings((prev) => ({
+          ...prev,
+          strategy: String(preset.name || preset.strategy_id || prev.strategy || '퀀트 전략 엔진'),
+        }));
+        validationStore.setDraftQuery((prev) => ({
+          ...prev,
+          market_scope: market === 'NASDAQ' ? 'nasdaq' : 'kospi',
+          max_positions: Number(riskLimits.max_positions ?? params.max_positions ?? prev.max_positions),
+          initial_cash: Number(params.initial_cash ?? prev.initial_cash),
+          max_holding_days: Number(params.max_holding_days ?? prev.max_holding_days),
+          rsi_min: Number(params.rsi_min ?? prev.rsi_min),
+          rsi_max: Number(params.rsi_max ?? prev.rsi_max),
+          volume_ratio_min: Number(params.volume_ratio_min ?? prev.volume_ratio_min),
+          stop_loss_pct: params.stop_loss_pct == null ? prev.stop_loss_pct : Number(params.stop_loss_pct),
+          take_profit_pct: params.take_profit_pct == null ? prev.take_profit_pct : Number(params.take_profit_pct),
+          adx_min: params.adx_min == null ? prev.adx_min : Number(params.adx_min),
+          mfi_min: params.mfi_min == null ? prev.mfi_min : Number(params.mfi_min),
+          mfi_max: params.mfi_max == null ? prev.mfi_max : Number(params.mfi_max),
+          bb_pct_min: params.bb_pct_min == null ? prev.bb_pct_min : Number(params.bb_pct_min),
+          bb_pct_max: params.bb_pct_max == null ? prev.bb_pct_max : Number(params.bb_pct_max),
+          stoch_k_min: params.stoch_k_min == null ? prev.stoch_k_min : Number(params.stoch_k_min),
+          stoch_k_max: params.stoch_k_max == null ? prev.stoch_k_max : Number(params.stoch_k_max),
+        }));
+        push('success', '전략 관리에서 선택한 프리셋을 검증 랩 초안에 불러왔습니다.', String(preset.name || preset.strategy_id || ''), 'settings');
+      } catch {
+        localStorage.removeItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+      }
+    }).catch(() => {
       push('warning', '서버 저장된 quant 설정을 불러오지 못했습니다.', '로컬 초안은 유지하고 계속 작업할 수 있습니다.', 'settings');
       pushToast({ tone: 'warning', title: '서버 저장값 로드 실패', description: '현재 브라우저 초안으로 계속 작업합니다.' });
     });

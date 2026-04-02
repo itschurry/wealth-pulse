@@ -87,6 +87,10 @@ export function toggleStrategyEnabled(strategyId: string, enabled: boolean) {
   return postJSON<StrategiesResponse>('/api/strategies/toggle', { strategy_id: strategyId, enabled });
 }
 
+export function saveStrategyPreset(payload: Record<string, unknown>) {
+  return postJSON<StrategiesResponse>('/api/strategies/save', payload);
+}
+
 export function fetchPortfolioState(refresh = true) {
   return getJSON<PortfolioStateResponse>(`/api/portfolio/state?refresh=${refresh ? '1' : '0'}`, { noStore: true });
 }

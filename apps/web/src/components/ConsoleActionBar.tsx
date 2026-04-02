@@ -261,12 +261,14 @@ export function ConsoleActionBar({
             <button className="ghost-button" onClick={() => setLogOpen(true)}>
               로그 보기
             </button>
-            <button className="ghost-button" onClick={() => setSettingsOpen(true)}>
-              <span className="button-content">
-                설정/실행
-                {settingsDirty && <span className="inline-badge is-warning">저장 필요</span>}
-              </span>
-            </button>
+            {settingsPanel && (
+              <button className="ghost-button" onClick={() => setSettingsOpen(true)}>
+                <span className="button-content">
+                  설정/실행
+                  {settingsDirty && <span className="inline-badge is-warning">저장 필요</span>}
+                </span>
+              </button>
+            )}
             {safeActions.map((action) => (
               <button
                 key={action.label}

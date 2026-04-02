@@ -18,13 +18,12 @@ interface RouteState {
   canonicalPath: string;
 }
 
-const CONSOLE_TABS: Array<{ id: ConsoleTab; label: string; path: string; hint: string }> = [
+const CONSOLE_TABS: Array<{ id: Exclude<ConsoleTab, 'validation'>; label: string; path: string; hint: string }> = [
   { id: 'strategies', label: UI_TEXT.consoleTabs.strategies, path: '/console/strategies', hint: '승인 전략과 enable 상태' },
   { id: 'scanner', label: UI_TEXT.consoleTabs.scanner, path: '/console/scanner', hint: '전략별 scan cycle과 후보군' },
   { id: 'orders', label: UI_TEXT.consoleTabs.orders, path: '/console/orders', hint: '주문 상태와 리스크 거절 사유' },
   { id: 'universe', label: UI_TEXT.consoleTabs.universe, path: '/console/universe', hint: '규칙별 종목군과 변경 내역' },
   { id: 'performance', label: UI_TEXT.consoleTabs.performance, path: '/console/performance', hint: '연구 성과와 운용 성과 분리' },
-  { id: 'validation', label: UI_TEXT.consoleTabs.validation, path: '/console/validation', hint: '백테스트 · 진단 · 재검증 · 적용 흐름' },
 ];
 
 const REPORT_TABS: Array<{ id: ReportTab; label: string; path: string; hint: string }> = [
@@ -77,6 +76,14 @@ function toRouteState(pathname: string): RouteState {
 
   if (path.startsWith('/console/')) {
     const segment = path.replace('/console/', '');
+    if (segment === 'validation') {
+      return {
+        section: 'console',
+        consoleTab: 'validation',
+        reportTab: 'today-report',
+        canonicalPath: '/console/validation',
+      };
+    }
     const found = CONSOLE_TABS.find((tab) => tab.id === segment);
     if (found) {
       return {
@@ -126,7 +133,7 @@ export default function App() {
   const activeLabel = route.section === 'home'
     ? UI_TEXT.topTabs.home
     : route.section === 'console'
-      ? activeConsoleTab?.label || UI_TEXT.consoleTabs.strategies
+      ? (route.consoleTab === 'validation' ? UI_TEXT.consoleTabs.validation : activeConsoleTab?.label || UI_TEXT.consoleTabs.strategies)
       : activeReportTab?.label || UI_TEXT.reportTabs.todayReport;
 
   useEffect(() => {
