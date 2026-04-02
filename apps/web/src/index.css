@@ -2086,6 +2086,7 @@ button:disabled {
   gap: 12px;
 }
 
+.strategies-shell,
 .paper-ops-shell {
   gap: 18px;
 }
@@ -2102,6 +2103,11 @@ button:disabled {
 .paper-ops-summary-grid > *,
 .paper-ops-log-grid > * {
   min-width: 0;
+}
+
+.strategies-registry-shell .responsive-card-list,
+.paper-ops-shell .responsive-card-list {
+  display: none;
 }
 
 .validation-history-grid {
@@ -3085,6 +3091,30 @@ button:disabled {
 .watch-scenario-card {
   display: grid;
   gap: 10px;
+}
+
+@media (max-width: 1360px) {
+  .paper-ops-shell .responsive-table-desktop {
+    display: none;
+  }
+
+  .paper-ops-shell .responsive-card-list {
+    display: grid;
+  }
+
+  .paper-ops-shell .validation-decision-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1240px) {
+  .strategies-registry-shell .responsive-table-desktop {
+    display: none;
+  }
+
+  .strategies-registry-shell .responsive-card-list {
+    display: grid;
+  }
 }
 
 @media (max-width: 1180px) {
