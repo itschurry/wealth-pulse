@@ -13,6 +13,7 @@ from helpers import _KST
 from routes.reports import _get_market_context
 from services.ev_calibration_service import compute_ev_metrics
 from services.optimized_params_store import load_execution_optimized_params
+from services.reliability_policy import should_apply_symbol_overlay
 from services.risk_guard_service import build_risk_guard_state
 from services.signal_service import collect_pick_candidates
 from services.sizing_service import recommend_position_size
@@ -40,11 +41,16 @@ def _resolve_validation_payload(optimized_params: dict[str, Any], code: str) -> 
         return {}, "none"
     per_symbol = optimized_params.get("per_symbol", {}) if isinstance(optimized_params.get("per_symbol"), dict) else {}
     symbol_payload = per_symbol.get(code, {}) if isinstance(per_symbol.get(code), dict) else {}
-    if symbol_payload:
+    if symbol_payload and should_apply_symbol_overlay(
+        is_reliable=bool(symbol_payload.get("is_reliable", False)),
+        reliability_reason=str(symbol_payload.get("reliability_reason") or ""),
+    ):
         return symbol_payload, "symbol"
     global_baseline = optimized_params.get("validation_baseline")
     if isinstance(global_baseline, dict):
         return global_baseline, "global"
+    if symbol_payload:
+        return symbol_payload, "symbol"
     return {}, "none"
 
 

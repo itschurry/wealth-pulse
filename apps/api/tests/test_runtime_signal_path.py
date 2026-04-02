@@ -95,6 +95,90 @@ class RuntimeValidationGateTests(unittest.TestCase):
 
 
 class StrategyEngineRuntimePathTests(unittest.TestCase):
+    def test_build_signal_book_falls_back_to_global_validation_when_symbol_overlay_is_unreliable(self):
+        candidate = {
+            "code": "000810",
+            "name": "삼성화재",
+            "market": "KOSPI",
+            "sector": "미분류",
+            "score": 33.02,
+            "confidence": 50.0,
+            "price": 445000.0,
+            "technical_snapshot": {
+                "current_price": 445000.0,
+                "volume_avg20": 119978,
+                "volume_ratio": 1.0,
+                "atr14_pct": 0.8,
+            },
+            "reasons": [],
+            "risks": [],
+            "gate_status": "passed",
+            "gate_reasons": [],
+            "ai_thesis": "runtime quant validated candidate",
+        }
+        optimized_payload = {
+            "validation_baseline": {
+                "trade_count": 61,
+                "validation_trades": 61,
+                "validation_sharpe": 0.4,
+                "max_drawdown_pct": -7.28,
+                "strategy_reliability": "high",
+                "reliability_reason": "validated_candidate",
+                "passes_minimum_gate": True,
+                "is_reliable": True,
+                "stop_loss_pct": 11.0,
+                "composite_score": 3.77,
+            },
+            "per_symbol": {
+                "000810": {
+                    "trade_count": 79,
+                    "validation_trades": 6,
+                    "validation_sharpe": 0.0,
+                    "max_drawdown_pct": -17.8626,
+                    "strategy_reliability": "insufficient",
+                    "reliability_reason": "insufficient_validation_signals",
+                    "passes_minimum_gate": False,
+                    "is_reliable": False,
+                    "stop_loss_pct": 9.0,
+                    "composite_score": 33.02,
+                }
+            },
+        }
+
+        with patch.object(strategy_svc, "collect_pick_candidates", return_value=[candidate]), \
+             patch.object(strategy_svc, "_context_snapshot", return_value=("neutral", "중간")), \
+             patch.object(strategy_svc, "_load_optimized_params", return_value=optimized_payload), \
+             patch.object(strategy_svc, "build_risk_guard_state", return_value={"entry_allowed": True, "reasons": []}), \
+             patch.object(strategy_svc, "determine_strategy_type", return_value="mean-reversion"), \
+             patch.object(strategy_svc, "allocator_weight", return_value={"enabled": True}), \
+             patch.object(
+                 strategy_svc,
+                 "compute_ev_metrics",
+                 return_value={
+                     "expected_value": 1.2023,
+                     "reliability": "high",
+                     "reliability_detail": {
+                         "label": "high",
+                         "reason": "validated_candidate",
+                         "passes_minimum_gate": True,
+                         "is_reliable": True,
+                     },
+                     "calibration": {},
+                 },
+             ), \
+             patch.object(strategy_svc, "recommend_position_size", return_value={"quantity": 1, "reason": "ok"}):
+            book = strategy_svc.build_signal_book(
+                markets=["KOSPI"],
+                cfg={},
+                account={"equity_krw": 25_223_000, "cash_krw": 10_000_000, "orders": [], "positions": [], "fx_rate": 1522.3},
+            )
+
+        signal = book["signals"][0]
+        self.assertEqual("global", signal["validation_snapshot"]["validation_source"])
+        self.assertEqual(61, signal["validation_snapshot"]["validation_trades"])
+        self.assertAlmostEqual(11.0, signal["risk_inputs"]["stop_loss_pct"])
+        self.assertTrue(signal["entry_allowed"])
+
     def test_build_signal_book_uses_global_validation_baseline_and_technical_snapshot(self):
         candidate = {
             "code": "005930",
