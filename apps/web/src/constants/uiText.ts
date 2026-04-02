@@ -11,6 +11,7 @@ export const UI_TEXT = {
     orders: '주문/리스크',
     universe: '유니버스',
     performance: '성과',
+    validation: '전략 검증 랩',
   },
   reportTabs: {
     todayReport: '투자 브리프',

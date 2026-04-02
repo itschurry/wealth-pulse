@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { UI_TEXT } from './constants/uiText';
 import { useConsoleData } from './hooks/useConsoleData';
+import { BacktestValidationPage } from './pages/BacktestValidationPage';
 import { PaperPortfolioPage } from './pages/PaperPortfolioPage';
 import { PerformancePage } from './pages/PerformancePage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -23,6 +24,7 @@ const CONSOLE_TABS: Array<{ id: ConsoleTab; label: string; path: string; hint: s
   { id: 'orders', label: UI_TEXT.consoleTabs.orders, path: '/console/orders', hint: '주문 상태와 리스크 거절 사유' },
   { id: 'universe', label: UI_TEXT.consoleTabs.universe, path: '/console/universe', hint: '규칙별 종목군과 변경 내역' },
   { id: 'performance', label: UI_TEXT.consoleTabs.performance, path: '/console/performance', hint: '연구 성과와 운용 성과 분리' },
+  { id: 'validation', label: UI_TEXT.consoleTabs.validation, path: '/console/validation', hint: '백테스트 · 진단 · 재검증 · 적용 흐름' },
 ];
 
 const REPORT_TABS: Array<{ id: ReportTab; label: string; path: string; hint: string }> = [
@@ -53,9 +55,10 @@ function toRouteState(pathname: string): RouteState {
     '/overview': '/console/strategies',
     '/signals': '/console/scanner',
     '/paper': '/console/orders',
-    '/backtest': '/reports/today-report',
+    '/backtest': '/console/validation',
     '/reports': '/reports/today-report',
-    '/console/backtest': '/reports/today-report',
+    '/console/backtest': '/console/validation',
+    '/console/validation-lab': '/console/validation',
     '/reports/today': '/reports/today-report',
     '/reports/recommendations': '/reports/today-report',
     '/reports/today-recommendations': '/reports/today-report',
@@ -327,6 +330,7 @@ export default function App() {
           {route.section === 'console' && route.consoleTab === 'orders' && <PaperPortfolioPage {...sharedProps} />}
           {route.section === 'console' && route.consoleTab === 'universe' && <UniversePage {...sharedProps} />}
           {route.section === 'console' && route.consoleTab === 'performance' && <PerformancePage {...sharedProps} />}
+          {route.section === 'console' && route.consoleTab === 'validation' && <BacktestValidationPage {...sharedProps} />}
           {route.section === 'reports' && (
             <ReportsPage
               {...sharedProps}

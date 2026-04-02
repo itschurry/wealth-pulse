@@ -2086,6 +2086,24 @@ button:disabled {
   gap: 12px;
 }
 
+.paper-ops-shell {
+  gap: 18px;
+}
+
+.paper-ops-overview-grid,
+.paper-ops-summary-grid,
+.paper-ops-log-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.paper-ops-overview-grid > *,
+.paper-ops-summary-grid > *,
+.paper-ops-log-grid > * {
+  min-width: 0;
+}
+
 .validation-history-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -3269,7 +3287,10 @@ button:disabled {
   .validation-report-grid,
   .validation-history-grid,
   .process-grid,
-  .backtest-grid {
+  .backtest-grid,
+  .paper-ops-overview-grid,
+  .paper-ops-summary-grid,
+  .paper-ops-log-grid {
     gap: 8px;
   }
 
@@ -3448,6 +3469,12 @@ button:disabled {
   .report-decision-strip,
   .validation-decision-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .paper-ops-overview-grid,
+  .paper-ops-summary-grid,
+  .paper-ops-log-grid {
+    grid-template-columns: 1fr;
   }
 
   .report-brief-item,

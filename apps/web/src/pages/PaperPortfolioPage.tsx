@@ -630,7 +630,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
+        <div className="content-shell paper-ops-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="주문/리스크"
             subtitle="계좌, 포지션, 주문 이력, 리스크 거절 사유를 한 화면에서 확인합니다. 신호가 있었는데 왜 주문이 없었는지 이 화면에서 바로 추적합니다."
@@ -736,7 +736,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div className="validation-report-grid">
+          <div className="paper-ops-overview-grid">
             <div className="page-section" style={{ padding: 16 }}>
               <div className="section-title">리서치 입력 분리</div>
               <div className="detail-list">
@@ -898,7 +898,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <div className="paper-ops-summary-grid">
             <div className="page-section" style={{ padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700 }}>엔진 상태 패널</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
@@ -928,7 +928,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
+          <div className="paper-ops-log-grid">
             <div className="page-section" style={{ padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700 }}>최근 체결 내역</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
