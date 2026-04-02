@@ -2086,9 +2086,55 @@ button:disabled {
   gap: 12px;
 }
 
+.console-page-shell,
 .strategies-shell,
-.paper-ops-shell {
+.paper-ops-shell,
+.performance-shell {
   gap: 18px;
+}
+
+.console-card-section,
+.console-data-section,
+.console-hero-section {
+  min-width: 0;
+}
+
+.console-metric-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.console-page-shell .page-section {
+  min-width: 0;
+}
+
+.strategies-registry-shell,
+.console-data-section {
+  overflow: hidden;
+}
+
+.paper-ops-shell .console-actionbar-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.paper-ops-shell .console-actionbar-buttons {
+  max-width: 520px;
+  justify-content: flex-end;
+}
+
+.paper-ops-shell .console-actionbar-buttons > * {
+  flex: 0 0 auto;
+}
+
+.paper-ops-shell .validation-decision-hero {
+  gap: 12px;
+}
+
+.paper-ops-shell .validation-decision-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
 .paper-ops-overview-grid,
@@ -2096,18 +2142,19 @@ button:disabled {
 .paper-ops-log-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.performance-shell .responsive-table-desktop,
+.strategies-registry-shell .responsive-table-desktop,
+.paper-ops-shell .responsive-table-desktop {
+  width: 100%;
 }
 
 .paper-ops-overview-grid > *,
 .paper-ops-summary-grid > *,
 .paper-ops-log-grid > * {
   min-width: 0;
-}
-
-.strategies-registry-shell .responsive-card-list,
-.paper-ops-shell .responsive-card-list {
-  display: none;
 }
 
 .validation-history-grid {
@@ -3093,31 +3140,21 @@ button:disabled {
   gap: 10px;
 }
 
-@media (max-width: 1360px) {
-  .paper-ops-shell .responsive-table-desktop {
-    display: none;
+@media (max-width: 1280px) {
+  .paper-ops-shell .console-actionbar-head {
+    grid-template-columns: 1fr;
   }
 
-  .paper-ops-shell .responsive-card-list {
-    display: grid;
-  }
-
-  .paper-ops-shell .validation-decision-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1240px) {
-  .strategies-registry-shell .responsive-table-desktop {
-    display: none;
-  }
-
-  .strategies-registry-shell .responsive-card-list {
-    display: grid;
+  .paper-ops-shell .console-actionbar-buttons {
+    max-width: none;
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 1180px) {
+  .console-metric-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
   .hero-grid,
   .report-masthead,
   .report-layout,
@@ -3503,7 +3540,8 @@ button:disabled {
 
   .paper-ops-overview-grid,
   .paper-ops-summary-grid,
-  .paper-ops-log-grid {
+  .paper-ops-log-grid,
+  .console-metric-grid {
     grid-template-columns: 1fr;
   }
 

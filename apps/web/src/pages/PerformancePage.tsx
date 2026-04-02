@@ -32,7 +32,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
+        <div className="content-shell console-page-shell performance-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="성과"
             subtitle="연구 성과와 장중 운용 성과를 같은 카드에 섞지 않고 분리해서 보여줍니다. 전략 승인 판단과 오늘 운용 상태를 구분해서 봅니다."
@@ -45,9 +45,9 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
             onClearLogs={clear}
           />
 
-          <section className="page-section" style={{ display: 'grid', gap: 12 }}>
+          <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
             <div style={{ fontSize: 14, fontWeight: 700 }}>운용 성과</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+            <div className="console-metric-grid">
               <div>
                 <div style={{ fontSize: 12, color: 'var(--text-4)' }}>오늘 신호 수</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{live.today_signal_count || 0}건</div>
@@ -79,7 +79,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
             </div>
           </section>
 
-          <section className="page-section" style={{ padding: 0 }}>
+          <section className="page-section console-data-section" style={{ padding: 0 }}>
             <div style={{ padding: 16, fontSize: 14, fontWeight: 700 }}>연구 성과</div>
             <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>

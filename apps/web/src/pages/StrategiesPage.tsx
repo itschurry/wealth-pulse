@@ -48,7 +48,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="content-shell strategies-shell" style={{ display: 'grid', gap: 16 }}>
+        <div className="content-shell console-page-shell strategies-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="전략 관리"
             subtitle="실시간 엔진은 승인된 Strategy Registry만 읽습니다. approval status, enable 상태, universe rule, scan cycle을 여기서 분리해서 관리합니다."
@@ -70,7 +70,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
 
           <div className="page-section strategies-registry-shell" style={{ padding: 0 }}>
             <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 920 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
                     <th style={{ padding: 12, fontSize: 12 }}>전략</th>

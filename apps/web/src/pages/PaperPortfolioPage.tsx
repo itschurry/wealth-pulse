@@ -630,7 +630,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="content-shell paper-ops-shell" style={{ display: 'grid', gap: 16 }}>
+        <div className="content-shell console-page-shell paper-ops-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="주문/리스크"
             subtitle="계좌, 포지션, 주문 이력, 리스크 거절 사유를 한 화면에서 확인합니다. 신호가 있었는데 왜 주문이 없었는지 이 화면에서 바로 추적합니다."
@@ -699,7 +699,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             settingsPanel={settingsPanel}
           />
 
-          <div className="page-section validation-decision-hero" style={{ padding: 18 }}>
+          <div className="page-section validation-decision-hero console-hero-section" style={{ padding: 18 }}>
             <div className="report-hero-topline">
               <span className="report-hero-tag">Risk First</span>
               <span className={`report-decision-chip ${entryAllowed ? 'is-good' : 'is-bad'}`}>신규 진입 {entryAllowed ? '가능' : '차단'}</span>
@@ -796,7 +796,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           <div className="page-section" style={{ padding: 0 }}>
             <div style={{ padding: '14px 16px 0', fontSize: 12, color: 'var(--text-4)' }}>가격은 현지통화 기준, 평가손익은 원화 환산 기준으로 표기합니다.</div>
             <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1260 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1040 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
                     <th style={{ padding: 12, fontSize: 12 }}>종목</th>
@@ -1018,7 +1018,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               <div className={hannaBadgeClass(currentHannaState)}>Hanna {currentHannaState}</div>
             </div>
             <div className="responsive-table-desktop" style={{ overflow: 'auto', marginTop: 12 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
                     <th style={{ padding: 12, fontSize: 12 }}>시각</th>
