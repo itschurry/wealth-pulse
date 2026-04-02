@@ -81,9 +81,17 @@ def recommend_position_size(
 
     quantity = max(0, min(qty_by_risk, qty_by_cash, qty_by_caps))
     if quantity <= 0:
+        zero_limits: list[str] = []
+        if qty_by_risk <= 0:
+            zero_limits.append("risk_budget_limit")
+        if qty_by_cash <= 0:
+            zero_limits.append("cash_limit")
+        if qty_by_caps <= 0:
+            zero_limits.append("exposure_limit")
+        reason = zero_limits[0] if len(zero_limits) == 1 else "exposure_or_cash_limit"
         return {
             "quantity": 0,
-            "reason": "exposure_or_cash_limit",
+            "reason": reason,
             "qty_by_risk": qty_by_risk,
             "qty_by_cash": qty_by_cash,
             "qty_by_caps": qty_by_caps,
