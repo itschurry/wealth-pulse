@@ -1792,6 +1792,18 @@ def apply_saved_candidate_to_runtime(payload: dict[str, Any]) -> dict[str, Any]:
         else:
             skipped_symbols[symbol] = list(symbol_guardrails.get("reasons") or ["symbol_runtime_apply_guardrail_blocked"])
 
+    runtime_candidate_source_mode = normalize_runtime_candidate_source_mode(
+        saved_candidate.get("runtime_candidate_source_mode")
+    )
+    if runtime_candidate_source_mode == "quant_only" and not approved_saved_symbols:
+        return {
+            "ok": False,
+            "error": "runtime_apply_requires_symbol_candidates",
+            "candidate": saved_candidate,
+            "runtime_candidate_source_mode": runtime_candidate_source_mode,
+            "workflow": get_quant_ops_workflow(),
+        }
+
     runtime_payload = _build_runtime_payload(saved_candidate, search_payload, approved_saved_symbols)
     write_runtime_optimized_params(runtime_payload)
 

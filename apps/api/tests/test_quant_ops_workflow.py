@@ -881,6 +881,35 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual(18, self.runtime_store["payload"]["validation_baseline"]["validation_trades"])
         self.assertAlmostEqual(0.93, self.runtime_store["payload"]["validation_baseline"]["validation_sharpe"])
 
+    def test_apply_quant_only_runtime_requires_symbol_candidates(self):
+        execution_stub = types.ModuleType("services.execution_service")
+        execution_stub.apply_quant_candidate_runtime_config = lambda candidate: {
+            "ok": True,
+            "state": {
+                "engine_state": "stopped",
+                "next_run_at": "",
+                "config": {},
+            },
+        }
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", side_effect=lambda: self.runtime_store.get("payload") or None), \
+             patch.object(svc, "write_runtime_optimized_params", side_effect=self._runtime_writer), \
+             patch.object(svc, "run_validation_diagnostics", return_value=_adopt_diagnostics()), \
+             patch.dict(sys.modules, {"services.execution_service": execution_stub}):
+            svc.revalidate_optimizer_candidate({
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "운영 전략", "minTrades": 8, "runtime_candidate_source_mode": "quant_only"},
+            })
+            save_result = svc.save_validated_candidate({"note": "operator 승인"})
+            apply_result = svc.apply_saved_candidate_to_runtime({})
+
+        self.assertTrue(save_result["ok"])
+        self.assertFalse(apply_result["ok"])
+        self.assertEqual("runtime_apply_requires_symbol_candidates", apply_result["error"])
+        self.assertFalse(self.runtime_store["payload"])
+
     def test_symbol_candidate_requires_approval_then_saved_and_applied(self):
         execution_stub = types.ModuleType("services.execution_service")
         execution_stub.apply_quant_candidate_runtime_config = lambda candidate: {
@@ -1049,7 +1078,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
              patch.dict(sys.modules, {"services.execution_service": execution_stub}):
             svc.revalidate_optimizer_candidate({
                 "query": {"market_scope": "kospi", "lookback_days": 365},
-                "settings": {"strategy": "제한 운영 전략", "minTrades": 8},
+                "settings": {"strategy": "제한 운영 전략", "minTrades": 8, "runtime_candidate_source_mode": "hybrid"},
             })
             svc.save_validated_candidate({"note": "policy snapshot save"})
             apply_result = svc.apply_saved_candidate_to_runtime({})
