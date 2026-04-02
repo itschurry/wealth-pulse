@@ -144,7 +144,25 @@ function resolveHannaState(status: unknown, researchUnavailable: unknown): Hanna
   if (Boolean(researchUnavailable)) return 'research_unavailable';
   if (String(status || '') === 'timeout') return 'timeout';
   if (String(status || '') === 'degraded') return 'degraded';
+  if (String(status || '') === 'stale_ingest') return 'degraded';
+  if (String(status || '') === 'research_unavailable') return 'research_unavailable';
   return 'healthy';
+}
+
+function resolveProviderHannaState(providerStatus: string | undefined, freshness: string | undefined): HannaState {
+  if (providerStatus === 'healthy') return 'healthy';
+  if (providerStatus === 'degraded' || providerStatus === 'stale_ingest') return 'degraded';
+  if (providerStatus === 'missing' || freshness === 'missing') return 'research_unavailable';
+  if (providerStatus === 'stale') return 'degraded';
+  return 'healthy';
+}
+
+function resolveHannaStateWithProvider(status: unknown, researchUnavailable: unknown, providerStatus?: string, freshness?: string): HannaState {
+  const candidateState = resolveHannaState(status, researchUnavailable);
+  if (candidateState === 'research_unavailable') return 'research_unavailable';
+  if (candidateState === 'healthy') return 'healthy';
+  if (candidateState === 'timeout' || candidateState === 'degraded') return 'degraded';
+  return resolveProviderHannaState(providerStatus, freshness);
 }
 
 function hannaBadgeClass(state: HannaState) {
@@ -194,12 +212,17 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     .sort((a, b) => String((b as { timestamp?: string; ts?: string }).timestamp || (b as { ts?: string }).ts || '')
       .localeCompare(String((a as { timestamp?: string; ts?: string }).timestamp || (a as { ts?: string }).ts || '')));
   const currentHannaState = useMemo<HannaState>(() => {
-    const states = (snapshot.signals.signals || []).map((signal) => resolveHannaState(signal.research_status, signal.research_unavailable));
+    const states = (snapshot.signals.signals || []).map((signal) => resolveHannaStateWithProvider(
+      signal.research_status,
+      signal.research_unavailable,
+      snapshot.research.status,
+      snapshot.research.freshness,
+    ));
     if (states.includes('timeout')) return 'timeout';
     if (states.includes('degraded')) return 'degraded';
     if (states.includes('healthy')) return 'healthy';
-    return 'research_unavailable';
-  }, [snapshot.signals.signals]);
+    return resolveProviderHannaState(snapshot.research.status, snapshot.research.freshness);
+  }, [snapshot.research.freshness, snapshot.research.status, snapshot.signals.signals]);
   const signalRiskActionLogs = useMemo(() => {
     return [...signalSnapshots]
       .sort((left, right) => String((right as { timestamp?: string; logged_at?: string }).timestamp || (right as { logged_at?: string }).logged_at || '')
@@ -223,7 +246,12 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           risk_reason_code?: string;
           risk_message?: string;
         };
-        const hannaState = resolveHannaState(item.research_status, item.research_unavailable);
+        const hannaState = resolveHannaStateWithProvider(
+          item.research_status,
+          item.research_unavailable,
+          snapshot.research.status,
+          snapshot.research.freshness,
+        );
         const rawReasonCodes = Array.isArray(item.reason_codes) ? item.reason_codes.map((code) => String(code)) : [];
         const riskReasonCode = String(item.risk_reason_code || item.risk_check?.reason_code || '-');
         return {

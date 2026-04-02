@@ -316,6 +316,48 @@ export interface UniverseResponse {
   count?: number;
 }
 
+export interface ResearchSnapshotItem {
+  provider?: string;
+  schema_version?: string;
+  run_id?: string;
+  symbol?: string;
+  market?: string;
+  bucket_ts?: string;
+  generated_at?: string;
+  ingested_at?: string;
+  research_score?: number | null;
+  components?: Record<string, number>;
+  warnings?: string[];
+  tags?: string[];
+  summary?: string;
+  ttl_minutes?: number;
+}
+
+export interface ResearchSnapshotsResponse {
+  ok?: boolean;
+  provider?: string;
+  symbol?: string;
+  market?: string;
+  bucket_start?: string;
+  bucket_end?: string;
+  descending?: boolean;
+  limit?: number;
+  count?: number;
+  snapshots?: ResearchSnapshotItem[];
+}
+
+export interface ResearchStatusResponse {
+  ok?: boolean;
+  provider?: string;
+  status?: string;
+  freshness?: string;
+  last_received_at?: string;
+  last_generated_at?: string;
+  last_run_id?: string;
+  accepted_last_run?: number;
+  rejected_last_run?: number;
+}
+
 export interface PerformanceSummaryResponse {
   ok?: boolean;
   research?: Array<{
@@ -909,4 +951,3 @@ export interface ReportsExplainResponse {
     reason_codes?: string[];
   }>;
 }
-

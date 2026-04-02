@@ -13,6 +13,8 @@ RESEARCH_DIR = LOGS_DIR / "research_snapshots"
 RESEARCH_LATEST_DIR = RESEARCH_DIR / "latest"
 RESEARCH_INGEST_LOG_PATH = RESEARCH_DIR / "ingest_history.jsonl"
 RESEARCH_PROVIDER_STATE_PATH = RESEARCH_DIR / "provider_state.json"
+OPENCLAW_PROVIDER = "openclaw"
+OPENCLAW_SCHEMA_VERSION = "v1"
 
 
 def _now_iso() -> str:
@@ -63,6 +65,19 @@ def _latest_snapshot_path(provider: str, market: str, symbol: str) -> Path:
     return RESEARCH_LATEST_DIR / f"{_safe_key(provider)}__{_safe_key(market.upper())}__{_safe_key(symbol.upper())}.json"
 
 
+def _history_snapshot_path(provider: str, market: str, symbol: str) -> Path:
+    return RESEARCH_DIR / "history" / f"{_safe_key(provider)}__{_safe_key(market.upper())}__{_safe_key(symbol.upper())}.jsonl"
+
+
+def _normalize_bucket_ts(value: str) -> str:
+    parsed = _parse_datetime(value)
+    if parsed is None:
+        raise ValueError("invalid_timestamp")
+    normalized = parsed.astimezone(parsed.tzinfo or datetime.timezone.utc)
+    normalized = normalized.replace(second=0, microsecond=0)
+    return normalized.isoformat()
+
+
 def _normalize_item(
     item: dict[str, Any],
     *,
@@ -78,9 +93,15 @@ def _normalize_item(
         raise ValueError("symbol_market_required")
 
     generated_at = str(item.get("generated_at") or default_generated_at or "").strip()
+    if not generated_at:
+        raise ValueError("generated_at_required")
+
     bucket_ts = str(item.get("bucket_ts") or generated_at or "").strip()
     if not generated_at or not bucket_ts:
         raise ValueError("bucket_ts_required")
+
+    generated_at = _normalize_bucket_ts(generated_at)
+    bucket_ts = _normalize_bucket_ts(bucket_ts)
 
     ttl_raw = item.get("ttl_minutes")
     try:
@@ -107,8 +128,26 @@ def _normalize_item(
 
 
 def ingest_research_snapshots(payload: dict[str, Any]) -> dict[str, Any]:
-    provider = str(payload.get("provider") or "openclaw").strip().lower() or "openclaw"
-    schema_version = str(payload.get("schema_version") or "v1").strip() or "v1"
+    provider = str(payload.get("provider") or OPENCLAW_PROVIDER).strip().lower() or OPENCLAW_PROVIDER
+    schema_version = str(payload.get("schema_version") or OPENCLAW_SCHEMA_VERSION).strip() or OPENCLAW_SCHEMA_VERSION
+    if provider != OPENCLAW_PROVIDER:
+        return {
+            "ok": False,
+            "provider": provider,
+            "run_id": "",
+            "accepted": 0,
+            "rejected": 1,
+            "errors": [{"index": -1, "error": "provider_mismatch"}],
+        }
+    if schema_version != OPENCLAW_SCHEMA_VERSION:
+        return {
+            "ok": False,
+            "provider": provider,
+            "run_id": "",
+            "accepted": 0,
+            "rejected": 1,
+            "errors": [{"index": -1, "error": "schema_version_unsupported"}],
+        }
     run_id = str(payload.get("run_id") or "").strip() or f"{provider}-{_now_iso()}"
     generated_at = str(payload.get("generated_at") or _now_iso()).strip()
     items = payload.get("items")
@@ -145,6 +184,7 @@ def ingest_research_snapshots(payload: dict[str, Any]) -> dict[str, Any]:
 
     for item in accepted_items:
         _append_jsonl(RESEARCH_INGEST_LOG_PATH, item)
+        _append_jsonl(_history_snapshot_path(item["provider"], item["market"], item["symbol"]), item)
         _write_json(_latest_snapshot_path(provider, item["market"], item["symbol"]), item)
 
     provider_state_payload = _read_json(RESEARCH_PROVIDER_STATE_PATH, {"providers": {}})
@@ -223,3 +263,83 @@ def load_latest_research_snapshot(symbol: str, market: str, *, provider: str = "
     path = _latest_snapshot_path(provider, market, symbol)
     payload = _read_json(path, {})
     return payload or None
+
+
+def load_research_snapshots(
+    symbol: str,
+    market: str,
+    *,
+    provider: str = OPENCLAW_PROVIDER,
+    bucket_start: str | None = None,
+    bucket_end: str | None = None,
+    limit: int = 50,
+    descending: bool = True,
+) -> list[dict[str, Any]]:
+    start_dt = _parse_datetime(bucket_start or "")
+    end_dt = _parse_datetime(bucket_end or "")
+    if limit <= 0:
+        limit = 0
+    if start_dt is not None and end_dt is not None and end_dt < start_dt:
+        return []
+
+    path = _history_snapshot_path(provider, market, symbol)
+    if not path.exists():
+        return []
+
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as fp:
+        for line in fp:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(item, dict):
+                continue
+
+            item_provider = str(item.get("provider") or provider).lower()
+            if item_provider != str(provider).lower():
+                continue
+            if str(item.get("symbol") or "").upper() != symbol.upper() or str(item.get("market") or "").upper() != market.upper():
+                continue
+
+            bucket_dt = _parse_datetime(item.get("bucket_ts"))
+            if bucket_dt is None:
+                continue
+
+            if start_dt is not None and bucket_dt < start_dt:
+                continue
+            if end_dt is not None and bucket_dt > end_dt:
+                continue
+
+            rows.append(item)
+
+    def sort_key(item: dict[str, Any]) -> tuple[datetime.datetime, datetime.datetime, str]:
+        bucket_dt = _parse_datetime(item.get("bucket_ts")) or datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
+        ingested_dt = _parse_datetime(item.get("ingested_at")) or bucket_dt
+        return (bucket_dt, ingested_dt, str(item.get("run_id") or ""))
+
+    rows.sort(key=sort_key, reverse=descending)
+    if limit and len(rows) > limit:
+        rows = rows[:limit]
+    return rows
+
+
+def load_research_snapshot_for_timestamp(
+    symbol: str,
+    market: str,
+    request_timestamp: str,
+    *,
+    provider: str = OPENCLAW_PROVIDER,
+) -> dict[str, Any] | None:
+    parsed = _parse_datetime(request_timestamp)
+    if parsed is None:
+        return load_latest_research_snapshot(symbol, market, provider=provider)
+
+    request_bucket = _normalize_bucket_ts(parsed.isoformat())
+    candidates = load_research_snapshots(symbol, market, provider=provider, bucket_end=request_bucket, descending=True, limit=1)
+    if candidates:
+        return candidates[0]
+    return None

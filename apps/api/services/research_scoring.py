@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 from services.research_contract import normalize_components, normalize_tags, normalize_warning_codes
-from services.research_store import load_latest_research_snapshot
+from services.research_store import load_research_snapshot_for_timestamp
 
 
 def _parse_datetime(value: Any):
@@ -75,7 +75,7 @@ class StoredResearchScorer:
         self.provider = str(provider or "openclaw").strip().lower() or "openclaw"
 
     def score(self, request: ResearchScoreRequest) -> ResearchScoreResult:
-        snapshot = load_latest_research_snapshot(request.symbol, request.market, provider=self.provider)
+        snapshot = load_research_snapshot_for_timestamp(request.symbol, request.market, request.timestamp, provider=self.provider)
         if not isinstance(snapshot, dict):
             return ResearchScoreResult(
                 symbol=request.symbol,

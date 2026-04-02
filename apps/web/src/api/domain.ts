@@ -7,6 +7,8 @@ import type {
   PersistedValidationSettingsResponse,
   QuantOpsGuardrailPolicyResponse,
   QuantOpsWorkflowResponse,
+  ResearchSnapshotsResponse,
+  ResearchStatusResponse,
   ReportsExplainResponse,
   ScannerStatusResponse,
   SignalsRankResponse,
@@ -94,6 +96,31 @@ export function fetchPortfolioState(refresh = true) {
   return getJSON<PortfolioStateResponse>(`/api/portfolio/state?refresh=${refresh ? '1' : '0'}`, { noStore: true });
 }
 
+export function fetchResearchStatus(provider = 'openclaw') {
+  return getJSON<ResearchStatusResponse>(`/api/research/status?provider=${encodeURIComponent(provider)}`, { noStore: true });
+}
+
+export function fetchResearchSnapshots(params: {
+  symbol: string;
+  market: string;
+  provider?: string;
+  bucketStart?: string;
+  bucketEnd?: string;
+  descending?: boolean;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  query.set('symbol', params.symbol);
+  query.set('market', params.market);
+  if (params.provider) query.set('provider', params.provider);
+  if (params.bucketStart) query.set('bucket_start', params.bucketStart);
+  if (params.bucketEnd) query.set('bucket_end', params.bucketEnd);
+  if (typeof params.limit === 'number') query.set('limit', String(params.limit));
+  if (typeof params.descending === 'boolean') query.set('descending', params.descending ? '1' : '0');
+  const queryString = query.toString();
+  return getJSON<ResearchSnapshotsResponse>(`/api/research/snapshots${queryString ? `?${queryString}` : ''}`, { noStore: true });
+}
+
 export function fetchValidationBacktest(query?: BacktestQuery, settings?: ValidationSettings) {
   return getJSON<ValidationResponse>(`/api/validation/backtest${buildValidationQueryString(query, settings)}`, { noStore: true });
 }
@@ -163,4 +190,3 @@ export function applyQuantOpsRuntime(candidateId?: string) {
 export function fetchReportsExplain() {
   return getJSON<ReportsExplainResponse>('/api/reports/explain', { noStore: true });
 }
-

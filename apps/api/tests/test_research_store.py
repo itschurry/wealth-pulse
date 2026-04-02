@@ -85,3 +85,116 @@ class ResearchStoreTests(unittest.TestCase):
         self.assertEqual(200, status_code)
         self.assertEqual("missing", payload["status"])
         self.assertEqual("missing", payload["freshness"])
+
+    def test_load_research_snapshots_returns_bucket_filtered_descending(self):
+        status_code, payload = handle_research_ingest_bulk({
+            "provider": "openclaw",
+            "schema_version": "v1",
+            "run_id": "cron-window",
+            "items": [
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": "2026-04-03T09:00:00+09:00",
+                    "generated_at": "2026-04-03T09:00:00+09:00",
+                    "research_score": 0.35,
+                    "components": {"freshness_score": 0.9},
+                    "warnings": ["already_extended_intraday"],
+                    "tags": ["news"],
+                    "summary": "window a",
+                    "ttl_minutes": 120,
+                },
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": "2026-04-03T10:00:00+09:00",
+                    "generated_at": "2026-04-03T10:01:00+09:00",
+                    "research_score": 0.61,
+                    "components": {"freshness_score": 0.8},
+                    "warnings": ["already_extended_intraday"],
+                    "tags": ["earnings"],
+                    "summary": "window b",
+                    "ttl_minutes": 120,
+                },
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": "2026-04-03T11:00:00+09:00",
+                    "generated_at": "2026-04-03T11:01:00+09:00",
+                    "research_score": 0.72,
+                    "components": {"freshness_score": 0.7},
+                    "warnings": ["already_extended_intraday"],
+                    "tags": ["macro"],
+                    "summary": "window c",
+                    "ttl_minutes": 120,
+                },
+            ],
+        })
+
+        self.assertEqual(200, status_code)
+        self.assertEqual(3, payload["accepted"])
+        rows = store.load_research_snapshots(
+            "005930",
+            "KR",
+            provider="openclaw",
+            bucket_start="2026-04-03T09:30:00+09:00",
+            bucket_end="2026-04-03T10:30:00+09:00",
+            descending=True,
+            limit=10,
+        )
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("window b", rows[0]["summary"])
+
+    def test_load_research_snapshots_returns_ascending_when_descending_false(self):
+        handle_research_ingest_bulk({
+            "provider": "openclaw",
+            "schema_version": "v1",
+            "items": [
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": "2026-04-03T09:00:00+09:00",
+                    "generated_at": "2026-04-03T09:00:00+09:00",
+                    "research_score": 0.11,
+                },
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": "2026-04-03T10:00:00+09:00",
+                    "generated_at": "2026-04-03T10:00:00+09:00",
+                    "research_score": 0.22,
+                },
+            ],
+        })
+        rows = store.load_research_snapshots("005930", "KR", provider="openclaw", descending=False, limit=10)
+
+        self.assertEqual(2, len(rows))
+        self.assertEqual(0.11, rows[0]["research_score"])
+        self.assertEqual(0.22, rows[1]["research_score"])
+
+    def test_load_research_snapshot_for_timestamp_aligns_bucket(self):
+        handle_research_ingest_bulk({
+            "provider": "openclaw",
+            "schema_version": "v1",
+            "items": [
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": "2026-04-03T09:00:00+09:00",
+                    "generated_at": "2026-04-03T09:00:00+09:00",
+                    "research_score": 0.44,
+                },
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": "2026-04-03T10:00:00+09:00",
+                    "generated_at": "2026-04-03T10:00:00+09:00",
+                    "research_score": 0.55,
+                },
+            ],
+        })
+        row = store.load_research_snapshot_for_timestamp("005930", "KR", "2026-04-03T09:45:12+09:00", provider="openclaw")
+
+        self.assertIsNotNone(row)
+        self.assertEqual(0.44, row["research_score"])

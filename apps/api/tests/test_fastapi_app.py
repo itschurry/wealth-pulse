@@ -13,6 +13,9 @@ if str(ROOT) not in sys.path:
 
 def _install_server_route_stubs() -> list[str]:
     modules: dict[str, dict[str, object]] = {
+        "config.market_calendar": {
+            "is_market_open": lambda market=None, now=None: True,
+        },
         "routes.backtest": {
             "handle_backtest_run": lambda query: (200, {"ok": True, "query": query}),
             "handle_kospi_backtest": lambda: (200, {"ok": True}),
@@ -23,6 +26,8 @@ def _install_server_route_stubs() -> list[str]:
             "handle_live_market": lambda: (200, {"ok": True}),
             "handle_stock_price": lambda code, market: (200, {"code": code, "market": market}),
             "handle_stock_search": lambda query: (200, {"q": query}),
+            "_paper_fx_rate": lambda market: 1300.0,
+            "_resolve_stock_quote": lambda *args, **kwargs: {},
         },
         "routes.optimization": {
             "handle_get_optimization_status": lambda: (200, {"ok": True}),
@@ -46,6 +51,7 @@ def _install_server_route_stubs() -> list[str]:
             "handle_research_ingest_bulk": lambda payload: (200, {"payload": payload}),
             "handle_research_latest_snapshot": lambda query: (200, {"query": query}),
             "handle_research_status": lambda query: (200, {"query": query}),
+            "handle_research_snapshots": lambda query: (200, {"query": query}),
         },
         "routes.reports": {
             "handle_analysis": lambda date=None: (200, {"date": date}),
@@ -56,6 +62,9 @@ def _install_server_route_stubs() -> list[str]:
             "handle_recommendations": lambda date=None: (200, {"date": date}),
             "handle_reports": lambda: (200, {"ok": True}),
             "handle_today_picks": lambda date=None: (200, {"date": date}),
+            "_get_recommendations": lambda: [],
+            "_get_today_picks": lambda: [],
+            "_get_market_context": lambda market=None: {"market": market},
         },
         "routes.reports_domain": {
             "handle_reports_explain": lambda date=None: (200, {"date": date}),
@@ -103,6 +112,7 @@ def _install_server_route_stubs() -> list[str]:
             "handle_watchlist_actions": lambda payload: (200, {"payload": payload}),
             "handle_watchlist_get": lambda: (200, {"ok": True}),
             "handle_watchlist_save": lambda payload: (200, {"payload": payload}),
+            "_compute_technical_snapshot": lambda *args, **kwargs: {},
         },
     }
     installed: list[str] = []

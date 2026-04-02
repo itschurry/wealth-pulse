@@ -41,15 +41,19 @@ class LiveLayerTests(unittest.TestCase):
 
     def test_stored_research_scorer_reads_fresh_snapshot(self):
         scorer = StoredResearchScorer(provider="openclaw")
-        with patch.object(research_scoring, "load_latest_research_snapshot", return_value={
-            "research_score": 0.61,
-            "components": {"freshness_score": 0.8},
-            "warnings": ["already_extended_intraday"],
-            "tags": ["earnings"],
-            "summary": "snapshot ok",
-            "ttl_minutes": 120,
-            "generated_at": "2026-04-02T17:00:00+09:00",
-        }):
+        with patch.object(
+            research_scoring,
+            "load_research_snapshot_for_timestamp",
+            return_value={
+                "research_score": 0.61,
+                "components": {"freshness_score": 0.8},
+                "warnings": ["already_extended_intraday"],
+                "tags": ["earnings"],
+                "summary": "snapshot ok",
+                "ttl_minutes": 120,
+                "generated_at": "2026-04-02T17:00:00+09:00",
+            },
+        ):
             result = scorer.score(ResearchScoreRequest(symbol="AAA", market="KOSPI", timestamp="2026-04-02T17:30:00+09:00"))
 
         self.assertTrue(result.available)
@@ -60,15 +64,19 @@ class LiveLayerTests(unittest.TestCase):
 
     def test_stored_research_scorer_marks_stale_snapshot_unavailable(self):
         scorer = StoredResearchScorer(provider="openclaw")
-        with patch.object(research_scoring, "load_latest_research_snapshot", return_value={
-            "research_score": 0.77,
-            "components": {"freshness_score": 0.8},
-            "warnings": ["already_extended_intraday"],
-            "tags": ["earnings"],
-            "summary": "snapshot stale",
-            "ttl_minutes": 5,
-            "generated_at": "2026-04-02T09:00:00+09:00",
-        }):
+        with patch.object(
+            research_scoring,
+            "load_research_snapshot_for_timestamp",
+            return_value={
+                "research_score": 0.77,
+                "components": {"freshness_score": 0.8},
+                "warnings": ["already_extended_intraday"],
+                "tags": ["earnings"],
+                "summary": "snapshot stale",
+                "ttl_minutes": 5,
+                "generated_at": "2026-04-02T09:00:00+09:00",
+            },
+        ):
             result = scorer.score(ResearchScoreRequest(symbol="AAA", market="KOSPI", timestamp="2026-04-02T17:30:00+09:00"))
 
         self.assertFalse(result.available)

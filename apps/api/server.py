@@ -27,6 +27,7 @@ from routes.quant_ops import (
     handle_quant_ops_set_symbol_approval,
 )
 from routes.research import handle_research_ingest_bulk, handle_research_latest_snapshot, handle_research_status
+from routes.research import handle_research_snapshots
 from routes.reports import (
     handle_analysis,
     handle_compare,
@@ -116,6 +117,7 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/hanna/brief", lambda _path, query: handle_hanna_brief(_query_value(query, "date") or None)),
     Route("/api/research/status", lambda _path, query: handle_research_status(query)),
     Route("/api/research/snapshots/latest", lambda _path, query: handle_research_latest_snapshot(query)),
+    Route("/api/research/snapshots", lambda _path, query: handle_research_snapshots(query)),
     Route("/api/strategies", lambda _path, query: handle_strategies_list(query)),
     Route("/api/strategies/", lambda path, _query: handle_strategy_detail(path), prefix=True),
     Route("/api/scanner/status", lambda _path, query: handle_scanner_status(query)),

@@ -3,6 +3,7 @@ import type {
   EngineStatusResponse,
   PerformanceSummaryResponse,
   PortfolioStateResponse,
+  ResearchStatusResponse,
   ReportsExplainResponse,
   ScannerStatusResponse,
   SignalsRankResponse,
@@ -19,6 +20,7 @@ export interface ConsoleSnapshot {
   universe: UniverseResponse;
   performance: PerformanceSummaryResponse;
   portfolio: PortfolioStateResponse;
+  research: ResearchStatusResponse;
   validation: ValidationResponse;
   reports: ReportsExplainResponse;
   fetchedAt: string;

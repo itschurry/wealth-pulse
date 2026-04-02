@@ -47,6 +47,7 @@ def _install_server_route_stubs() -> list[str]:
             "handle_research_ingest_bulk": lambda payload: (200, {"payload": payload}),
             "handle_research_latest_snapshot": lambda query: (200, {"query": query}),
             "handle_research_status": lambda query: (200, {"query": query}),
+            "handle_research_snapshots": lambda query: (200, {"query": query}),
         },
         "routes.reports": {
             "handle_analysis": lambda date=None: (200, {"date": date}),
@@ -156,6 +157,32 @@ class ApiServerDispatchTests(unittest.TestCase):
 
         self.assertEqual((200, {"ok": True}), result)
         mock_handler.assert_called_once_with({"symbol": ["005930"], "market": ["KR"]})
+
+    def test_dispatch_get_routes_research_snapshots(self):
+        with patch("server.handle_research_snapshots", return_value=(200, {"ok": True, "snapshots": []})) as mock_handler:
+            result = dispatch_get(
+                "/api/research/snapshots",
+                {
+                    "symbol": ["005930"],
+                    "market": ["KR"],
+                    "provider": ["openclaw"],
+                    "bucket_start": ["2026-04-03T09:00:00+09:00"],
+                    "bucket_end": ["2026-04-03T10:00:00+09:00"],
+                    "limit": ["10"],
+                    "descending": ["0"],
+                },
+            )
+
+        self.assertEqual((200, {"ok": True, "snapshots": []}), result)
+        mock_handler.assert_called_once_with({
+            "symbol": ["005930"],
+            "market": ["KR"],
+            "provider": ["openclaw"],
+            "bucket_start": ["2026-04-03T09:00:00+09:00"],
+            "bucket_end": ["2026-04-03T10:00:00+09:00"],
+            "limit": ["10"],
+            "descending": ["0"],
+        })
 
     def test_dispatch_get_extracts_stock_code_and_market(self):
         with patch("server.handle_stock_price", return_value=(200, {"price": 1})) as mock_handler:

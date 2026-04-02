@@ -27,15 +27,34 @@ function resolveHannaState(candidate?: ScannerCandidate): HannaState {
   if (candidate.research_unavailable) return 'research_unavailable';
   if (candidate.research_status === 'timeout') return 'timeout';
   if (candidate.research_status === 'degraded') return 'degraded';
+  if (candidate.research_status === 'stale_ingest') return 'degraded';
+  if (candidate.research_status === 'research_unavailable') return 'research_unavailable';
   return 'healthy';
 }
 
-function summarizeHannaState(item: ScannerStatusItem): HannaState {
+function resolveProviderHannaState(providerStatus: string | undefined, freshness: string | undefined): HannaState {
+  if (providerStatus === 'healthy') return 'healthy';
+  if (providerStatus === 'degraded' || providerStatus === 'stale_ingest') return 'degraded';
+  if (providerStatus === 'missing' || freshness === 'missing') return 'research_unavailable';
+  if (providerStatus === 'stale') return 'degraded';
+  return 'healthy';
+}
+
+function resolveHannaStateWithProvider(candidate: ScannerCandidate | undefined, providerStatus?: string, freshness?: string): HannaState {
+  const fallback = resolveProviderHannaState(providerStatus, freshness);
+  if (!candidate) return fallback;
+  const candidateState = resolveHannaState(candidate);
+  if (candidateState === 'research_unavailable') return 'research_unavailable';
+  if (candidateState === 'healthy') return 'healthy';
+  if (candidateState === 'degraded' || candidateState === 'timeout') return 'degraded';
+  return fallback;
+}
+function summarizeHannaState(item: ScannerStatusItem, providerStatus?: string, freshness?: string): HannaState {
   const candidates = item.top_candidates || [];
   if (candidates.some((candidate) => resolveHannaState(candidate) === 'timeout')) return 'timeout';
   if (candidates.some((candidate) => resolveHannaState(candidate) === 'degraded')) return 'degraded';
   if (candidates.some((candidate) => resolveHannaState(candidate) === 'healthy')) return 'healthy';
-  return 'research_unavailable';
+  return resolveProviderHannaState(providerStatus, freshness);
 }
 
 function toneForHanna(state: HannaState): 'neutral' | 'good' | 'bad' {
@@ -82,11 +101,11 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
   );
   const activeCount = items.filter((item) => item.enabled && item.approval_status === 'approved').length;
   const overallHannaState = useMemo<HannaState>(() => {
-    if (items.some((item) => summarizeHannaState(item) === 'timeout')) return 'timeout';
-    if (items.some((item) => summarizeHannaState(item) === 'degraded')) return 'degraded';
-    if (items.some((item) => summarizeHannaState(item) === 'healthy')) return 'healthy';
+    if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'timeout')) return 'timeout';
+    if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'degraded')) return 'degraded';
+    if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'healthy')) return 'healthy';
     return 'research_unavailable';
-  }, [items]);
+  }, [items, snapshot.research.status, snapshot.research.freshness]);
 
   const statusItems = useMemo(() => ([
     { label: '스캔 전략', value: `${items.length}개`, tone: 'neutral' as const },
@@ -127,7 +146,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
           {items.map((item) => {
             const strategyId = String(item.strategy_id || 'strategy');
             const selectedCandidate = selectedCandidateFor(item, selectedSignals[strategyId]);
-            const strategyHannaState = summarizeHannaState(item);
+            const strategyHannaState = summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness);
 
             return (
               <section key={strategyId} className="page-section" style={{ display: 'grid', gap: 12 }}>
@@ -164,7 +183,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                       {(item.top_candidates || []).map((candidate) => {
                         const signalId = String(candidate.signal_id || `${candidate.strategy_id}:${candidate.code}`);
                         const isSelected = selectedCandidate?.signal_id === candidate.signal_id || (!selectedCandidate && signalId === selectedSignals[strategyId]);
-                        const hannaState = resolveHannaState(candidate);
+                        const hannaState = resolveHannaStateWithProvider(candidate, snapshot.research.status, snapshot.research.freshness);
                         return (
                           <tr
                             key={signalId}
@@ -229,7 +248,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <span className={classNameForHanna(resolveHannaState(selectedCandidate))}>Hanna {HANNA_STATE_LABEL[resolveHannaState(selectedCandidate)]}</span>
+                        <span className={classNameForHanna(resolveHannaStateWithProvider(selectedCandidate, snapshot.research.status, snapshot.research.freshness))}>Hanna {HANNA_STATE_LABEL[resolveHannaStateWithProvider(selectedCandidate, snapshot.research.status, snapshot.research.freshness)]}</span>
                         <span className={classNameForFinalAction(selectedCandidate.final_action)}>{selectedCandidate.final_action || '-'}</span>
                       </div>
                     </div>

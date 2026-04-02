@@ -3,6 +3,7 @@ import {
   fetchEngineStatus,
   fetchPerformanceSummary,
   fetchReportsExplain,
+  fetchResearchStatus,
   fetchScannerStatus,
   fetchSignals,
   fetchStrategies,
@@ -43,6 +44,7 @@ function emptySnapshot(): ConsoleSnapshot {
     universe: {},
     performance: {},
     portfolio: {},
+    research: {},
     validation: {},
     reports: {},
     fetchedAt: nowIso,
@@ -53,29 +55,29 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
   if (route.section === 'home') {
     return {
       signalLimit: 40,
-      initialTargets: ['engine', 'signals'],
+      initialTargets: ['engine', 'signals', 'research'],
       fastTargets: ['engine'],
       midTargets: ['signals'],
-      slowTargets: [],
+      slowTargets: ['research'],
     };
   }
 
   if (route.section === 'reports') {
     return {
       signalLimit: 80,
-      initialTargets: ['engine', 'signals', 'validation', 'reports'],
+      initialTargets: ['engine', 'signals', 'validation', 'reports', 'research'],
       fastTargets: ['engine'],
       midTargets: ['signals'],
-      slowTargets: ['validation', 'reports'],
+      slowTargets: ['validation', 'reports', 'research'],
     };
   }
 
   if (route.consoleTab === 'orders') {
     return {
       signalLimit: 0,
-      initialTargets: ['engine'],
+      initialTargets: ['engine', 'research'],
       fastTargets: ['engine'],
-      midTargets: [],
+      midTargets: ['research'],
       slowTargets: [],
     };
   }
@@ -83,19 +85,19 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
   if (route.consoleTab === 'strategies') {
     return {
       signalLimit: 0,
-      initialTargets: ['engine', 'strategies'],
+      initialTargets: ['engine', 'strategies', 'research'],
       fastTargets: ['engine'],
       midTargets: ['strategies'],
-      slowTargets: [],
+      slowTargets: ['research'],
     };
   }
 
   if (route.consoleTab === 'scanner') {
     return {
       signalLimit: 0,
-      initialTargets: ['engine', 'scanner'],
+      initialTargets: ['engine', 'scanner', 'research'],
       fastTargets: ['engine'],
-      midTargets: ['scanner'],
+      midTargets: ['scanner', 'research'],
       slowTargets: [],
     };
   }
@@ -103,29 +105,29 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
   if (route.consoleTab === 'universe') {
     return {
       signalLimit: 0,
-      initialTargets: ['universe'],
+      initialTargets: ['universe', 'research'],
       fastTargets: [],
       midTargets: ['universe'],
-      slowTargets: [],
+      slowTargets: ['research'],
     };
   }
 
   if (route.consoleTab === 'performance') {
     return {
       signalLimit: 0,
-      initialTargets: ['engine', 'performance'],
+      initialTargets: ['engine', 'performance', 'research'],
       fastTargets: ['engine'],
-      midTargets: [],
-      slowTargets: ['performance'],
+      midTargets: ['performance'],
+      slowTargets: ['research'],
     };
   }
 
   return {
     signalLimit: 0,
-    initialTargets: ['engine', 'strategies'],
+    initialTargets: ['engine', 'strategies', 'research'],
     fastTargets: ['engine'],
     midTargets: ['strategies'],
-    slowTargets: [],
+    slowTargets: ['research'],
   };
 }
 
@@ -164,6 +166,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
       if (key === 'scanner') return fetchScannerStatus();
       if (key === 'universe') return fetchUniverse();
       if (key === 'performance') return fetchPerformanceSummary();
+      if (key === 'research') return fetchResearchStatus();
       if (key === 'validation') return fetchValidationWalkForward();
       if (key === 'reports') return fetchReportsExplain();
       return Promise.resolve({});
