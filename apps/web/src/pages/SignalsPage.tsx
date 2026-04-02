@@ -17,6 +17,9 @@ interface SignalRowView {
   symbol: string;
   market: string;
   strategyLabel: string;
+  sourceLabel: string;
+  sourceDetail: string;
+  sourceTierLabel: string;
   scoreLabel: string;
   winProbabilityLabel: string;
   evLabel: string;
@@ -53,11 +56,17 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
     const reasons = (signal.reason_codes || []).map((reason) => reasonCodeToKorean(reason));
     const blocked = !signal.entry_allowed;
 
+    const sourceLabel = String(signal.candidate_source_label || signal.candidate_source || '-');
+    const sourceTier = String(signal.candidate_source_tier || '').toLowerCase();
+    const sourceTierLabel = sourceTier === 'tier_1' ? 'T1' : sourceTier === 'tier_2' ? 'T2' : '-';
     return {
       key: `${signal.market || ''}:${signal.code || ''}`,
       symbol: formatSymbol(signal.code, signal.name),
       market: String(signal.market || '-'),
       strategyLabel: strategyTypeToKorean(signal.strategy_type || ''),
+      sourceLabel,
+      sourceDetail: String(signal.candidate_source_detail || signal.candidate_research_source || signal.candidate_runtime_source_mode || '-'),
+      sourceTierLabel,
       scoreLabel: formatNumber((signal as { score?: number }).score, 2),
       winProbabilityLabel: winProbability === undefined ? '-' : formatPercent(winProbability, 2, true),
       evLabel: signal.ev_metrics?.expected_value === undefined ? '-' : formatNumber(signal.ev_metrics?.expected_value, 2),
@@ -101,7 +110,7 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
         <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="신호 관리"
-            subtitle="today picks/recommendations 기반 합집합 후보 흐름에 quant gate를 얹은 최종 진입 허용/차단 사유를 운영 기준으로 확인합니다. 좁은 화면에서는 카드형으로 보고, 넓은 화면에서는 상세 테이블로 읽으면 됩니다."
+            subtitle="runtime 후보는 기본적으로 hybrid로 넓게 모으고, 최종 진입은 allocator·EV·risk guard·liquidity·sizing 게이트로만 막습니다. 좁은 화면에서는 카드형, 넓은 화면에서는 상세 테이블로 보면 됩니다."
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
@@ -114,7 +123,8 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
                 <div>표시 최대 건수: 80건</div>
                 <div>정렬 기준: EV 내림차순</div>
                 <div>신호 기준 시각: {formatDateTimeWithAge(signalsAsOf)}</div>
-                <div>today picks 우선, recommendations fallback 흐름입니다. 둘 다 동시에 있어야 하는 교집합 모델은 아닙니다.</div>
+                <div>후보 소스는 quant / research / hybrid와 T1·T2로 같이 표시합니다. hybrid 기본 운영 기준으로 넓게 모읍니다.</div>
+                <div>최종 진입 허용은 후보 소스가 아니라 allocator·EV·risk guard·liquidity·sizing 게이트 기준입니다.</div>
                 <div>차단 사유는 요약 한 줄 + 전체 사유 리스트로 같이 표시합니다.</div>
               </div>
             )}
@@ -123,11 +133,12 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
           <div className="page-section signal-table-shell" style={{ padding: 0 }}>
             <div className="signal-table-desktop">
               <div style={{ overflow: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1480 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1600 }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
                       <th style={{ padding: 12, fontSize: 12 }}>종목</th>
                       <th style={{ padding: 12, fontSize: 12 }}>전략</th>
+                      <th style={{ padding: 12, fontSize: 12 }}>소스 / 티어</th>
                       <th style={{ padding: 12, fontSize: 12 }}>점수 / 승률</th>
                       <th style={{ padding: 12, fontSize: 12 }}>EV</th>
                       <th style={{ padding: 12, fontSize: 12 }}>진입</th>
@@ -145,6 +156,10 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
                           <div className="signal-cell-copy">{row.market}</div>
                         </td>
                         <td style={{ padding: 12, fontSize: 12, verticalAlign: 'top' }}>{row.strategyLabel}</td>
+                        <td style={{ padding: 12, fontSize: 12, verticalAlign: 'top' }}>
+                          <div>{row.sourceLabel}</div>
+                          <div className="signal-cell-copy">{row.sourceTierLabel} · {row.sourceDetail}</div>
+                        </td>
                         <td style={{ padding: 12, fontSize: 12, verticalAlign: 'top' }}>
                           <div>{row.scoreLabel}</div>
                           <div className="signal-cell-copy">승률 {row.winProbabilityLabel}</div>
@@ -171,7 +186,7 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
                     ))}
                     {signalRows.length === 0 && (
                       <tr>
-                        <td colSpan={9} style={{ padding: 14, fontSize: 12, color: 'var(--text-4)' }}>
+                        <td colSpan={10} style={{ padding: 14, fontSize: 12, color: 'var(--text-4)' }}>
                           {emptyMessage}
                         </td>
                       </tr>
@@ -187,12 +202,14 @@ export function SignalsPage({ snapshot, loading, errorMessage, onRefresh }: Sign
                   <div className="signal-card-head">
                     <div>
                       <div className="operator-note-label">{row.symbol}</div>
-                      <div className="operator-note-copy" style={{ marginTop: 4 }}>{row.market} · {row.strategyLabel}</div>
+                      <div className="operator-note-copy" style={{ marginTop: 4 }}>{row.market} · {row.strategyLabel} · {row.sourceLabel} {row.sourceTierLabel}</div>
                     </div>
                     <div className={`inline-badge ${row.entryTone === 'bad' ? 'is-danger' : 'is-success'}`}>{row.entryLabel}</div>
                   </div>
 
                   <div className="signal-chip-row">
+                    <span className="signal-meta-chip">소스 {row.sourceLabel}</span>
+                    <span className="signal-meta-chip">티어 {row.sourceTierLabel}</span>
                     <span className="signal-meta-chip">점수 {row.scoreLabel}</span>
                     <span className="signal-meta-chip">승률 {row.winProbabilityLabel}</span>
                     <span className="signal-meta-chip">EV {row.evLabel}</span>

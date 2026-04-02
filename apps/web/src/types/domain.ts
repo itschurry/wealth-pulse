@@ -81,6 +81,13 @@ export interface DomainSignal {
   score?: number;
   entry_allowed?: boolean;
   reason_codes?: string[];
+  candidate_source?: string;
+  candidate_source_label?: string;
+  candidate_source_detail?: string;
+  candidate_source_tier?: string;
+  candidate_source_priority?: number;
+  candidate_runtime_source_mode?: string;
+  candidate_research_source?: string;
   ev_metrics?: EVMetrics;
   size_recommendation?: SizeRecommendation;
   strategy_scorecard?: StrategyScorecardPayload;

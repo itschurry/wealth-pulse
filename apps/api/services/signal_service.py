@@ -70,9 +70,9 @@ def parse_theme_gate_config(raw: dict | None = None) -> dict:
 
 
 def normalize_runtime_candidate_source_mode(raw: Any) -> RuntimeCandidateSourceMode:
-    mode = str(raw or "quant_only").strip().lower()
+    mode = str(raw or "hybrid").strip().lower()
     if mode not in _RUNTIME_CANDIDATE_SOURCE_MODES:
-        return "quant_only"
+        return "hybrid"
     return mode  # type: ignore[return-value]
 
 
@@ -137,6 +137,41 @@ def _merge_runtime_technical_snapshot(item: dict[str, Any], fetched: dict[str, A
 
 
 
+def _runtime_source_meta(source: str, *, research_source: Any = None, mode: RuntimeCandidateSourceMode = "hybrid") -> dict[str, Any]:
+    normalized = str(source or "unknown").strip().lower()
+    research_source_value = str(research_source or "").strip().lower() or None
+
+    if normalized == "hybrid":
+        return {
+            "source": "hybrid",
+            "source_label": "hybrid",
+            "source_detail": "quant + research",
+            "source_tier": "tier_1",
+            "source_priority": 100,
+            "runtime_candidate_source_mode": mode,
+            "research_source": research_source_value,
+        }
+    if normalized == "quant_runtime":
+        return {
+            "source": "quant_runtime",
+            "source_label": "quant",
+            "source_detail": "runtime quant overlay",
+            "source_tier": "tier_1",
+            "source_priority": 90,
+            "runtime_candidate_source_mode": mode,
+            "research_source": research_source_value,
+        }
+    return {
+        "source": normalized or "research",
+        "source_label": "research",
+        "source_detail": research_source_value or normalized or "research",
+        "source_tier": "tier_2",
+        "source_priority": 70,
+        "runtime_candidate_source_mode": mode,
+        "research_source": research_source_value or normalized or None,
+    }
+
+
 def _build_quant_runtime_candidate(
     *,
     code: str,
@@ -199,9 +234,7 @@ def _build_quant_runtime_candidate(
             "is_reliable": bool(item.get("is_reliable", reliability in {"high", "medium"})),
             "composite_score": item.get("composite_score"),
         },
-        "source": "quant_runtime",
-        "source_label": "quant_runtime",
-        "runtime_candidate_source_mode": runtime_source_mode,
+        **_runtime_source_meta("quant_runtime", mode=runtime_source_mode),
     }
 
 
@@ -271,22 +304,19 @@ def collect_runtime_candidates(market: str, cfg: dict | None = None) -> list[dic
             continue
         if code in merged:
             combined = dict(merged[code])
-            combined["source"] = "hybrid"
-            combined["source_label"] = "hybrid"
-            combined["research_source"] = item.get("source")
+            combined.update(_runtime_source_meta("hybrid", research_source=item.get("source"), mode=mode))
             combined["research_candidate"] = dict(item)
             combined["priority_score"] = round(max(float(combined.get("priority_score") or 0.0), float(item.get("priority_score") or 0.0)), 2)
             if not combined.get("technical_snapshot") and item.get("technical_snapshot"):
                 combined["technical_snapshot"] = item.get("technical_snapshot")
             if not combined.get("ai_thesis") and item.get("ai_thesis"):
                 combined["ai_thesis"] = item.get("ai_thesis")
+            combined["reasons"] = list(dict.fromkeys([*(combined.get("reasons") or []), *(item.get("reasons") or []), "hybrid_candidate:quant+research"]))
             merged[code] = combined
             continue
         merged[code] = {
             **dict(item),
-            "source": "hybrid",
-            "source_label": "hybrid",
-            "research_source": item.get("source"),
+            **_runtime_source_meta(item.get("source") or "research", research_source=item.get("source"), mode=mode),
         }
     return sorted(
         merged.values(),

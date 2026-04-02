@@ -735,7 +735,7 @@ def _default_auto_trader_config() -> dict:
         "theme_min_news": 1,
         "theme_priority_bonus": 2.0,
         "theme_focus": list(_DEFAULT_THEME_FOCUS),
-        "runtime_candidate_source_mode": "quant_only",
+        "runtime_candidate_source_mode": "hybrid",
         "daily_buy_limit": 100,
         "daily_sell_limit": 100,
         "max_orders_per_symbol_per_day": 3,
@@ -919,7 +919,7 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
         candidate.get("runtime_candidate_source_mode")
         or settings.get("runtime_candidate_source_mode")
         or merged.get("runtime_candidate_source_mode")
-        or "quant_only"
+        or "hybrid"
     ).strip().lower()
     decision = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
 
@@ -1387,6 +1387,13 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 "validation_sharpe": gate_meta.get("sharpe"),
                 "reliability": gate_meta.get("reliability"),
                 "ai_reasoning_summary": report_reasoning.get("summary") or "",
+                "candidate_source": candidate.get("candidate_source"),
+                "candidate_source_label": candidate.get("candidate_source_label"),
+                "candidate_source_detail": candidate.get("candidate_source_detail"),
+                "candidate_source_tier": candidate.get("candidate_source_tier"),
+                "candidate_source_priority": candidate.get("candidate_source_priority"),
+                "candidate_runtime_source_mode": candidate.get("candidate_runtime_source_mode"),
+                "candidate_research_source": candidate.get("candidate_research_source"),
                 "source": "strategy_engine",
                 "fetched_at": signal_book.get("generated_at") or started_at,
                 "is_stale": False,

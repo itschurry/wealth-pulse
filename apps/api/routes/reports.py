@@ -260,6 +260,13 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
         "technical_snapshot": None,
         "execution_realism": execution_realism,
         "risk_inputs": risk_inputs,
+        "candidate_source": item.get("candidate_source"),
+        "candidate_source_label": item.get("candidate_source_label"),
+        "candidate_source_detail": item.get("candidate_source_detail"),
+        "candidate_source_tier": item.get("candidate_source_tier"),
+        "candidate_source_priority": item.get("candidate_source_priority"),
+        "candidate_runtime_source_mode": item.get("candidate_runtime_source_mode"),
+        "candidate_research_source": item.get("candidate_research_source"),
     }
 
 
