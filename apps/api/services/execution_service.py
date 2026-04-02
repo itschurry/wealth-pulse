@@ -917,6 +917,7 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
         or merged.get("runtime_candidate_source_mode")
         or "quant_only"
     ).strip().lower()
+    decision = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
 
     for key, value in patch.items():
         if key in _OPTIMIZABLE_KEYS and value not in (None, ""):
@@ -941,6 +942,17 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
             merged.get("validation_gate_enabled", True))
     if runtime_candidate_source_mode in {"quant_only", "research_only", "hybrid"}:
         merged["runtime_candidate_source_mode"] = runtime_candidate_source_mode
+
+    if str(decision.get("status") or "") == "limited_adopt":
+        base_risk = float(merged.get("risk_per_trade_pct") or 0.35)
+        merged["risk_per_trade_pct"] = min(base_risk * 0.5, 0.2)
+        merged["max_positions_per_market"] = min(int(merged.get("max_positions_per_market") or 5), 2)
+        merged["max_symbol_weight_pct"] = min(float(merged.get("max_symbol_weight_pct") or 20.0), 10.0)
+        merged["max_market_exposure_pct"] = min(float(merged.get("max_market_exposure_pct") or 70.0), 35.0)
+        merged["validation_require_optimized_reliability"] = True
+        merged["quant_candidate_approval_level"] = str(decision.get("approval_level") or "probationary")
+    else:
+        merged["quant_candidate_approval_level"] = str(decision.get("approval_level") or "full")
     merged = _sync_primary_strategy_fields(merged)
     return merged
 

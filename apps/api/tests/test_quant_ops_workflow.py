@@ -107,6 +107,29 @@ def _reject_diagnostics() -> dict:
     return payload
 
 
+def _limited_adopt_diagnostics() -> dict:
+    payload = _adopt_diagnostics()
+    payload["validation"]["segments"]["oos"].update({
+        "total_return_pct": 3.1,
+        "profit_factor": 1.05,
+        "max_drawdown_pct": -22.5,
+        "trade_count": 16,
+    })
+    payload["validation"]["summary"].update({
+        "positive_window_ratio": 0.57,
+        "oos_reliability": "high",
+    })
+    payload["validation"]["scorecard"]["tail_risk"].update({
+        "expected_shortfall_5_pct": -12.8,
+        "return_p05_pct": -10.2,
+    })
+    payload["validation"]["segments"]["oos"]["strategy_scorecard"]["tail_risk"].update({
+        "expected_shortfall_5_pct": -12.8,
+        "return_p05_pct": -10.2,
+    })
+    return payload
+
+
 class QuantOpsWorkflowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -429,6 +452,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertTrue(save_result["ok"])
 
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "SEARCH_OPTIMIZED_PARAMS_PATH", Path(self.tmpdir.name) / "missing-search.json"), \
              patch.object(svc, "load_search_optimized_params", return_value=None), \
              patch.object(svc, "load_runtime_optimized_params", return_value=None):
             workflow = svc.get_quant_ops_workflow()
@@ -593,6 +617,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "SEARCH_OPTIMIZED_PARAMS_PATH", Path(self.tmpdir.name) / "missing-search.json"), \
              patch.object(svc, "load_search_optimized_params", return_value=None), \
              patch.object(svc, "load_runtime_optimized_params", return_value=None):
             workflow = svc.get_quant_ops_workflow()
@@ -614,6 +639,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "SEARCH_OPTIMIZED_PARAMS_PATH", Path(self.tmpdir.name) / "missing-search.json"), \
              patch.object(svc, "load_search_optimized_params", return_value=None), \
              patch.object(svc, "load_runtime_optimized_params", return_value=None), \
              patch.object(svc, "_optimizer_job_active", return_value=False):
@@ -650,6 +676,57 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual("optimizer_result_obsolete", workflow["search_handoff"]["error"])
         self.assertFalse(workflow["search_handoff"]["active"])
         self.assertIsNone(persisted["pending_search_handoff"])
+
+    def test_limited_adopt_candidate_can_be_saved_with_probationary_metadata(self):
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path),              patch.object(svc, "load_search_optimized_params", return_value=self.search_payload),              patch.object(svc, "load_runtime_optimized_params", return_value=None),              patch.object(svc, "run_validation_diagnostics", return_value=_limited_adopt_diagnostics()):
+            result = svc.revalidate_optimizer_candidate({
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "제한 운영 전략", "minTrades": 8},
+            })
+            save_result = svc.save_validated_candidate({"note": "probationary save"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("limited_adopt", result["candidate"]["decision"]["status"])
+        self.assertEqual("probationary", result["candidate"]["decision"]["approval_level"])
+        self.assertEqual(
+            ["profit_factor", "max_drawdown_pct"],
+            result["candidate"]["decision"]["near_miss_metrics"],
+        )
+        self.assertTrue(result["candidate"]["guardrails"]["can_save"])
+        self.assertTrue(save_result["ok"])
+        self.assertEqual("limited_adopt", save_result["candidate"]["decision"]["status"])
+
+    def test_apply_limited_adopt_runtime_clamps_risk_and_positions(self):
+        execution_stub = types.ModuleType("services.execution_service")
+        execution_stub.apply_quant_candidate_runtime_config = lambda candidate: {
+            "ok": True,
+            "state": {
+                "engine_state": "stopped",
+                "next_run_at": "",
+                "config": {
+                    "risk_per_trade_pct": 0.2,
+                    "max_positions_per_market": 2,
+                },
+            },
+        }
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path),              patch.object(svc, "load_search_optimized_params", return_value=self.search_payload),              patch.object(svc, "load_runtime_optimized_params", side_effect=lambda: self.runtime_store.get("payload") or None),              patch.object(svc, "write_runtime_optimized_params", side_effect=self._runtime_writer),              patch.object(svc, "run_validation_diagnostics", return_value=_limited_adopt_diagnostics()),              patch.dict(sys.modules, {"services.execution_service": execution_stub}):
+            svc.revalidate_optimizer_candidate({
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "제한 운영 전략", "minTrades": 8, "runtime_candidate_source_mode": "hybrid"},
+            })
+            save_result = svc.save_validated_candidate({"note": "limited adopt save"})
+            apply_result = svc.apply_saved_candidate_to_runtime({})
+
+        self.assertTrue(save_result["ok"])
+        self.assertTrue(apply_result["ok"])
+        self.assertEqual("limited_adopt", self.runtime_store["payload"]["meta"]["decision_status"])
+        self.assertEqual("probationary", self.runtime_store["payload"]["meta"]["approval_level"])
+        self.assertTrue(self.runtime_store["payload"]["runtime_restrictions"]["enabled"])
+        self.assertEqual(2, self.runtime_store["payload"]["runtime_restrictions"]["max_positions_per_market_cap"])
+        self.assertEqual(0.2, self.runtime_store["payload"]["runtime_restrictions"]["risk_per_trade_pct_cap"])
+        self.assertEqual("probationary", self.runtime_store["payload"]["validation_baseline"]["approval_level"])
+        self.assertEqual("runtime", apply_result["workflow"]["runtime_apply"]["effective_source"])
 
     def test_save_blocks_when_revalidation_failed_guardrails(self):
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \

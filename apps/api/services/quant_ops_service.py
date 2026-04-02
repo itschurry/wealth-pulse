@@ -48,6 +48,28 @@ _OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
 _OPTIMIZER_MAX_RUNTIME_SECONDS = 3900
 _SYMBOL_APPROVAL_STATUSES = {"approved", "rejected", "hold"}
 
+_FULL_ADOPT_THRESHOLDS = {
+    "profit_factor": 1.1,
+    "max_drawdown_pct": 20.0,
+    "positive_window_ratio": 0.5,
+    "expected_shortfall_5_pct": -14.0,
+}
+
+_LIMITED_ADOPT_CORE_THRESHOLDS = {
+    "profit_factor": 1.0,
+    "max_drawdown_pct": 25.0,
+    "positive_window_ratio": 0.45,
+    "expected_shortfall_5_pct": -16.0,
+}
+
+_LIMITED_ADOPT_RUNTIME_RESTRICTIONS = {
+    "risk_per_trade_pct_multiplier": 0.5,
+    "risk_per_trade_pct_cap": 0.2,
+    "max_positions_per_market_cap": 2,
+    "max_symbol_weight_pct_cap": 10.0,
+    "max_market_exposure_pct_cap": 35.0,
+}
+
 
 def _default_state() -> dict[str, Any]:
     return {
@@ -612,6 +634,8 @@ def _candidate_decision(metrics: dict[str, Any], *, min_trades: int, search_is_s
     decision_status = "hold"
     decision_label = "보류"
     summary = "재검증은 끝났지만 아직 저장/런타임 반영까지 가기엔 근거가 부족합니다."
+    approval_level = "blocked"
+    near_miss_metrics: list[str] = []
 
     hard_reasons: list[str] = []
     if trade_count < max(1, min_trades):
@@ -631,19 +655,42 @@ def _candidate_decision(metrics: dict[str, Any], *, min_trades: int, search_is_s
         if (
             oos_return > 0.0
             and reliability == "high"
-            and profit_factor >= 1.1
-            and abs(max_drawdown_pct) <= 20.0
+            and profit_factor >= _FULL_ADOPT_THRESHOLDS["profit_factor"]
+            and abs(max_drawdown_pct) <= _FULL_ADOPT_THRESHOLDS["max_drawdown_pct"]
             and trade_count >= max(1, min_trades)
-            and positive_window_ratio >= 0.5
-            and expected_shortfall >= -14.0
+            and positive_window_ratio >= _FULL_ADOPT_THRESHOLDS["positive_window_ratio"]
+            and expected_shortfall >= _FULL_ADOPT_THRESHOLDS["expected_shortfall_5_pct"]
         ):
             decision_status = "adopt"
             decision_label = "채택 후보"
             summary = "OOS·신뢰도·표본·테일리스크 조건을 모두 통과해서 저장 후보로 승격할 수 있습니다."
+            approval_level = "full"
         else:
-            decision_status = "hold"
-            decision_label = "보류"
-            summary = "핵심 위험은 치명적이지 않지만 채택 조건을 아직 충분히 넘지 못했습니다."
+            limited_core_pass = (
+                oos_return > 0.0
+                and reliability == "high"
+                and trade_count >= max(1, min_trades)
+                and profit_factor >= _LIMITED_ADOPT_CORE_THRESHOLDS["profit_factor"]
+                and abs(max_drawdown_pct) <= _LIMITED_ADOPT_CORE_THRESHOLDS["max_drawdown_pct"]
+                and positive_window_ratio >= _LIMITED_ADOPT_CORE_THRESHOLDS["positive_window_ratio"]
+                and expected_shortfall >= _LIMITED_ADOPT_CORE_THRESHOLDS["expected_shortfall_5_pct"]
+            )
+            threshold_checks = [
+                ("profit_factor", profit_factor >= _FULL_ADOPT_THRESHOLDS["profit_factor"]),
+                ("max_drawdown_pct", abs(max_drawdown_pct) <= _FULL_ADOPT_THRESHOLDS["max_drawdown_pct"]),
+                ("positive_window_ratio", positive_window_ratio >= _FULL_ADOPT_THRESHOLDS["positive_window_ratio"]),
+                ("expected_shortfall_5_pct", expected_shortfall >= _FULL_ADOPT_THRESHOLDS["expected_shortfall_5_pct"]),
+            ]
+            near_miss_metrics = [metric for metric, passed in threshold_checks if not passed]
+            if limited_core_pass and 1 <= len(near_miss_metrics) <= 2:
+                decision_status = "limited_adopt"
+                decision_label = "제한 채택 후보"
+                summary = "핵심 품질 게이트는 통과했지만 일부 위험 지표가 풀채택 기준에 근접 미달이라 제한 운영으로만 반영할 수 있습니다."
+                approval_level = "probationary"
+            else:
+                decision_status = "hold"
+                decision_label = "보류"
+                summary = "핵심 위험은 치명적이지 않지만 채택 조건을 아직 충분히 넘지 못했습니다."
     else:
         decision_status = "reject"
         decision_label = "거절"
@@ -655,17 +702,19 @@ def _candidate_decision(metrics: dict[str, Any], *, min_trades: int, search_is_s
     if search_version_changed:
         guardrail_reasons.append("optimizer_search_version_changed")
 
-    can_save = decision_status == "adopt" and not search_is_stale and not search_version_changed
+    can_save = decision_status in {"adopt", "limited_adopt"} and not search_is_stale and not search_version_changed
     can_apply = can_save
-    if not can_save and decision_status == "adopt" and search_is_stale:
+    if not can_save and decision_status in {"adopt", "limited_adopt"} and search_is_stale:
         summary = "재검증은 통과했지만 optimizer 결과가 오래돼서 저장을 막습니다. 먼저 후보 탐색을 다시 실행하세요."
-    if not can_save and decision_status == "adopt" and search_version_changed:
+    if not can_save and decision_status in {"adopt", "limited_adopt"} and search_version_changed:
         summary = "재검증한 optimizer 버전과 현재 탐색 결과가 달라져서 저장을 막습니다. 다시 재검증해야 합니다."
 
     return {
         "status": decision_status,
         "label": decision_label,
         "summary": summary,
+        "approval_level": approval_level,
+        "near_miss_metrics": near_miss_metrics,
         "hard_reasons": hard_reasons,
     }, {
         "can_save": can_save,
@@ -678,7 +727,6 @@ def _candidate_decision(metrics: dict[str, Any], *, min_trades: int, search_is_s
             fallback="save_guardrail_blocked",
         ),
     }
-
 
 def _refresh_candidate(candidate: dict[str, Any] | None, search: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(candidate, dict):
@@ -1565,6 +1613,7 @@ def _global_runtime_validation_baseline(candidate: dict[str, Any]) -> dict[str, 
     current = reliability_diagnostic.get("current") if isinstance(reliability_diagnostic.get("current"), dict) else {}
     metrics = candidate.get("metrics") if isinstance(candidate.get("metrics"), dict) else {}
     scorecard = validation.get("scorecard") if isinstance(validation.get("scorecard"), dict) else {}
+    decision = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
 
     passes_minimum_gate = current.get("passes_minimum_gate")
     if passes_minimum_gate is None:
@@ -1588,6 +1637,7 @@ def _global_runtime_validation_baseline(candidate: dict[str, Any]) -> dict[str, 
     return {
         "source": "validated_candidate",
         "candidate_id": candidate.get("id"),
+        "approval_level": str(decision.get("approval_level") or "blocked"),
         "runtime_candidate_source_mode": normalize_runtime_candidate_source_mode(candidate.get("runtime_candidate_source_mode")),
         "trade_count": trade_count,
         "validation_trades": validation_trades,
@@ -1601,6 +1651,22 @@ def _global_runtime_validation_baseline(candidate: dict[str, Any]) -> dict[str, 
         "approved_candidate_id": candidate.get("id"),
         "approved_saved_at": candidate.get("saved_at"),
         "approved_by_quant_ops": True,
+    }
+
+
+def _runtime_restrictions_for_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    decision = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
+    if str(decision.get("status") or "") != "limited_adopt":
+        return {
+            "enabled": False,
+            "approval_level": str(decision.get("approval_level") or "full"),
+            "reason": "full_adopt",
+        }
+    return {
+        "enabled": True,
+        "approval_level": str(decision.get("approval_level") or "probationary"),
+        "reason": "limited_adopt_probationary_runtime",
+        **_LIMITED_ADOPT_RUNTIME_RESTRICTIONS,
     }
 
 
@@ -1619,12 +1685,15 @@ def _build_runtime_payload(
         if isinstance(item, dict)
     }
     runtime_candidate_source_mode = normalize_runtime_candidate_source_mode(candidate.get("runtime_candidate_source_mode"))
+    decision = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
+    runtime_restrictions = _runtime_restrictions_for_candidate(candidate)
     return {
         "optimized_at": applied_at,
         "applied_at": applied_at,
         "version": f"runtime-{candidate.get('id')}",
         "global_params": dict(candidate.get("patch") or {}),
         "runtime_candidate_source_mode": runtime_candidate_source_mode,
+        "runtime_restrictions": runtime_restrictions,
         "validation_baseline": _global_runtime_validation_baseline(candidate),
         "per_symbol": per_symbol_overlay,
         "meta": {
@@ -1635,8 +1704,11 @@ def _build_runtime_payload(
             "search_version": candidate.get("search_version"),
             "search_optimized_at": candidate.get("search_optimized_at"),
             "runtime_candidate_source_mode": runtime_candidate_source_mode,
+            "approval_level": str(decision.get("approval_level") or "blocked"),
+            "decision_status": str(decision.get("status") or "hold"),
             "global_overlay_source": "validated_candidate",
             "validation_baseline_source": "validated_candidate",
+            "runtime_restrictions": runtime_restrictions,
             "approved_symbol_count": len(per_symbol_overlay),
             "approved_symbols": sorted(per_symbol_overlay.keys()),
         },
