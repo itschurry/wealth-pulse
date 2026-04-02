@@ -10,7 +10,6 @@ from helpers import _HEADERS, _KST, _get_kis_client, _parse_signed_number, _stri
 from routes.market import _overseas_exchange_candidates
 from routes.reports import (
     _fallback_today_picks,
-    _get_ai_signals,
     _get_recommendations,
     _get_today_picks,
     _load_report_json,
@@ -287,10 +286,6 @@ def handle_watchlist_actions(payload: dict) -> tuple[int, dict]:
             _get_today_picks() if not payload.get("date")
             else (_load_report_json("today_picks", base_date, latest=False) or _fallback_today_picks(base_date))
         )
-        ai_signals = (
-            _get_ai_signals() if not payload.get("date")
-            else (_load_report_json("ai_signals", base_date, latest=False) or {"signals": []})
-        )
         recommendations = (
             _get_recommendations() if not payload.get("date")
             else _load_report_json("recommendations", base_date, latest=False)
@@ -299,10 +294,6 @@ def handle_watchlist_actions(payload: dict) -> tuple[int, dict]:
         previous_today_picks = (
             (_load_report_json("today_picks", prev_date, latest=False) or _fallback_today_picks(prev_date))
             if prev_date else {}
-        )
-        previous_ai_signals = (
-            (_load_report_json("ai_signals", prev_date, latest=False) or {"signals": []})
-            if prev_date else {"signals": []}
         )
         enriched_items = [dict(item) for item in items]
         with ThreadPoolExecutor(max_workers=max(1, min(len(enriched_items), 6))) as executor:
@@ -330,8 +321,6 @@ def handle_watchlist_actions(payload: dict) -> tuple[int, dict]:
             recommendations,
             previous_recommendations,
             previous_today_picks,
-            ai_signals,
-            previous_ai_signals,
         )
         return 200, result
     except Exception as e:

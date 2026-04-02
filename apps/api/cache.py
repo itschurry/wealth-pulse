@@ -14,7 +14,6 @@ class CacheState:
         self.macro = {"data": None, "ts": 0.0}
         self.market_context = {"data": None, "ts": 0.0}
         self.today_picks = {"data": None, "ts": 0.0}
-        self.ai_signals = {"data": None, "ts": 0.0}
         self.backtest = {"data": None, "mtime": 0.0}
         self.backtest_runs: dict = {}
         self.technical: dict = {}
@@ -36,7 +35,6 @@ _recommendation_cache = cache_state.recommendation
 _macro_cache = cache_state.macro
 _market_context_cache = cache_state.market_context
 _today_picks_cache = cache_state.today_picks
-_ai_signals_cache = cache_state.ai_signals
 _backtest_cache = cache_state.backtest
 _backtest_run_cache = cache_state.backtest_runs
 _technical_cache = cache_state.technical

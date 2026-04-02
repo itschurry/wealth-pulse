@@ -58,14 +58,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
-    openai_signal_model: str | None = Field(default=None, alias="OPENAI_SIGNAL_MODEL")
-    openai_playbook_model: str | None = Field(default=None, alias="OPENAI_PLAYBOOK_MODEL")
-    ollama_model: str = Field(default="nemotron-3-super", alias="OLLAMA_MODEL")
-    ollama_host: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_HOST")
-
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
     fred_key: str = Field(default="", alias="FRED_KEY")
     fred_api: str = Field(default="", alias="FRED_API")
@@ -102,14 +94,6 @@ class Settings(BaseSettings):
     logs_dir: Path = Field(default=LOGS_DIR, alias="LOGS_DIR")
 
     @property
-    def effective_openai_signal_model(self) -> str:
-        return self.openai_signal_model or self.openai_model
-
-    @property
-    def effective_openai_playbook_model(self) -> str:
-        return self.openai_playbook_model or self.openai_model
-
-    @property
     def effective_fred_api_key(self) -> str:
         return self.fred_api_key or self.fred_key or self.fred_api
 
@@ -136,14 +120,6 @@ _ensure_directory(settings.report_output_dir)
 _ensure_directory(settings.logs_dir)
 
 BASE_DIR = REPO_ROOT
-
-LLM_PROVIDER = settings.llm_provider
-OPENAI_API_KEY = settings.openai_api_key
-OPENAI_MODEL = settings.openai_model
-OPENAI_SIGNAL_MODEL = settings.effective_openai_signal_model
-OPENAI_PLAYBOOK_MODEL = settings.effective_openai_playbook_model
-OLLAMA_MODEL = settings.ollama_model
-OLLAMA_HOST = settings.ollama_host
 
 FRED_API_KEY = settings.effective_fred_api_key
 ECOS_API_KEY = settings.effective_ecos_api_key

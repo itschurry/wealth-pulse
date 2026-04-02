@@ -189,14 +189,6 @@ def save_investor_flows_cache(items: list, date: str) -> None:
     logger.info(f"수급 캐시 저장: {date}/investor_flows")
 
 
-def save_ai_signals_cache(payload: dict, date: str) -> None:
-    """OpenAI 보조신호를 SQLite에 저장한다."""
-    from reporter.storage import save_report
-    out = dict(payload)
-    out["date"] = date
-    save_report(date, "ai_signals", out)
-    logger.info(f"AI 보조신호 캐시 저장: {date}/ai_signals")
-
 
 def save_market_context_cache(context, date: str) -> None:
     """시장 컨텍스트를 SQLite에 저장한다."""

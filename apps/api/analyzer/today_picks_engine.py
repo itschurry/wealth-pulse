@@ -699,7 +699,6 @@ def generate_today_picks(
     data: DailyData,
     limit: int = 8,
     auto_candidate_limit: int = 100,
-    ai_signals: dict | None = None,
     playbook: dict | None = None,
 ) -> dict:
     """뉴스에서 기업을 매칭해 오늘의 추천 종목을 생성한다."""
@@ -707,7 +706,6 @@ def generate_today_picks(
     matched: list[dict] = []
     disclosure_map = {}
     flow_map = {}
-    ai_signal_map = {}
     playbook_candidate_map = _playbook_candidate_map(playbook)
 
     for item in data.disclosures:
@@ -717,10 +715,6 @@ def generate_today_picks(
     for flow in data.investor_flows:
         flow_map[flow.code] = flow
         flow_map[flow.name] = flow
-
-    for item in (ai_signals or {}).get("signals", []):
-        ai_signal_map[item.get("code") or item.get("name")] = item
-        ai_signal_map[item.get("name")] = item
 
     catalog_entries = get_company_catalog(scope="live")
     existing_codes = {entry.code.upper()
@@ -737,8 +731,7 @@ def generate_today_picks(
         entry_disclosures = disclosure_map.get(
             entry.code, []) or disclosure_map.get(entry.name, [])
         entry_flow = flow_map.get(entry.code) or flow_map.get(entry.name)
-        entry_ai_signal = ai_signal_map.get(
-            entry.code) or ai_signal_map.get(entry.name)
+        entry_ai_signal = None
         entry_playbook_candidate = playbook_candidate_map.get(
             entry.code) or playbook_candidate_map.get(entry.name)
         for article in data.news:
@@ -796,7 +789,7 @@ def generate_today_picks(
         "generated_at": now.strftime("%Y-%m-%d %H:%M KST"),
         "date": now.strftime("%Y-%m-%d"),
         "market_tone": market_tone,
-        "strategy": "news-driven-picks-v1+hanna-commentary" if playbook else ("news-driven-picks-v1+hanna-aux" if (ai_signals or {}).get("signals") else "news-driven-picks-v1"),
+        "strategy": "news-driven-picks-v1+hanna-commentary" if playbook else "news-driven-picks-v1",
         "playbook_ref": (playbook or {}).get("generated_at") or (playbook or {}).get("date"),
         "picks": matched[:limit],
         "auto_candidates": auto_candidates,
@@ -812,8 +805,6 @@ def build_watchlist_actions(
     recommendations: dict | None,
     previous_recommendations: dict | None = None,
     previous_today_picks: dict | None = None,
-    ai_signals: dict | None = None,
-    previous_ai_signals: dict | None = None,
 ) -> dict:
     """관심종목에 대해 buy/hold/sell/watch 액션을 계산한다."""
     now = datetime.now(_KST)
@@ -821,8 +812,6 @@ def build_watchlist_actions(
     previous_pick_map = {}
     recommendation_map = {}
     previous_recommendation_map = {}
-    ai_signal_map = {}
-    previous_ai_signal_map = {}
 
     for item in (today_picks or {}).get("picks", []):
         pick_map[item.get("code") or item.get("name")] = item
@@ -842,14 +831,6 @@ def build_watchlist_actions(
         previous_recommendation_map[key] = item
         previous_recommendation_map[item.get("name")] = item
 
-    for item in (ai_signals or {}).get("signals", []):
-        ai_signal_map[item.get("code") or item.get("name")] = item
-        ai_signal_map[item.get("name")] = item
-
-    for item in (previous_ai_signals or {}).get("signals", []):
-        previous_ai_signal_map[item.get("code") or item.get("name")] = item
-        previous_ai_signal_map[item.get("name")] = item
-
     actions = []
     for watch in watchlist_items:
         key = watch.get("code") or watch.get("name")
@@ -860,10 +841,8 @@ def build_watchlist_actions(
             key) or previous_pick_map.get(watch.get("name"))
         previous_rec = previous_recommendation_map.get(
             key) or previous_recommendation_map.get(watch.get("name"))
-        current_ai_signal = ai_signal_map.get(
-            key) or ai_signal_map.get(watch.get("name"))
-        previous_ai_signal = previous_ai_signal_map.get(
-            key) or previous_ai_signal_map.get(watch.get("name"))
+        current_ai_signal = None
+        previous_ai_signal = None
 
         score, score_notes = _external_watchlist_score(
             current_pick, current_rec)

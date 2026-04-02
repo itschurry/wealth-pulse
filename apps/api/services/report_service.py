@@ -12,7 +12,6 @@ from datetime import datetime
 
 from loguru import logger
 
-from analyzer.hanna_signal_engine import generate_stock_aux_signals
 from analyzer.market_context_builder import build_market_context
 from analyzer.recommendation_engine import generate_recommendations
 from analyzer.today_picks_engine import generate_today_picks
@@ -25,10 +24,8 @@ from collectors.market_collector import collect_market
 from collectors.models import DailyData
 from collectors.news_collector import collect_news
 from config.settings import DELIVERY_METHOD, LOGS_DIR
-from llm.service import validate_runtime_tasks
 from reporter.email_sender import send_report as send_email
 from reporter.report_generator import (
-    save_ai_signals_cache,
     save_analysis_cache,
     save_calendar_cache,
     save_disclosures_cache,
@@ -64,10 +61,6 @@ def _setup_logging() -> None:
 async def run_report_pipeline() -> None:
     _setup_logging()
     logger.info("=== 일일 리포트 생성 시작 ===")
-    llm_tasks = ["signal"]
-    if DELIVERY_METHOD in ("telegram", "both"):
-        llm_tasks.append("quote")
-    validate_runtime_tasks(llm_tasks)
 
     logger.info("[1-6/10] 수집 병렬 시작...")
     loop = asyncio.get_event_loop()
@@ -123,18 +116,16 @@ async def run_report_pipeline() -> None:
         "favored_sectors": list(getattr(market_context, "supports", []) or [])[:3],
     }
 
-    logger.info("[9/10] LLM 보조신호 생성 중...")
-    ai_signals = await generate_stock_aux_signals(daily_data)
+    logger.info("[9/10] 내부 보조신호 없이 추천 계산을 진행합니다...")
 
     logger.info("[10/10] 투자 추천 계산 및 저장...")
     recommendations = generate_recommendations(daily_data, playbook=None)
-    today_picks = generate_today_picks(daily_data, ai_signals=ai_signals, playbook=None)
+    today_picks = generate_today_picks(daily_data, playbook=None)
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     save_analysis_cache(analysis, date_str, playbook=hanna_context)
     save_news_cache(daily_data.news, date_str)
     save_macro_cache(daily_data.macro, date_str)
-    save_ai_signals_cache(ai_signals, date_str)
     save_calendar_cache(daily_data.calendar_events, date_str)
     save_disclosures_cache(daily_data.disclosures, date_str)
     save_investor_flows_cache(daily_data.investor_flows, date_str)

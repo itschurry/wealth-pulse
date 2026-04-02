@@ -109,10 +109,6 @@ def _get_today_picks() -> dict:
     return data
 
 
-def _get_ai_signals() -> dict:
-    return _get_cached_report(_cache._ai_signals_cache, "ai_signals", {"signals": []})
-
-
 def _get_macro() -> dict:
     return _get_cached_report(_cache._macro_cache, "macro", {"error": "거시 지표 결과가 없습니다."})
 

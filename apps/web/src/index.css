@@ -2105,6 +2105,35 @@ button:disabled {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
+.strategy-detail-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.strategy-param-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.strategy-link-button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.strategy-link-button:hover .signal-cell-copy,
+.strategy-link-button:hover {
+  color: var(--accent);
+}
+
 .console-page-shell .page-section {
   min-width: 0;
 }
@@ -3541,7 +3570,9 @@ button:disabled {
   .paper-ops-overview-grid,
   .paper-ops-summary-grid,
   .paper-ops-log-grid,
-  .console-metric-grid {
+  .console-metric-grid,
+  .strategy-detail-grid,
+  .strategy-param-grid {
     grid-template-columns: 1fr;
   }
 
