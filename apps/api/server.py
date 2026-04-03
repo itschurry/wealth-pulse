@@ -43,6 +43,7 @@ from routes.scanner import handle_scanner_status
 from routes.signals import handle_signal_detail, handle_signal_snapshots, handle_signals_rank
 from routes.strategies import (
     handle_strategies_list,
+    handle_strategy_delete,
     handle_strategy_detail,
     handle_strategy_save,
     handle_strategy_toggle,
@@ -172,6 +173,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route("/api/paper/engine/stop", lambda _path, _payload: handle_paper_engine_stop()),
     Route("/api/strategies/toggle", lambda _path, payload: handle_strategy_toggle(payload)),
     Route("/api/strategies/save", lambda _path, payload: handle_strategy_save(payload)),
+    Route("/api/strategies/delete", lambda _path, payload: handle_strategy_delete(payload)),
     Route("/api/research/ingest/bulk", lambda _path, payload: handle_research_ingest_bulk(payload)),
     Route("/api/run-optimization", lambda _path, _payload: handle_run_optimization(_payload)),
     Route("/api/validation/settings/save", lambda _path, payload: handle_validation_settings_save(payload)),

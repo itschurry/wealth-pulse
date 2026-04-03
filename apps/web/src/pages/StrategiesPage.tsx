@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
-import { saveStrategyPreset, toggleStrategyEnabled } from '../api/domain';
+import { deleteStrategyPreset, saveStrategyPreset, toggleStrategyEnabled } from '../api/domain';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import type { StrategyRegistryItem } from '../types/domain';
 import type { ConsoleSnapshot } from '../types/consoleView';
@@ -135,23 +135,19 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
     }
   }, [onRefresh, push, selectedStrategy]);
 
-  const handleRetirePreset = useCallback(async () => {
+  const handleDeletePreset = useCallback(async () => {
     if (!selectedStrategy?.strategy_id) return;
-    const ok = window.confirm(`${selectedStrategy.name || selectedStrategy.strategy_id} 프리셋을 retired 상태로 보낼까?`);
+    const ok = window.confirm(`${selectedStrategy.name || selectedStrategy.strategy_id} 프리셋을 완전히 삭제할까? 이 작업은 되돌릴 수 없어.`);
     if (!ok) return;
-    const payload = {
-      ...selectedStrategy,
-      enabled: false,
-      approval_status: 'retired',
-    } as Record<string, unknown>;
     setPendingId(String(selectedStrategy.strategy_id));
     try {
-      const response = await saveStrategyPreset(payload);
+      const response = await deleteStrategyPreset(String(selectedStrategy.strategy_id));
       if (!response.ok) {
-        push('error', '프리셋 삭제(은퇴) 처리에 실패했습니다.', '', 'engine');
+        push('error', '프리셋 삭제에 실패했습니다.', response.data?.error || '', 'engine');
         return;
       }
-      push('success', `프리셋 ${selectedStrategy.strategy_id} 를 retired 처리했어.`, undefined, 'engine');
+      push('success', `프리셋 ${selectedStrategy.strategy_id} 를 삭제했어.`, undefined, 'engine');
+      setSelectedStrategyId('');
       onRefresh();
     } finally {
       setPendingId('');
@@ -321,7 +317,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                   }}>
                     전략 검증 랩 열기
                   </button>
-                  <button className="ghost-button" onClick={() => { void handleRetirePreset(); }} disabled={!selectedStrategy.strategy_id}>
+                  <button className="ghost-button" onClick={() => { void handleDeletePreset(); }} disabled={!selectedStrategy.strategy_id || pendingId === String(selectedStrategy.strategy_id)}>
                     프리셋 삭제
                   </button>
                 </div>

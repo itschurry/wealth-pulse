@@ -235,6 +235,17 @@ def save_strategy(payload: dict[str, Any]) -> dict[str, Any]:
     return get_strategy(normalized["strategy_id"]) or normalized
 
 
+def delete_strategy(strategy_id: str) -> None:
+    target = str(strategy_id or "").strip()
+    if not target:
+        raise ValueError("strategy_id is required")
+    rows = ensure_registry_seeded()
+    next_rows = [row for row in rows if str(row.get("strategy_id") or "") != target]
+    if len(next_rows) == len(rows):
+        raise KeyError(target)
+    _write_registry(next_rows)
+
+
 def set_strategy_enabled(strategy_id: str, enabled: bool) -> dict[str, Any]:
     strategy = get_strategy(strategy_id)
     if strategy is None:

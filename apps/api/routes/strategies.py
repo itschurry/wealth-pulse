@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.strategy_registry import get_strategy, list_strategies, save_strategy, set_strategy_enabled, summarize_registry
+from services.strategy_registry import delete_strategy, get_strategy, list_strategies, save_strategy, set_strategy_enabled, summarize_registry
 
 
 def handle_strategies_list(query: dict[str, list[str]]) -> tuple[int, dict]:
@@ -39,6 +39,19 @@ def handle_strategy_toggle(payload: dict) -> tuple[int, dict]:
             return 400, {"ok": False, "error": "strategy_id required"}
         item = set_strategy_enabled(strategy_id, enabled)
         return 200, {"ok": True, "item": item}
+    except KeyError as exc:
+        return 404, {"ok": False, "error": f"strategy not found: {exc.args[0]}"}
+    except Exception as exc:
+        return 500, {"ok": False, "error": str(exc)}
+
+
+def handle_strategy_delete(payload: dict) -> tuple[int, dict]:
+    try:
+        strategy_id = str(payload.get("strategy_id") or "").strip()
+        if not strategy_id:
+            return 400, {"ok": False, "error": "strategy_id required"}
+        delete_strategy(strategy_id)
+        return 200, {"ok": True, "strategy_id": strategy_id}
     except KeyError as exc:
         return 404, {"ok": False, "error": f"strategy not found: {exc.args[0]}"}
     except Exception as exc:

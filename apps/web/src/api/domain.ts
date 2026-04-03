@@ -103,6 +103,10 @@ export function saveStrategyPreset(payload: Record<string, unknown>) {
   return postJSON<StrategiesResponse>('/api/strategies/save', payload);
 }
 
+export function deleteStrategyPreset(strategyId: string) {
+  return postJSON<{ ok: boolean; strategy_id?: string; error?: string }>('/api/strategies/delete', { strategy_id: strategyId });
+}
+
 export function fetchPortfolioState(refresh = true) {
   return getJSON<PortfolioStateResponse>(`/api/portfolio/state?refresh=${refresh ? '1' : '0'}`, { noStore: true });
 }
