@@ -83,8 +83,11 @@ export function fetchStrategies() {
   return getJSON<StrategiesResponse>('/api/strategies', { noStore: true });
 }
 
-export function fetchScannerStatus(refresh = false) {
-  return getJSON<ScannerStatusResponse>(`/api/scanner/status?refresh=${refresh ? '1' : '0'}`, { noStore: true });
+export function fetchScannerStatus(refresh = false, cacheOnly = false) {
+  return getJSON<ScannerStatusResponse>(
+    `/api/scanner/status?refresh=${refresh ? '1' : '0'}&cache_only=${cacheOnly ? '1' : '0'}`,
+    { noStore: true },
+  );
 }
 
 export function fetchUniverse(refresh = false) {

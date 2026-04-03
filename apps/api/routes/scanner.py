@@ -50,12 +50,21 @@ def _refresh_scans_in_background(markets: list[str], account: dict[str, Any]) ->
 def handle_scanner_status(query: dict[str, list[str]]) -> tuple[int, dict]:
     try:
         refresh = (query.get("refresh", ["0"])[0] or "0").strip() == "1"
+        cache_only = (query.get("cache_only", ["0"])[0] or "0").strip() == "1"
         markets = _normalize_markets(query)
         _, execution_payload = get_execution_service().paper_engine_status()
         account = execution_payload.get("account") if isinstance(execution_payload, dict) else {}
         account = account if isinstance(account, dict) else {}
 
         cached_rows = _load_cached_rows(markets)
+        if cache_only:
+            return 200, {
+                "ok": True,
+                "items": cached_rows,
+                "count": len(cached_rows),
+                "refreshing": False,
+                "source": "strategy_scan_cache",
+            }
         if refresh:
             _refresh_scans_in_background(markets, account)
             return 200, {
