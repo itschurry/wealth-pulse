@@ -7,6 +7,7 @@ from typing import Any
 
 from config.settings import LOGS_DIR
 from services.research_contract import normalize_and_validate_warning_codes, normalize_tags
+from market_utils import normalize_market
 
 
 RESEARCH_DIR = LOGS_DIR / "research_snapshots"
@@ -48,6 +49,11 @@ def _safe_key(value: str) -> str:
     return "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in str(value or "").strip()) or "default"
 
 
+def _normalize_market_input(value: str) -> str:
+    normalized = normalize_market(value)
+    return str(normalized or "").strip().upper()
+
+
 def _parse_datetime(value: Any) -> datetime.datetime | None:
     text = str(value or "").strip()
     if not text:
@@ -62,11 +68,13 @@ def _parse_datetime(value: Any) -> datetime.datetime | None:
 
 
 def _latest_snapshot_path(provider: str, market: str, symbol: str) -> Path:
-    return RESEARCH_LATEST_DIR / f"{_safe_key(provider)}__{_safe_key(market.upper())}__{_safe_key(symbol.upper())}.json"
+    normalized_market = _normalize_market_input(market)
+    return RESEARCH_LATEST_DIR / f"{_safe_key(provider)}__{_safe_key(normalized_market)}__{_safe_key(symbol.upper())}.json"
 
 
 def _history_snapshot_path(provider: str, market: str, symbol: str) -> Path:
-    return RESEARCH_DIR / "history" / f"{_safe_key(provider)}__{_safe_key(market.upper())}__{_safe_key(symbol.upper())}.jsonl"
+    normalized_market = _normalize_market_input(market)
+    return RESEARCH_DIR / "history" / f"{_safe_key(provider)}__{_safe_key(normalized_market)}__{_safe_key(symbol.upper())}.jsonl"
 
 
 def _normalize_bucket_ts(value: str) -> str:
@@ -95,7 +103,7 @@ def _snapshot_history_key(item: dict[str, Any]) -> str:
         [
             str(item.get("provider") or "").strip().lower(),
             str(item.get("symbol") or "").strip().upper(),
-            str(item.get("market") or "").strip().upper(),
+            _normalize_market_input(str(item.get("market") or "")),
             str(item.get("bucket_ts") or ""),
         ]
     )
@@ -204,7 +212,7 @@ def _normalize_item(
     ingested_at: str,
 ) -> dict[str, Any]:
     symbol = str(item.get("symbol") or "").strip().upper()
-    market = str(item.get("market") or "").strip().upper()
+    market = _normalize_market_input(str(item.get("market") or ""))
     if not symbol or not market:
         raise ValueError("symbol_market_required")
 
@@ -398,6 +406,30 @@ def ingest_research_snapshots(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _resolve_market_aliases(market: str) -> list[str]:
+    normalized = _normalize_market_input(market)
+    raw = str(market or "").strip().upper()
+    if normalized and raw and raw != normalized:
+        return [normalized, raw]
+    if normalized:
+        return [normalized]
+    return [raw] if raw else []
+
+
+def _history_candidate_paths(provider: str, symbol: str, market: str) -> list[Path]:
+    paths: list[Path] = []
+    for normalized_market in _resolve_market_aliases(market):
+        paths.append(_history_snapshot_path(provider, normalized_market, symbol))
+    return list(dict.fromkeys(paths))
+
+
+def _latest_snapshot_candidates(provider: str, symbol: str, market: str) -> list[Path]:
+    paths: list[Path] = []
+    for normalized_market in _resolve_market_aliases(market):
+        paths.append(_latest_snapshot_path(provider, normalized_market, symbol))
+    return list(dict.fromkeys(paths))
+
+
 def load_provider_status(provider: str = OPENCLAW_PROVIDER) -> dict[str, Any]:
     """Compute provider status from latest snapshot files and provider ingest metadata."""
     provider_key = str(provider).strip().lower() or OPENCLAW_PROVIDER
@@ -405,16 +437,28 @@ def load_provider_status(provider: str = OPENCLAW_PROVIDER) -> dict[str, Any]:
     providers = payload.get("providers") if isinstance(payload.get("providers"), dict) else {}
     state = providers.get(provider_key)
 
-    latest_snapshots: list[dict[str, Any]] = []
+    latest_snapshot_candidates_map: dict[str, dict[str, Any]] = {}
     for path in RESEARCH_LATEST_DIR.glob("*.json"):
         payload = _read_json(path, {})
         if str(payload.get("provider") or "").strip().lower() != provider_key:
             continue
         if str(payload.get("symbol") or "").strip() == "":
             continue
-        if str(payload.get("market") or "").strip() == "":
+        normalized_market = _normalize_market_input(str(payload.get("market") or ""))
+        if not normalized_market:
             continue
-        latest_snapshots.append(payload)
+        key = (
+            str(payload.get("provider") or "").strip().lower()
+            + "|"
+            + str(payload.get("symbol") or "").strip().upper()
+            + "|"
+            + normalized_market
+        )
+        existing = latest_snapshot_candidates_map.get(key)
+        if existing is None or _is_newer_snapshot(payload, existing):
+            latest_snapshot_candidates_map[key] = payload
+
+    latest_snapshots = list(latest_snapshot_candidates_map.values())
 
     now = datetime.datetime.now(datetime.timezone.utc)
     if not latest_snapshots:
@@ -496,9 +540,16 @@ def load_provider_status(provider: str = OPENCLAW_PROVIDER) -> dict[str, Any]:
 
 
 def load_latest_research_snapshot(symbol: str, market: str, *, provider: str = "openclaw") -> dict[str, Any] | None:
-    path = _latest_snapshot_path(provider, market, symbol)
-    payload = _read_json(path, {})
-    return payload or None
+    provider = str(provider or "").strip().lower() or OPENCLAW_PROVIDER
+    symbol = str(symbol or "").strip().upper()
+    selected: dict[str, Any] | None = None
+    for path in _latest_snapshot_candidates(provider, symbol, market):
+        payload = _read_json(path, {})
+        if not payload:
+            continue
+        if selected is None or _is_newer_snapshot(payload, selected):
+            selected = payload
+    return selected
 
 
 def load_research_snapshots(
@@ -518,20 +569,23 @@ def load_research_snapshots(
     if start_dt is not None and end_dt is not None and end_dt < start_dt:
         return []
 
-    rows = _iter_history_rows(_history_snapshot_path(provider, market, symbol))
+    rows: list[dict[str, Any]] = []
+    normalized_symbol = symbol.strip().upper()
+    normalized_market = _normalize_market_input(market)
+    for path in _history_candidate_paths(provider, normalized_symbol, normalized_market):
+        rows.extend(_iter_history_rows(path))
     if not rows:
         return []
 
     normalized_provider = str(provider).strip().lower()
-    normalized_symbol = symbol.strip().upper()
-    normalized_market = market.strip().upper()
+
     filtered_rows: list[dict[str, Any]] = []
     for item in rows:
         if str(item.get("provider") or provider).strip().lower() != normalized_provider:
             continue
         if str(item.get("symbol") or "").strip().upper() != normalized_symbol:
             continue
-        if str(item.get("market") or "").strip().upper() != normalized_market:
+        if _normalize_market_input(str(item.get("market") or "")) != normalized_market:
             continue
 
         bucket_dt = _parse_datetime(item.get("bucket_ts"))

@@ -82,6 +82,44 @@ class ResearchStoreTests(unittest.TestCase):
         self.assertEqual(1, status_payload["received_valid_last_run"])
         self.assertEqual(0, status_payload["deduped_count_last_run"])
 
+    def test_market_alias_lookup_uses_canonical_market(self):
+        status_code, payload = handle_research_ingest_bulk({
+            "provider": "openclaw",
+            "schema_version": "v1",
+            "run_id": "cron-alias",
+            "generated_at": "2026-04-03T10:10:00+09:00",
+            "items": [
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": "2026-04-03T10:10:00+09:00",
+                    "research_score": 0.66,
+                    "components": {"freshness_score": 0.9},
+                    "warnings": ["already_extended_intraday"],
+                    "tags": ["earnings"],
+                    "summary": "alias-normalized",
+                    "ttl_minutes": 120,
+                }
+            ],
+        })
+
+        self.assertEqual(200, status_code)
+        self.assertEqual(1, payload["accepted"])
+        latest_kospi = store.load_latest_research_snapshot("005930", "KOSPI", provider="openclaw")
+        latest_kr = store.load_latest_research_snapshot("005930", "KR", provider="openclaw")
+        self.assertIsNotNone(latest_kospi)
+        self.assertIsNotNone(latest_kr)
+        self.assertEqual("KOSPI", latest_kospi["market"])
+        self.assertEqual("KOSPI", latest_kr["market"])
+        self.assertEqual(latest_kospi["summary"], latest_kr["summary"])
+        self.assertEqual("alias-normalized", latest_kospi["summary"])
+
+        rows_kospi = store.load_research_snapshots("005930", "KOSPI", provider="openclaw", limit=10)
+        rows_kr = store.load_research_snapshots("005930", "KR", provider="openclaw", limit=10)
+        self.assertEqual(1, len(rows_kospi))
+        self.assertEqual(1, len(rows_kr))
+        self.assertEqual(rows_kospi[0]["summary"], rows_kr[0]["summary"])
+
     def test_latest_snapshot_route_returns_404_when_missing(self):
         status_code, payload = handle_research_latest_snapshot({"symbol": ["005930"], "market": ["KR"]})
 
