@@ -45,6 +45,7 @@ refactoring-result.md
 revision.md
 apps/api/config/optimized_params.json
 monte.md
+docs/openclaw-hanna-integration-fix-points.md
 
 # KIS 토큰 캐시 — access_token 평문 저장됨, 절대 커밋 금지
 storage/logs/kis_token_cache.json
