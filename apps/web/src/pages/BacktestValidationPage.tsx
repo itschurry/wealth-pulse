@@ -13,7 +13,7 @@ import {
 import { useToast } from '../hooks/useToast';
 import { useQuantOpsWorkflow } from '../hooks/useQuantOpsWorkflow';
 import type { BacktestData, BacktestQuery, BacktestTrade } from '../types';
-import type { ActionBarAction, ActionBarStatusItem, BacktestViewModel, ConsoleSnapshot } from '../types/consoleView';
+import type { ActionBarStatusItem, BacktestViewModel, ConsoleSnapshot } from '../types/consoleView';
 import type { ExitReasonAnalysisPayload, ExitReasonAnalysisRow, ExitReasonConcentrationVerdict, ExitReasonPersistentWeakness, ExitReasonWeaknessCluster, ExitScopeWeaknessRow, ValidationDiagnosticsResponse, ValidationResponse, ValidationWalkForwardExitReasonPayload } from '../types/domain';
 import {
   buildScoreComponentRows,
@@ -1163,17 +1163,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     workflowPayload?.symbol_summary?.approved_count,
   ]);
 
-  const isBacktestBusy = isBacktestRunInFlight
-    || backtestPhase === 'requesting'
-    || backtestPhase === 'running'
-    || backtestPhase === 'finalizing';
   const searchStatusSyncing = optimizationRunning || isSearchHandoffPending;
-  const canRunBacktest = !settingsSyncBusy && !validationStore.unsaved && !isBacktestBusy;
-  const canRunSearch = !settingsSyncBusy && !validationStore.unsaved && !isBacktestResultStale && !isBacktestBusy && !searchStatusSyncing;
   const searchBusy = optimizationPhase === 'requesting' || optimizationPhase === 'queued' || optimizationPhase === 'running' || searchStatusSyncing;
-  const canRevalidate = !settingsSyncBusy && !validationStore.unsaved && !searchBusy && !isSearchHandoffPending && !isBacktestBusy && !!searchResult?.available;
-  const canSaveCandidate = !settingsSyncBusy && (latestValidatedCandidate?.guardrails?.can_save || false);
-  const canApplyCandidate = !settingsSyncBusy && (savedValidatedCandidate?.guardrails?.can_apply || false);
 
   const resultTabOptions = useMemo(() => ([
     { key: 'backtest' as const, label: '백테스트 결과', detail: '최근 백테스트 기준', dirty: isBacktestResultStale },
@@ -1194,10 +1185,15 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
   const validationResultPanel = (() => {
     const backtestResultPanel = (
-      <>
-        <div className="page-section" style={{ padding: 16 }}>
-          <div className="section-title">백테스트 결과</div>
-          <div className="section-copy">저장된 기준으로 계산된 백테스트 백분위/구간 성과입니다.</div>
+      <div className="page-section validation-report-card">
+        <div className="section-kicker">결과 · 백테스트</div>
+        <div className="section-head-row">
+          <div>
+            <div className="section-title">백테스트 결과</div>
+            <div className="section-copy">저장된 기준으로 계산된 백테스트 백분위/구간 성과입니다.</div>
+          </div>
+          <div className={`inline-badge ${!isBacktestResultStale && activeBacktest ? 'is-success' : isBacktestResultStale ? '' : ''}`}>{backtestResultLabel}</div>
+        </div>
           <div className="summary-metric-grid" style={{ marginTop: 12 }}>
             <SummaryMetricCard
               label="백테스트 기간"
@@ -1232,15 +1228,14 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
               detail={optimizationMessage || '최적화 상태 없음'}
             />
           </div>
-        </div>
-      </>
+      </div>
     );
 
     const walkForwardResultPanel = (
       <>
         {(diagnosticsResult?.ok || latestValidatedCandidate || savedValidatedCandidate) && (
           <div className="validation-report-grid">
-            <div className="page-section" style={{ padding: 16 }}>
+            <div className="page-section validation-report-card">
               <div className="section-head-row">
                 <div>
                   <div className="section-title">진단 / 개선 경로</div>
@@ -1256,7 +1251,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           </div>
         )}
 
-        <div className="page-section" style={{ padding: 16 }}>
+        <div className="page-section validation-report-card">
           <div className="section-head-row">
             <div>
               <div className="section-title">퀀트 전략 점수카드</div>
@@ -1335,7 +1330,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
         </div>
 
         {reliabilityDiagnostic && (
-          <div className="page-section" style={{ padding: 16 }}>
+          <div className="page-section validation-report-card">
             <div className="section-head-row">
               <div>
                 <div className="section-title">신뢰도 진단</div>
@@ -2391,131 +2386,6 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     }
   }, [push, pushToast, saveHistory, settingsSyncBusy, updateSaveHistory, validationStore]);
 
-  const actionBarActions = useMemo<ActionBarAction[]>(() => {
-    return [
-      {
-        label: '설정 저장',
-        tone: 'primary',
-        onClick: () => {
-          void handleSaveSettings();
-        },
-        disabled: settingsSyncBusy,
-        busy: settingsSaving,
-        busyLabel: '저장 중...',
-      },
-      {
-        label: '백테스트 실행',
-        tone: 'primary',
-        onClick: () => {
-          void handleRunBacktest();
-        },
-        disabled: !canRunBacktest,
-        busy: isBacktestBusy,
-        busyLabel: '실행 중...',
-        disabledReason: settingsSyncBusy
-          ? '현재 설정 동기화 중입니다.'
-          : validationStore.unsaved
-            ? '저장되지 않은 초안이 있어 실행할 수 없습니다.'
-            : isBacktestBusy
-              ? '백테스트가 진행 중입니다.'
-              : undefined,
-      },
-      {
-        label: searchBusy ? 'Search 실행 중' : searchResult?.available ? 'Search 재실행' : 'Search 실행',
-        onClick: () => {
-          void handleRunOptimization();
-        },
-        disabled: !canRunSearch,
-        busy: searchBusy,
-        busyLabel: 'Search 실행 중...',
-        disabledReason: settingsSyncBusy
-          ? '현재 설정 동기화 중입니다.'
-          : validationStore.unsaved
-            ? '저장되지 않은 초안이 있어 Search를 실행할 수 없습니다.'
-            : isBacktestResultStale
-              ? '백테스트 결과 기준이 변경되어 Search 실행 전 재실행이 필요합니다.'
-              : isBacktestBusy
-                ? '백테스트가 진행 중입니다.'
-                : undefined,
-      },
-      {
-        label: 'Revalidate',
-        tone: 'default',
-        onClick: () => {
-          void handleRevalidateCandidate();
-        },
-        disabled: !canRevalidate,
-        busy: quantWorkflow.busyAction === 'revalidate',
-        busyLabel: '재검증 중...',
-        disabledReason: settingsSyncBusy
-          ? '현재 설정 동기화 중입니다.'
-          : validationStore.unsaved
-            ? '저장되지 않은 초안은 재검증할 수 없습니다.'
-            : isSearchHandoffPending
-              ? 'Search/후보 버전 연결 동기화 중입니다.'
-            : searchBusy
-              ? 'Search 작업이 먼저 완료될 때까지 잠깁니다.'
-              : !searchResult?.available
-                ? 'Search 결과가 없습니다. 먼저 Search를 실행하세요.'
-                : isBacktestBusy
-                  ? '백테스트가 진행 중입니다.'
-                  : undefined,
-      },
-      {
-        label: 'Save',
-        onClick: () => {
-          void handleSaveValidatedCandidate();
-        },
-        disabled: !canSaveCandidate,
-        busy: quantWorkflow.busyAction === 'save',
-        busyLabel: '저장 중...',
-        disabledReason: settingsSyncBusy
-          ? '현재 설정 동기화 중입니다.'
-          : latestValidatedCandidate?.guardrails?.can_save
-            ? undefined
-            : '재검증 통과 후보가 아니어 저장할 수 없습니다.',
-      },
-      {
-        label: 'Apply',
-        tone: 'primary',
-        onClick: () => {
-          void handleApplyRuntimeCandidate();
-        },
-        disabled: !canApplyCandidate,
-        busy: quantWorkflow.busyAction === 'apply',
-        busyLabel: '반영 중...',
-        disabledReason: settingsSyncBusy
-          ? '현재 설정 동기화 중입니다.'
-          : savedValidatedCandidate?.guardrails?.can_apply
-            ? undefined
-            : '저장된 후보가 반영 조건을 충족하지 않습니다.',
-      },
-    ];
-  }, [
-    canApplyCandidate,
-    canRevalidate,
-    canRunBacktest,
-    canRunSearch,
-    canSaveCandidate,
-    handleApplyRuntimeCandidate,
-    handleRevalidateCandidate,
-    handleRunBacktest,
-    handleRunOptimization,
-    handleSaveSettings,
-    handleSaveValidatedCandidate,
-    isBacktestBusy,
-    isBacktestResultStale,
-    latestValidatedCandidate?.guardrails?.can_save,
-    optimizationPhase,
-    quantWorkflow.busyAction,
-    searchBusy,
-    searchResult?.available,
-    savedValidatedCandidate?.guardrails?.can_apply,
-    settingsSaving,
-    settingsSyncBusy,
-    validationStore.unsaved,
-    searchResult,
-  ]);
 
   const handleLoadSavedSettings = useCallback(async () => {
     if (settingsSyncBusy) return;
@@ -2796,8 +2666,6 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             loading={loading}
             errorMessage={errorMessage}
             statusItems={statusItems}
-            actions={actionBarActions}
-            sticky
             onRefresh={handleRefreshAll}
             logs={entries}
             onClearLogs={clear}
@@ -2821,8 +2689,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             </div>
           </div>
 
-          <div className="validation-layout">
-            <div className="validation-report-column" style={{ display: 'none' }}>
+          <div className="validation-layout" style={{ gridTemplateColumns: 'minmax(270px, 0.82fr) minmax(0, 1.22fr) minmax(260px, 0.68fr)' }}>
+            <div className="validation-report-column">
               <div className="page-section" style={{ padding: 16 }}>
                 <div className="section-head-row">
                   <div>
@@ -3525,7 +3393,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   <div className="tab-shell-caption-copy">현재 필요한 탭만 확인해 보세요.</div>
                 </div>
                 <div className="tab-strip">
-                  {resultTabOptions.map((tab) => {
+                  {resultTabOptions.map((tab, tabIndex) => {
                     const dirty = tab.key !== 'logs' ? tab.dirty : false;
                     return (
                       <button
@@ -3536,7 +3404,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                           setActiveResultTab(tab.key);
                         }}
                       >
-                        <div className="tab-step">{tab.label.slice(0, 2)}</div>
+                        <div className="tab-step">{tabIndex + 1}</div>
                         <div>
                           <div className="tab-label">
                             {tab.label}
