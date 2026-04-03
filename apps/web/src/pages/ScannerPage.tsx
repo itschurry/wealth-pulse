@@ -99,6 +99,9 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
   const { entries, push, clear } = useConsoleLogs();
   const [selectedSignals, setSelectedSignals] = useState<Record<string, string>>({});
   const items = snapshot.scanner.items || [];
+  const scannerSource = snapshot.scanner.source || 'strategy_scan_cache';
+  const scannerRefreshing = Boolean(snapshot.scanner.refreshing);
+  const scannerStatusText = scannerRefreshing ? '갱신 중' : (scannerSource === 'live_scan' ? '최신 반영' : '캐시');
 
   const totalCandidates = useMemo(
     () => items.reduce((sum, item) => sum + Number(item.candidate_count || 0), 0),
@@ -123,8 +126,9 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
     { label: '활성 전략', value: `${activeCount}개`, tone: activeCount > 0 ? 'good' as const : 'neutral' as const },
     { label: '스캔 종목', value: `${totalScanned}건`, tone: totalScanned > 0 ? 'good' as const : 'neutral' as const },
     { label: '후보 수', value: `${totalCandidates}건`, tone: totalCandidates > 0 ? 'good' as const : 'neutral' as const },
+    { label: '스캔 소스', value: scannerStatusText, tone: scannerRefreshing ? 'bad' as const : 'neutral' as const },
     { label: 'Hanna', value: HANNA_STATE_LABEL[overallHannaState], tone: toneForHanna(overallHannaState) },
-  ]), [activeCount, items.length, overallHannaState, totalCandidates, totalScanned]);
+  ]), [activeCount, items.length, overallHannaState, scannerRefreshing, scannerStatusText, totalCandidates, totalScanned]);
 
   const handleRefresh = useCallback(() => {
     onRefresh();

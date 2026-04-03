@@ -280,6 +280,8 @@ export interface ScannerStatusResponse {
   ok?: boolean;
   items?: ScannerStatusItem[];
   count?: number;
+  refreshing?: boolean;
+  source?: 'strategy_scan_cache' | 'live_scan' | string;
 }
 
 export interface UniverseSnapshot {

@@ -81,7 +81,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
       initialTargets: ['engine', 'signals', 'validation', 'reports', 'research', 'todayPicks', 'hannaBrief'],
       fastTargets: ['engine'],
       midTargets: ['signals'],
-      slowTargets: ['validation', 'reports', 'research', 'todayPicks', 'recommendations', 'macro', 'hannaBrief'],
+      slowTargets: ['reports', 'research', 'todayPicks', 'recommendations', 'macro', 'hannaBrief'],
     };
   }
 
@@ -218,7 +218,10 @@ export function useConsoleData(route: ConsoleDataRoute) {
 
   const refresh = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, hasError: false, errorMessage: '' }));
-    await fetchPartition(profile.initialTargets, true);
+    await fetchPartition(profile.initialTargets, false);
+    if (profile.initialTargets.includes('scanner')) {
+      void fetchPartition(['scanner'], true).catch(() => {});
+    }
   }, [fetchPartition, profile.initialTargets]);
 
   useEffect(() => {
