@@ -25,11 +25,16 @@ const HANNA_STATE_LABEL: Record<HannaState, string> = {
 function resolveHannaState(candidate?: ScannerCandidate): HannaState {
   if (!candidate) return 'research_unavailable';
   if (candidate.research_unavailable) return 'research_unavailable';
-  if (candidate.research_status === 'missing') return 'research_unavailable';
-  if (candidate.research_status === 'timeout') return 'timeout';
-  if (candidate.research_status === 'degraded') return 'degraded';
-  if (candidate.research_status === 'stale_ingest') return 'degraded';
-  if (candidate.research_status === 'research_unavailable') return 'research_unavailable';
+  if (candidate.layer_c?.research_unavailable) return 'research_unavailable';
+  if (Array.isArray(candidate.layer_c?.warnings) && candidate.layer_c.warnings.some((item) => String(item) === 'research_unavailable')) return 'research_unavailable';
+
+  const candidateStatus = candidate.research_status || candidate.layer_c?.provider_status;
+  if (candidateStatus === 'missing') return 'research_unavailable';
+  if (candidateStatus === 'timeout') return 'timeout';
+  if (candidateStatus === 'degraded') return 'degraded';
+  if (candidateStatus === 'stale_ingest') return 'degraded';
+  if (candidateStatus === 'research_unavailable') return 'research_unavailable';
+  if (candidateStatus) return candidateStatus === 'healthy' ? 'healthy' : 'degraded';
   return 'healthy';
 }
 
@@ -104,12 +109,14 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
     [items],
   );
   const activeCount = items.filter((item) => item.enabled && item.approval_status === 'approved').length;
+  const providerHannaState = resolveProviderHannaState(snapshot.research.status, snapshot.research.freshness);
   const overallHannaState = useMemo<HannaState>(() => {
     if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'timeout')) return 'timeout';
     if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'degraded')) return 'degraded';
     if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'healthy')) return 'healthy';
-    return 'research_unavailable';
-  }, [items, snapshot.research.status, snapshot.research.freshness]);
+    if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'research_unavailable')) return 'research_unavailable';
+    return providerHannaState;
+  }, [items, providerHannaState, snapshot.research.status, snapshot.research.freshness]);
 
   const statusItems = useMemo(() => ([
     { label: '스캔 전략', value: `${items.length}개`, tone: 'neutral' as const },
