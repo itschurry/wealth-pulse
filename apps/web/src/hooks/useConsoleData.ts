@@ -156,14 +156,14 @@ export function useConsoleData(route: ConsoleDataRoute) {
     }));
   }, []);
 
-  const fetchPartition = useCallback(async (targets: SnapshotKey[]) => {
+  const fetchPartition = useCallback(async (targets: SnapshotKey[], scannerRefresh = false) => {
     if (targets.length === 0) return;
 
     const tasks = targets.map((key) => {
       if (key === 'engine') return fetchEngineStatus();
       if (key === 'signals') return fetchSignals(profile.signalLimit);
       if (key === 'strategies') return fetchStrategies();
-      if (key === 'scanner') return fetchScannerStatus();
+      if (key === 'scanner') return fetchScannerStatus(scannerRefresh);
       if (key === 'universe') return fetchUniverse();
       if (key === 'performance') return fetchPerformanceSummary();
       if (key === 'research') return fetchResearchStatus();
@@ -188,7 +188,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
 
   const refresh = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, hasError: false, errorMessage: '' }));
-    await fetchPartition(profile.initialTargets);
+    await fetchPartition(profile.initialTargets, true);
   }, [fetchPartition, profile.initialTargets]);
 
   useEffect(() => {
@@ -198,7 +198,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
   useEffect(() => {
     if (profile.fastTargets.length === 0) return undefined;
     const timer = window.setInterval(() => {
-      void fetchPartition(profile.fastTargets);
+      void fetchPartition(profile.fastTargets, false);
     }, FAST_POLLING_MS);
     return () => window.clearInterval(timer);
   }, [fetchPartition, profile.fastTargets]);
@@ -206,7 +206,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
   useEffect(() => {
     if (profile.midTargets.length === 0) return undefined;
     const timer = window.setInterval(() => {
-      void fetchPartition(profile.midTargets);
+      void fetchPartition(profile.midTargets, false);
     }, MID_POLLING_MS);
     return () => window.clearInterval(timer);
   }, [fetchPartition, profile.midTargets]);
@@ -214,7 +214,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
   useEffect(() => {
     if (profile.slowTargets.length === 0) return undefined;
     const timer = window.setInterval(() => {
-      void fetchPartition(profile.slowTargets);
+      void fetchPartition(profile.slowTargets, false);
     }, SLOW_POLLING_MS);
     return () => window.clearInterval(timer);
   }, [fetchPartition, profile.slowTargets]);

@@ -25,6 +25,7 @@ const HANNA_STATE_LABEL: Record<HannaState, string> = {
 function resolveHannaState(candidate?: ScannerCandidate): HannaState {
   if (!candidate) return 'research_unavailable';
   if (candidate.research_unavailable) return 'research_unavailable';
+  if (candidate.research_status === 'missing') return 'research_unavailable';
   if (candidate.research_status === 'timeout') return 'timeout';
   if (candidate.research_status === 'degraded') return 'degraded';
   if (candidate.research_status === 'stale_ingest') return 'degraded';
@@ -36,6 +37,7 @@ function resolveProviderHannaState(providerStatus: string | undefined, freshness
   if (providerStatus === 'healthy') return 'healthy';
   if (providerStatus === 'degraded' || providerStatus === 'stale_ingest') return 'degraded';
   if (providerStatus === 'missing' || freshness === 'missing') return 'research_unavailable';
+  if (freshness === 'stale') return 'degraded';
   if (providerStatus === 'stale') return 'degraded';
   return 'healthy';
 }
@@ -45,15 +47,17 @@ function resolveHannaStateWithProvider(candidate: ScannerCandidate | undefined, 
   if (!candidate) return fallback;
   const candidateState = resolveHannaState(candidate);
   if (candidateState === 'research_unavailable') return 'research_unavailable';
-  if (candidateState === 'healthy') return 'healthy';
+  if (candidateState === 'healthy') return fallback === 'healthy' ? 'healthy' : fallback;
   if (candidateState === 'degraded' || candidateState === 'timeout') return 'degraded';
   return fallback;
 }
 function summarizeHannaState(item: ScannerStatusItem, providerStatus?: string, freshness?: string): HannaState {
   const candidates = item.top_candidates || [];
-  if (candidates.some((candidate) => resolveHannaState(candidate) === 'timeout')) return 'timeout';
-  if (candidates.some((candidate) => resolveHannaState(candidate) === 'degraded')) return 'degraded';
-  if (candidates.some((candidate) => resolveHannaState(candidate) === 'healthy')) return 'healthy';
+  const candidateStates = candidates.map((candidate) => resolveHannaStateWithProvider(candidate, providerStatus, freshness));
+  if (candidateStates.some((state) => state === 'timeout')) return 'timeout';
+  if (candidateStates.some((state) => state === 'degraded')) return 'degraded';
+  if (candidateStates.some((state) => state === 'research_unavailable')) return 'research_unavailable';
+  if (candidateStates.some((state) => state === 'healthy')) return 'healthy';
   return resolveProviderHannaState(providerStatus, freshness);
 }
 
