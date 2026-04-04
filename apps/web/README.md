@@ -1,4 +1,4 @@
-# daily-market-brief Web
+# WealthPulse Web
 
 React 19 + Vite 기반 investing console입니다. 현재 위치는 `apps/web` 이며, API base URL은 `VITE_API_BASE_URL` 로 제어합니다.
 

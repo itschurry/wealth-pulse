@@ -13,7 +13,7 @@ import uvicorn
 from server import dispatch_get, dispatch_post
 
 
-app = FastAPI(title="daily-market-brief API", version="2.0.0")
+app = FastAPI(title="WealthPulse API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

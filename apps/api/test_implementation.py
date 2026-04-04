@@ -3,7 +3,10 @@
 모의 투자 전략 강화 - 구현 완료 검증
 """
 import sys
-sys.path.insert(0, '/Users/chlee/daily-market-brief')
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def test_phase1():

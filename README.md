@@ -79,7 +79,7 @@
 ### 로컬 개발
 
 ```bash
-cd /home/user/daily-market-brief
+cd ~/wealth-pulse
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -90,13 +90,13 @@ cd apps/web && npm install && cd ../..
 
 cd apps/api && python3 api_server.py
 # 새 터미널
-cd /home/user/daily-market-brief/apps/web && npm run dev
+cd ~/wealth-pulse/apps/web && npm run dev
 ```
 
 ### Docker 실행
 
 ```bash
-cd /home/user/daily-market-brief
+cd ~/wealth-pulse
 cp apps/api/.env.example apps/api/.env
 # .env 수정
 

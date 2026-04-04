@@ -43,4 +43,4 @@ jobs:
           cd apps/web
           npm run build
       - name: Build web image
-        run: docker build -t daily-market-brief-web ./apps/web
+        run: docker build -t wealth-pulse-web ./apps/web

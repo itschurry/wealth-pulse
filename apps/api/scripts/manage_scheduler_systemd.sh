@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE_NAME="daily-market-brief-scheduler.service"
+SERVICE_NAME="wealth-pulse-scheduler.service"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -66,7 +66,7 @@ write_unit() {
 
   cat <<EOF | run_root tee "$UNIT_PATH" >/dev/null
 [Unit]
-Description=Daily Market Brief Scheduler
+Description=WealthPulse Scheduler
 After=network-online.target
 Wants=network-online.target
 
