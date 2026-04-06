@@ -96,25 +96,51 @@ function clampBacktestQuery(raw: Partial<BacktestQuery> | null | undefined): Bac
     : raw?.market_scope === 'all'
       ? 'all'
       : 'kospi';
-  const preset = defaultBacktestQuery(marketScope);
+  const strategyKind = raw?.strategy_kind === 'mean_reversion'
+    ? 'mean_reversion'
+    : raw?.strategy_kind === 'defensive'
+      ? 'defensive'
+      : 'trend_following';
+  const riskProfile = raw?.risk_profile === 'conservative'
+    ? 'conservative'
+    : raw?.risk_profile === 'aggressive'
+      ? 'aggressive'
+      : 'balanced';
+  const preset = defaultBacktestQuery(marketScope, strategyKind, riskProfile);
+  const portfolioRaw = raw?.portfolio_constraints && typeof raw.portfolio_constraints === 'object'
+    ? raw.portfolio_constraints
+    : {};
+  const strategyParamsRaw = (raw?.strategy_params && typeof raw.strategy_params === 'object'
+    ? raw.strategy_params
+    : preset.strategy_params) as Record<string, unknown>;
   return {
     market_scope: marketScope,
     lookback_days: Math.max(180, readNumber(raw?.lookback_days, preset.lookback_days)),
+    strategy_kind: strategyKind,
+    regime_mode: raw?.regime_mode === 'manual' ? 'manual' : 'auto',
+    risk_profile: riskProfile,
+    portfolio_constraints: {
+      market_scope: marketScope,
+      initial_cash: Math.max(1, readNumber((portfolioRaw as Partial<BacktestQuery['portfolio_constraints']>).initial_cash, preset.portfolio_constraints.initial_cash)),
+      max_positions: Math.max(1, readNumber((portfolioRaw as Partial<BacktestQuery['portfolio_constraints']>).max_positions, preset.portfolio_constraints.max_positions)),
+      max_holding_days: Math.max(1, readNumber((portfolioRaw as Partial<BacktestQuery['portfolio_constraints']>).max_holding_days, preset.portfolio_constraints.max_holding_days)),
+    },
+    strategy_params: strategyParamsRaw as Record<string, number | string | boolean | null>,
     initial_cash: Math.max(1, readNumber(raw?.initial_cash, preset.initial_cash)),
     max_positions: Math.max(1, readNumber(raw?.max_positions, preset.max_positions)),
     max_holding_days: Math.max(1, readNumber(raw?.max_holding_days, preset.max_holding_days)),
-    rsi_min: readNumber(raw?.rsi_min, preset.rsi_min),
-    rsi_max: readNumber(raw?.rsi_max, preset.rsi_max),
-    volume_ratio_min: Math.max(0, readNumber(raw?.volume_ratio_min, preset.volume_ratio_min)),
-    stop_loss_pct: readNullableNumber(raw?.stop_loss_pct, preset.stop_loss_pct),
-    take_profit_pct: readNullableNumber(raw?.take_profit_pct, preset.take_profit_pct),
-    adx_min: readNullableNumber(raw?.adx_min, preset.adx_min),
-    mfi_min: readNullableNumber(raw?.mfi_min, preset.mfi_min),
-    mfi_max: readNullableNumber(raw?.mfi_max, preset.mfi_max),
-    bb_pct_min: readNullableNumber(raw?.bb_pct_min, preset.bb_pct_min),
-    bb_pct_max: readNullableNumber(raw?.bb_pct_max, preset.bb_pct_max),
-    stoch_k_min: readNullableNumber(raw?.stoch_k_min, preset.stoch_k_min),
-    stoch_k_max: readNullableNumber(raw?.stoch_k_max, preset.stoch_k_max),
+    rsi_min: readNumber(raw?.rsi_min, Number(strategyParamsRaw.rsi_min ?? preset.rsi_min)),
+    rsi_max: readNumber(raw?.rsi_max, Number(strategyParamsRaw.rsi_max ?? preset.rsi_max)),
+    volume_ratio_min: Math.max(0, readNumber(raw?.volume_ratio_min, Number(strategyParamsRaw.volume_ratio_min ?? preset.volume_ratio_min))),
+    stop_loss_pct: readNullableNumber(raw?.stop_loss_pct, readNullableNumber(strategyParamsRaw.stop_loss_pct, preset.stop_loss_pct)),
+    take_profit_pct: readNullableNumber(raw?.take_profit_pct, readNullableNumber(strategyParamsRaw.take_profit_pct, preset.take_profit_pct)),
+    adx_min: readNullableNumber(raw?.adx_min, readNullableNumber(strategyParamsRaw.adx_min, preset.adx_min)),
+    mfi_min: readNullableNumber(raw?.mfi_min, readNullableNumber(strategyParamsRaw.mfi_min, preset.mfi_min)),
+    mfi_max: readNullableNumber(raw?.mfi_max, readNullableNumber(strategyParamsRaw.mfi_max, preset.mfi_max)),
+    bb_pct_min: readNullableNumber(raw?.bb_pct_min, readNullableNumber(strategyParamsRaw.bb_pct_min, preset.bb_pct_min)),
+    bb_pct_max: readNullableNumber(raw?.bb_pct_max, readNullableNumber(strategyParamsRaw.bb_pct_max, preset.bb_pct_max)),
+    stoch_k_min: readNullableNumber(raw?.stoch_k_min, readNullableNumber(strategyParamsRaw.stoch_k_min, preset.stoch_k_min)),
+    stoch_k_max: readNullableNumber(raw?.stoch_k_max, readNullableNumber(strategyParamsRaw.stoch_k_max, preset.stoch_k_max)),
   };
 }
 
@@ -321,8 +347,14 @@ export function useValidationSettingsStore() {
 }
 
 export function formatValidationSettingsLabel(settings: ValidationSettings, query: BacktestQuery): string[] {
+  const strategyLabel = query.strategy_kind === 'mean_reversion'
+    ? 'Mean Reversion'
+    : query.strategy_kind === 'defensive'
+      ? 'Defensive'
+      : 'Trend Following';
   return [
     `${query.market_scope === 'kospi' ? 'KOSPI' : query.market_scope === 'nasdaq' ? 'NASDAQ' : 'KOSPI+NASDAQ'} · 탐색 기간 ${query.lookback_days}일`,
+    `${strategyLabel} · regime ${query.regime_mode} · risk ${query.risk_profile}`,
     `${settings.strategy} · 검증 ${settings.validationDays}일${settings.trainingDays ? ` · UI 설정 학습 구간 ${settings.trainingDays}일` : ''}`,
     `${settings.walkForward ? 'Walk-forward 사용' : 'Walk-forward 미사용'} · 최소 거래수 ${settings.minTrades}건 · ${settings.objective}`,
     `실행 후보 소스 ${settings.runtimeCandidateSourceMode === 'quant_only' ? 'quant_only · 퀀트 검증 후보만 사용' : 'hybrid · 퀀트/리서치 분리 후 합집합 사용'}`,

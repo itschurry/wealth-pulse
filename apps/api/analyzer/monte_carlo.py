@@ -63,6 +63,7 @@ class OptimizationResult:
     avg_return_pct: float
     max_drawdown_pct: float
     avg_holding_days: float  # 평균 보유 기간 (이전 n_trades 필드명 수정)
+    strategy_kind: str = "trend_following"
     trade_count: int = 0  # 실제 거래 횟수
     validation_sharpe: float = 0.0
     validation_trades: int = 0  # 검증 구간 진입 신호 수
@@ -74,6 +75,7 @@ class OptimizationResult:
     composite_score: float = 0.0
     score_components: dict[str, float] = field(default_factory=dict)
     tail_risk: dict[str, float] = field(default_factory=dict)
+    robust_zone: dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================
@@ -86,6 +88,35 @@ _HOLDING_DAYS_RANGE = (3, 60)  # 최대 보유 기간 범위
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
+
+
+def _relevant_param_keys(strategy_kind: str | None) -> tuple[str, ...]:
+    kind = str(strategy_kind or "trend_following").strip().lower()
+    if kind == "mean_reversion":
+        return ("rsi_min", "rsi_max", "bb_pct_max", "stoch_k_max", "take_profit_pct", "stop_loss_pct", "max_holding_days")
+    if kind == "defensive":
+        return ("volume_ratio_min", "rsi_min", "rsi_max", "stop_loss_pct", "take_profit_pct", "max_holding_days")
+    return ("volume_ratio_min", "adx_min", "rsi_min", "rsi_max", "stop_loss_pct", "max_holding_days")
+
+
+def _build_robust_zone(best_params: dict[str, Any], param_grid: ParamGrid, strategy_kind: str | None) -> dict[str, Any]:
+    parameter_bands: dict[str, dict[str, Any]] = {}
+    for key in _relevant_param_keys(strategy_kind):
+        current = best_params.get(key)
+        grid_values = getattr(param_grid, key, None)
+        if current is None or not isinstance(grid_values, list) or not grid_values:
+            continue
+        parameter_bands[key] = {
+            "selected": current,
+            "min": min(grid_values),
+            "max": max(grid_values),
+            "candidates": list(grid_values),
+        }
+    return {
+        "label": "stable_parameter_band",
+        "summary": "best point 하나보다 전략별 허용 밴드 안에서 선택된 파라미터 구간을 보여줍니다.",
+        "parameter_bands": parameter_bands,
+    }
 
 
 # ============================================================
@@ -577,6 +608,7 @@ def optimize_params(
     price_history: list[dict[str, Any]],
     param_grid: ParamGrid,
     sim_config: SimulationConfig,
+    strategy_kind: str = "trend_following",
 ) -> OptimizationResult | None:
     """단일 종목에 대해 파라미터 그리드 탐색을 수행한다.
 
@@ -768,6 +800,7 @@ def optimize_params(
         avg_return_pct=best_metrics.get("avg_return_pct", 0.0),
         max_drawdown_pct=best_metrics.get("max_drawdown_pct", 0.0),
         avg_holding_days=best_metrics.get("avg_holding_days", 0.0),
+        strategy_kind=strategy_kind,
         trade_count=best_metrics.get("trade_count", 0),
         validation_sharpe=validation_sharpe,
         validation_trades=validation_signals,
@@ -779,6 +812,7 @@ def optimize_params(
         composite_score=float(best_metrics.get("composite_score", 0.0) or 0.0),
         score_components=best_metrics.get("score_components", {}),
         tail_risk=best_metrics.get("tail_risk", {}),
+        robust_zone=_build_robust_zone(best_params, param_grid, strategy_kind),
     )
 
 
@@ -787,6 +821,7 @@ def run_portfolio_optimization(
     price_data: dict[str, list[dict[str, Any]]],
     param_grid: ParamGrid | None = None,
     sim_config: SimulationConfig | None = None,
+    strategy_kind: str = "trend_following",
 ) -> list[OptimizationResult]:
     """여러 종목에 대해 병렬로 optimize_params를 실행한다.
 
@@ -808,7 +843,7 @@ def run_portfolio_optimization(
             logger.debug("{}/{}: 가격 데이터 없음, 스킵", code, market)
             return None
         try:
-            return optimize_params(code, market, history, param_grid, sim_config)
+            return optimize_params(code, market, history, param_grid, sim_config, strategy_kind=strategy_kind)
         except Exception as exc:
             logger.warning("{}/{}: 최적화 실패 — {}", code, market, exc)
             return None

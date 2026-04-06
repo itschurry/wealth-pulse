@@ -75,7 +75,7 @@ class ValidationSettingsStoreTests(unittest.TestCase):
             })
 
         self.assertTrue(payload["ok"])
-        self.assertEqual("research_only", payload["settings"]["runtime_candidate_source_mode"])
+        self.assertEqual("quant_only", payload["settings"]["runtime_candidate_source_mode"])
 
     def test_reset_persists_defaults(self):
         with patch.object(store, "BACKTEST_VALIDATION_SETTINGS_PATH", self.path):

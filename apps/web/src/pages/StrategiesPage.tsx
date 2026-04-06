@@ -2,11 +2,12 @@ import { useCallback, useMemo, useState } from 'react';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { deleteStrategyPreset, saveStrategyPreset, toggleStrategyEnabled } from '../api/domain';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
+import { loadBacktestQuery } from '../hooks/useBacktest';
 import type { StrategyRegistryItem } from '../types/domain';
 import type { ConsoleSnapshot } from '../types/consoleView';
+import { formatDateTime, formatPercent } from '../utils/format';
 
 const STRATEGY_VALIDATION_TRANSFER_KEY = 'console_strategy_validation_transfer_v1';
-import { formatDateTime, formatPercent } from '../utils/format';
 
 interface StrategiesPageProps {
   snapshot: ConsoleSnapshot;
@@ -28,6 +29,47 @@ function slugifyStrategyId(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '') || 'strategy_preset';
+}
+
+function strategyContextFromValidationLab() {
+  const query = loadBacktestQuery();
+  if (query.market_scope === 'nasdaq') {
+    return { market: 'NASDAQ', universe_rule: 'sp500', scan_cycle: '15m' };
+  }
+  if (query.market_scope === 'all') {
+    return { market: 'KOSPI', universe_rule: 'multi_market', scan_cycle: '10m' };
+  }
+  return { market: 'KOSPI', universe_rule: 'kospi', scan_cycle: '5m' };
+}
+
+function buildPresetPayload(
+  source: StrategyRegistryItem | undefined,
+  options: {
+    strategyId: string;
+    name: string;
+  },
+): Record<string, unknown> {
+  const { strategyId, name } = options;
+  const validationContext = strategyContextFromValidationLab();
+  const params = source?.params && typeof source.params === 'object' ? source.params : {};
+  const riskLimits = source?.risk_limits && typeof source.risk_limits === 'object' ? source.risk_limits : {};
+  const researchSummary = source?.research_summary && typeof source.research_summary === 'object' ? source.research_summary : {};
+  const strategyKind = String(source?.strategy_kind || source?.strategy_id || 'trend_following');
+  return {
+    ...(source || {}),
+    strategy_id: slugifyStrategyId(strategyId),
+    strategy_kind: strategyKind,
+    name,
+    enabled: false,
+    approval_status: 'draft',
+    approved_at: '',
+    market: validationContext.market,
+    universe_rule: validationContext.universe_rule,
+    scan_cycle: validationContext.scan_cycle,
+    params,
+    risk_limits: riskLimits,
+    research_summary: researchSummary,
+  };
 }
 
 export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: StrategiesPageProps) {
@@ -76,20 +118,13 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
   }, [selectedStrategy]);
 
   const handleCreatePreset = useCallback(async () => {
-    const base = selectedStrategy || items[0];
+    const base = selectedStrategy || items.find((item) => item.strategy_kind === 'trend_following') || items[0];
     const rawName = window.prompt('새 프리셋 이름을 입력해줘.', base?.name ? `${base.name} Copy` : 'New Strategy Preset');
     if (!rawName) return;
     const name = rawName.trim();
     const strategyId = window.prompt('전략 ID를 입력해줘.', slugifyStrategyId(name));
     if (!strategyId) return;
-    const payload = {
-      ...(base || {}),
-      strategy_id: slugifyStrategyId(strategyId),
-      name,
-      enabled: false,
-      approval_status: 'draft',
-      approved_at: '',
-    } as Record<string, unknown>;
+    const payload = buildPresetPayload(base, { strategyId, name });
     setPendingId(String(payload.strategy_id || 'create'));
     try {
       const response = await saveStrategyPreset(payload);
@@ -112,14 +147,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
     const name = rawName.trim();
     const strategyId = window.prompt('새 전략 ID를 입력해줘.', slugifyStrategyId(name));
     if (!strategyId) return;
-    const payload = {
-      ...selectedStrategy,
-      strategy_id: slugifyStrategyId(strategyId),
-      name,
-      enabled: false,
-      approval_status: 'draft',
-      approved_at: '',
-    } as Record<string, unknown>;
+    const payload = buildPresetPayload(selectedStrategy, { strategyId, name });
     setPendingId(String(payload.strategy_id || 'clone'));
     try {
       const response = await saveStrategyPreset(payload);

@@ -40,6 +40,7 @@ from routes.reports_domain import handle_reports_explain, handle_reports_index
 from routes.scanner import handle_scanner_status
 from routes.signals import handle_signal_detail, handle_signal_snapshots, handle_signals_rank
 from routes.strategies import (
+    handle_strategy_metadata,
     handle_strategies_list,
     handle_strategy_delete,
     handle_strategy_detail,
@@ -120,6 +121,7 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/research/snapshots/latest", lambda _path, query: handle_research_latest_snapshot(query)),
     Route("/api/research/snapshots", lambda _path, query: handle_research_snapshots(query)),
     Route("/api/strategies", lambda _path, query: handle_strategies_list(query)),
+    Route("/api/strategies/metadata", lambda _path, _query: handle_strategy_metadata()),
     Route("/api/strategies/", lambda path, _query: handle_strategy_detail(path), prefix=True),
     Route("/api/scanner/status", lambda _path, query: handle_scanner_status(query)),
     Route("/api/universe", lambda _path, query: handle_universe_list(query)),

@@ -44,6 +44,8 @@ def _install_server_route_stubs() -> list[str]:
         "routes.research": {
             "handle_research_ingest_bulk": lambda payload: (200, {"payload": payload}),
             "handle_research_latest_snapshot": lambda query: (200, {"query": query}),
+            "handle_research_scanner_enrich_targets": lambda query: (200, {"query": query}),
+            "handle_research_scanner_targets": lambda query: (200, {"query": query}),
             "handle_research_status": lambda query: (200, {"query": query}),
             "handle_research_snapshots": lambda query: (200, {"query": query}),
         },
@@ -68,8 +70,10 @@ def _install_server_route_stubs() -> list[str]:
             "handle_signals_rank": lambda query: (200, {"query": query}),
         },
         "routes.strategies": {
+            "handle_strategy_metadata": lambda: (200, {"ok": True}),
             "handle_strategies_list": lambda query: (200, {"query": query}),
             "handle_strategy_detail": lambda path: (200, {"path": path}),
+            "handle_strategy_delete": lambda payload: (200, {"payload": payload}),
             "handle_strategy_toggle": lambda payload: (200, {"payload": payload}),
             "handle_strategy_save": lambda payload: (200, {"payload": payload}),
         },
@@ -209,6 +213,13 @@ class ApiServerDispatchTests(unittest.TestCase):
 
         self.assertEqual((200, {"status": "started"}), result)
         mock_handler.assert_called_once_with(payload)
+
+    def test_dispatch_get_routes_strategy_metadata(self):
+        with patch("server.handle_strategy_metadata", return_value=(200, {"ok": True, "available_strategies": []})) as mock_handler:
+            result = dispatch_get("/api/strategies/metadata", {})
+
+        self.assertEqual((200, {"ok": True, "available_strategies": []}), result)
+        mock_handler.assert_called_once_with()
 
     def test_dispatch_post_routes_research_ingest_bulk(self):
         with patch("server.handle_research_ingest_bulk", return_value=(200, {"accepted": 1})) as mock_handler:

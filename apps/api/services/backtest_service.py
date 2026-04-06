@@ -17,6 +17,7 @@ from analyzer.shared_strategy import (
     default_strategy_profile,
     serialize_strategy_profiles,
 )
+from schemas.strategy_metadata import portfolio_defaults
 from config.settings import REPORT_OUTPUT_DIR
 
 _OPTIMIZED_PARAMS_PATH = Path(__file__).resolve().parent.parent / "config" / "optimized_params.json"
@@ -47,6 +48,16 @@ class BacktestService:
         )
 
     def parse_config(self, query: dict[str, list[str]]) -> BacktestConfig:
+        def _parse_json(name: str) -> dict[str, object]:
+            raw = (query.get(name, ["{}"])[0] or "{}").strip()
+            if not raw:
+                return {}
+            try:
+                parsed = json.loads(raw)
+                return parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+
         market_scope = (query.get("market_scope", ["kospi"])[0] or "kospi").strip().lower()
         if market_scope == "all":
             markets = ("KOSPI", "NASDAQ")
@@ -66,6 +77,19 @@ class BacktestService:
             initial_default = 10_000_000.0
             initial_minimum = 1_000_000.0
             initial_maximum = 500_000_000.0
+
+        strategy_kind = (query.get("strategy_kind", ["trend_following"])[0] or "trend_following").strip().lower()
+        if strategy_kind not in {"trend_following", "mean_reversion", "defensive"}:
+            strategy_kind = "trend_following"
+        regime_mode = (query.get("regime_mode", ["auto"])[0] or "auto").strip().lower()
+        if regime_mode not in {"auto", "manual"}:
+            regime_mode = "auto"
+        risk_profile = (query.get("risk_profile", ["balanced"])[0] or "balanced").strip().lower()
+        if risk_profile not in {"conservative", "balanced", "aggressive"}:
+            risk_profile = "balanced"
+        strategy_params_payload = _parse_json("strategy_params")
+        portfolio_constraints_payload = _parse_json("portfolio_constraints")
+        portfolio_defaults_payload = portfolio_defaults(market_scope)
 
         def _parse_int(name: str, default: int, minimum: int, maximum: int) -> int:
             raw = query.get(name, [str(default)])[0]
@@ -103,50 +127,57 @@ class BacktestService:
 
         market_profiles = []
         for market in markets:
-            default_profile = default_strategy_profile(market)
+            default_profile = default_strategy_profile(
+                market,
+                strategy_kind=strategy_kind,
+                risk_profile=risk_profile,
+                regime_mode=regime_mode,
+            )
+            portfolio_initial_cash = portfolio_constraints_payload.get("initial_cash", portfolio_defaults_payload.get("initial_cash", initial_default))
+            portfolio_max_positions = portfolio_constraints_payload.get("max_positions", query.get("max_positions", [default_profile.max_positions])[0])
+            portfolio_holding_days = portfolio_constraints_payload.get("max_holding_days", query.get("max_holding_days", [default_profile.max_holding_days])[0])
+            param_stop_loss = strategy_params_payload.get("stop_loss_pct", query.get("stop_loss_pct", [default_profile.stop_loss_pct])[0] if "stop_loss_pct" in query or default_profile.stop_loss_pct is not None else None)
+            param_take_profit = strategy_params_payload.get("take_profit_pct", query.get("take_profit_pct", [default_profile.take_profit_pct])[0] if "take_profit_pct" in query or default_profile.take_profit_pct is not None else None)
             market_profiles.append(
                 build_strategy_profile(
                     market,
-                    max_positions=_parse_int("max_positions", default_profile.max_positions, 1, 20),
-                    max_holding_days=_parse_int("max_holding_days", default_profile.max_holding_days, 5, 180),
-                    rsi_min=_parse_float("rsi_min", default_profile.rsi_min, 10.0, 90.0),
-                    rsi_max=_parse_float("rsi_max", default_profile.rsi_max, 10.0, 90.0),
-                    volume_ratio_min=_parse_float("volume_ratio_min", default_profile.volume_ratio_min, 0.5, 5.0),
+                    strategy_kind=strategy_kind,
+                    risk_profile=risk_profile,
+                    regime_mode=regime_mode,
+                    max_positions=max(1, min(20, int(float(portfolio_max_positions)))),
+                    max_holding_days=max(1, min(180, int(float(portfolio_holding_days)))),
+                    rsi_min=_parse_float("rsi_min", float(strategy_params_payload.get("rsi_min", default_profile.rsi_min)), 10.0, 90.0),
+                    rsi_max=_parse_float("rsi_max", float(strategy_params_payload.get("rsi_max", default_profile.rsi_max)), 10.0, 90.0),
+                    volume_ratio_min=_parse_float("volume_ratio_min", float(strategy_params_payload.get("volume_ratio_min", default_profile.volume_ratio_min)), 0.5, 5.0),
                     stop_loss_pct=(
-                        _parse_optional_float("stop_loss_pct", 1.0, 50.0)
-                        if "stop_loss_pct" in query else default_profile.stop_loss_pct
+                        None if param_stop_loss in (None, "") else max(1.0, min(50.0, float(param_stop_loss)))
                     ),
                     take_profit_pct=(
-                        _parse_optional_float("take_profit_pct", 1.0, 100.0)
-                        if "take_profit_pct" in query else default_profile.take_profit_pct
+                        None if param_take_profit in (None, "") else max(1.0, min(100.0, float(param_take_profit)))
                     ),
                     adx_min=(
-                        _parse_optional_float("adx_min", 5.0, 40.0)
-                        if "adx_min" in query else default_profile.adx_min
+                        strategy_params_payload.get("adx_min", _parse_optional_float("adx_min", 5.0, 40.0) if "adx_min" in query else default_profile.adx_min)
                     ),
                     mfi_min=(
-                        _parse_optional_float("mfi_min", 0.0, 100.0)
-                        if "mfi_min" in query else default_profile.mfi_min
+                        strategy_params_payload.get("mfi_min", _parse_optional_float("mfi_min", 0.0, 100.0) if "mfi_min" in query else default_profile.mfi_min)
                     ),
                     mfi_max=(
-                        _parse_optional_float("mfi_max", 0.0, 100.0)
-                        if "mfi_max" in query else default_profile.mfi_max
+                        strategy_params_payload.get("mfi_max", _parse_optional_float("mfi_max", 0.0, 100.0) if "mfi_max" in query else default_profile.mfi_max)
                     ),
                     bb_pct_min=(
-                        _parse_optional_float("bb_pct_min", 0.0, 1.0)
-                        if "bb_pct_min" in query else default_profile.bb_pct_min
+                        strategy_params_payload.get("bb_pct_min", _parse_optional_float("bb_pct_min", 0.0, 1.0) if "bb_pct_min" in query else default_profile.bb_pct_min)
                     ),
                     bb_pct_max=(
-                        _parse_optional_float("bb_pct_max", 0.0, 1.0)
-                        if "bb_pct_max" in query else default_profile.bb_pct_max
+                        strategy_params_payload.get("bb_pct_max", _parse_optional_float("bb_pct_max", 0.0, 1.0) if "bb_pct_max" in query else default_profile.bb_pct_max)
                     ),
                     stoch_k_min=(
-                        _parse_optional_float("stoch_k_min", 0.0, 100.0)
-                        if "stoch_k_min" in query else default_profile.stoch_k_min
+                        strategy_params_payload.get("stoch_k_min", _parse_optional_float("stoch_k_min", 0.0, 100.0) if "stoch_k_min" in query else default_profile.stoch_k_min)
                     ),
                     stoch_k_max=(
-                        _parse_optional_float("stoch_k_max", 0.0, 100.0)
-                        if "stoch_k_max" in query else default_profile.stoch_k_max
+                        strategy_params_payload.get("stoch_k_max", _parse_optional_float("stoch_k_max", 0.0, 100.0) if "stoch_k_max" in query else default_profile.stoch_k_max)
+                    ),
+                    trade_suppression_threshold=(
+                        strategy_params_payload.get("trade_suppression_threshold", default_profile.trade_suppression_threshold)
                     ),
                 )
             )
@@ -169,13 +200,43 @@ class BacktestService:
         )
 
         return BacktestConfig(
-            initial_cash=_parse_float("initial_cash", initial_default, initial_minimum, initial_maximum),
+            initial_cash=max(
+                initial_minimum,
+                min(
+                    initial_maximum,
+                    float(portfolio_constraints_payload.get("initial_cash", _parse_float("initial_cash", initial_default, initial_minimum, initial_maximum))),
+                ),
+            ),
             base_currency=base_currency,
             max_positions=primary_profile.max_positions,
             max_holding_days=primary_profile.max_holding_days,
             lookback_days=_parse_int("lookback_days", 1095, 180, 1825),
             markets=markets,
             selected_symbols=selected_symbols,
+            strategy_kind=strategy_kind,
+            regime_mode=regime_mode,
+            risk_profile=risk_profile,
+            portfolio_constraints={
+                "market_scope": market_scope,
+                "initial_cash": float(portfolio_constraints_payload.get("initial_cash", _parse_float("initial_cash", initial_default, initial_minimum, initial_maximum))),
+                "max_positions": primary_profile.max_positions,
+                "max_holding_days": primary_profile.max_holding_days,
+            },
+            strategy_params={
+                "rsi_min": primary_profile.rsi_min,
+                "rsi_max": primary_profile.rsi_max,
+                "volume_ratio_min": primary_profile.volume_ratio_min,
+                "stop_loss_pct": primary_profile.stop_loss_pct,
+                "take_profit_pct": primary_profile.take_profit_pct,
+                "adx_min": primary_profile.adx_min,
+                "mfi_min": primary_profile.mfi_min,
+                "mfi_max": primary_profile.mfi_max,
+                "bb_pct_min": primary_profile.bb_pct_min,
+                "bb_pct_max": primary_profile.bb_pct_max,
+                "stoch_k_min": primary_profile.stoch_k_min,
+                "stoch_k_max": primary_profile.stoch_k_max,
+                "trade_suppression_threshold": primary_profile.trade_suppression_threshold,
+            },
             rsi_min=primary_profile.rsi_min,
             rsi_max=primary_profile.rsi_max,
             volume_ratio_min=primary_profile.volume_ratio_min,
@@ -222,9 +283,28 @@ class BacktestService:
         return max(minimum, min(maximum, value))
 
     def _build_optimization_payload(self, query: dict[str, list[str]]) -> dict[str, object]:
+        strategy_params = {}
+        raw_strategy_params = self._coerce_query_str(query, "strategy_params", "{}")
+        try:
+            parsed = json.loads(raw_strategy_params) if raw_strategy_params else {}
+            strategy_params = parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            strategy_params = {}
+        portfolio_constraints = {}
+        raw_portfolio_constraints = self._coerce_query_str(query, "portfolio_constraints", "{}")
+        try:
+            parsed = json.loads(raw_portfolio_constraints) if raw_portfolio_constraints else {}
+            portfolio_constraints = parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            portfolio_constraints = {}
         query_payload = {
             "market_scope": self._coerce_query_str(query, "market_scope", "kospi"),
             "lookback_days": self._coerce_query_int(query, "lookback_days", 1095, 180),
+            "strategy_kind": self._coerce_query_str(query, "strategy_kind", "trend_following"),
+            "regime_mode": self._coerce_query_str(query, "regime_mode", "auto"),
+            "risk_profile": self._coerce_query_str(query, "risk_profile", "balanced"),
+            "portfolio_constraints": portfolio_constraints,
+            "strategy_params": strategy_params,
         }
         settings_payload = {
             "trainingDays": self._coerce_query_int(query, "training_days", 180, 30),

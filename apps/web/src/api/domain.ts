@@ -19,6 +19,7 @@ import type {
   ScannerStatusResponse,
   SignalsRankResponse,
   StrategiesResponse,
+  StrategiesMetadataResponse,
   TodayPicksResponse,
   UniverseResponse,
   ValidationDiagnosticsResponse,
@@ -43,6 +44,11 @@ function buildValidationQueryParams(query?: BacktestQuery, settings?: Validation
   if (query) {
     params.set('market_scope', query.market_scope);
     params.set('lookback_days', String(query.lookback_days));
+    params.set('strategy_kind', query.strategy_kind);
+    params.set('regime_mode', query.regime_mode);
+    params.set('risk_profile', query.risk_profile);
+    params.set('portfolio_constraints', JSON.stringify(query.portfolio_constraints));
+    params.set('strategy_params', JSON.stringify(query.strategy_params));
     params.set('initial_cash', String(query.initial_cash));
     params.set('max_positions', String(query.max_positions));
     params.set('max_holding_days', String(query.max_holding_days));
@@ -86,6 +92,10 @@ export function fetchSignals(limit = 100) {
 
 export function fetchStrategies() {
   return getJSON<StrategiesResponse>('/api/strategies', { noStore: true });
+}
+
+export function fetchStrategyMetadata() {
+  return getJSON<StrategiesMetadataResponse>('/api/strategies/metadata', { noStore: true });
 }
 
 export function fetchScannerStatus(refresh = false, cacheOnly = false) {

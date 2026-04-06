@@ -150,7 +150,7 @@ def scan_strategy(
             return previous
 
     market = str(strategy.get("market") or "KOSPI").upper()
-    if str(strategy.get("approval_status") or "") != "approved" or not bool(strategy.get("enabled")):
+    if not bool(strategy.get("enabled")):
         snapshot = {
             "strategy_id": strategy_id,
             "strategy_name": strategy.get("name"),
@@ -268,14 +268,14 @@ def scan_strategy(
             "ev_metrics": {
                 "expected_value": round((score - 48.0) / 12.0, 2),
                 "win_probability": round(min(0.92, max(0.38, confidence / 100.0)), 4),
-                "reliability": "high" if strategy.get("approval_status") == "approved" else "medium",
+                "reliability": "high" if bool(strategy.get("enabled")) else "medium",
             },
             "validation_snapshot": {
                 "validation_source": "strategy_registry",
                 "validation_trades": 0,
                 "trade_count": 0,
                 "validation_sharpe": None,
-                "strategy_reliability": "approved" if strategy.get("approval_status") == "approved" else strategy.get("approval_status"),
+                "strategy_reliability": "approved" if bool(strategy.get("enabled")) else "draft",
             },
             "execution_realism": {
                 "liquidity_gate_status": "pending",

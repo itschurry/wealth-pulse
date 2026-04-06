@@ -55,7 +55,7 @@ class OptimizationRouteTests(unittest.TestCase):
                 return 0
 
         payload = {
-            "query": {"market_scope": "nasdaq", "lookback_days": 1095, "stop_loss_pct": 5.0},
+            "query": {"market_scope": "nasdaq", "lookback_days": 1095, "stop_loss_pct": 5.0, "strategy_kind": "trend_following"},
             "settings": {"trainingDays": 180, "validationDays": 60, "objective": "안정성 우선"},
         }
 
@@ -112,7 +112,7 @@ class OptimizationRouteTests(unittest.TestCase):
                  patch.object(route, "finalize_optimizer_search_handoff", return_value={"ok": True}), \
                  patch.object(route.threading, "Thread", _ImmediateThread), \
                  patch.object(route.subprocess, "Popen", _FakePopen):
-                status, response = route.handle_run_optimization({"query": {}, "settings": {}})
+                status, response = route.handle_run_optimization({"query": {"strategy_kind": "trend_following"}, "settings": {}})
 
         self.assertEqual(200, status)
         self.assertEqual("started", response["status"])
@@ -153,7 +153,7 @@ class OptimizationRouteTests(unittest.TestCase):
                  patch.object(route, "finalize_optimizer_search_handoff", return_value={"ok": True}), \
                  patch.object(route.threading, "Thread", _ImmediateThread), \
                  patch.object(route.subprocess, "Popen", _FakePopen):
-                status, response = route.handle_run_optimization({"query": {}, "settings": {}})
+                status, response = route.handle_run_optimization({"query": {"strategy_kind": "trend_following"}, "settings": {}})
 
         self.assertEqual(200, status)
         self.assertEqual("started", response["status"])
@@ -173,6 +173,13 @@ class OptimizationRouteTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual("already_running", response["status"])
         mock_register.assert_not_called()
+
+    def test_run_optimization_requires_strategy_kind(self):
+        status, response = route.handle_run_optimization({"query": {"market_scope": "kospi"}, "settings": {}})
+
+        self.assertEqual(400, status)
+        self.assertEqual("invalid_request", response["status"])
+        self.assertIn("strategy_kind is required", response["error"])
 
 
 if __name__ == "__main__":

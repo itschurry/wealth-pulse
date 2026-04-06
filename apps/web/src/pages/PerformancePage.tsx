@@ -99,7 +99,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
                     <tr key={item.strategy_id} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12, fontSize: 12 }}>
                         <div style={{ fontWeight: 700 }}>{item.name || item.strategy_id}</div>
-                        <div className="signal-cell-copy">{item.strategy_id}</div>
+                        <div className="signal-cell-copy">{item.strategy_kind || item.strategy_id}</div>
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>{item.approval_status || '-'}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(item.backtest_return_pct, 1, true)}</td>
@@ -123,7 +123,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
                   <div className="responsive-card-head">
                     <div>
                       <div className="responsive-card-title">{item.name || item.strategy_id}</div>
-                      <div className="signal-cell-copy">{item.strategy_id}</div>
+                      <div className="signal-cell-copy">{item.strategy_kind || item.strategy_id}</div>
                     </div>
                     <div className="inline-badge">{item.approval_status || '-'}</div>
                   </div>

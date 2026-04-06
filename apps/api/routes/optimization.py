@@ -20,6 +20,7 @@ _optimization_running = False
 _OPT_RUNNING_FLAG = Path("/tmp/optimization_running")
 _LOG_PATH = Path("/tmp/optimization.log")
 _OPTIMIZER_MAX_RUNTIME_SECONDS = 3900
+_ALLOWED_STRATEGY_KINDS = {"trend_following", "mean_reversion", "defensive"}
 
 
 def _optimizer_script_path() -> Path:
@@ -144,7 +145,61 @@ def _build_optimizer_command(payload: dict[str, Any] | None) -> list[str]:
     elif market_scope == "nasdaq":
         command.extend(["--market", "NASDAQ"])
 
+    strategy_kind = str(query.get("strategy_kind") or "").strip().lower()
+    if strategy_kind:
+        command.extend(["--strategy-kind", strategy_kind])
+
     return command
+
+
+def _build_aggregate_robust_zone(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    per_symbol = payload.get("per_symbol") if isinstance(payload.get("per_symbol"), dict) else {}
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    search_context = meta.get("search_context") if isinstance(meta.get("search_context"), dict) else {}
+    target_strategy_kind = str(search_context.get("strategy_kind") or "").strip().lower()
+    global_params = payload.get("global_params") if isinstance(payload.get("global_params"), dict) else {}
+
+    bands_by_key: dict[str, list[dict[str, Any]]] = {}
+    for row in per_symbol.values():
+        if not isinstance(row, dict):
+            continue
+        if target_strategy_kind and str(row.get("strategy_kind") or "").strip().lower() != target_strategy_kind:
+            continue
+        robust_zone = row.get("robust_zone") if isinstance(row.get("robust_zone"), dict) else {}
+        parameter_bands = robust_zone.get("parameter_bands") if isinstance(robust_zone.get("parameter_bands"), dict) else {}
+        for key, band in parameter_bands.items():
+            if isinstance(band, dict):
+                bands_by_key.setdefault(str(key), []).append(band)
+
+    if not bands_by_key:
+        return None
+
+    aggregate_parameter_bands: dict[str, dict[str, Any]] = {}
+    for key, band_rows in bands_by_key.items():
+        mins = [float(item["min"]) for item in band_rows if item.get("min") is not None]
+        maxs = [float(item["max"]) for item in band_rows if item.get("max") is not None]
+        if not mins or not maxs:
+            continue
+        intersection_min = max(mins)
+        intersection_max = min(maxs)
+        aggregate_parameter_bands[key] = {
+            "label": next((item.get("label") for item in band_rows if item.get("label")), key),
+            "selected": global_params.get(key, next((item.get("selected") for item in band_rows if item.get("selected") is not None), None)),
+            "min": round(intersection_min if intersection_min <= intersection_max else min(mins), 4),
+            "max": round(intersection_max if intersection_min <= intersection_max else max(maxs), 4),
+            "sample_count": len(band_rows),
+        }
+
+    if not aggregate_parameter_bands:
+        return None
+
+    return {
+        "label": "optimizer_aggregate_robust_zone",
+        "summary": "전략별 optimizer 결과에서 공통으로 겹치는 안정 구간을 집계했습니다.",
+        "parameter_bands": aggregate_parameter_bands,
+    }
 
 
 def handle_get_optimized_params() -> tuple[int, dict]:
@@ -153,7 +208,11 @@ def handle_get_optimized_params() -> tuple[int, dict]:
         data = load_search_optimized_params()
         if data is None:
             return 200, {"status": "not_optimized", "message": "최적화 미실행 또는 파일 없음"}
-        return 200, {"status": "ok", **data}
+        aggregate_robust_zone = _build_aggregate_robust_zone(data)
+        response = {"status": "ok", **data}
+        if aggregate_robust_zone:
+            response["aggregate_robust_zone"] = aggregate_robust_zone
+        return 200, response
     except Exception as exc:
         return 500, {"error": str(exc)}
 
@@ -171,6 +230,16 @@ def handle_run_optimization(payload: dict[str, Any] | None = None) -> tuple[int,
         if _reconcile_running_state():
             return 200, {"status": "already_running"}
         _optimization_running = True
+
+    query = payload.get("query") if isinstance(payload, dict) and isinstance(payload.get("query"), dict) else {}
+    strategy_kind = str(query.get("strategy_kind") or "").strip().lower()
+    if strategy_kind not in _ALLOWED_STRATEGY_KINDS:
+        with _optimization_lock:
+            _optimization_running = False
+        return 400, {
+            "status": "invalid_request",
+            "error": "strategy_kind is required and must be one of trend_following, mean_reversion, defensive",
+        }
 
     register_optimizer_search_handoff(payload)
     command = _build_optimizer_command(payload)

@@ -17,6 +17,12 @@ if "loguru" not in sys.modules:
         logger=types.SimpleNamespace(debug=lambda *a, **k: None, info=lambda *a, **k: None, warning=lambda *a, **k: None)
     )
 
+if "config.settings" not in sys.modules:
+    settings_stub = types.ModuleType("config.settings")
+    settings_stub.LOGS_DIR = Path(tempfile.gettempdir()) / "daily-market-brief-test-logs"
+    settings_stub.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    sys.modules["config.settings"] = settings_stub
+
 from analyzer.monte_carlo import OptimizationResult, SimulationConfig, _compute_score_components
 from scripts.run_monte_carlo_optimizer import _compute_global_params, _save_results, _write_text_atomic, build_stage1_param_grid
 
@@ -69,6 +75,7 @@ class OptimizerPipelineRegressionTests(unittest.TestCase):
         self.assertTrue(aaa["is_reliable"])
         self.assertIn("score_components", aaa)
         self.assertIn("tail_risk", aaa)
+        self.assertIn("robust_zone", aaa)
 
         bbb = saved["per_symbol"]["BBB"]
         self.assertEqual(2.0, bbb["stop_loss_pct"])
@@ -165,6 +172,20 @@ class OptimizerPipelineRegressionTests(unittest.TestCase):
         self.assertEqual([0.92], grid.bb_pct_max)
         self.assertEqual([12.0], grid.stoch_k_min)
         self.assertEqual([88.0], grid.stoch_k_max)
+
+    def test_stage1_param_grid_switches_focus_for_mean_reversion(self):
+        grid = build_stage1_param_grid({
+            "strategy_kind": "mean_reversion",
+            "rsi_min": 18,
+            "rsi_max": 42,
+            "bb_pct_max": 0.18,
+            "stoch_k_max": 24,
+        }, strategy_kind="mean_reversion")
+
+        self.assertGreater(len(grid.rsi_min), 1)
+        self.assertGreater(len(grid.rsi_max), 1)
+        self.assertGreater(len(grid.bb_pct_max), 1)
+        self.assertGreater(len(grid.stoch_k_max), 1)
 
     def test_score_components_reflect_objective_profile(self):
         aggressive = {

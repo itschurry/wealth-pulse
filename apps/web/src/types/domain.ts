@@ -205,6 +205,7 @@ export interface SignalsRankResponse {
 
 export interface StrategyRegistryItem {
   strategy_id?: string;
+  strategy_kind?: string;
   name?: string;
   version?: number;
   enabled?: boolean;
@@ -241,6 +242,38 @@ export interface StrategiesResponse {
     enabled?: number;
     counts?: Record<string, number>;
   };
+}
+
+export interface StrategyMetadataField {
+  name?: string;
+  label?: string;
+  type?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: string[];
+}
+
+export interface StrategyMetadataItem {
+  strategy_kind?: string;
+  label?: string;
+  description?: string;
+  regimes?: string[];
+  editable_fields?: StrategyMetadataField[];
+  defaults_by_market?: Record<string, Record<string, unknown>>;
+  defaults_by_market_and_risk?: Record<string, Record<string, Record<string, unknown>>>;
+  hidden_params?: string[];
+  deprecated_params?: string[];
+}
+
+export interface StrategiesMetadataResponse {
+  ok?: boolean;
+  regime_modes?: Array<{ value?: string; label?: string; description?: string }>;
+  risk_profiles?: Array<{ value?: string; label?: string; description?: string }>;
+  portfolio_fields?: StrategyMetadataField[];
+  portfolio_defaults?: Record<string, Record<string, unknown>>;
+  available_strategies?: StrategyMetadataItem[];
+  default_request?: Record<string, unknown>;
 }
 
 export interface ScannerCandidate extends DomainSignal {
@@ -365,6 +398,7 @@ export interface PerformanceSummaryResponse {
   ok?: boolean;
   research?: Array<{
     strategy_id?: string;
+    strategy_kind?: string;
     name?: string;
     approval_status?: string;
     enabled?: boolean;

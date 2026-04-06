@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import LOGS_DIR
+from schemas.strategy_metadata import portfolio_defaults, strategy_defaults
 from services.signal_service import normalize_runtime_candidate_source_mode
 
 
@@ -14,9 +15,14 @@ BACKTEST_VALIDATION_SETTINGS_PATH = LOGS_DIR / "backtest_validation_settings.jso
 _DEFAULT_QUERY: dict[str, Any] = {
     "market_scope": "kospi",
     "lookback_days": 1095,
+    "strategy_kind": "trend_following",
+    "regime_mode": "auto",
+    "risk_profile": "balanced",
     "initial_cash": 10_000_000,
     "max_positions": 5,
     "max_holding_days": 15,
+    "portfolio_constraints": portfolio_defaults("kospi"),
+    "strategy_params": strategy_defaults("trend_following", market="KOSPI"),
     "rsi_min": 45,
     "rsi_max": 62,
     "volume_ratio_min": 1.0,
@@ -108,12 +114,49 @@ def _normalize_query(raw: dict[str, Any] | None) -> dict[str, Any]:
     market_scope = str(raw.get("market_scope") or _DEFAULT_QUERY["market_scope"]).lower()
     if market_scope not in {"kospi", "nasdaq", "all"}:
         market_scope = str(_DEFAULT_QUERY["market_scope"])
+    strategy_kind = str(raw.get("strategy_kind") or _DEFAULT_QUERY["strategy_kind"]).lower()
+    if strategy_kind not in {"trend_following", "mean_reversion", "defensive"}:
+        strategy_kind = str(_DEFAULT_QUERY["strategy_kind"])
+    regime_mode = str(raw.get("regime_mode") or _DEFAULT_QUERY["regime_mode"]).lower()
+    if regime_mode not in {"auto", "manual"}:
+        regime_mode = str(_DEFAULT_QUERY["regime_mode"])
+    risk_profile = str(raw.get("risk_profile") or _DEFAULT_QUERY["risk_profile"]).lower()
+    if risk_profile not in {"conservative", "balanced", "aggressive"}:
+        risk_profile = str(_DEFAULT_QUERY["risk_profile"])
+    portfolio_raw = raw.get("portfolio_constraints") if isinstance(raw.get("portfolio_constraints"), dict) else {}
+    strategy_params_raw = raw.get("strategy_params") if isinstance(raw.get("strategy_params"), dict) else {}
+    default_portfolio = portfolio_defaults(market_scope)
+    default_params = strategy_defaults(strategy_kind, market="NASDAQ" if market_scope == "nasdaq" else "KOSPI", risk_profile=risk_profile)
     return {
         "market_scope": market_scope,
+        "strategy_kind": strategy_kind,
+        "regime_mode": regime_mode,
+        "risk_profile": risk_profile,
         "lookback_days": _to_int(raw.get("lookback_days"), int(_DEFAULT_QUERY["lookback_days"]), minimum=180),
         "initial_cash": _to_int(raw.get("initial_cash"), int(_DEFAULT_QUERY["initial_cash"]), minimum=1),
         "max_positions": _to_int(raw.get("max_positions"), int(_DEFAULT_QUERY["max_positions"]), minimum=1),
         "max_holding_days": _to_int(raw.get("max_holding_days"), int(_DEFAULT_QUERY["max_holding_days"]), minimum=1),
+        "portfolio_constraints": {
+            "market_scope": market_scope,
+            "initial_cash": _to_int(portfolio_raw.get("initial_cash"), int(default_portfolio["initial_cash"]), minimum=1),
+            "max_positions": _to_int(portfolio_raw.get("max_positions"), int(default_portfolio["max_positions"]), minimum=1),
+            "max_holding_days": _to_int(portfolio_raw.get("max_holding_days"), int(default_portfolio["max_holding_days"]), minimum=1),
+        },
+        "strategy_params": {
+            "rsi_min": _to_float(strategy_params_raw.get("rsi_min"), float(default_params["rsi_min"])),
+            "rsi_max": _to_float(strategy_params_raw.get("rsi_max"), float(default_params["rsi_max"])),
+            "volume_ratio_min": _to_float(strategy_params_raw.get("volume_ratio_min"), float(default_params["volume_ratio_min"]), minimum=0.0),
+            "stop_loss_pct": _to_nullable_float(strategy_params_raw.get("stop_loss_pct"), default_params.get("stop_loss_pct"), minimum=0.0),
+            "take_profit_pct": _to_nullable_float(strategy_params_raw.get("take_profit_pct"), default_params.get("take_profit_pct"), minimum=0.0),
+            "adx_min": _to_nullable_float(strategy_params_raw.get("adx_min"), default_params.get("adx_min"), minimum=0.0),
+            "mfi_min": _to_nullable_float(strategy_params_raw.get("mfi_min"), default_params.get("mfi_min")),
+            "mfi_max": _to_nullable_float(strategy_params_raw.get("mfi_max"), default_params.get("mfi_max")),
+            "bb_pct_min": _to_nullable_float(strategy_params_raw.get("bb_pct_min"), default_params.get("bb_pct_min"), minimum=0.0, maximum=1.0),
+            "bb_pct_max": _to_nullable_float(strategy_params_raw.get("bb_pct_max"), default_params.get("bb_pct_max"), minimum=0.0, maximum=1.0),
+            "stoch_k_min": _to_nullable_float(strategy_params_raw.get("stoch_k_min"), default_params.get("stoch_k_min")),
+            "stoch_k_max": _to_nullable_float(strategy_params_raw.get("stoch_k_max"), default_params.get("stoch_k_max")),
+            "trade_suppression_threshold": _to_nullable_float(strategy_params_raw.get("trade_suppression_threshold"), default_params.get("trade_suppression_threshold"), minimum=0.0),
+        },
         "rsi_min": _to_int(raw.get("rsi_min"), int(_DEFAULT_QUERY["rsi_min"])),
         "rsi_max": _to_int(raw.get("rsi_max"), int(_DEFAULT_QUERY["rsi_max"])),
         "volume_ratio_min": _to_float(raw.get("volume_ratio_min"), float(_DEFAULT_QUERY["volume_ratio_min"]), minimum=0.0),

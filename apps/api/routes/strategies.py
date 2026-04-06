@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from schemas.strategy_metadata import build_strategy_metadata_payload
 from services.strategy_registry import delete_strategy, get_strategy, list_strategies, save_strategy, set_strategy_enabled, summarize_registry
 
 
@@ -14,6 +15,13 @@ def handle_strategies_list(query: dict[str, list[str]]) -> tuple[int, dict]:
             "summary": summarize_registry(),
             "count": len(rows),
         }
+    except Exception as exc:
+        return 500, {"ok": False, "error": str(exc)}
+
+
+def handle_strategy_metadata() -> tuple[int, dict]:
+    try:
+        return 200, build_strategy_metadata_payload()
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
 

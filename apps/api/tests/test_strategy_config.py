@@ -16,8 +16,15 @@ if "config.settings" not in sys.modules:
     settings_stub.REPORT_OUTPUT_DIR = Path("/tmp")
     settings_stub.API_DIR = ROOT
     settings_stub.BASE_DIR = ROOT.parent
+    settings_stub.LOGS_DIR = Path("/tmp")
     sys.modules["config.settings"] = settings_stub
     _INSTALLED_STUBS.append("config.settings")
+
+if "loguru" not in sys.modules:
+    loguru_stub = types.ModuleType("loguru")
+    loguru_stub.logger = types.SimpleNamespace(debug=lambda *a, **k: None, info=lambda *a, **k: None, warning=lambda *a, **k: None, exception=lambda *a, **k: None)
+    sys.modules["loguru"] = loguru_stub
+    _INSTALLED_STUBS.append("loguru")
 
 if "broker.kis_client" not in sys.modules:
     broker_stub = types.ModuleType("broker.kis_client")
@@ -63,7 +70,7 @@ class StrategyConfigTests(unittest.TestCase):
 
         self.assertEqual(len(kospi.market_profiles), 1)
         self.assertEqual(kospi.market_profiles[0].market, "KOSPI")
-        self.assertEqual(kospi.market_profiles[0].volume_ratio_min, 1.0)
+        self.assertEqual(kospi.market_profiles[0].volume_ratio_min, 1.05)
 
         self.assertEqual(len(nasdaq.market_profiles), 1)
         self.assertEqual(nasdaq.market_profiles[0].market, "NASDAQ")

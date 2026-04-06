@@ -111,7 +111,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
     () => items.reduce((sum, item) => sum + Number(item.scanned_symbol_count || 0), 0),
     [items],
   );
-  const activeCount = items.filter((item) => item.enabled && item.approval_status === 'approved').length;
+  const activeCount = items.filter((item) => item.enabled).length;
   const providerHannaState = resolveProviderHannaState(snapshot.research.status, snapshot.research.freshness);
   const overallHannaState = useMemo<HannaState>(() => {
     if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'timeout')) return 'timeout';

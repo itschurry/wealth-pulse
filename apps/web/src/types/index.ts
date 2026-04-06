@@ -433,9 +433,25 @@ export interface BacktestEquityPoint {
   }>;
 }
 
+export type StrategyKind = 'trend_following' | 'mean_reversion' | 'defensive';
+export type RegimeMode = 'auto' | 'manual';
+export type RiskProfile = 'conservative' | 'balanced' | 'aggressive';
+
+export interface PortfolioConstraints {
+  market_scope: 'kospi' | 'nasdaq' | 'all';
+  initial_cash: number;
+  max_positions: number;
+  max_holding_days: number;
+}
+
 export interface BacktestQuery {
   market_scope: 'kospi' | 'nasdaq' | 'all';
   lookback_days: number;
+  strategy_kind: StrategyKind;
+  regime_mode: RegimeMode;
+  risk_profile: RiskProfile;
+  portfolio_constraints: PortfolioConstraints;
+  strategy_params: Record<string, number | string | boolean | null>;
   initial_cash: number;
   max_positions: number;
   max_holding_days: number;
@@ -457,6 +473,62 @@ export interface BacktestData {
   generated_at?: string;
   universe?: string;
   strategy?: string;
+  strategy_kind?: StrategyKind | string;
+  resolved_strategy_kind?: StrategyKind | 'regime_selected' | string;
+  regime_mode?: RegimeMode | string;
+  resolved_regime?: string;
+  risk_profile?: RiskProfile | string;
+  portfolio_constraints?: PortfolioConstraints;
+  strategy_params?: Record<string, unknown>;
+  execution_summary?: {
+    strategy_kind?: StrategyKind | string;
+    regime_mode?: RegimeMode | string;
+    resolved_strategy_kind?: StrategyKind | string;
+    resolved_regime?: string;
+    risk_profile?: RiskProfile | string;
+    test_period_days?: number;
+    markets?: string[];
+    strategy_mix?: Array<{ value?: string; count?: number; share_pct?: number }>;
+    regime_mix?: Array<{ value?: string; count?: number; share_pct?: number }>;
+    selected_strategies_by_regime?: Array<{
+      regime?: string;
+      resolved_strategy_kind?: string;
+      trade_count?: number;
+      strategy_mix?: Array<{ value?: string; count?: number; share_pct?: number }>;
+    }>;
+  };
+  performance_summary?: {
+    cagr_pct?: number;
+    max_drawdown_pct?: number;
+    win_rate_pct?: number;
+    profit_factor?: number;
+    trade_count?: number;
+  };
+  parameter_band?: {
+    label?: string;
+    summary?: string;
+    parameter_bands?: Record<string, {
+      label?: string;
+      selected?: unknown;
+      min?: number;
+      max?: number;
+      step?: number;
+      candidates?: number[];
+    }>;
+  };
+  regime_breakdown?: Array<{
+    regime?: string;
+    trade_count?: number;
+    win_rate_pct?: number;
+    avg_return_pct?: number;
+    profit_factor?: number;
+    strategy_kinds?: string[];
+  }>;
+  failure_modes?: Array<{
+    reason?: string;
+    count?: number;
+    avg_pnl_pct?: number;
+  }>;
   scorecard?: {
     composite_score?: number;
     components?: Record<string, number>;
@@ -471,6 +543,11 @@ export interface BacktestData {
     max_holding_days?: number;
     lookback_days?: number;
     markets?: string[];
+    strategy_kind?: StrategyKind | string;
+    regime_mode?: RegimeMode | string;
+    risk_profile?: RiskProfile | string;
+    portfolio_constraints?: PortfolioConstraints;
+    strategy_params?: Record<string, unknown>;
     rsi_min?: number;
     rsi_max?: number;
     volume_ratio_min?: number;

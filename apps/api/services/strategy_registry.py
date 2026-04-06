@@ -21,6 +21,10 @@ _UNIVERSE_RULE_ALIASES = {
 }
 
 
+def _derived_approval_status(enabled: bool) -> str:
+    return "approved" if enabled else "draft"
+
+
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -42,17 +46,18 @@ def _risk_limits(market: str, *, max_positions: int, position_size_pct: float, d
 
 _DEFAULT_STRATEGIES: list[dict[str, Any]] = [
     {
-        "strategy_id": "kr_momentum_v1",
-        "name": "KR Momentum v1",
+        "strategy_id": "trend_following",
+        "strategy_kind": "trend_following",
+        "name": "Trend Following",
         "enabled": True,
         "approval_status": "approved",
         "market": "KOSPI",
         "universe_rule": "kospi",
         "scan_cycle": "5m",
-        "entry_rule": "close > sma20 > sma60 and volume_ratio >= 1.0 and 38 <= rsi14 <= 62",
-        "exit_rule": "close < sma20 or stop_loss_pct or max_holding_days",
+        "entry_rule": "bull regime -> trend alignment, volume confirmation, positive momentum",
+        "exit_rule": "trend breakdown or risk stop",
         "params": {
-            **serialize_strategy_profile(default_strategy_profile("KOSPI")),
+            **serialize_strategy_profile(default_strategy_profile("KOSPI", strategy_kind="trend_following", risk_profile="balanced")),
             "scan_limit": 30,
             "candidate_top_n": 8,
         },
@@ -68,55 +73,57 @@ _DEFAULT_STRATEGIES: list[dict[str, Any]] = [
         },
     },
     {
-        "strategy_id": "us_breakout_v2",
-        "name": "US Breakout v2",
+        "strategy_id": "mean_reversion",
+        "strategy_kind": "mean_reversion",
+        "name": "Mean Reversion",
+        "enabled": True,
+        "approval_status": "approved",
+        "market": "KOSPI",
+        "universe_rule": "kospi",
+        "scan_cycle": "10m",
+        "entry_rule": "sideways regime -> oversold rebound, lower band, early reversal",
+        "exit_rule": "mean reversion complete or defensive stop",
+        "params": {
+            **serialize_strategy_profile(default_strategy_profile("KOSPI", strategy_kind="mean_reversion", risk_profile="balanced")),
+            "scan_limit": 24,
+            "candidate_top_n": 6,
+        },
+        "risk_limits": _risk_limits("KOSPI", max_positions=4, position_size_pct=0.1, daily_loss_limit_pct=0.015),
+        "approved_at": "2026-03-29T21:10:00+09:00",
+        "version": 2,
+        "research_summary": {
+            "backtest_return_pct": 14.1,
+            "max_drawdown_pct": -7.2,
+            "win_rate_pct": 58.4,
+            "sharpe": 1.22,
+            "walk_forward_return_pct": 8.6,
+        },
+    },
+    {
+        "strategy_id": "defensive",
+        "strategy_kind": "defensive",
+        "name": "Defensive",
         "enabled": True,
         "approval_status": "approved",
         "market": "NASDAQ",
         "universe_rule": "sp500",
-        "scan_cycle": "10m",
-        "entry_rule": "close > sma20 > sma60 and macd_hist > 0 and volume_ratio >= 1.2",
-        "exit_rule": "close < sma20 or stop_loss_pct or max_holding_days",
-        "params": {
-            **serialize_strategy_profile(default_strategy_profile("NASDAQ")),
-            "scan_limit": 24,
-            "candidate_top_n": 6,
-        },
-        "risk_limits": _risk_limits("NASDAQ", max_positions=5, position_size_pct=0.15, daily_loss_limit_pct=0.018),
-        "approved_at": "2026-03-29T21:10:00+09:00",
-        "version": 2,
-        "research_summary": {
-            "backtest_return_pct": 22.9,
-            "max_drawdown_pct": -10.6,
-            "win_rate_pct": 49.6,
-            "sharpe": 1.48,
-            "walk_forward_return_pct": 11.2,
-        },
-    },
-    {
-        "strategy_id": "kr_event_watch_v1",
-        "name": "KR Event Watch v1",
-        "enabled": False,
-        "approval_status": "testing",
-        "market": "KOSPI",
-        "universe_rule": "kospi",
         "scan_cycle": "15m",
-        "entry_rule": "event-sensitive leaders with breakout confirmation",
-        "exit_rule": "event fade or close < sma20",
+        "entry_rule": "bear or risk_off regime -> selective entry, short hold, strict guardrail",
+        "exit_rule": "protect capital quickly",
         "params": {
-            **serialize_strategy_profile(default_strategy_profile("KOSPI")),
+            **serialize_strategy_profile(default_strategy_profile("NASDAQ", strategy_kind="defensive", risk_profile="balanced")),
             "scan_limit": 20,
             "candidate_top_n": 5,
         },
-        "risk_limits": _risk_limits("KOSPI", max_positions=3, position_size_pct=0.08, daily_loss_limit_pct=0.01),
-        "approved_at": "",
+        "risk_limits": _risk_limits("NASDAQ", max_positions=3, position_size_pct=0.08, daily_loss_limit_pct=0.01),
+        "approved_at": "2026-03-27T10:00:00+09:00",
         "version": 1,
         "research_summary": {
-            "backtest_return_pct": 7.1,
-            "max_drawdown_pct": -12.8,
-            "win_rate_pct": 46.3,
-            "sharpe": 0.74,
-            "walk_forward_return_pct": 1.4,
+            "backtest_return_pct": 8.3,
+            "max_drawdown_pct": -4.9,
+            "win_rate_pct": 62.1,
+            "sharpe": 0.98,
+            "walk_forward_return_pct": 5.1,
         },
     },
 ]
@@ -143,9 +150,8 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
     if not strategy_id:
         raise ValueError("strategy_id is required")
     market = _normalize_market(payload.get("market"))
-    approval_status = str(payload.get("approval_status") or "draft").strip().lower()
-    if approval_status not in _ALLOWED_APPROVAL_STATUS:
-        approval_status = "draft"
+    enabled = bool(payload.get("enabled", False))
+    approval_status = _derived_approval_status(enabled)
     params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
     risk_limits = payload.get("risk_limits") if isinstance(payload.get("risk_limits"), dict) else {}
     research_summary = payload.get("research_summary") if isinstance(payload.get("research_summary"), dict) else {}
@@ -153,8 +159,9 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
     now_iso = _now_iso()
     normalized = {
         "strategy_id": strategy_id,
+        "strategy_kind": str(payload.get("strategy_kind") or strategy_id).strip() or strategy_id,
         "name": str(payload.get("name") or strategy_id).strip(),
-        "enabled": bool(payload.get("enabled", False)),
+        "enabled": enabled,
         "approval_status": approval_status,
         "market": market,
         "universe_rule": _UNIVERSE_RULE_ALIASES.get(
@@ -164,12 +171,20 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
         "scan_cycle": str(payload.get("scan_cycle") or "5m").strip() or "5m",
         "entry_rule": str(payload.get("entry_rule") or "").strip(),
         "exit_rule": str(payload.get("exit_rule") or "").strip(),
-        "params": {**serialize_strategy_profile(default_strategy_profile(market)), **params},
+        "params": {
+            **serialize_strategy_profile(
+                default_strategy_profile(
+                    market,
+                    strategy_kind=str(payload.get("strategy_kind") or strategy_id).strip() or strategy_id,
+                )
+            ),
+            **params,
+        },
         "risk_limits": {
             **_risk_limits(market, max_positions=5, position_size_pct=0.1, daily_loss_limit_pct=0.02),
             **risk_limits,
         },
-        "approved_at": str(payload.get("approved_at") or "").strip(),
+        "approved_at": str(payload.get("approved_at") or (_now_iso() if enabled else "")).strip(),
         "version": max(1, version),
         "research_summary": research_summary,
         "updated_at": str(payload.get("updated_at") or now_iso),
@@ -205,7 +220,7 @@ def list_strategies(*, live_only: bool = False, market: str | None = None) -> li
     for row in rows:
         if normalized_market and row["market"] != normalized_market:
             continue
-        if live_only and not (row.get("enabled") and row.get("approval_status") == "approved"):
+        if live_only and not row.get("enabled"):
             continue
         filtered.append(dict(row))
     filtered.sort(key=lambda item: (not bool(item.get("enabled")), str(item.get("strategy_id") or "")))
@@ -260,13 +275,10 @@ def set_strategy_enabled(strategy_id: str, enabled: bool) -> dict[str, Any]:
     if strategy is None:
         raise KeyError(strategy_id)
     strategy["enabled"] = bool(enabled)
+    strategy["approval_status"] = _derived_approval_status(bool(enabled))
     strategy["updated_at"] = _now_iso()
-    if not strategy["enabled"] and strategy.get("approval_status") == "approved":
-        strategy["approval_status"] = "paused"
-    elif strategy["enabled"] and strategy.get("approval_status") == "paused":
-        strategy["approval_status"] = "approved"
-        if not strategy.get("approved_at"):
-            strategy["approved_at"] = _now_iso()
+    if strategy["enabled"] and not strategy.get("approved_at"):
+        strategy["approved_at"] = _now_iso()
     return save_strategy(strategy)
 
 

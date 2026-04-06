@@ -79,7 +79,7 @@ def _unique_sorted_numbers(values: list[float | int], *, cast_int: bool = False)
     return sorted(cleaned)
 
 
-def build_stage1_param_grid(base_query: dict[str, object] | None = None) -> ParamGrid:
+def build_stage1_param_grid(base_query: dict[str, object] | None = None, strategy_kind: str | None = None) -> ParamGrid:
     baseline = {
         "market_scope": "kospi",
         "lookback_days": 1095,
@@ -102,6 +102,7 @@ def build_stage1_param_grid(base_query: dict[str, object] | None = None) -> Para
     if isinstance(base_query, dict):
         baseline.update({k: v for k, v in base_query.items() if v is not None})
 
+    resolved_strategy_kind = str(strategy_kind or baseline.get("strategy_kind") or "trend_following").strip().lower()
     stop_loss = _coerce_float(baseline.get("stop_loss_pct"), 5.0) or 5.0
     take_profit = _coerce_float(baseline.get("take_profit_pct"), None)
     if take_profit is None:
@@ -127,6 +128,42 @@ def build_stage1_param_grid(base_query: dict[str, object] | None = None) -> Para
         _clamp(holding_days + 5, *_HOLDING_DAYS_RANGE),
     ], cast_int=True)
 
+    if resolved_strategy_kind == "mean_reversion":
+        return ParamGrid(
+            stop_loss_pct=stop_loss_grid,
+            take_profit_pct=take_profit_grid,
+            max_holding_days=holding_grid,
+            rsi_min=_unique_sorted_numbers([float(baseline.get("rsi_min", 20.0)) - 4.0, float(baseline.get("rsi_min", 20.0)), float(baseline.get("rsi_min", 20.0)) + 4.0]),
+            rsi_max=_unique_sorted_numbers([float(baseline.get("rsi_max", 42.0)) - 4.0, float(baseline.get("rsi_max", 42.0)), float(baseline.get("rsi_max", 42.0)) + 4.0]),
+            volume_ratio_min=[round(float(baseline.get("volume_ratio_min", 0.9)), 2)],
+            adx_min=[round(float(adx_min if adx_min is not None else 8.0), 1)],
+            mfi_min=[float(baseline.get("mfi_min", 0.0))],
+            mfi_max=[float(baseline.get("mfi_max", 50.0))],
+            bb_pct_min=[round(float(baseline.get("bb_pct_min", 0.0)), 3)],
+            bb_pct_max=_unique_sorted_numbers([round(float(baseline.get("bb_pct_max", 0.18)) - 0.04, 3), round(float(baseline.get("bb_pct_max", 0.18)), 3), round(float(baseline.get("bb_pct_max", 0.18)) + 0.04, 3)]),
+            stoch_k_min=[float(baseline.get("stoch_k_min", 0.0))],
+            stoch_k_max=_unique_sorted_numbers([float(baseline.get("stoch_k_max", 25.0)) - 5.0, float(baseline.get("stoch_k_max", 25.0)), float(baseline.get("stoch_k_max", 25.0)) + 5.0]),
+        )
+    if resolved_strategy_kind == "defensive":
+        return ParamGrid(
+            stop_loss_pct=stop_loss_grid,
+            take_profit_pct=take_profit_grid,
+            max_holding_days=holding_grid,
+            rsi_min=[float(baseline.get("rsi_min", 45.0))],
+            rsi_max=[float(baseline.get("rsi_max", 62.0))],
+            volume_ratio_min=_unique_sorted_numbers([
+                round(float(baseline.get("volume_ratio_min", 1.2)) - 0.1, 2),
+                round(float(baseline.get("volume_ratio_min", 1.2)), 2),
+                round(float(baseline.get("volume_ratio_min", 1.2)) + 0.1, 2),
+            ]),
+            adx_min=[round(float(adx_min if adx_min is not None else 15.0), 1)],
+            mfi_min=[float(baseline.get("mfi_min", 30.0))],
+            mfi_max=[float(baseline.get("mfi_max", 75.0))],
+            bb_pct_min=[round(float(baseline.get("bb_pct_min", 0.1)), 3)],
+            bb_pct_max=[round(float(baseline.get("bb_pct_max", 0.82)), 3)],
+            stoch_k_min=[float(baseline.get("stoch_k_min", 20.0))],
+            stoch_k_max=[float(baseline.get("stoch_k_max", 80.0))],
+        )
     return ParamGrid(
         stop_loss_pct=stop_loss_grid,
         take_profit_pct=take_profit_grid,
@@ -383,6 +420,7 @@ def _save_results(
         per_symbol[r.symbol] = {
             "name": (name_map or {}).get(r.symbol, r.symbol),
             "market": r.market,
+            "strategy_kind": r.strategy_kind,
             **params,
             "sharpe_ratio": float(round(r.sharpe_ratio, 4)),
             "win_rate": float(round(r.win_rate, 4)),
@@ -398,6 +436,7 @@ def _save_results(
             "composite_score": float(round(r.composite_score, 4)),
             "score_components": r.score_components,
             "tail_risk": r.tail_risk,
+            "robust_zone": r.robust_zone,
         }
 
     optimized_at = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec="seconds")
@@ -524,6 +563,8 @@ def main() -> None:
                         help="탐색 점수카드 목표함수 (예: 수익 우선, 안정성 우선, 수익+안정 균형)")
     parser.add_argument("--base-query-json", type=str, default=None,
                         help="기준 validation query JSON. stage-1 reduced-dimension 탐색의 고정 기준값으로 사용")
+    parser.add_argument("--strategy-kind", type=str, default="trend_following",
+                        help="전략 종류 (trend_following | mean_reversion | defensive)")
     args = parser.parse_args()
 
     symbols = _build_symbol_list(args)
@@ -557,15 +598,22 @@ def main() -> None:
 
     search_context = {
         "market": args.market or "all",
+        "strategy_kind": args.strategy_kind,
         "top_n": args.top_n,
         "symbols": [code for code, _, _ in symbols],
         "lookback_days": sim_config.lookback_days,
         "validation_days": sim_config.validation_days,
         "objective": sim_config.objective,
         "search_strategy": "stage1_reduced_dimension",
-        "optimized_dimensions": ["stop_loss_pct", "take_profit_pct", "max_holding_days"],
+        "optimized_dimensions": (
+            ["rsi_min", "rsi_max", "bb_pct_max", "stoch_k_max", "take_profit_pct", "stop_loss_pct", "max_holding_days"]
+            if args.strategy_kind == "mean_reversion"
+            else ["volume_ratio_min", "stop_loss_pct", "take_profit_pct", "max_holding_days"]
+            if args.strategy_kind == "defensive"
+            else ["stop_loss_pct", "take_profit_pct", "max_holding_days", "volume_ratio_min", "adx_min"]
+        ),
         "fixed_dimensions": [
-            "rsi_min", "rsi_max", "volume_ratio_min", "adx_min", "mfi_min", "mfi_max", "bb_pct_min", "bb_pct_max", "stoch_k_min", "stoch_k_max",
+            "mfi_min", "mfi_max", "bb_pct_min", "bb_pct_max", "stoch_k_min", "stoch_k_max",
         ],
         "base_query": base_query,
     }
@@ -577,7 +625,7 @@ def main() -> None:
     price_data = _collect_price_data(
         sym_pairs, required_days, min_rows=min_rows)
 
-    param_grid = build_stage1_param_grid(base_query)
+    param_grid = build_stage1_param_grid(base_query, strategy_kind=args.strategy_kind)
     logger.info(
         "파라미터 최적화 실행 중... stage-1 reduced-dimension search (SL=%s, TP=%s, HOLD=%s, ADX=%s)",
         param_grid.stop_loss_pct,
@@ -586,7 +634,7 @@ def main() -> None:
         param_grid.adx_min,
     )
     results = run_portfolio_optimization(
-        sym_pairs, price_data, param_grid=param_grid, sim_config=sim_config)
+        sym_pairs, price_data, param_grid=param_grid, sim_config=sim_config, strategy_kind=args.strategy_kind)
 
     if not results:
         _safe_warning("1차 최적화 결과가 없습니다. 완화된 필터로 재시도합니다.")
@@ -602,9 +650,9 @@ def main() -> None:
             "bb_pct_max": 1.0,
             "stoch_k_min": 0.0,
             "stoch_k_max": 100.0,
-        })
+        }, strategy_kind=args.strategy_kind)
         results = run_portfolio_optimization(
-            sym_pairs, price_data, param_grid=relaxed_grid, sim_config=sim_config
+            sym_pairs, price_data, param_grid=relaxed_grid, sim_config=sim_config, strategy_kind=args.strategy_kind
         )
 
     if not results:

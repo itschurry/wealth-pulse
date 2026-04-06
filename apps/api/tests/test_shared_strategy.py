@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from analyzer.shared_strategy import (
     default_strategy_profile,
@@ -15,16 +21,16 @@ class SharedStrategyTests(unittest.TestCase):
         nasdaq = default_strategy_profile("NASDAQ")
         nyse = default_strategy_profile("NYSE")
 
-        self.assertEqual(kospi.max_holding_days, 15)
-        self.assertEqual(kospi.rsi_max, 62.0)
-        self.assertEqual(kospi.volume_ratio_min, 1.0)
+        self.assertEqual(kospi.max_holding_days, 18)
+        self.assertEqual(kospi.rsi_max, 72.0)
+        self.assertEqual(kospi.volume_ratio_min, 1.05)
         self.assertEqual(kospi.stop_loss_pct, 5.0)
         self.assertIsNone(kospi.take_profit_pct)
 
         self.assertEqual(nasdaq.max_holding_days, 30)
-        self.assertEqual(nasdaq.rsi_max, 68.0)
-        self.assertEqual(nasdaq.volume_ratio_min, 1.2)
-        self.assertIsNone(nasdaq.stop_loss_pct)
+        self.assertEqual(nasdaq.rsi_max, 74.0)
+        self.assertEqual(nasdaq.volume_ratio_min, 1.15)
+        self.assertEqual(nasdaq.stop_loss_pct, 6.0)
         self.assertIsNone(nasdaq.take_profit_pct)
 
         self.assertEqual(nyse.market, "NASDAQ")

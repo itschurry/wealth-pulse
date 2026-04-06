@@ -18,6 +18,7 @@ def handle_performance_summary() -> tuple[int, dict]:
             research_rows.append(
                 {
                     "strategy_id": item.get("strategy_id"),
+                    "strategy_kind": item.get("strategy_kind"),
                     "name": item.get("name"),
                     "approval_status": item.get("approval_status"),
                     "enabled": item.get("enabled"),

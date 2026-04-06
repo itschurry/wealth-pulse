@@ -56,6 +56,24 @@ class LiveRuntimeArchitectureTests(unittest.TestCase):
         self.assertTrue(all(item.get("enabled") for item in rows))
         self.assertTrue(all(item.get("approval_status") == "approved" for item in rows))
 
+    def test_enabling_draft_strategy_auto_derives_approved_status(self):
+        registry_svc.save_strategy({
+            "strategy_id": "draft_strategy",
+            "name": "Draft Strategy",
+            "enabled": False,
+            "approval_status": "draft",
+            "market": "KOSPI",
+            "universe_rule": "kospi",
+            "scan_cycle": "5m",
+            "params": {},
+            "risk_limits": {},
+        })
+
+        saved = registry_svc.set_strategy_enabled("draft_strategy", True)
+
+        self.assertTrue(saved["enabled"])
+        self.assertEqual("approved", saved["approval_status"])
+
     def test_universe_builder_returns_rule_snapshot(self):
         snapshot = universe_svc.get_universe_snapshot("kospi", market="KOSPI", refresh=True)
         self.assertEqual("kospi", snapshot["rule_name"])

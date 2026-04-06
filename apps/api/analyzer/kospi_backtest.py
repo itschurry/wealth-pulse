@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from math import sqrt
@@ -25,6 +26,8 @@ from analyzer.shared_strategy import (
     should_enter_from_snapshot,
     should_exit_from_snapshot,
 )
+from schemas.strategy_metadata import editable_fields
+from services.strategy_selector import get_strategy, resolve_strategy
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,11 @@ class BacktestConfig:
     stop_loss_pct: float | None = 5.0
     take_profit_pct: float | None = None
     market_profiles: tuple[StrategyProfile, ...] = ()
+    strategy_kind: str = "trend_following"
+    regime_mode: str = "auto"
+    risk_profile: str = "balanced"
+    portfolio_constraints: dict[str, Any] = field(default_factory=dict)
+    strategy_params: dict[str, Any] = field(default_factory=dict)
     # Historical report/theme/news candidate filtering is experimental and must
     # be explicitly opted into. Backtests should default to pure indicator-based
     # selection so live/report recommendation logic does not leak into
@@ -101,15 +109,20 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
 
             holding = positions[code]
             holding_days = (current_date - holding["entry_date"]).days
-            profile = market_profiles.get(
-                normalize_strategy_market(holding["market"]))
+            profile = holding.get("profile")
+            if not isinstance(profile, StrategyProfile):
+                profile = market_profiles.get(
+                    normalize_strategy_market(holding["market"]))
             if profile is None:
                 continue
-            exit_reason = should_exit_from_snapshot(
+            exit_reason = get_strategy(profile.strategy_kind).should_exit(
                 row,
-                entry_price=holding.get("entry_price"),
-                holding_days=holding_days,
-                profile=profile,
+                {
+                    "entry_price": holding.get("entry_price"),
+                    "holding_days": holding_days,
+                },
+                profile,
+                {"regime": holding.get("entry_regime", "manual")},
             )
             if not exit_reason:
                 continue
@@ -136,6 +149,8 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
                     "pnl_pct": round(pnl_pct, 2),
                     "holding_days": holding_days,
                     "reason": exit_reason,
+                    "strategy_kind": holding.get("strategy_kind", profile.strategy_kind),
+                    "regime": holding.get("entry_regime", "manual"),
                 }
             )
             del positions[code]
@@ -160,13 +175,17 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
                     candidate_cache, current_date.isoformat(), market, cfg)
                 if candidate_info["has_report"] and str(row.get("code") or "").strip().upper() not in candidate_info["codes"]:
                     continue
-                if not should_enter_from_snapshot(row, profile):
+                selection = resolve_strategy(profile, row)
+                strategy = selection["strategy"]
+                resolved_profile = selection["profile"]
+                regime = selection["regime"]
+                if not strategy.should_enter(row, resolved_profile, {"regime": regime}):
                     continue
                 candidates.append(
-                    (code, entry_score_from_snapshot(row, profile), row, profile))
+                    (code, strategy.score(row, resolved_profile, {"regime": regime}), row, resolved_profile, regime))
 
             candidates.sort(key=lambda item: item[1], reverse=True)
-            for code, _, row, profile in candidates:
+            for code, _, row, profile, regime in candidates:
                 market = normalize_strategy_market(
                     str(row.get("market") or ""))
                 if market_slots.get(market, 0) <= 0:
@@ -197,6 +216,9 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
                     "last_trade_price": float(row["trade_price"]),
                     "entry_date": current_date,
                     "buy_fee": fee,
+                    "profile": profile,
+                    "strategy_kind": profile.strategy_kind,
+                    "entry_regime": regime,
                 }
                 market_slots[market] = max(0, market_slots.get(market, 0) - 1)
 
@@ -232,6 +254,18 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
     final_equity = equity_curve[-1]["equity"] if equity_curve else cfg.initial_cash
     metrics = _compute_metrics(cfg.initial_cash, equity_curve, trades)
     universe_label = _universe_label(cfg.markets)
+    strategy_mix = _mix_breakdown([str(item.get("strategy_kind") or "") for item in trades if str(item.get("strategy_kind") or "")])
+    regime_mix = _mix_breakdown([str(item.get("regime") or "") for item in trades if str(item.get("regime") or "")])
+    resolved_strategy_kind = (
+        _dominant_value(strategy_mix, cfg.strategy_kind)
+        if str(cfg.regime_mode or "manual").lower() == "auto"
+        else cfg.strategy_kind
+    )
+    resolved_regime = (
+        _dominant_value(regime_mix, "manual")
+        if str(cfg.regime_mode or "manual").lower() == "auto"
+        else "manual"
+    )
     candidate_selection_config = {
         "enabled": cfg.candidate_selection_enabled,
         **_candidate_coverage_summary(candidate_cache, enabled=cfg.candidate_selection_enabled),
@@ -241,7 +275,14 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "universe": universe_label,
-        "strategy": "trend-momentum-volume-v4-shared-daily",
+        "strategy": "strategy-regime-engine-v1",
+        "strategy_kind": cfg.strategy_kind,
+        "resolved_strategy_kind": resolved_strategy_kind,
+        "regime_mode": cfg.regime_mode,
+        "resolved_regime": resolved_regime,
+        "risk_profile": cfg.risk_profile,
+        "portfolio_constraints": cfg.portfolio_constraints,
+        "strategy_params": cfg.strategy_params,
         "config": {
             "initial_cash": cfg.initial_cash,
             "base_currency": base_currency,
@@ -249,9 +290,26 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             "sell_fee_rate": cfg.sell_fee_rate,
             "lookback_days": cfg.lookback_days,
             "markets": list(cfg.markets),
+            "strategy_kind": cfg.strategy_kind,
+            "regime_mode": cfg.regime_mode,
+            "risk_profile": cfg.risk_profile,
+            "portfolio_constraints": cfg.portfolio_constraints,
+            "strategy_params": cfg.strategy_params,
             "market_profiles": serialize_strategy_profiles(market_profiles),
             "candidate_selection": candidate_selection_config,
             **_single_market_profile_config(market_profiles),
+        },
+        "execution_summary": {
+            "strategy_kind": cfg.strategy_kind,
+            "resolved_strategy_kind": resolved_strategy_kind,
+            "regime_mode": cfg.regime_mode,
+            "resolved_regime": resolved_regime,
+            "risk_profile": cfg.risk_profile,
+            "test_period_days": cfg.lookback_days,
+            "markets": list(cfg.markets),
+            "strategy_mix": strategy_mix,
+            "regime_mix": regime_mix,
+            "selected_strategies_by_regime": _selected_strategies_by_regime(trades),
         },
         "symbols": [
             {"code": code, "name": rows[-1]["name"],
@@ -262,6 +320,16 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             **metrics,
             "final_equity": round(final_equity, 2),
         },
+        "performance_summary": {
+            "cagr_pct": metrics.get("cagr_pct"),
+            "max_drawdown_pct": metrics.get("max_drawdown_pct"),
+            "win_rate_pct": metrics.get("win_rate_pct"),
+            "profit_factor": metrics.get("profit_factor"),
+            "trade_count": metrics.get("trade_count"),
+        },
+        "parameter_band": _build_parameter_bands(next(iter(market_profiles.values())) if market_profiles else None),
+        "regime_breakdown": _regime_breakdown(trades),
+        "failure_modes": _failure_modes(trades),
         "trades": trades,
         "equity_curve": equity_curve,
     }
@@ -337,6 +405,9 @@ def _resolve_backtest_profiles(cfg: BacktestConfig) -> dict[str, StrategyProfile
     return {
         normalize_strategy_market(market): build_strategy_profile(
             market,
+            strategy_kind=getattr(cfg, "strategy_kind", "trend_following"),
+            risk_profile=getattr(cfg, "risk_profile", "balanced"),
+            regime_mode=getattr(cfg, "regime_mode", "manual"),
             max_positions=cfg.max_positions,
             max_holding_days=cfg.max_holding_days,
             rsi_min=cfg.rsi_min,
@@ -351,6 +422,7 @@ def _resolve_backtest_profiles(cfg: BacktestConfig) -> dict[str, StrategyProfile
             bb_pct_max=getattr(cfg, "bb_pct_max", None),
             stoch_k_min=getattr(cfg, "stoch_k_min", None),
             stoch_k_max=getattr(cfg, "stoch_k_max", None),
+            trade_suppression_threshold=getattr(cfg, "trade_suppression_threshold", None),
         )
         for market in cfg.markets
     }
@@ -361,6 +433,9 @@ def _single_market_profile_config(market_profiles: dict[str, StrategyProfile]) -
         return {}
     profile = next(iter(market_profiles.values()))
     return {
+        "strategy_kind": profile.strategy_kind,
+        "risk_profile": profile.risk_profile,
+        "regime_mode": profile.regime_mode,
         "max_positions": profile.max_positions,
         "max_holding_days": profile.max_holding_days,
         "rsi_min": profile.rsi_min,
@@ -375,7 +450,133 @@ def _single_market_profile_config(market_profiles: dict[str, StrategyProfile]) -
         "bb_pct_max": profile.bb_pct_max,
         "stoch_k_min": profile.stoch_k_min,
         "stoch_k_max": profile.stoch_k_max,
+        "trade_suppression_threshold": profile.trade_suppression_threshold,
     }
+
+
+def _build_parameter_bands(profile: StrategyProfile | None) -> dict[str, Any]:
+    if profile is None:
+        return {"label": "설정 없음", "parameter_bands": {}}
+    parameter_bands: dict[str, dict[str, Any]] = {}
+    for field in editable_fields(profile.strategy_kind):
+        name = str(field.get("name") or "")
+        if not name or not hasattr(profile, name):
+            continue
+        parameter_bands[name] = {
+            "label": field.get("label") or name,
+            "selected": getattr(profile, name),
+            "min": field.get("min"),
+            "max": field.get("max"),
+            "step": field.get("step"),
+        }
+    return {
+        "label": "입력 파라미터 밴드",
+        "summary": "전략 종류별 허용 범위 안에서 현재 파라미터가 어느 위치에 있는지 보여줍니다.",
+        "parameter_bands": parameter_bands,
+    }
+
+
+def _mix_breakdown(values: list[str]) -> list[dict[str, Any]]:
+    counter = Counter(value for value in values if value)
+    total = sum(counter.values())
+    if total <= 0:
+        return []
+    rows = []
+    for value, count in counter.most_common():
+        rows.append(
+            {
+                "value": value,
+                "count": count,
+                "share_pct": round(count / total * 100.0, 2),
+            }
+        )
+    return rows
+
+
+def _dominant_value(rows: list[dict[str, Any]], fallback: str) -> str:
+    if not rows:
+        return fallback
+    return str(rows[0].get("value") or fallback)
+
+
+def _selected_strategies_by_regime(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, Counter[str]] = {}
+    for trade in trades:
+        regime = str(trade.get("regime") or "manual")
+        strategy_kind = str(trade.get("strategy_kind") or "")
+        if not strategy_kind:
+            continue
+        grouped.setdefault(regime, Counter())[strategy_kind] += 1
+
+    rows: list[dict[str, Any]] = []
+    for regime, counter in grouped.items():
+        total = sum(counter.values())
+        dominant = counter.most_common(1)[0][0] if counter else ""
+        rows.append(
+            {
+                "regime": regime,
+                "resolved_strategy_kind": dominant,
+                "trade_count": total,
+                "strategy_mix": [
+                    {
+                        "value": strategy_kind,
+                        "count": count,
+                        "share_pct": round(count / total * 100.0, 2) if total else 0.0,
+                    }
+                    for strategy_kind, count in counter.most_common()
+                ],
+            }
+        )
+    rows.sort(key=lambda item: str(item.get("regime") or ""))
+    return rows
+
+
+def _regime_breakdown(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    order = ("bull", "sideways", "bear", "risk_off", "manual")
+    buckets: dict[str, list[dict[str, Any]]] = {key: [] for key in order}
+    for trade in trades:
+        buckets.setdefault(str(trade.get("regime") or "manual"), []).append(trade)
+    rows: list[dict[str, Any]] = []
+    for regime in order:
+        bucket = buckets.get(regime, [])
+        pnl_values = [float(item.get("pnl_pct") or 0.0) for item in bucket]
+        wins = [value for value in pnl_values if value > 0]
+        losses = [value for value in pnl_values if value < 0]
+        gross_profit = sum(wins)
+        gross_loss = abs(sum(losses))
+        profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+        rows.append(
+            {
+                "regime": regime,
+                "trade_count": len(bucket),
+                "win_rate_pct": round((len(wins) / len(bucket) * 100.0), 2) if bucket else 0.0,
+                "avg_return_pct": round(sum(pnl_values) / len(bucket), 2) if bucket else 0.0,
+                "profit_factor": profit_factor,
+                "strategy_kinds": sorted({str(item.get("strategy_kind") or "") for item in bucket if str(item.get("strategy_kind") or "")}),
+            }
+        )
+    return rows
+
+
+def _failure_modes(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    bucket: dict[str, dict[str, Any]] = {}
+    for trade in trades:
+        reason = str(trade.get("reason") or "기타")
+        current = bucket.setdefault(reason, {"reason": reason, "count": 0, "sum_pnl_pct": 0.0})
+        current["count"] += 1
+        current["sum_pnl_pct"] += float(trade.get("pnl_pct") or 0.0)
+    rows = []
+    for item in bucket.values():
+        count = max(1, int(item["count"]))
+        rows.append(
+            {
+                "reason": item["reason"],
+                "count": int(item["count"]),
+                "avg_pnl_pct": round(float(item["sum_pnl_pct"]) / count, 2),
+            }
+        )
+    rows.sort(key=lambda current: (float(current.get("avg_pnl_pct") or 0.0), -int(current.get("count") or 0)))
+    return rows[:5]
 
 
 def _available_market_slots(

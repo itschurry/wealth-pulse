@@ -1,29 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ChangeEvent, FocusEvent, ReactNode } from 'react';
+import type { ChangeEvent } from 'react';
 import { getJSON, postJSON } from '../api/client';
-import { fetchValidationDiagnostics, fetchValidationWalkForward } from '../api/domain';
-import { ConsoleActionBar, ConsoleConfirmDialog } from '../components/ConsoleActionBar';
-import { reliabilityToKorean, UI_TEXT } from '../constants/uiText';
-import { useBacktest } from '../hooks/useBacktest';
+import { fetchStrategyMetadata } from '../api/domain';
+import { ConsoleActionBar } from '../components/ConsoleActionBar';
+import { useBacktest, defaultBacktestQuery } from '../hooks/useBacktest';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
-import {
-  useValidationSettingsStore,
-} from '../hooks/useValidationSettingsStore';
-import { useToast } from '../hooks/useToast';
-import { useQuantOpsWorkflow } from '../hooks/useQuantOpsWorkflow';
-import type { BacktestData, BacktestQuery, BacktestTrade } from '../types';
-import type { ActionBarStatusItem, BacktestViewModel, ConsoleSnapshot } from '../types/consoleView';
-import type { ExitReasonAnalysisPayload, ExitReasonAnalysisRow, ExitReasonConcentrationVerdict, ExitReasonPersistentWeakness, ExitReasonWeaknessCluster, ExitScopeWeaknessRow, ValidationDiagnosticsResponse, ValidationResponse, ValidationWalkForwardExitReasonPayload } from '../types/domain';
-import {
-  buildScoreComponentRows,
-  buildTailRiskRows,
-  describeScoreDecision,
-  extractStrategyScorecard,
-  strongestComponents,
-  tailRiskHeadline,
-  weakestComponents,
-} from '../utils/strategyScorecard';
-import { formatCount, formatDateTime, formatNumber, formatPercent, formatSymbolLabel, resolveSymbolName } from '../utils/format';
+import { formatValidationSettingsLabel, useValidationSettingsStore } from '../hooks/useValidationSettingsStore';
+import type { BacktestData, BacktestQuery, StrategyKind } from '../types';
+import type { StrategyRegistryItem } from '../types/domain';
+import type { ActionBarAction, ConsoleSnapshot } from '../types/consoleView';
+import type { StrategiesMetadataResponse } from '../types/domain';
+import { formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatUSD } from '../utils/format';
 
 interface BacktestValidationPageProps {
   snapshot: ConsoleSnapshot;
@@ -34,2840 +21,720 @@ interface BacktestValidationPageProps {
 
 const STRATEGY_VALIDATION_TRANSFER_KEY = 'console_strategy_validation_transfer_v1';
 
-type ValidationStoreSnapshot = ReturnType<typeof useValidationSettingsStore>;
-
-interface RunHistoryItem {
-  id: string;
-  at: string;
-  market: string;
-  lookbackDays: number;
-  status: string;
-  totalReturnPct: number | null;
+function strategyLabel(strategyKind: string | undefined) {
+  if (strategyKind === 'mean_reversion') return 'Mean Reversion';
+  if (strategyKind === 'defensive') return 'Defensive';
+  return 'Trend Following';
 }
 
-interface OptimizationHistoryItem {
-  id: string;
-  at: string;
-  status: string;
-  message: string;
+function marketLabel(scope: BacktestQuery['market_scope']) {
+  if (scope === 'nasdaq') return 'NASDAQ';
+  if (scope === 'all') return 'KOSPI + NASDAQ';
+  return 'KOSPI';
 }
 
-interface SettingSaveItem {
-  id: string;
-  at: string;
-  market: string;
-  lookbackDays: number;
-  strategy: string;
-}
-
-type ValidationResultTab = 'backtest' | 'walkForward' | 'candidateSearch' | 'latestCandidate' | 'logs';
-
-type BacktestPhase = 'idle' | 'requesting' | 'running' | 'finalizing' | 'success' | 'error';
-type OptimizationPhase = 'idle' | 'requesting' | 'queued' | 'running' | 'success' | 'error';
-
-const RUN_HISTORY_KEY = 'console_validation_run_history_v1';
-const OPT_HISTORY_KEY = 'console_validation_optimization_history_v1';
-const SAVE_HISTORY_KEY = 'console_validation_save_history_v1';
-const EXECUTED_RUN_KEY = 'console_validation_executed_run_v1';
-const BACKTEST_RUN_INFLIGHT_KEY = 'console_validation_backtest_inflight_v1';
-const BACKTEST_RUN_INFLIGHT_TTL_MS = 6 * 60 * 60 * 1000;
-
-interface ExecutedRunState {
-  executedAt: string;
-  query: BacktestQuery;
-  settings: ValidationStoreSnapshot['savedSettings'];
-  backtest: BacktestData;
-  validation: ValidationResponse;
-}
-
-interface BacktestRunInFlightState {
-  startedAt: string;
-  contextFingerprint: string;
-  query: BacktestQuery;
-  settings: ValidationStoreSnapshot['savedSettings'];
-}
-
-interface QuantOpsContext {
-  query: BacktestQuery;
-  settings: ValidationStoreSnapshot['savedSettings'];
-  source: 'last_backtest' | 'saved';
-}
-
-function jsonStableEqual(left: unknown, right: unknown): boolean {
-  try {
-    return JSON.stringify(left) === JSON.stringify(right);
-  } catch {
-    return false;
-  }
-}
-
-function stableStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return '';
-  }
-}
-
-function buildBacktestContextFingerprint(query: BacktestQuery, settings: ValidationStoreSnapshot['savedSettings']): string {
-  return `${stableStringify(query)}::${stableStringify(settings)}`;
-}
-
-function readBacktestRunInFlight(): BacktestRunInFlightState | null {
-  const payload = readJson<BacktestRunInFlightState>(BACKTEST_RUN_INFLIGHT_KEY);
-  if (!payload || typeof payload !== 'object') return null;
-  if (typeof payload.startedAt !== 'string' || typeof payload.contextFingerprint !== 'string') return null;
-  if (!payload.query || !payload.settings) return null;
-  return {
-    startedAt: payload.startedAt,
-    contextFingerprint: payload.contextFingerprint,
-    query: payload.query as BacktestQuery,
-    settings: payload.settings,
-  };
-}
-
-function writeBacktestRunInFlight(payload: BacktestRunInFlightState | null): void {
-  if (!payload) {
-    localStorage.removeItem(BACKTEST_RUN_INFLIGHT_KEY);
-    return;
-  }
-  localStorage.setItem(BACKTEST_RUN_INFLIGHT_KEY, JSON.stringify(payload));
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function readArray<T>(key: string): T[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) || '[]') as unknown;
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeArray<T>(key: string, value: T[]) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function readJson<T>(key: string): T | null {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
-function writeJson<T>(key: string, value: T) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function metricNumber(metrics: Record<string, unknown> | undefined, key: string): number | null {
-  if (!metrics) return null;
-  const numeric = Number(metrics[key]);
+function numberOrNull(value: string): number | null {
+  if (!value.trim()) return null;
+  const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function readExitReasonAnalysis(value: unknown): ExitReasonAnalysisPayload | null {
-  if (!value || typeof value !== 'object') return null;
-  return value as ExitReasonAnalysisPayload;
+function strategyKindFromUnknown(value: unknown): StrategyKind {
+  if (value === 'mean_reversion' || value === 'defensive') return value;
+  return 'trend_following';
 }
 
-function readWalkForwardExitReasonSummary(value: unknown): ValidationWalkForwardExitReasonPayload | null {
-  if (!value || typeof value !== 'object') return null;
-  return value as ValidationWalkForwardExitReasonPayload;
+function currencyCode(scope: BacktestQuery['market_scope']) {
+  return scope === 'nasdaq' ? 'USD' : 'KRW';
 }
 
-function aggregateByReason(trades: BacktestTrade[]): ExitReasonAnalysisRow[] {
-  const bucket = new Map<string, { count: number; sum: number }>();
-  for (const trade of trades) {
-    const reason = trade.reason || '기타';
-    const current = bucket.get(reason) || { count: 0, sum: 0 };
-    current.count += 1;
-    current.sum += Number.isFinite(trade.pnl_pct) ? trade.pnl_pct : 0;
-    bucket.set(reason, current);
-  }
-  return [...bucket.entries()]
-    .map(([reason, item]) => ({
-      key: reason,
-      label: reason,
-      count: item.count,
-      avg_pnl_pct: item.count > 0 ? item.sum / item.count : 0,
-    }))
-    .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
-    .slice(0, 8);
-}
-
-function topLossReason(analysis: ExitReasonAnalysisPayload | null | undefined): ExitReasonAnalysisRow | null {
-  if (!analysis?.reasons || analysis.reasons.length === 0) return null;
-  const negatives = analysis.reasons.filter((item) => Number(item.gross_loss_pct || 0) > 0);
-  return negatives[0] || analysis.reasons[0] || null;
-}
-
-function reasonRowTone(row: ExitReasonAnalysisRow | null | undefined): 'neutral' | 'good' | 'bad' {
-  if (!row) return 'neutral';
-  if (Number(row.gross_loss_pct || 0) > 0 || Number(row.avg_pnl_pct || 0) < 0) return 'bad';
-  if (Number(row.gross_profit_pct || 0) > 0 || Number(row.avg_pnl_pct || 0) > 0) return 'good';
-  return 'neutral';
-}
-
-function formatExitReasonDetail(row: ExitReasonAnalysisRow): string {
-  const parts = [
-    `거래 ${formatCount(row.count, '건')}`,
-    `평균 ${formatPercent(row.avg_pnl_pct ?? null, 2)}`,
-  ];
-  if (row.loss_share_pct !== undefined && row.loss_share_pct !== null && Number(row.loss_share_pct) > 0) {
-    parts.push(`손실 비중 ${formatPercent(row.loss_share_pct, 1)}`);
-  } else if (row.profit_share_pct !== undefined && row.profit_share_pct !== null && Number(row.profit_share_pct) > 0) {
-    parts.push(`이익 기여 ${formatPercent(row.profit_share_pct, 1)}`);
-  }
-  if (row.avg_holding_days !== undefined && row.avg_holding_days !== null && Number(row.avg_holding_days) > 0) {
-    parts.push(`평균 보유 ${formatNumber(row.avg_holding_days, 1)}일`);
-  }
-  return parts.join(' · ');
-}
-
-function formatScopeWeaknessDetail(row: ExitScopeWeaknessRow): string {
-  const parts = [
-    `손실 거래 ${formatCount(row.loss_trades ?? row.count ?? null, '건')}`,
-    `누적 손실 ${formatPercent(row.gross_loss_pct ?? null, 2)}`,
-  ];
-  if (row.loss_share_pct !== undefined && row.loss_share_pct !== null && Number(row.loss_share_pct) > 0) {
-    parts.push(`손실 비중 ${formatPercent(row.loss_share_pct, 1)}`);
-  }
-  if (row.top_reason_label) {
-    parts.push(`${row.top_reason_label} ${formatPercent(row.top_reason_loss_share_pct ?? null, 1)}`);
-  }
-  if (Array.isArray(row.markets) && row.markets.length > 0) {
-    parts.push(row.markets.join('/'));
-  }
-  return parts.join(' · ');
-}
-
-function topScopeWeakness(analysis: ExitReasonAnalysisPayload | null | undefined, scope: 'symbol' | 'sector'): ExitScopeWeaknessRow | null {
-  const rows = scope === 'symbol' ? analysis?.symbol_weaknesses : analysis?.sector_weaknesses;
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  return rows[0] || null;
-}
-
-function concentrationTone(verdict: ExitReasonConcentrationVerdict | null | undefined): 'neutral' | 'bad' {
-  if (!verdict) return 'neutral';
-  if (verdict.strategy_issue_bias === 'mixed') return 'neutral';
-  if (verdict.strategy_issue_bias === 'unknown') return 'neutral';
-  return 'bad';
-}
-
-function formatConcentrationDetail(verdict: ExitReasonConcentrationVerdict | null | undefined): string {
-  if (!verdict) return '종목/섹터 집중도 데이터가 아직 없습니다.';
-  const parts = [verdict.summary || ''];
-  if (verdict.symbol_distribution_label) {
-    parts.push(`종목 ${verdict.symbol_distribution_label} ${formatPercent(verdict.symbol_top_share_pct ?? null, 1)}`);
-  }
-  if (verdict.sector_distribution_label) {
-    parts.push(`섹터 ${verdict.sector_distribution_label} ${formatPercent(verdict.sector_top_share_pct ?? null, 1)}`);
-  }
-  return parts.filter(Boolean).join(' · ');
-}
-
-function backtestPhaseLabel(phase: BacktestPhase): string {
-  if (phase === 'requesting') return '요청 중';
-  if (phase === 'running') return '실행 중';
-  if (phase === 'finalizing') return '정리 중';
-  if (phase === 'success') return '완료';
-  if (phase === 'error') return '실패';
-  return '대기';
-}
-
-function optimizationPhaseLabel(phase: OptimizationPhase): string {
-  if (phase === 'requesting') return '요청 중';
-  if (phase === 'queued') return '큐 등록';
-  if (phase === 'running') return '실행 중';
-  if (phase === 'success') return '완료';
-  if (phase === 'error') return '실패';
-  return '대기';
-}
-
-function updateHistoryItem<T extends { id: string }>(items: T[], id: string, next: Partial<T>) {
-  return items.map((item) => (item.id === id ? { ...item, ...next } : item));
-}
-
-function renderHistoryList<T extends { id: string; at: string }>(
-  items: T[],
-  emptyMessage: string,
-  render: (item: T) => React.ReactNode,
+function formatNumericDisplay(
+  value: number | null | undefined,
+  options?: { decimals?: number; currency?: 'KRW' | 'USD' | null },
 ) {
-  if (items.length === 0) {
-    return <div className="empty-inline">{emptyMessage}</div>;
-  }
-  return (
-    <div className="history-list">
-      {items.map((item) => (
-        <div key={item.id} className="history-item">
-          {render(item)}
-        </div>
-      ))}
-    </div>
-  );
+  if (value === null || value === undefined || !Number.isFinite(value)) return '';
+  if (options?.currency === 'USD') return formatUSD(value, false);
+  if (options?.currency === 'KRW') return formatKRW(value, false);
+  return formatNumber(value, options?.decimals ?? 0);
 }
 
-function SummaryMetricCard({ label, value, detail, tone = 'neutral' }: { label: string; value: string; detail: string; tone?: 'neutral' | 'good' | 'bad' }) {
-  return (
-    <div className={`summary-metric-card ${tone !== 'neutral' ? `is-${tone}` : ''}`}>
-      <div className="summary-metric-label">{label}</div>
-      <div className="summary-metric-value">{value}</div>
-      <div className="summary-metric-detail">{detail}</div>
-    </div>
-  );
+function formatEditingValue(value: number | null | undefined, decimals = 0) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '';
+  if (decimals <= 0) return String(Math.round(value));
+  return String(value);
 }
 
-function FieldBlock({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
-  return (
-    <label className="settings-field">
-      <span className="settings-field-label">{label}</span>
-      {help && <span className="settings-field-help">{help}</span>}
-      {children}
-    </label>
-  );
+function applyStrategyParamsToQuery(
+  query: BacktestQuery,
+  strategyParams: Record<string, unknown>,
+): BacktestQuery {
+  const mergedParams: Record<string, number | string | boolean | null> = {
+    ...query.strategy_params,
+    ...strategyParams,
+  } as Record<string, number | string | boolean | null>;
+
+  const maxHoldingDaysValue = mergedParams.max_holding_days;
+  const maxHoldingDays = typeof maxHoldingDaysValue === 'number' && Number.isFinite(maxHoldingDaysValue)
+    ? maxHoldingDaysValue
+    : query.portfolio_constraints.max_holding_days;
+
+  return {
+    ...query,
+    strategy_params: mergedParams,
+    max_holding_days: maxHoldingDays,
+    portfolio_constraints: {
+      ...query.portfolio_constraints,
+      max_holding_days: maxHoldingDays,
+    },
+    rsi_min: Number(mergedParams.rsi_min ?? query.rsi_min),
+    rsi_max: Number(mergedParams.rsi_max ?? query.rsi_max),
+    volume_ratio_min: Number(mergedParams.volume_ratio_min ?? query.volume_ratio_min),
+    stop_loss_pct: mergedParams.stop_loss_pct == null ? null : Number(mergedParams.stop_loss_pct),
+    take_profit_pct: mergedParams.take_profit_pct == null ? null : Number(mergedParams.take_profit_pct),
+    adx_min: mergedParams.adx_min == null ? null : Number(mergedParams.adx_min),
+    mfi_min: mergedParams.mfi_min == null ? null : Number(mergedParams.mfi_min),
+    mfi_max: mergedParams.mfi_max == null ? null : Number(mergedParams.mfi_max),
+    bb_pct_min: mergedParams.bb_pct_min == null ? null : Number(mergedParams.bb_pct_min),
+    bb_pct_max: mergedParams.bb_pct_max == null ? null : Number(mergedParams.bb_pct_max),
+    stoch_k_min: mergedParams.stoch_k_min == null ? null : Number(mergedParams.stoch_k_min),
+    stoch_k_max: mergedParams.stoch_k_max == null ? null : Number(mergedParams.stoch_k_max),
+  };
 }
 
-function formatMoneyInput(value: number) {
-  const normalized = Math.max(1, Math.floor(Number(value) || 1));
-  return new Intl.NumberFormat('en-US').format(normalized);
-}
-
-function IntegerDraftInput({
-  value,
-  min,
-  step,
-  onCommit,
-  placeholder,
-}: {
-  value: number;
+interface NumericInputProps {
+  value: number | null | undefined;
+  onCommit: (value: number | null) => void;
   min?: number;
+  max?: number;
   step?: number;
-  onCommit: (next: number) => void;
-  placeholder?: string;
-}) {
-  const [draft, setDraft] = useState(() => String(value));
-  const [focused, setFocused] = useState(false);
-
-  useEffect(() => {
-    if (!focused) {
-      setDraft(String(value));
-    }
-  }, [focused, value]);
-
-  return (
-    <input
-      className="backtest-input-wrap"
-      style={{ padding: '0 12px' }}
-      type="number"
-      min={min}
-      step={step}
-      value={draft}
-      placeholder={placeholder}
-      onFocus={(event) => {
-        setFocused(true);
-        requestAnimationFrame(() => event.currentTarget.select());
-      }}
-      onChange={(event) => {
-        setDraft(event.target.value);
-      }}
-      onBlur={() => {
-        const parsed = Number(draft);
-        let normalized = Number.isFinite(parsed) ? Math.floor(parsed) : value;
-        if (typeof min === 'number') {
-          normalized = Math.max(min, normalized);
-        }
-        onCommit(normalized);
-        setDraft(String(normalized));
-        setFocused(false);
-      }}
-    />
-  );
+  allowNull?: boolean;
+  decimals?: number;
+  currency?: 'KRW' | 'USD' | null;
 }
 
-function MoneyValueInput({
+function NumericInput({
   value,
-  min = 1,
-  onChange,
-  placeholder,
-}: {
-  value: number;
-  min?: number;
-  onChange: (next: number) => void;
-  placeholder?: string;
-}) {
-  const [draft, setDraft] = useState(() => formatMoneyInput(value));
+  onCommit,
+  min,
+  max,
+  step,
+  allowNull = false,
+  decimals = 0,
+  currency = null,
+}: NumericInputProps) {
   const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState('');
 
   useEffect(() => {
     if (!focused) {
-      setDraft(formatMoneyInput(value));
+      setDraft(formatEditingValue(value, decimals));
     }
-  }, [focused, value]);
+  }, [decimals, focused, value]);
+
+  const commitCurrent = useCallback(() => {
+    const raw = draft.replace(/,/g, '').trim();
+    setFocused(false);
+    if (!raw) {
+      if (allowNull) {
+        onCommit(null);
+        setDraft('');
+      } else {
+        setDraft(formatEditingValue(value, decimals));
+      }
+      return;
+    }
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      setDraft(formatEditingValue(value, decimals));
+      return;
+    }
+
+    let nextValue = decimals <= 0 ? Math.round(parsed) : parsed;
+    if (typeof min === 'number') nextValue = Math.max(min, nextValue);
+    if (typeof max === 'number') nextValue = Math.min(max, nextValue);
+    onCommit(nextValue);
+    setDraft(formatEditingValue(nextValue, decimals));
+  }, [allowNull, decimals, draft, max, min, onCommit, value]);
 
   return (
     <input
       className="backtest-input-wrap"
-      style={{ padding: '0 12px' }}
       type="text"
-      inputMode="numeric"
-      value={draft}
-      placeholder={placeholder}
-      onFocus={(event) => {
+      inputMode={decimals > 0 ? 'decimal' : 'numeric'}
+      value={focused ? draft : formatNumericDisplay(value, { decimals, currency })}
+      onFocus={() => {
         setFocused(true);
-        setDraft(String(Math.max(min, Math.floor(Number(value) || min))));
-        requestAnimationFrame(() => event.currentTarget.select());
+        setDraft(formatEditingValue(value, decimals));
       }}
       onChange={(event) => {
-        const digitsOnly = event.target.value.replace(/[^\d]/g, '');
-        setDraft(digitsOnly);
-        if (digitsOnly.trim() === '') return;
-        const parsed = Number(digitsOnly);
-        if (!Number.isFinite(parsed)) return;
-        onChange(Math.max(min, Math.floor(parsed)));
+        const raw = event.target.value.replace(/,/g, '');
+        if (raw === '' || /^-?\d*(\.\d*)?$/.test(raw)) {
+          setDraft(raw);
+        }
       }}
-      onBlur={() => {
-        const parsed = Number(draft.replace(/[^\d]/g, ''));
-        const normalized = Number.isFinite(parsed) ? Math.max(min, Math.floor(parsed)) : min;
-        onChange(normalized);
-        setDraft(formatMoneyInput(normalized));
-        setFocused(false);
+      onBlur={commitCurrent}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.currentTarget.blur();
+        }
       }}
+      data-step={step ?? undefined}
     />
   );
 }
 
-
-function SettingsSection({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return (
-    <section className="settings-panel-section">
-      <div className="settings-panel-section-head">
-        <div className="settings-panel-section-title">{title}</div>
-        {description && <div className="settings-panel-section-copy">{description}</div>}
-      </div>
-      <div className="settings-panel-section-grid">{children}</div>
-    </section>
-  );
+function strategyDefaultsFromMetadata(
+  metadata: StrategiesMetadataResponse | null,
+  strategyKind: StrategyKind,
+  marketScope: BacktestQuery['market_scope'],
+  riskProfile: BacktestQuery['risk_profile'],
+) {
+  const marketKey = marketScope === 'nasdaq' ? 'NASDAQ' : 'KOSPI';
+  const strategy = metadata?.available_strategies?.find((item) => item.strategy_kind === strategyKind);
+  if (strategy?.defaults_by_market_and_risk?.[marketKey]?.[riskProfile]) {
+    return strategy.defaults_by_market_and_risk[marketKey][riskProfile] as Record<string, unknown>;
+  }
+  if (strategy?.defaults_by_market?.[marketKey]) {
+    return strategy.defaults_by_market[marketKey] as Record<string, unknown>;
+  }
+  return defaultBacktestQuery(marketScope, strategyKind, riskProfile).strategy_params;
 }
 
-function reliabilityMetricLabel(metric: string | undefined): string {
-  if (metric === 'trade_count') return '학습 거래 수';
-  if (metric === 'validation_signals') return '검증 신호 수';
-  if (metric === 'validation_sharpe') return '검증 Sharpe';
-  if (metric === 'max_drawdown_pct') return '최대 낙폭(%)';
-  return metric || '-';
-}
-
-function quantDecisionTone(status: string | undefined): 'neutral' | 'good' | 'bad' {
-  if (status === 'adopt') return 'good';
-  if (status === 'reject') return 'bad';
-  return 'neutral';
-}
-
-function quantOpsContextModeLabel(source: QuantOpsContext['source']) {
-  return source === 'last_backtest' ? '마지막 백테스트 기준' : '저장된 설정 기준';
-}
-
-function formatMarketScopeLabel(scope: BacktestQuery['market_scope']) {
-  if (scope === 'kospi') return 'KOSPI';
-  if (scope === 'nasdaq') return 'NASDAQ';
-  return 'KOSPI+NASDAQ';
-}
-
-function quantGuardrailReasonLabel(reason: string): string {
-  if (reason === 'validation_min_trades_not_met') return '거래 표본 수 부족';
-  if (reason === 'oos_reliability_low') return '미사용 구간 신뢰도 낮음';
-  if (reason === 'profit_factor_too_low') return 'Profit factor 부족';
-  if (reason === 'oos_return_negative') return '미사용 구간 수익률 음수';
-  if (reason === 'max_drawdown_too_large') return '최대 낙폭 과다';
-  if (reason === 'tail_risk_too_large') return '테일 리스크 과다';
-  if (reason === 'optimizer_search_stale') return 'optimizer 탐색 결과가 오래됨';
-  if (reason === 'optimizer_search_version_changed') return '탐색 버전이 바뀌어 재검증이 무효화됨';
-  return reason || '-';
-}
-
-function quantCandidateStateReasonLabel(reason: string): string {
-  if (reason === 'candidate_missing') return '현재 운영 후보가 아직 없습니다.';
-  if (reason === 'validation_settings_changed') return '저장된 설정이 바뀌어 기존 운영 후보를 그대로 쓰면 안 됩니다.';
-  if (reason === 'optimizer_search_missing') return '전략 설정 탐색 결과가 없습니다.';
-  if (reason === 'optimizer_search_version_changed') return '최신 탐색 버전과 현재 운영 후보 버전이 달라 다시 재검증해야 합니다.';
-  if (reason === 'saved_candidate_missing') return '저장된 운영 후보가 없어 실제 운영 반영 상태와 비교할 기준이 없습니다.';
-  if (reason === 'runtime_candidate_mismatch') return '현재 운영 반영본이 최신 저장 후보와 다릅니다.';
-  return reason || '-';
-}
-
-function quantRuntimeSourceLabel(source: string | undefined): string {
-  if (source === 'runtime') return '운영 반영본';
-  if (source === 'search') return '탐색 결과 기준';
-  if (source === 'missing') return '반영 안 됨';
-  return source || '-';
-}
-
-function runtimeCandidateSourceModeLabel(mode: string | undefined): string {
-  if (mode === 'research_only') return '리서치 후보만 사용';
-  if (mode === 'hybrid') return '퀀트/리서치 분리 병합';
-  return '퀀트 후보만 사용';
-}
-
-function runtimeCandidateSourceModeDescription(mode: string | undefined): string {
-  if (mode === 'research_only') return '리서치에서 고른 종목 후보만 실제 운영 후보로 씁니다. 퀀트 검증 후보는 제외합니다.';
-  if (mode === 'hybrid') return '퀀트 후보와 리서치 후보를 따로 모은 뒤 실제 운영 후보 구성 단계에서만 합칩니다.';
-  return '퀀트 검증을 통과한 후보만 실제 운영 후보로 씁니다. 기본값이자 가장 안전한 방식입니다.';
-}
-
-function quantBusyActionLabel(action: string | null | undefined): string {
-  if (action === 'refresh') return '상태 새로고침';
-  if (action === 'revalidate') return '운영 후보 재검증';
-  if (action === 'save') return '운영 후보 저장';
-  if (action === 'apply') return '런타임 반영';
-  if (action === 'save_policy') return '저장/반영 조건 저장';
-  if (action === 'reset_policy') return '저장/반영 조건 초기화';
-  if (action === 'reset_workflow') return '전략 검증 결과 초기화';
-  return '작업 진행 중';
-}
-
-function formatMaybeSymbolLabel(value: string | null | undefined): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) return '-';
-  if (!/^[A-Z0-9._-]+$/i.test(normalized)) return normalized;
-  return formatSymbolLabel(normalized, resolveSymbolName(normalized));
+function syncQueryWithStrategy(
+  query: BacktestQuery,
+  strategyKind: StrategyKind,
+  marketScope: BacktestQuery['market_scope'],
+  metadata: StrategiesMetadataResponse | null,
+): BacktestQuery {
+  const fallback = defaultBacktestQuery(marketScope, strategyKind, query.risk_profile);
+  const strategyDefaults = strategyDefaultsFromMetadata(metadata, strategyKind, marketScope, query.risk_profile);
+  const portfolioDefaults = metadata?.portfolio_defaults?.[marketScope] as Record<string, unknown> | undefined;
+  const maxHoldingDays = Number(strategyDefaults.max_holding_days ?? portfolioDefaults?.max_holding_days ?? fallback.max_holding_days);
+  const nextQuery: BacktestQuery = {
+    ...fallback,
+    ...query,
+    market_scope: marketScope,
+    strategy_kind: strategyKind,
+    max_holding_days: maxHoldingDays,
+    portfolio_constraints: {
+      market_scope: marketScope,
+      initial_cash: Number(query.portfolio_constraints?.initial_cash ?? portfolioDefaults?.initial_cash ?? fallback.portfolio_constraints.initial_cash),
+      max_positions: Number(query.portfolio_constraints?.max_positions ?? portfolioDefaults?.max_positions ?? fallback.portfolio_constraints.max_positions),
+      max_holding_days: maxHoldingDays,
+    },
+    strategy_params: {
+      ...strategyDefaults,
+    } as Record<string, number | string | boolean | null>,
+  };
+  const params = nextQuery.strategy_params;
+  return applyStrategyParamsToQuery({
+    ...nextQuery,
+    initial_cash: nextQuery.portfolio_constraints.initial_cash,
+    max_positions: nextQuery.portfolio_constraints.max_positions,
+  }, params as Record<string, unknown>);
 }
 
 export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefresh }: BacktestValidationPageProps) {
-  const { pushToast } = useToast();
-  const { entries, push, clear } = useConsoleLogs();
   const validationStore = useValidationSettingsStore();
-  const quantWorkflow = useQuantOpsWorkflow();
-  const [initialQuery] = useState<BacktestQuery>(() => validationStore.savedQuery);
-  const { run } = useBacktest(initialQuery, { autoRun: false });
-  const [runHistory, setRunHistory] = useState<RunHistoryItem[]>(() => readArray<RunHistoryItem>(RUN_HISTORY_KEY));
-  const [optimizationHistory, setOptimizationHistory] = useState<OptimizationHistoryItem[]>(() => readArray<OptimizationHistoryItem>(OPT_HISTORY_KEY));
-  const [saveHistory, setSaveHistory] = useState<SettingSaveItem[]>(() => readArray<SettingSaveItem>(SAVE_HISTORY_KEY));
-  const [backtestRunInFlight, setBacktestRunInFlight] = useState<BacktestRunInFlightState | null>(() => readBacktestRunInFlight());
-  const [backtestPhase, setBacktestPhase] = useState<BacktestPhase>('idle');
-  const [optimizationPhase, setOptimizationPhase] = useState<OptimizationPhase>('idle');
-  const [, setRunStartedAt] = useState('');
-  const [runFinishedAt, setRunFinishedAt] = useState('');
-  const [, setOptimizationStartedAt] = useState('');
-  const [, setOptimizationUpdatedAt] = useState('');
-  const [backtestMessage, setBacktestMessage] = useState('현재 저장된 quant 설정 요약을 확인한 뒤 실행하면 됩니다.');
-  const [optimizationMessage, setOptimizationMessage] = useState('quant 최적화는 백그라운드 작업으로 분리되어 실행됩니다.');
+  const { entries, push, clear } = useConsoleLogs();
+  const [metadata, setMetadata] = useState<StrategiesMetadataResponse | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(true);
   const [optimizationRunning, setOptimizationRunning] = useState(false);
-  const [, setOptimizedParams] = useState<Record<string, unknown> | null>(null);
-  const [diagnosticsResult, setDiagnosticsResult] = useState<ValidationDiagnosticsResponse | null>(null);
-  const [policyOpen, setPolicyOpen] = useState(false);
-  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
-  const [workflowResetConfirmOpen, setWorkflowResetConfirmOpen] = useState(false);
-  const [executedRun, setExecutedRun] = useState<ExecutedRunState | null>(() => readJson<ExecutedRunState>(EXECUTED_RUN_KEY));
-  const settingsLoading = validationStore.syncStatus === 'loading';
-  const settingsSaving = validationStore.syncStatus === 'saving';
-  const settingsResetting = validationStore.syncStatus === 'resetting';
-  const settingsSyncBusy = settingsLoading || settingsSaving || settingsResetting;
-  const [activeResultTab, setActiveResultTab] = useState<ValidationResultTab>('backtest');
-  const isBacktestRunInFlight = useMemo(() => {
-    if (!backtestRunInFlight) return false;
-    const startedAt = Date.parse(backtestRunInFlight.startedAt);
-    if (!Number.isFinite(startedAt)) return false;
-    return Date.now() - startedAt <= BACKTEST_RUN_INFLIGHT_TTL_MS;
-  }, [backtestRunInFlight]);
-
-  const clearBacktestRunInFlightState = useCallback(() => {
-    setBacktestRunInFlight(null);
-    writeBacktestRunInFlight(null);
-  }, []);
+  const [optimizationPayload, setOptimizationPayload] = useState<Record<string, unknown> | null>(null);
+  const [optimizationMessage, setOptimizationMessage] = useState('');
+  const { data, status, lastError, run } = useBacktest(validationStore.savedQuery, { autoRun: false });
 
   useEffect(() => {
-    if (!backtestRunInFlight) return;
-    const startedAt = Date.parse(backtestRunInFlight.startedAt);
-    if (!Number.isFinite(startedAt) || !isBacktestRunInFlight) {
-      clearBacktestRunInFlightState();
-      return;
-    }
-    if (
-      executedRun
-      && jsonStableEqual(executedRun.query, backtestRunInFlight.query)
-      && jsonStableEqual(executedRun.settings, backtestRunInFlight.settings)
-    ) {
-      const executedAt = Date.parse(executedRun.executedAt || '');
-      if (Number.isFinite(executedAt) && executedAt >= startedAt) {
-        clearBacktestRunInFlightState();
-      }
-    }
-  }, [backtestRunInFlight, clearBacktestRunInFlightState, executedRun, isBacktestRunInFlight]);
-
-  const isBacktestResultStale = Boolean(
-    !executedRun
-      || isBacktestRunInFlight
-      || backtestPhase === 'requesting'
-      || backtestPhase === 'running'
-      || backtestPhase === 'finalizing'
-      || !jsonStableEqual(executedRun?.query, validationStore.savedQuery)
-      || !jsonStableEqual(executedRun?.settings, validationStore.savedSettings),
-  );
-  const activeBacktest = isBacktestResultStale ? null : (executedRun?.backtest || null);
-  const validationResult = isBacktestResultStale ? snapshot.validation : (executedRun?.validation || snapshot.validation);
-  const backtestResultLabel = executedRun ? (isBacktestResultStale ? '오래된 백테스트' : '최신 백테스트 기준') : '백테스트 미실행';
-
-  const backtestStaleReason = useMemo(() => {
-    if (isBacktestRunInFlight) return '백테스트 실행이 새로고침 후에도 진행 중입니다.';
-    if (!executedRun) return '백테스트가 아직 실행되지 않았습니다.';
-    if (backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing') return '현재 백테스트가 실행 중입니다.';
-    if (!jsonStableEqual(executedRun.query, validationStore.savedQuery)) return '설정의 시장/기간이 바뀌어 현재 저장 기준과 다릅니다.';
-    if (!jsonStableEqual(executedRun.settings, validationStore.savedSettings)) return '백테스트 실행 시점의 세부 조건과 저장 조건이 다릅니다.';
-    return '';
-  }, [backtestPhase, executedRun, isBacktestRunInFlight, validationStore.savedQuery, validationStore.savedSettings]);
-  const metrics = activeBacktest?.metrics as Record<string, unknown> | undefined;
-  const oos = validationResult.segments?.oos;
-  const exitReasonSummary = useMemo(
-    () => readWalkForwardExitReasonSummary(validationResult.summary?.exit_reason_analysis),
-    [validationResult.summary?.exit_reason_analysis],
-  );
-  const backtestExitReasonAnalysis = useMemo(
-    () => readExitReasonAnalysis(metrics?.exit_reason_analysis),
-    [metrics?.exit_reason_analysis],
-  );
-  const validationExitReasonAnalysis = useMemo(
-    () => exitReasonSummary?.validation || readExitReasonAnalysis(validationResult.segments?.validation?.exit_reason_analysis),
-    [exitReasonSummary?.validation, validationResult.segments?.validation?.exit_reason_analysis],
-  );
-  const oosExitReasonAnalysis = useMemo(
-    () => exitReasonSummary?.oos || readExitReasonAnalysis(validationResult.segments?.oos?.exit_reason_analysis) || backtestExitReasonAnalysis,
-    [backtestExitReasonAnalysis, exitReasonSummary?.oos, validationResult.segments?.oos?.exit_reason_analysis],
-  );
-  const overallExitReasonAnalysis = useMemo(
-    () => exitReasonSummary?.overall || backtestExitReasonAnalysis,
-    [backtestExitReasonAnalysis, exitReasonSummary?.overall],
-  );
-  const exitWeaknessClusters = useMemo<ExitReasonWeaknessCluster[]>(
-    () => (Array.isArray(exitReasonSummary?.weakness_clusters) ? exitReasonSummary.weakness_clusters : []),
-    [exitReasonSummary?.weakness_clusters],
-  );
-  const persistentExitReasons = useMemo<ExitReasonPersistentWeakness[]>(
-    () => (Array.isArray(exitReasonSummary?.persistent_negative_reasons) ? exitReasonSummary.persistent_negative_reasons : []),
-    [exitReasonSummary?.persistent_negative_reasons],
-  );
-  const reasonRows = useMemo(
-    () => {
-      if (Array.isArray(oosExitReasonAnalysis?.reasons) && oosExitReasonAnalysis.reasons.length > 0) return oosExitReasonAnalysis.reasons.slice(0, 6);
-      if (Array.isArray(validationExitReasonAnalysis?.reasons) && validationExitReasonAnalysis.reasons.length > 0) return validationExitReasonAnalysis.reasons.slice(0, 6);
-      if (Array.isArray(overallExitReasonAnalysis?.reasons) && overallExitReasonAnalysis.reasons.length > 0) return overallExitReasonAnalysis.reasons.slice(0, 6);
-      return aggregateByReason(activeBacktest?.trades || []);
-    },
-    [activeBacktest?.trades, oosExitReasonAnalysis?.reasons, overallExitReasonAnalysis?.reasons, validationExitReasonAnalysis?.reasons],
-  );
-  const oosTopLossReason = useMemo(() => topLossReason(oosExitReasonAnalysis), [oosExitReasonAnalysis]);
-  const persistentTopReason = persistentExitReasons[0] || null;
-  const exitHeadlines = useMemo(
-    () => {
-      if (Array.isArray(exitReasonSummary?.headlines) && exitReasonSummary.headlines.length > 0) return exitReasonSummary.headlines;
-      return [
-        ...(oosExitReasonAnalysis?.summary_lines || []),
-        ...(validationExitReasonAnalysis?.summary_lines || []),
-      ].slice(0, 4);
-    },
-    [exitReasonSummary?.headlines, oosExitReasonAnalysis?.summary_lines, validationExitReasonAnalysis?.summary_lines],
-  );
-  const oosSymbolWeakness = useMemo(() => topScopeWeakness(oosExitReasonAnalysis, 'symbol'), [oosExitReasonAnalysis]);
-  const validationSymbolWeakness = useMemo(() => topScopeWeakness(validationExitReasonAnalysis, 'symbol'), [validationExitReasonAnalysis]);
-  const overallSymbolWeakness = useMemo(() => topScopeWeakness(overallExitReasonAnalysis, 'symbol'), [overallExitReasonAnalysis]);
-  const oosSectorWeakness = useMemo(() => topScopeWeakness(oosExitReasonAnalysis, 'sector'), [oosExitReasonAnalysis]);
-  const validationSectorWeakness = useMemo(() => topScopeWeakness(validationExitReasonAnalysis, 'sector'), [validationExitReasonAnalysis]);
-  const overallSectorWeakness = useMemo(() => topScopeWeakness(overallExitReasonAnalysis, 'sector'), [overallExitReasonAnalysis]);
-  const primarySymbolWeakness = oosSymbolWeakness || validationSymbolWeakness || overallSymbolWeakness || null;
-  const primarySectorWeakness = oosSectorWeakness || validationSectorWeakness || overallSectorWeakness || null;
-  const oosConcentrationVerdict = useMemo<ExitReasonConcentrationVerdict | null>(
-    () => (Array.isArray(oosExitReasonAnalysis?.concentration_verdicts) ? oosExitReasonAnalysis.concentration_verdicts[0] || null : null),
-    [oosExitReasonAnalysis?.concentration_verdicts],
-  );
-  const validationConcentrationVerdict = useMemo<ExitReasonConcentrationVerdict | null>(
-    () => (Array.isArray(validationExitReasonAnalysis?.concentration_verdicts) ? validationExitReasonAnalysis.concentration_verdicts[0] || null : null),
-    [validationExitReasonAnalysis?.concentration_verdicts],
-  );
-  const overallConcentrationVerdict = useMemo<ExitReasonConcentrationVerdict | null>(
-    () => (Array.isArray(overallExitReasonAnalysis?.concentration_verdicts) ? overallExitReasonAnalysis.concentration_verdicts[0] || null : null),
-    [overallExitReasonAnalysis?.concentration_verdicts],
-  );
-  const primaryConcentrationVerdict = oosConcentrationVerdict || validationConcentrationVerdict || overallConcentrationVerdict || null;
-
-  const viewModel = useMemo<BacktestViewModel>(() => ({
-    totalReturnPct: metricNumber(metrics, 'total_return_pct'),
-    oosReturnPct: oos ? metricNumber(oos as Record<string, unknown>, 'total_return_pct') : null,
-    maxDrawdownPct: metricNumber(metrics, 'max_drawdown_pct'),
-    profitFactor: metricNumber(metrics, 'profit_factor'),
-    winRatePct: metricNumber(metrics, 'win_rate_pct'),
-    tradeCount: metricNumber(metrics, 'trade_count'),
-    reliability: reliabilityToKorean(String(validationResult.summary?.oos_reliability || '')),
-  }), [metrics, oos, validationResult.summary?.oos_reliability]);
-
-  const backtestReadyContext = useMemo<QuantOpsContext>(() => {
-    if (
-      !isBacktestRunInFlight
-      && executedRun
-      && jsonStableEqual(executedRun.query, validationStore.savedQuery)
-      && jsonStableEqual(executedRun.settings, validationStore.savedSettings)
-    ) {
-      return {
-        query: executedRun.query,
-        settings: executedRun.settings,
-        source: 'last_backtest',
-      };
-    }
-
-    return {
-      query: validationStore.savedQuery,
-      settings: validationStore.savedSettings,
-      source: 'saved',
-    };
-  }, [executedRun, validationStore.savedQuery, validationStore.savedSettings, isBacktestRunInFlight]);
-
-  const activeContextSourceLabel = useMemo(
-    () => quantOpsContextModeLabel(backtestReadyContext.source),
-    [backtestReadyContext.source],
-  );
-
-  const segmentTrain = validationResult.segments?.train as Record<string, unknown> | undefined;
-  const segmentValidation = validationResult.segments?.validation as Record<string, unknown> | undefined;
-  const segmentOos = validationResult.segments?.oos as Record<string, unknown> | undefined;
-  const validationPolicy = snapshot.engine.execution?.state?.validation_policy;
-  const optimizedState = snapshot.engine.execution?.state?.optimized_params;
-  const minTradesPolicy = Math.max(1, Number(validationPolicy?.validation_min_trades || 1));
-
-  const walkForwardScorecard = useMemo(
-    () => extractStrategyScorecard(validationResult.scorecard || segmentOos?.strategy_scorecard),
-    [segmentOos, validationResult.scorecard],
-  );
-  const latestBacktestScorecard = useMemo(
-    () => extractStrategyScorecard(activeBacktest?.scorecard),
-    [activeBacktest?.scorecard],
-  );
-  const primaryScorecard = walkForwardScorecard || latestBacktestScorecard;
-  const primaryScoreSource = walkForwardScorecard ? '구간 검증 · 미사용 구간' : latestBacktestScorecard ? '최근 백테스트' : '데이터 없음';
-  const scoreDecision = useMemo(() => describeScoreDecision(primaryScorecard), [primaryScorecard]);
-  const scoreComponentRows = useMemo(() => buildScoreComponentRows(primaryScorecard), [primaryScorecard]);
-  const tailRows = useMemo(() => buildTailRiskRows(primaryScorecard), [primaryScorecard]);
-  const bestComponents = useMemo(() => strongestComponents(primaryScorecard), [primaryScorecard]);
-  const weakComponents = useMemo(() => weakestComponents(primaryScorecard), [primaryScorecard]);
-  const tailHeadline = useMemo(() => tailRiskHeadline(primaryScorecard), [primaryScorecard]);
-  const reliabilityDiagnostic = validationResult.summary?.reliability_diagnostic || validationResult.reliability_diagnostic;
-  const diagnosticBlockers = useMemo(
-    () => (Array.isArray(reliabilityDiagnostic?.blocking_factors) ? reliabilityDiagnostic.blocking_factors : []),
-    [reliabilityDiagnostic?.blocking_factors],
-  );
-  const workflowPayload = quantWorkflow.workflow;
-  const searchResult = workflowPayload?.search_result || null;
-  const strategySearchCandidates = searchResult?.strategy_candidates || searchResult?.candidates || [];
-  const strategyCandidatePayloadMissing = Boolean(searchResult?.strategy_candidate_payload_missing);
-  const strategyCandidateStats = useMemo(() => {
-    const high = strategySearchCandidates.filter((item) => String(item.reliability || '').trim().toLowerCase() === 'high').length;
-    const medium = strategySearchCandidates.filter((item) => String(item.reliability || '').trim().toLowerCase() === 'medium').length;
-    return {
-      total: strategySearchCandidates.length,
-      high,
-      medium,
-    };
-  }, [strategySearchCandidates]);
-  const searchHandoff = workflowPayload?.search_handoff || null;
-  const latestValidatedCandidate = workflowPayload?.latest_candidate || null;
-  const latestCandidateState = workflowPayload?.latest_candidate_state || null;
-  const savedValidatedCandidate = workflowPayload?.saved_candidate || null;
-  const savedCandidateState = workflowPayload?.saved_candidate_state || null;
-  const runtimeApplyState = workflowPayload?.runtime_apply || null;
-  const latestCandidateMatchesSearch = Boolean(
-    searchResult?.available
-    && latestValidatedCandidate?.search_version
-    && latestValidatedCandidate.search_version === searchResult?.version,
-  );
-  const defaultStrategyCandidate = strategySearchCandidates[0] || null;
-  const searchHandoffStatus = String(searchHandoff?.status || '').trim();
-  const isSearchHandoffPending = searchHandoffStatus === 'pending' || searchHandoffStatus === 'pending_revalidation';
-  const isSearchHandoffFailed = searchHandoffStatus === 'revalidate_failed' || searchHandoffStatus === 'optimizer_failed' || searchHandoffStatus === 'stale';
-  const searchHandoffStateLabel = (() => {
-    if (isSearchHandoffPending) return '동기화 중';
-    if (searchHandoffStatus === 'candidate_updated') return '연결 완료';
-    if (isSearchHandoffFailed) return `상태 이상(${searchHandoffStatus})`; 
-    if (searchHandoff?.error) return '오류';
-    return '준비됨';
-  })();
-  const searchContextLabel = useMemo(() => {
-    const context = searchResult?.context;
-    if (!context) return '';
-    const parts = [
-      context.market ? `시장 ${String(context.market).toUpperCase()}` : '',
-      context.lookback_days ? `탐색 기간 ${formatCount(context.lookback_days, '일')}` : '',
-      context.validation_days ? `검증 ${formatCount(context.validation_days, '일')}` : '',
-      context.top_n ? `상위 ${formatCount(context.top_n, '종목')}` : '',
-    ].filter(Boolean);
-    return parts.join(' · ');
-  }, [searchResult?.context]);
-  const latestCandidateStateReasons = (latestCandidateState?.reasons || []).map((reason) => quantCandidateStateReasonLabel(reason));
-  const savedCandidateStateReasons = (savedCandidateState?.reasons || []).map((reason) => quantCandidateStateReasonLabel(reason));
-  const runtimeApplyReasons = (runtimeApplyState?.reasons || []).map((reason) => quantCandidateStateReasonLabel(reason));
-  const handoffWarnings = [
-    !latestCandidateMatchesSearch && searchResult?.available ? '최신 전략 설정 탐색 결과와 현재 운영 후보가 아직 연결되지 않았습니다. 후보 재검증 또는 연결 상태를 먼저 확인하세요.' : '',
-    ...latestCandidateStateReasons,
-    ...savedCandidateStateReasons,
-    ...runtimeApplyReasons,
-  ].filter(Boolean);
-  const busyActionLabel = useMemo(
-    () => quantBusyActionLabel(quantWorkflow.busyAction),
-    [quantWorkflow.busyAction],
-  );
-  const searchBlockedReason = useMemo(() => {
-    if (validationStore.unsaved) return '저장된 설정이 먼저 필요합니다.';
-    if (isBacktestResultStale) return backtestStaleReason || '최신 기준 백테스트가 필요합니다.';
-    if (optimizationRunning || optimizationPhase === 'requesting') return '전략 설정 탐색이 이미 실행 중입니다.';
-    return '준비됨';
-  }, [backtestStaleReason, isBacktestResultStale, optimizationPhase, optimizationRunning, validationStore.unsaved]);
-  const revalidateBlockedReason = useMemo(() => {
-    if (validationStore.unsaved) return '저장된 설정이 먼저 필요합니다.';
-    if (isBacktestResultStale) return backtestStaleReason || '최신 기준 백테스트가 필요합니다.';
-    if (!searchResult?.available) return '전략 설정 탐색 결과가 아직 없습니다.';
-    if (isSearchHandoffPending) return '탐색 결과와 운영 후보 연결 상태를 정리 중입니다.';
-    if (quantWorkflow.busyAction === 'revalidate') return '운영 후보를 다시 검증하고 있습니다.';
-    return '준비됨';
-  }, [backtestStaleReason, isBacktestResultStale, isSearchHandoffPending, quantWorkflow.busyAction, searchResult?.available, validationStore.unsaved]);
-  const saveBlockedReason = useMemo(() => {
-    if (!latestValidatedCandidate) return '현재 운영 후보가 아직 없습니다.';
-    if (!latestValidatedCandidate?.guardrails?.can_save) return latestValidatedCandidate.guardrails?.reasons?.[0] ? quantGuardrailReasonLabel(latestValidatedCandidate.guardrails.reasons[0]) : '저장/반영 조건을 아직 통과하지 못했습니다.';
-    if (quantWorkflow.busyAction === 'save') return '운영 후보를 저장 중입니다.';
-    return '준비됨';
-  }, [latestValidatedCandidate, quantWorkflow.busyAction]);
-  const applyBlockedReason = useMemo(() => {
-    if (!savedValidatedCandidate?.guardrails?.can_apply) {
-      return savedValidatedCandidate?.guardrails?.reasons?.[0]
-        ? quantGuardrailReasonLabel(savedValidatedCandidate.guardrails.reasons[0])
-        : '저장된 운영 후보가 아직 없거나 반영 조건을 통과하지 못했습니다.';
-    }
-    if (quantWorkflow.busyAction === 'apply') return '저장된 운영 후보를 실제 운영 설정에 반영 중입니다.';
-    return '준비됨';
-  }, [quantWorkflow.busyAction, savedValidatedCandidate]);
-
-  const [guardrailPolicyForm, setGuardrailPolicyForm] = useState<Record<string, string>>({});
-  const guardrailPolicy = workflowPayload?.guardrail_policy || null;
-  const policySummaryLines = useMemo(() => {
-    const rejectLevels = (guardrailPolicy?.thresholds?.reject?.blocked_reliability_levels || []).join(', ') || '-';
-    const adoptReliability = String(guardrailPolicy?.thresholds?.adopt?.required_reliability || '-');
-    const limitedLevels = (guardrailPolicy?.thresholds?.limited_adopt?.allowed_reliability_levels || []).join(', ') || '-';
-    return [
-      `차단 신뢰도: ${rejectLevels}`,
-      `저장 허용 최소 신뢰도: ${adoptReliability}`,
-      `조건부 허용 신뢰도: ${limitedLevels}`,
-    ];
-  }, [guardrailPolicy?.thresholds]);
-
-  useEffect(() => {
-    if (!guardrailPolicy?.thresholds) return;
-    setGuardrailPolicyForm({
-      reject_blocked_reliability_levels: String((guardrailPolicy.thresholds.reject?.blocked_reliability_levels || []).join(', ')),
-      reject_min_profit_factor: String(guardrailPolicy.thresholds.reject?.min_profit_factor ?? ''),
-      reject_min_oos_return_pct: String(guardrailPolicy.thresholds.reject?.min_oos_return_pct ?? ''),
-      reject_max_drawdown_pct: String(guardrailPolicy.thresholds.reject?.max_drawdown_pct ?? ''),
-      reject_min_expected_shortfall_5_pct: String(guardrailPolicy.thresholds.reject?.min_expected_shortfall_5_pct ?? ''),
-      adopt_required_reliability: String(guardrailPolicy.thresholds.adopt?.required_reliability ?? ''),
-      adopt_min_oos_return_pct: String(guardrailPolicy.thresholds.adopt?.min_oos_return_pct ?? ''),
-      adopt_min_profit_factor: String(guardrailPolicy.thresholds.adopt?.min_profit_factor ?? ''),
-      adopt_max_drawdown_pct: String(guardrailPolicy.thresholds.adopt?.max_drawdown_pct ?? ''),
-      adopt_min_positive_window_ratio: String(guardrailPolicy.thresholds.adopt?.min_positive_window_ratio ?? ''),
-      adopt_min_expected_shortfall_5_pct: String(guardrailPolicy.thresholds.adopt?.min_expected_shortfall_5_pct ?? ''),
-      limited_allowed_reliability_levels: String((guardrailPolicy.thresholds.limited_adopt?.allowed_reliability_levels || []).join(', ')),
-      limited_min_oos_return_pct: String(guardrailPolicy.thresholds.limited_adopt?.min_oos_return_pct ?? ''),
-      limited_min_profit_factor: String(guardrailPolicy.thresholds.limited_adopt?.min_profit_factor ?? ''),
-      limited_max_drawdown_pct: String(guardrailPolicy.thresholds.limited_adopt?.max_drawdown_pct ?? ''),
-      limited_min_positive_window_ratio: String(guardrailPolicy.thresholds.limited_adopt?.min_positive_window_ratio ?? ''),
-      limited_min_expected_shortfall_5_pct: String(guardrailPolicy.thresholds.limited_adopt?.min_expected_shortfall_5_pct ?? ''),
-      limited_min_near_miss_count: String(guardrailPolicy.thresholds.limited_adopt?.min_near_miss_count ?? ''),
-      limited_max_near_miss_count: String(guardrailPolicy.thresholds.limited_adopt?.max_near_miss_count ?? ''),
-      runtime_risk_per_trade_pct_multiplier: String(guardrailPolicy.thresholds.limited_adopt_runtime?.risk_per_trade_pct_multiplier ?? ''),
-      runtime_risk_per_trade_pct_cap: String(guardrailPolicy.thresholds.limited_adopt_runtime?.risk_per_trade_pct_cap ?? ''),
-      runtime_max_positions_per_market_cap: String(guardrailPolicy.thresholds.limited_adopt_runtime?.max_positions_per_market_cap ?? ''),
-      runtime_max_symbol_weight_pct_cap: String(guardrailPolicy.thresholds.limited_adopt_runtime?.max_symbol_weight_pct_cap ?? ''),
-      runtime_max_market_exposure_pct_cap: String(guardrailPolicy.thresholds.limited_adopt_runtime?.max_market_exposure_pct_cap ?? ''),
-    });
-  }, [guardrailPolicy?.saved_at, guardrailPolicy?.thresholds]);
-
-  const guardrailPolicyBusy = quantWorkflow.busyAction === 'save_policy' || quantWorkflow.busyAction === 'reset_policy';
-
-  useEffect(() => {
-    void validationStore.loadSavedFromServer().then(() => {
+    let cancelled = false;
+    async function loadMetadata() {
+      setMetadataLoading(true);
       try {
-        const raw = localStorage.getItem(STRATEGY_VALIDATION_TRANSFER_KEY);
-        if (!raw) return;
-        const preset = JSON.parse(raw) as Record<string, unknown>;
-        localStorage.removeItem(STRATEGY_VALIDATION_TRANSFER_KEY);
-        const params = (preset.params && typeof preset.params === 'object') ? preset.params as Record<string, unknown> : {};
-        const riskLimits = (preset.risk_limits && typeof preset.risk_limits === 'object') ? preset.risk_limits as Record<string, unknown> : {};
-        const market = String(preset.market || 'KOSPI').toUpperCase();
-        validationStore.setDraftSettings((prev) => ({
-          ...prev,
-          strategy: String(preset.name || preset.strategy_id || prev.strategy || '퀀트 전략 엔진'),
-        }));
-        validationStore.setDraftQuery((prev) => ({
-          ...prev,
-          market_scope: market === 'NASDAQ' ? 'nasdaq' : 'kospi',
-          max_positions: Number(riskLimits.max_positions ?? params.max_positions ?? prev.max_positions),
-          initial_cash: Number(params.initial_cash ?? prev.initial_cash),
-          max_holding_days: Number(params.max_holding_days ?? prev.max_holding_days),
-          rsi_min: Number(params.rsi_min ?? prev.rsi_min),
-          rsi_max: Number(params.rsi_max ?? prev.rsi_max),
-          volume_ratio_min: Number(params.volume_ratio_min ?? prev.volume_ratio_min),
-          stop_loss_pct: params.stop_loss_pct == null ? prev.stop_loss_pct : Number(params.stop_loss_pct),
-          take_profit_pct: params.take_profit_pct == null ? prev.take_profit_pct : Number(params.take_profit_pct),
-          adx_min: params.adx_min == null ? prev.adx_min : Number(params.adx_min),
-          mfi_min: params.mfi_min == null ? prev.mfi_min : Number(params.mfi_min),
-          mfi_max: params.mfi_max == null ? prev.mfi_max : Number(params.mfi_max),
-          bb_pct_min: params.bb_pct_min == null ? prev.bb_pct_min : Number(params.bb_pct_min),
-          bb_pct_max: params.bb_pct_max == null ? prev.bb_pct_max : Number(params.bb_pct_max),
-          stoch_k_min: params.stoch_k_min == null ? prev.stoch_k_min : Number(params.stoch_k_min),
-          stoch_k_max: params.stoch_k_max == null ? prev.stoch_k_max : Number(params.stoch_k_max),
-        }));
-        push('success', '전략 관리에서 선택한 프리셋을 검증 랩 초안에 불러왔습니다.', String(preset.name || preset.strategy_id || ''), 'settings');
+        const payload = await fetchStrategyMetadata();
+        if (!cancelled) setMetadata(payload);
       } catch {
-        localStorage.removeItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+        if (!cancelled) setMetadata(null);
+      } finally {
+        if (!cancelled) setMetadataLoading(false);
       }
-    }).catch(() => {
-      push('warning', '서버 저장된 quant 설정을 불러오지 못했습니다.', '로컬 초안은 유지하고 계속 작업할 수 있습니다.', 'settings');
-      pushToast({ tone: 'warning', title: '서버 저장값 로드 실패', description: '현재 브라우저 초안으로 계속 작업합니다.' });
-    });
-  }, []);
-
-  const diagnosisLines = diagnosticsResult?.diagnosis?.summary_lines || [];
-  const diagnosisBlockers = diagnosticsResult?.diagnosis?.blockers || [];
-  const diagnosisSuggestions = diagnosticsResult?.research?.suggestions || [];
-  const workflowStages = useMemo(() => ([
-    {
-      key: 'baseline',
-      title: '1. 기준 백테스트',
-      label: isBacktestResultStale ? '오래됨' : activeBacktest ? '완료' : '대기',
-      tone: isBacktestResultStale ? 'bad' as const : activeBacktest ? 'good' as const : 'neutral' as const,
-      detail: isBacktestResultStale ? (backtestStaleReason || '백테스트 기준이 현재 설정과 다릅니다.') : (activeBacktest ? `마지막 실행 ${formatDateTime(executedRun?.executedAt || runFinishedAt || '')}` : '저장된 설정으로 백테스트를 먼저 실행하세요.'),
-    },
-    {
-      key: 'diagnosis',
-      title: '2. 기준 진단',
-      label: diagnosticsResult?.ok ? '완료' : activeBacktest ? '실행 가능' : '대기',
-      tone: diagnosticsResult?.ok ? 'good' as const : 'neutral' as const,
-      detail: diagnosticsResult?.ok ? (diagnosisLines[0] || '차단 요인과 개선 경로를 계산했습니다.') : 'baseline 결과를 진단해서 차단 요인을 구조적으로 확인합니다.',
-    },
-    {
-      key: 'candidate_search',
-      title: '3. 전략 설정 탐색',
-      label: searchResult?.available ? (searchResult?.is_stale ? '후보 있음(오래됨)' : '후보 있음') : '대기',
-      tone: searchResult?.available ? 'good' as const : 'neutral' as const,
-      detail: searchResult?.available ? `optimizer ${String(searchResult.version || '-')} · 전략 후보 ${formatCount(searchResult.strategy_candidate_count ?? strategyCandidateStats.total, '건')}` : '먼저 optimizer를 실행해 탐색 결과를 만드세요.',
-    },
-    {
-      key: 'revalidation',
-      title: '4. 운영 후보 재검증',
-      label: latestValidatedCandidate?.decision?.label || '대기',
-      tone: quantDecisionTone(latestValidatedCandidate?.decision?.status),
-      detail: latestValidatedCandidate?.decision?.summary || '탐색 후보를 현재 기준으로 다시 검증합니다.',
-    },
-    {
-      key: 'save',
-      title: '5. 운영 후보 저장',
-      label: savedValidatedCandidate?.saved_at ? '저장됨' : '대기',
-      tone: savedValidatedCandidate?.saved_at ? 'good' as const : 'neutral' as const,
-      detail: savedValidatedCandidate?.saved_at ? `저장 시각 ${formatDateTime(savedValidatedCandidate.saved_at)}` : '재검증 통과 후보만 저장됩니다.',
-    },
-    {
-      key: 'runtime_apply',
-      title: '6. 런타임 반영',
-      label: runtimeApplyState?.status === 'applied' ? '반영됨' : '대기',
-      tone: runtimeApplyState?.status === 'applied' ? 'good' as const : 'neutral' as const,
-      detail: runtimeApplyState?.status === 'applied' ? `${formatDateTime(runtimeApplyState.applied_at)} · 엔진 ${runtimeApplyState.engine_state || '-'}` : '저장된 운영 후보만 실제 운영 설정으로 반영됩니다.',
-    },
-  ]), [
-    isBacktestResultStale,
-    activeBacktest,
-    backtestStaleReason,
-    diagnosisLines,
-    diagnosticsResult?.ok,
-    executedRun?.executedAt,
-    latestValidatedCandidate?.decision?.label,
-    latestValidatedCandidate?.decision?.status,
-    latestValidatedCandidate?.decision?.summary,
-    runFinishedAt,
-    runtimeApplyState?.applied_at,
-    runtimeApplyState?.engine_state,
-    runtimeApplyState?.status,
-    savedValidatedCandidate?.saved_at,
-    searchResult?.available,
-    searchResult?.is_stale,
-    searchResult?.strategy_candidate_count,
-    searchResult?.version,
-    strategyCandidateStats.total,
-  ]);
-
-  const statusItems = useMemo<ActionBarStatusItem[]>(() => ([
-    {
-      label: '백테스트',
-      value: isBacktestResultStale ? backtestResultLabel : backtestPhaseLabel(backtestPhase),
-      tone: isBacktestResultStale ? 'bad' : (backtestPhase === 'success' ? 'good' : backtestPhase === 'error' ? 'bad' : 'neutral'),
-    },
-    {
-      label: '최적화',
-      value: optimizationPhaseLabel(optimizationPhase),
-      tone: optimizationPhase === 'success' ? 'good' : optimizationPhase === 'error' ? 'bad' : 'neutral',
-    },
-    {
-      label: '설정 상태',
-      value: validationStore.unsaved ? '저장 필요' : '저장됨',
-      tone: validationStore.unsaved ? 'bad' : 'good',
-    },
-    {
-      label: '실행 기준',
-      value: activeContextSourceLabel,
-      tone: activeContextSourceLabel === '저장된 설정 기준' ? 'neutral' : 'good',
-    },
-    {
-      label: '운영 후보',
-      value: latestValidatedCandidate?.decision?.label || '미검증',
-      tone: quantDecisionTone(latestValidatedCandidate?.decision?.status),
-    },
-    {
-      label: '운영 반영',
-      value: runtimeApplyState?.status === 'applied' ? '반영됨' : '미반영',
-      tone: runtimeApplyState?.status === 'applied' ? 'good' : 'neutral',
-    },
-    {
-      label: '미사용 구간 신뢰도',
-      value: viewModel.reliability || '-',
-      tone: viewModel.reliability === '낮음' ? 'bad' : 'neutral',
-    },
-    {
-      label: '결과 신뢰도',
-      value: isBacktestResultStale ? '다시 실행 필요' : '최신 기준',
-      tone: isBacktestResultStale ? 'bad' : 'good',
-    },
-  ]), [
-    activeContextSourceLabel,
-    backtestPhase,
-    backtestResultLabel,
-    isBacktestResultStale,
-    latestValidatedCandidate?.decision?.label,
-    latestValidatedCandidate?.decision?.status,
-    optimizationPhase,
-    runtimeApplyState?.status,
-    validationStore.unsaved,
-    viewModel.reliability,
-  ]);
-
-  const searchStatusSyncing = optimizationRunning || isSearchHandoffPending;
-  const searchBusy = optimizationPhase === 'requesting' || optimizationPhase === 'queued' || optimizationPhase === 'running' || searchStatusSyncing;
-
-  const resultTabOptions = useMemo(() => ([
-    { key: 'backtest' as const, label: '백테스트 결과', detail: '최근 기준 백테스트', dirty: isBacktestResultStale },
-    { key: 'walkForward' as const, label: '구간 검증', detail: '구간 검증 점수와 리스크' },
-    { key: 'candidateSearch' as const, label: '전략 후보 셋', detail: '탐색된 전략 후보 결과', dirty: searchBusy && !optimizationRunning },
-    { key: 'latestCandidate' as const, label: '운영 후보 판정', detail: latestValidatedCandidate?.decision?.label || '재검증 전' },
-    { key: 'logs' as const, label: '로그', detail: `${entries.filter((item) => item.level === 'error').length}건 에러` },
-  ]), [
-    isBacktestResultStale,
-    latestValidatedCandidate?.decision?.label,
-    optimizationRunning,
-    searchBusy,
-    entries,
-  ]);
-
-  const validationResultPanel = (() => {
-    const backtestResultPanel = (
-      <div className="page-section validation-report-card">
-        <div className="section-kicker">결과 · 백테스트</div>
-        <div className="section-head-row">
-          <div>
-            <div className="section-title">백테스트 결과</div>
-            <div className="section-copy">저장된 기준으로 계산된 백테스트 백분위/구간 성과입니다.</div>
-          </div>
-          <div className={`inline-badge ${!isBacktestResultStale && activeBacktest ? 'is-success' : isBacktestResultStale ? '' : ''}`}>{backtestResultLabel}</div>
-        </div>
-          <div className="summary-metric-grid" style={{ marginTop: 12 }}>
-            <SummaryMetricCard
-              label="백테스트 기간"
-              value={`${executedRun?.query.market_scope?.toUpperCase() || formatMarketScopeLabel(validationStore.savedQuery.market_scope)}`}
-              detail={`lookback ${formatCount(executedRun?.query.lookback_days || validationStore.savedQuery.lookback_days, '일')} · validation ${formatCount((executedRun?.settings.validationDays || validationStore.savedSettings.validationDays), '일')}`}
-            />
-            <SummaryMetricCard
-              label="총 수익률"
-              value={formatPercent(metricNumber(activeBacktest?.metrics as Record<string, unknown> | undefined, 'total_return_pct'), 2)}
-              detail={`train ${formatPercent(metricNumber(segmentTrain, 'total_return_pct'), 2)} · validation ${formatPercent(metricNumber(segmentValidation, 'total_return_pct'), 2)}`}
-            />
-            <SummaryMetricCard
-              label="미사용 구간 수익률"
-              value={formatPercent(metricNumber(segmentOos, 'total_return_pct'), 2)}
-              detail={`최종 신뢰도 ${reliabilityToKorean(String(validationResult.summary?.oos_reliability || '')) || '-'} · 백테스트 ${backtestResultLabel}`}
-            />
-          </div>
-          <div className="summary-metric-grid" style={{ marginTop: 12 }}>
-            <SummaryMetricCard
-              label="최근 실행 시각"
-              value={executedRun?.executedAt ? formatDateTime(executedRun.executedAt) : '-'}
-              detail={executedRun ? '마지막 실행 기준으로 고정됨' : '아직 실행 기록 없음'}
-            />
-            <SummaryMetricCard
-              label="실행 단계"
-              value={backtestPhaseLabel(backtestPhase)}
-              detail={backtestMessage || '실행 상태 없음'}
-            />
-            <SummaryMetricCard
-              label="최적화 상태"
-              value={optimizationPhaseLabel(optimizationPhase)}
-              detail={optimizationMessage || '최적화 상태 없음'}
-            />
-          </div>
-      </div>
-    );
-
-    const walkForwardResultPanel = (
-      <>
-        <div className="validation-report-grid">
-          <div className="page-section validation-report-card">
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">진단 / 개선 경로</div>
-                <div className="section-copy">기준 진단은 차단 요인을 확인하는 단계이며, 구간 검증은 실제 운영 후보를 확정하는 판단 근거입니다.</div>
-              </div>
-              <div className={`inline-badge ${diagnosticsResult?.ok && diagnosisBlockers.length === 0 ? 'is-success' : ''}`}>{diagnosticsResult?.ok ? '진단 계산됨' : '진단 대기'}</div>
-            </div>
-            <div className="detail-list" style={{ marginTop: 12 }}>
-              {diagnosisLines.slice(0, 4).map((line, index) => <div key={`diag-${index}`}>{line}</div>)}
-              {diagnosisLines.length === 0 && <div>아직 baseline 진단을 실행하지 않았습니다.</div>}
-            </div>
-          </div>
-        </div>
-
-        <div className="page-section validation-report-card">
-          <div className="section-head-row">
-            <div>
-              <div className="section-title">퀀트 전략 점수카드</div>
-                  <div className="section-copy">채택/보류 판단을 위한 구간 검증 점수카드입니다.</div>
-            </div>
-            <div className={`inline-badge ${scoreDecision.tone === 'good' ? 'is-success' : scoreDecision.tone === 'bad' ? 'is-danger' : 'is-warning'}`}>
-              {primaryScoreSource}
-            </div>
-          </div>
-          {primaryScorecard ? (
-            <>
-              <div className="summary-metric-grid" style={{ marginTop: 12 }}>
-                <SummaryMetricCard
-                  label="복합 점수"
-                  value={primaryScorecard.compositeScore === null ? '-' : `${formatNumber(primaryScorecard.compositeScore, 1)}점`}
-                  detail={`${scoreDecision.label} · ${scoreDecision.detail}`}
-                  tone={scoreDecision.tone}
-                />
-                <SummaryMetricCard
-                  label="점수 끌어올린 항목"
-                  value={bestComponents.map((item) => item.label).join(' · ') || '-'}
-                  detail={bestComponents.length > 0 ? bestComponents.map((item) => `${item.label} ${formatNumber(item.value, 1)}점`).join(' / ') : '상승 기여 항목이 없습니다.'}
-                  tone="good"
-                />
-                <SummaryMetricCard
-                  label="먼저 눌러야 할 리스크"
-                  value={tailHeadline.label}
-                  detail={weakComponents.length > 0 ? `${weakComponents.map((item) => item.label).join(' · ')} · ${tailHeadline.detail}` : tailHeadline.detail}
-                  tone={tailHeadline.tone}
-                />
-              </div>
-              <div className="scorecard-detail-grid" style={{ marginTop: 12 }}>
-                <div className="scorecard-panel">
-                  <div className="section-subtitle">점수 구성</div>
-                  <div className="scorecard-component-list">
-                    {scoreComponentRows.map((row) => (
-                      <div key={row.key} className={`scorecard-component-row is-${row.tone}`}>
-                        <div>
-                          <div className="scorecard-component-label">{row.label}</div>
-                          <div className="scorecard-component-copy">총점에 주는 기여도</div>
-                        </div>
-                        <div className="scorecard-component-value">{row.value >= 0 ? '+' : ''}{formatNumber(row.value, 1)}점</div>
-                      </div>
-                    ))}
-                    {scoreComponentRows.length === 0 && <div className="empty-inline">점수 구성 데이터가 없습니다.</div>}
-                  </div>
-                </div>
-                <div className="scorecard-panel">
-                  <div className="section-subtitle">테일 리스크 가드레일</div>
-                  <div className="scorecard-tail-grid">
-                    {tailRows.map((row) => (
-                      <div key={row.key} className={`scorecard-tail-card is-${row.tone}`}>
-                        <div className="scorecard-tail-label">{row.label}</div>
-                        <div className="scorecard-tail-value">{row.key === 'loss_rate_pct' ? formatPercent(row.value, 1) : formatPercent(row.value, 1)}</div>
-                        <div className="scorecard-tail-copy">
-                          {row.key === 'loss_rate_pct'
-                            ? '손실 거래 비중'
-                            : row.key === 'expected_shortfall_5_pct'
-                              ? '하위 5% 평균 손실'
-                              : row.key === 'return_p05_pct'
-                                ? '하위 5% 경계값'
-                                : '관측 최악 손실'}
-                        </div>
-                      </div>
-                    ))}
-                    {tailRows.length === 0 && <div className="empty-inline">테일 리스크 데이터가 없습니다.</div>}
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="empty-inline" style={{ marginTop: 12 }}>
-              점수카드 데이터가 아직 없습니다. 백테스트 또는 최적화를 실행하면 표시됩니다.
-            </div>
-          )}
-        </div>
-
-        {reliabilityDiagnostic && (
-          <div className="page-section validation-report-card">
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">신뢰도 진단</div>
-                <div className="section-copy">차단 요인과 필요한 최소 개선 항목을 확인합니다.</div>
-              </div>
-              <div className={`inline-badge ${reliabilityDiagnostic.target_reached ? 'is-success' : 'is-warning'}`}>
-                목표 {String(reliabilityDiagnostic.target_label || 'medium')} · 현재 {String(reliabilityDiagnostic.current?.label || '-')}
-              </div>
-            </div>
-            <div className="validation-report-grid" style={{ marginTop: 10 }}>
-              <div className="detail-list">
-                <div><strong>차단 요인</strong></div>
-                {diagnosticBlockers.length === 0 && <div>차단 요인 없음</div>}
-                {diagnosticBlockers.slice(0, 4).map((item, index) => (
-                  <div key={`${item.metric || 'm'}-${index}`}>
-                    {reliabilityMetricLabel(String(item.metric || ''))}: 현재 {String(item.current ?? '-')} / 필요 {String(item.required ?? '-')} (gap {String(item.gap ?? '-')})
-                  </div>
-                ))}
-              </div>
-              <div className="detail-list">
-                <div><strong>최소 개선 경로</strong></div>
-                {!diagnosisSuggestions.length && <div>개선 경로가 아직 없습니다.</div>}
-                {diagnosisSuggestions.slice(0, 3).map((item, index) => (
-                  <div key={`${item.label || 's'}-${index}`}>
-                    {item.probe_label || item.label || 'probe'} · {(item.changes || []).slice(0, 2).join(' / ') || '변경 요약 없음'}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(oosExitReasonAnalysis || validationExitReasonAnalysis || exitWeaknessClusters.length > 0) && (
-          <div className="page-section" style={{ padding: 16 }}>
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">청산 사유 손실 맵</div>
-                <div className="section-copy">손실 사유의 구조, 약점 클러스터, 빈도 및 집중도를 함께 봅니다.</div>
-              </div>
-              <div className={`inline-badge ${exitWeaknessClusters.length > 0 ? 'is-warning' : 'is-success'}`}>
-                {exitWeaknessClusters.length > 0 ? '약점 클러스터 포착' : '청산 이슈 없음'}
-              </div>
-            </div>
-
-            <div className="summary-metric-grid" style={{ marginTop: 12 }}>
-              <SummaryMetricCard
-                label="미사용 구간 최대 손실 사유"
-                value={oosTopLossReason?.label || '-'}
-                detail={oosTopLossReason ? formatExitReasonDetail(oosTopLossReason) : '미사용 구간 청산 데이터가 없습니다.'}
-                tone={reasonRowTone(oosTopLossReason)}
-              />
-              <SummaryMetricCard
-                label="손실 집중 종목"
-                value={formatMaybeSymbolLabel(primarySymbolWeakness?.label || '-')}
-                detail={primarySymbolWeakness ? formatScopeWeaknessDetail(primarySymbolWeakness) : '문제 종목 데이터가 없습니다.'}
-                tone={primarySymbolWeakness ? 'bad' : 'neutral'}
-              />
-              <SummaryMetricCard
-                label="손실 집중 섹터"
-                value={formatMaybeSymbolLabel(primarySectorWeakness?.label || '-')}
-                detail={primarySectorWeakness ? formatScopeWeaknessDetail(primarySectorWeakness) : '문제 섹터 데이터가 없습니다.'}
-                tone={primarySectorWeakness ? 'bad' : 'neutral'}
-              />
-              <SummaryMetricCard
-                label="구조 판정"
-                value={primaryConcentrationVerdict?.strategy_issue_label || '-'}
-                detail={formatConcentrationDetail(primaryConcentrationVerdict)}
-                tone={concentrationTone(primaryConcentrationVerdict)}
-              />
-            </div>
-
-            <div className="validation-report-grid" style={{ marginTop: 12 }}>
-              <div className="detail-list">
-                <div><strong>미사용 구간 상위 청산 사유</strong></div>
-                {(oosExitReasonAnalysis?.reasons || []).slice(0, 4).map((row) => (
-                  <div key={`oos-${row.key || row.label}`}>{row.label || row.key || '기타'} · {formatExitReasonDetail(row)}</div>
-                ))}
-                {(!oosExitReasonAnalysis?.reasons || oosExitReasonAnalysis.reasons.length === 0) && <div>미사용 구간 청산 사유가 아직 없습니다.</div>}
-              </div>
-              <div className="detail-list">
-                <div><strong>검증 구간 / 미사용 구간 해석</strong></div>
-                {exitHeadlines.slice(0, 3).map((line, index) => <div key={`exit-headline-${index}`}>{line}</div>)}
-                {primaryConcentrationVerdict?.summary && <div>{primaryConcentrationVerdict.summary}</div>}
-                {persistentTopReason && (
-                  <div>
-                    반복 약점 {persistentTopReason.label || '-'} · {(persistentTopReason.segments || []).join(' → ')} 반복 · 누적 손실 {formatPercent(persistentTopReason.combined_gross_loss_pct ?? null, 2)}
-                  </div>
-                )}
-                {exitHeadlines.length === 0 && <div>검증 구간 / 미사용 구간 손실 인사이트가 아직 없습니다.</div>}
-              </div>
-            </div>
-          </div>
-        )}
-      </>
-    );
-
-    const candidateSearchPanel = (
-      <>
-        <div className="page-section" style={{ padding: 16 }}>
-          <div className="section-head-row">
-            <div>
-              <div className="section-title">Validation → Runtime 실행 흐름</div>
-              <div className="section-copy">전략 설정 탐색은 운영에 쓸 설정 조합을 찾고, 운영 후보 재검증은 같은 탐색 버전을 현재 기준 백테스트로 다시 판정합니다.</div>
-            </div>
-            <div className={`inline-badge ${
-              quantWorkflow.busyAction
-                ? 'is-warning'
-                : isSearchHandoffPending
-                  ? 'is-warning'
-                  : latestCandidateMatchesSearch
-                    ? 'is-success'
-                    : 'is-warning'
-            }`}>
-              {quantWorkflow.busyAction
-                ? `작업 중 · ${quantWorkflow.busyAction}`
-                : isSearchHandoffPending
-                  ? `연결 동기화 ${searchHandoffStateLabel}`
-                  : latestCandidateMatchesSearch
-                    ? `최신 탐색 결과 연결 ${searchHandoffStateLabel}`
-                    : '단계 확인 필요'}
-            </div>
-          </div>
-
-          <div className="quant-ops-stage-grid" style={{ marginTop: 12 }}>
-            {workflowStages.map((stage) => (
-              <div key={stage.key} className={`quant-ops-stage-card is-${stage.tone}`}>
-                <div className="quant-ops-stage-title">{stage.title}</div>
-                <div className="quant-ops-stage-status">{stage.label}</div>
-                <div className="quant-ops-stage-copy">{stage.detail}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="operator-note-grid" style={{ marginTop: 12 }}>
-            <div className={`operator-note-card ${searchResult?.available ? 'is-good' : ''}`}>
-              <div className="operator-note-label">현재 전략 설정 탐색 결과</div>
-              <div className="operator-note-copy">버전 {String(searchResult?.version || '-')} · {searchContextLabel || '전략 설정 탐색 결과 대기'}<br />출처 {String(searchResult?.source || searchResult?.global_overlay_source || '-')}</div>
-            </div>
-            <div className={`operator-note-card ${savedValidatedCandidate?.saved_at ? 'is-good' : ''}`}>
-              <div className="operator-note-label">현재 운영 후보</div>
-              <div className="operator-note-copy">{latestValidatedCandidate?.decision?.label || '재검증 전'} · 탐색 버전 {String(latestValidatedCandidate?.search_version || '-')}<br />{latestCandidateMatchesSearch ? '현재 전략 설정 탐색 결과와 연결됨' : latestCandidateStateReasons[0] || `${searchHandoffStateLabel} 상태입니다.`}</div>
-            </div>
-            <div className={`operator-note-card ${runtimeApplyState?.status === 'applied' ? 'is-good' : ''}`}>
-              <div className="operator-note-label">실제 운영 반영 상태</div>
-              <div className="operator-note-copy">{runtimeApplyState?.candidate_id ? '반영됨' : '미반영'} · {runtimeApplyState?.engine_state || '-'}<br />{runtimeApplyReasons[0] || runtimeCandidateSourceModeDescription(runtimeApplyState?.runtime_candidate_source_mode || validationStore.savedSettings.runtimeCandidateSourceMode)}</div>
-            </div>
-          </div>
-
-          {handoffWarnings.length > 0 && (
-            <div className="inline-warning-card" style={{ marginTop: 12 }}>
-              {handoffWarnings.slice(0, 3).map((line) => <div key={line}>{line}</div>)}
-            </div>
-          )}
-
-          <div className="execution-button-row" style={{ marginTop: 12 }}>
-            <button className="console-action-button" onClick={() => { void handleRunDiagnosis(); }} disabled={validationStore.unsaved}>
-              {diagnosticsResult?.ok ? '기준 백테스트 진단 다시 계산' : '기준 백테스트 진단'}
-            </button>
-          </div>
-        </div>
-
-        <div className="validation-report-grid" style={{ marginTop: 12 }}>
-          <div className="page-section" style={{ padding: 16 }}>
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">전략 설정 탐색 결과</div>
-                <div className="section-copy">기준 백테스트 이후 optimizer가 찾은 최신 전략 설정 결과입니다.</div>
-              </div>
-              <div className={`inline-badge ${searchResult?.available && strategySearchCandidates.length > 0 ? 'is-success' : 'is-warning'}`}>
-                {searchResult?.available ? String(searchResult.version || '-') : '후보 없음'}
-              </div>
-            </div>
-            <div className="summary-metric-grid" style={{ marginTop: 12 }}>
-              <SummaryMetricCard label="검색 버전" value={String(searchResult?.version || '-')} detail={searchContextLabel || (searchResult?.optimized_at ? formatDateTime(searchResult.optimized_at) : '아직 탐색 결과가 없습니다.')} tone={searchResult?.available ? 'good' : 'neutral'} />
-              <SummaryMetricCard label="전략 후보 셋" value={formatCount(searchResult?.strategy_candidate_count ?? strategyCandidateStats.total, '건')} detail={strategyCandidatePayloadMissing ? 'OpenClaw payload에 strategy_candidates 목록이 없어 아직 표를 만들 수 없습니다.' : `높음 ${formatCount(searchResult?.n_reliable ?? strategyCandidateStats.high, '건')} · 보통 ${formatCount(searchResult?.n_medium ?? strategyCandidateStats.medium, '건')}`} tone={strategyCandidatePayloadMissing ? 'bad' : searchResult?.available ? 'good' : 'neutral'} />
-              <SummaryMetricCard label="대표 패치 출처" value={String(searchResult?.strategy_candidate_source || searchResult?.global_overlay_source || '-')} detail={strategyCandidatePayloadMissing ? `글로벌 패치 ${formatCount(searchResult?.param_count, '개')}만 도착했고 전략 후보 셋은 비어 있습니다.` : searchResult?.is_stale ? '결과가 오래돼 재탐색 권장' : `글로벌 패치 ${formatCount(searchResult?.param_count, '개')}`} tone={strategyCandidatePayloadMissing || searchResult?.is_stale ? 'bad' : 'neutral'} />
-              <SummaryMetricCard
-                label="운영 후보 연결"
-                value={searchHandoff?.decision_label || (latestCandidateMatchesSearch ? latestValidatedCandidate?.decision?.label || '완료' : '대기')}
-                detail={
-                  searchHandoff?.error
-                    ? `후보 연결 오류: ${searchHandoff.error}`
-                    : latestCandidateMatchesSearch
-                      ? `같은 search 버전 ${String(latestValidatedCandidate?.search_version || '-')}`
-                      : `${searchHandoffStateLabel} 상태를 확인하세요.`
-                }
-                tone={latestCandidateMatchesSearch ? quantDecisionTone(latestValidatedCandidate?.decision?.status) : searchHandoff?.error ? 'bad' : 'neutral'}
-              />
-            </div>
-            <div className="detail-list" style={{ marginTop: 12 }}>
-              {Object.entries((searchResult?.global_params || {}) as Record<string, unknown>).slice(0, 8).map(([key, value]) => (
-                <div key={`search-${key}`}>{key}: {typeof value === 'number' ? formatNumber(value, 4) : String(value)}</div>
-              ))}
-              {(!searchResult?.global_params || Object.keys(searchResult.global_params).length === 0) && <div className="empty-inline">optimizer global params가 아직 없습니다.</div>}
-            </div>
-          </div>
-
-          <div className="page-section" style={{ padding: 16 }}>
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">전략 후보 셋</div>
-                <div className="section-copy">탐색된 후보들 중 하나를 골라 운영 후보로 강제 재검증할 수 있습니다.</div>
-              </div>
-              <div className={`inline-badge ${strategySearchCandidates.length > 0 ? 'is-success' : 'is-warning'}`}>
-                {formatCount(strategySearchCandidates.length, '건')}
-              </div>
-            </div>
-            {strategySearchCandidates.length > 0 ? (
-              <div style={{ overflow: 'auto', marginTop: 12 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 920 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                      <th style={{ padding: 10, fontSize: 12 }}>전략 후보</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>요약</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>신뢰도</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>PF</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>복합 점수</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>검증 샤프</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>거래 수</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>최대 낙폭</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>액션</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {strategySearchCandidates.map((item) => {
-                      const isCurrent = String(latestValidatedCandidate?.search_candidate_key || '') === String(item.key || '');
-                      return (
-                        <tr key={String(item.key || Math.random())} style={{ borderTop: '1px solid var(--border)' }}>
-                          <td style={{ padding: 10, fontSize: 12 }}>
-                            <div style={{ fontWeight: 700 }}>{item.label || item.key || '-'}</div>
-                            <div style={{ color: 'var(--text-3)', marginTop: 4 }}>키 {String(item.key || '-')}</div>
-                          </td>
-                          <td style={{ padding: 10, fontSize: 12 }}>
-                            <div>{item.summary || '요약 없음'}</div>
-                            <div style={{ color: 'var(--text-3)', marginTop: 4 }}>{(item.patch_lines || []).slice(0, 2).join(' / ') || '파라미터 요약 없음'}</div>
-                          </td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{reliabilityToKorean(String(item.reliability || '')) || '-'}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{item.profit_factor == null ? '-' : formatNumber(item.profit_factor, 2)}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{item.composite_score == null ? '-' : `${formatNumber(item.composite_score, 1)}점`}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{item.validation_sharpe == null ? '-' : formatNumber(item.validation_sharpe, 2)}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{formatCount(item.trade_count, '건')}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{formatPercent(item.max_drawdown_pct ?? null, 2)}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>
-                            <div className="execution-button-row" style={{ justifyContent: 'flex-start' }}>
-                              <button
-                                className={`console-action-button ${isCurrent ? 'is-primary' : ''}`}
-                                onClick={() => { void handleRevalidateCandidate(String(item.key || ''), String(item.label || item.key || '선택 후보')); }}
-                                disabled={validationStore.unsaved || quantWorkflow.busyAction === 'revalidate'}
-                              >
-                                {isCurrent ? '현재 운영 후보' : '이 후보로 재검증'}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="empty-inline" style={{ marginTop: 12 }}>
-                {strategyCandidatePayloadMissing
-                  ? '전략 후보 셋 목록이 비어 있습니다. 현재 payload에는 글로벌 패치만 있고 strategy_candidates가 없습니다.'
-                  : '탐색된 전략 후보 셋이 아직 없습니다.'}
-              </div>
-            )}
-          </div>
-        </div>
-      </>
-    );
-
-    const latestCandidatePanel = (
-      <>
-        <div className="page-section" style={{ padding: 16 }}>
-          <div className="section-head-row">
-            <div>
-            <div className="section-title">현재 운영 후보</div>
-            <div className="section-copy">현재 기준 백테스트로 다시 판정한 운영 반영 후보입니다.</div>
-            </div>
-            <div className={`inline-badge ${quantDecisionTone(latestValidatedCandidate?.decision?.status) === 'good' ? 'is-success' : quantDecisionTone(latestValidatedCandidate?.decision?.status) === 'bad' ? 'is-danger' : 'is-warning'}`}>
-              {latestValidatedCandidate?.decision?.label || '재검증 전'}
-            </div>
-          </div>
-            <div className="summary-metric-grid" style={{ marginTop: 12 }}>
-              <SummaryMetricCard label="미사용 구간 / PF" value={`${formatPercent(latestValidatedCandidate?.metrics?.oos_return_pct ?? null, 2)} / ${formatNumber(latestValidatedCandidate?.metrics?.profit_factor ?? null, 2)}`} detail={`신뢰도 ${reliabilityToKorean(String(latestValidatedCandidate?.metrics?.reliability || '')) || '-'} · 거래 ${formatCount(latestValidatedCandidate?.metrics?.trade_count, '건')}`} tone={quantDecisionTone(latestValidatedCandidate?.decision?.status)} />
-              <SummaryMetricCard label="낙폭 / ES(5%)" value={`${formatPercent(latestValidatedCandidate?.metrics?.max_drawdown_pct ?? null, 2)} / ${formatPercent(latestValidatedCandidate?.metrics?.expected_shortfall_5_pct ?? null, 2)}`} detail={`윈도우 양수 비율 ${formatPercent(((latestValidatedCandidate?.metrics?.positive_window_ratio ?? null) !== null && (latestValidatedCandidate?.metrics?.positive_window_ratio ?? undefined) !== undefined) ? Number(latestValidatedCandidate?.metrics?.positive_window_ratio) * 100 : null, 1)}`} tone={quantDecisionTone(latestValidatedCandidate?.decision?.status)} />
-            <SummaryMetricCard label="복합 점수" value={latestValidatedCandidate?.metrics?.composite_score === undefined ? '-' : `${formatNumber(latestValidatedCandidate?.metrics?.composite_score ?? null, 1)}점`} detail={latestValidatedCandidate?.decision?.summary || '재검증을 실행하면 저장 가능 여부가 표시됩니다.'} tone={quantDecisionTone(latestValidatedCandidate?.decision?.status)} />
-            <SummaryMetricCard label="선택 전략 후보" value={latestValidatedCandidate?.search_candidate_label || '대표 글로벌 패치'} detail={latestValidatedCandidate?.search_candidate_summary || latestValidatedCandidate?.search_candidate_source || '명시적으로 선택된 전략 후보 정보가 없습니다.'} tone={quantDecisionTone(latestValidatedCandidate?.decision?.status)} />
-          </div>
-          <div className="detail-list" style={{ marginTop: 12 }}>
-            {latestValidatedCandidate?.search_candidate_key && <div>전략 후보 키: {latestValidatedCandidate.search_candidate_key}</div>}
-            {(latestValidatedCandidate?.patch_lines || []).map((line) => <div key={line}>{line}</div>)}
-            {(!latestValidatedCandidate?.patch_lines || latestValidatedCandidate.patch_lines.length === 0) && <div className="empty-inline">아직 재검증 후보가 없습니다.</div>}
-          </div>
-          {latestValidatedCandidate && (
-            <div className="quant-ops-guardrail-list" style={{ marginTop: 12 }}>
-              {(latestValidatedCandidate.guardrails?.reasons || []).length === 0 && <div className="summary-rail-item">저장/반영 가드레일 차단 사유 없음</div>}
-              {(latestValidatedCandidate.guardrails?.reasons || []).map((reason) => (
-                <div key={reason} className="summary-rail-item">{quantGuardrailReasonLabel(reason)}</div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {(diagnosisBlockers.length > 0 || diagnosisSuggestions.length > 0) && (
-          <div className="page-section" style={{ padding: 16 }}>
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">진단 / 개선 경로</div>
-                <div className="section-copy">현재 운영 후보 기준으로 확인한 진단 요약입니다.</div>
-              </div>
-              <div className={`inline-badge ${diagnosticsResult?.ok ? 'is-success' : ''}`}>{diagnosticsResult?.ok ? '진단 계산됨' : '진단 대기'}</div>
-            </div>
-            <div className="detail-list" style={{ marginTop: 12 }}>
-              {diagnosisBlockers.slice(0, 4).map((item, index) => (
-                <div key={`blocker-${index}`}>{reliabilityMetricLabel(String(item.metric || ''))}: 현재 {String(item.current ?? '-')} / 기준 {String(item.threshold ?? '-')} · {String(item.summary || '-')}</div>
-              ))}
-              {diagnosisBlockers.length === 0 && <div>차단 요인 없음</div>}
-            </div>
-            <div className="detail-list" style={{ marginTop: 12 }}>
-              <div><strong>근처 개선 후보</strong></div>
-              {diagnosisSuggestions.slice(0, 3).map((item, index) => (
-                <div key={`suggestion-${index}`}>{item.probe_label || item.label || 'probe'} · {(item.changes || []).slice(0, 2).join(' / ') || '변경 요약 없음'}</div>
-              ))}
-              {diagnosisSuggestions.length === 0 && <div>아직 개선 후보를 계산하지 않았습니다.</div>}
-            </div>
-          </div>
-        )}
-      </>
-    );
-
-    const logsPanel = (
-      <div className="page-section" style={{ padding: 16 }}>
-        <div className="section-head-row">
-          <div>
-            <div className="section-title">참고 이력 / 로그</div>
-            <div className="section-copy">채택 판단에 필요한 보조 기록입니다.</div>
-          </div>
-        </div>
-        <div className="validation-history-grid">
-          <div>
-            <div className="section-subtitle">실행 이력</div>
-            {renderHistoryList(runHistory.slice(0, 6), UI_TEXT.empty.noRunHistory, (item) => (
-              <>
-                <div>{formatDateTime(item.at)} · {item.market.toUpperCase()} · {item.lookbackDays}일</div>
-                <div className="history-item-copy">상태 {item.status} · 수익률 {formatPercent(item.totalReturnPct, 2)}</div>
-              </>
-            ))}
-          </div>
-          <div>
-            <div className="section-subtitle">최적화 / 저장 / 실패 로그</div>
-            <div className="history-list">
-              {optimizationHistory.slice(0, 3).map((item) => (
-                <div key={item.id} className="history-item">
-                  <div>{formatDateTime(item.at)} · {item.status}</div>
-                  <div className="history-item-copy">{item.message}</div>
-                </div>
-              ))}
-              {saveHistory.slice(0, 3).map((item) => (
-                <div key={item.id} className="history-item">
-                  <div>{formatDateTime(item.at)} · {item.market.toUpperCase()}</div>
-                  <div className="history-item-copy">{item.lookbackDays}일 · {item.strategy}</div>
-                </div>
-              ))}
-              {entries.filter((item) => item.level === 'error').slice(0, 2).map((item) => (
-                <div key={item.id} className="history-item is-danger">
-                  <div>{formatDateTime(item.timestamp)} · {item.message}</div>
-                  {item.context && <div className="history-item-copy">{item.context}</div>}
-                </div>
-              ))}
-              {optimizationHistory.length === 0 && saveHistory.length === 0 && entries.every((item) => item.level !== 'error') && <div className="empty-inline">최근 이력이 없습니다.</div>}
-            </div>
-          </div>
-          <div>
-            <div className="section-subtitle">미사용 구간 청산 사유 요약</div>
-            <div className="history-list">
-              {reasonRows.map((row) => (
-                <div key={row.key || row.label} className="history-item">
-                  <div>{row.label || row.key || '기타'}</div>
-                  <div className="history-item-copy">{formatExitReasonDetail(row)}</div>
-                </div>
-              ))}
-              {reasonRows.length === 0 && <div className="empty-inline">{UI_TEXT.empty.noReasonBreakdown}</div>}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-
-    if (activeResultTab === 'walkForward') {
-      return walkForwardResultPanel;
     }
-    if (activeResultTab === 'candidateSearch') {
-      return candidateSearchPanel;
-    }
-    if (activeResultTab === 'latestCandidate') {
-      return latestCandidatePanel;
-    }
-    if (activeResultTab === 'logs') {
-      return logsPanel;
-    }
-    return backtestResultPanel;
-  })();
-
-  const adoptionDecision = useMemo(() => {
-    const oosReturn = viewModel.oosReturnPct ?? null;
-    const profitFactor = viewModel.profitFactor ?? null;
-    const drawdownAbs = Math.abs(viewModel.maxDrawdownPct ?? 0);
-    const tradeCount = viewModel.tradeCount ?? 0;
-    const reliability = viewModel.reliability || '-';
-    const gateEnabled = Boolean(validationPolicy?.validation_gate_enabled);
-
-    if (
-      oosReturn !== null
-      && oosReturn > 0
-      && reliability === '높음'
-      && (profitFactor ?? 0) >= 1.1
-      && drawdownAbs <= 20
-      && tradeCount >= minTradesPolicy
-    ) {
-      return {
-        label: '즉시 사용 가능',
-        tone: 'good' as const,
-        action: '현재 설정으로 실거래 반영 후보입니다. 포지션 한도만 보수적으로 시작하세요.',
-      };
-    }
-
-    if (
-      oosReturn === null
-      || reliability === '낮음'
-      || (profitFactor ?? 0) < 0.95
-      || oosReturn < -2
-      || drawdownAbs > 30
-      || (gateEnabled && tradeCount < minTradesPolicy)
-    ) {
-      return {
-        label: '거절',
-        tone: 'bad' as const,
-        action: '현재 상태로는 운영 반영 금지. 파라미터/기간 재설정 후 재검증이 필요합니다.',
-      };
-    }
-
-    return {
-      label: '보류',
-      tone: 'neutral' as const,
-      action: '결정 보류 상태입니다. 전략 설정 탐색 후 미사용 구간 수익률과 낙폭을 다시 확인한 뒤 채택 여부를 결정하세요.',
-    };
-  }, [
-    minTradesPolicy,
-    validationPolicy?.validation_gate_enabled,
-    viewModel.maxDrawdownPct,
-    viewModel.oosReturnPct,
-    viewModel.profitFactor,
-    viewModel.reliability,
-    viewModel.tradeCount,
-  ]);
-
-  const adoptionDecisionPanel = (
-    <div className={`page-section validation-report-card decision-state-card is-${adoptionDecision.tone}`}>
-      <div className="section-kicker">Adoption Decision</div>
-      <div className="section-head-row">
-        <div>
-          <div className="section-title">퀀트 전략 채택 상태: {adoptionDecision.label}</div>
-          <div className="section-copy">{adoptionDecision.action}</div>
-        </div>
-        <div className={`inline-badge ${adoptionDecision.tone === 'good' ? 'is-success' : adoptionDecision.tone === 'bad' ? 'is-danger' : 'is-warning'}`}>
-          {adoptionDecision.label}
-        </div>
-      </div>
-      <div className="summary-metric-grid">
-        <SummaryMetricCard
-          label="미사용 구간 수익률"
-          value={formatPercent(viewModel.oosReturnPct, 2)}
-          detail={`신뢰도 ${viewModel.reliability || '-'} · 윈도우 ${formatCount(validationResult.summary?.windows, '개')}`}
-          tone={(viewModel.oosReturnPct || 0) >= 0 ? 'good' : 'bad'}
-        />
-        <SummaryMetricCard
-          label="낙폭 / PF"
-          value={`${formatPercent(viewModel.maxDrawdownPct, 2)} / ${formatNumber(viewModel.profitFactor, 2)}`}
-          detail={`거래 ${formatCount(viewModel.tradeCount, '건')} · 승률 ${formatPercent(viewModel.winRatePct, 2)}`}
-        />
-        <SummaryMetricCard
-          label="정책 Gate"
-          value={validationPolicy?.validation_gate_enabled ? '활성' : '비활성'}
-          detail={`min trades ${formatNumber(validationPolicy?.validation_min_trades, 0)} · optimized ${String(optimizedState?.version || '-')}`}
-        />
-      </div>
-    </div>
-  );
-
-  const updateRunHistory = useCallback((next: RunHistoryItem[]) => {
-    setRunHistory(next);
-    writeArray(RUN_HISTORY_KEY, next);
-  }, []);
-
-  const updateOptimizationHistory = useCallback((next: OptimizationHistoryItem[]) => {
-    setOptimizationHistory(next);
-    writeArray(OPT_HISTORY_KEY, next);
-  }, []);
-
-  const updateSaveHistory = useCallback((next: SettingSaveItem[]) => {
-    setSaveHistory(next);
-    writeArray(SAVE_HISTORY_KEY, next);
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-
-    const boot = async () => {
-      try {
-        const [statusPayload, paramsPayload] = await Promise.all([
-          getJSON<{ running?: boolean }>('/api/optimization-status', { noStore: true }),
-          getJSON<Record<string, unknown>>('/api/optimized-params', { noStore: true }),
-        ]);
-
-        if (!alive) return;
-
-        if (statusPayload.running) {
-          setOptimizationRunning(true);
-          setOptimizationPhase('running');
-          setOptimizationStartedAt(nowIso());
-          setOptimizationMessage('이미 실행 중인 최적화 작업을 추적 중입니다.');
-        }
-
-        if (paramsPayload.status === 'ok') {
-          setOptimizedParams(paramsPayload);
-        }
-      } catch {
-        if (!alive) return;
-        push('warning', '최적화 상태 초기 조회에 실패했습니다.', '실행 시 다시 상태를 확인합니다.', 'optimization');
-      }
-    };
-
-    void boot();
-
+    loadMetadata();
     return () => {
-      alive = false;
+      cancelled = true;
     };
-  }, [push]);
-
-  useEffect(() => {
-    if (!optimizationRunning) return undefined;
-    const timer = window.setInterval(async () => {
-      try {
-        const statusPayload = await getJSON<{ running?: boolean }>('/api/optimization-status', { noStore: true });
-        if (statusPayload.running) {
-          setOptimizationPhase((current) => (current === 'queued' ? 'running' : current));
-          setOptimizationMessage('최적화가 백그라운드에서 계속 실행 중입니다.');
-          return;
-        }
-
-        const paramsPayload = await getJSON<Record<string, unknown>>('/api/optimized-params', { noStore: true });
-        setOptimizationRunning(false);
-        setOptimizationPhase('success');
-        setOptimizationUpdatedAt(nowIso());
-        if (paramsPayload.status === 'ok') setOptimizedParams(paramsPayload);
-        const workflowResult = await quantWorkflow.refresh();
-        const handoffMatched = Boolean(
-          workflowResult?.search_result?.version
-          && workflowResult?.latest_candidate?.search_version
-          && workflowResult.search_result.version === workflowResult.latest_candidate.search_version,
-        );
-        const handoffLabel = workflowResult?.latest_candidate?.decision?.label || '후보 미갱신';
-        setOptimizationMessage(
-          handoffMatched
-            ? `최적화와 후보 handoff가 완료되었습니다. ${handoffLabel}`
-            : '최적화가 완료되었습니다. 최신 탐색 결과를 확인하세요.',
-        );
-        push(
-          'success',
-          handoffMatched ? '최적화와 후보 handoff가 완료되었습니다.' : '최적화가 완료되었습니다.',
-          handoffMatched ? `${handoffLabel} · 저장 가능 여부를 바로 확인하세요.` : '결과 카드가 갱신되었습니다.',
-          'optimization',
-        );
-        pushToast({
-          tone: 'success',
-          title: handoffMatched ? '최적화 + 후보 갱신 완료' : '최적화 완료',
-          description: handoffMatched ? `${handoffLabel} 상태로 latest candidate를 갱신했습니다.` : '최신 파라미터와 상태 카드가 갱신되었습니다.',
-        });
-        const historyItem: OptimizationHistoryItem = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          at: nowIso(),
-          status: '완료',
-          message: handoffMatched ? '백그라운드 최적화 완료 · 후보 handoff 완료' : '백그라운드 최적화 완료',
-        };
-        updateOptimizationHistory([historyItem, ...optimizationHistory].slice(0, 30));
-      } catch {
-        setOptimizationRunning(false);
-        setOptimizationPhase('error');
-        setOptimizationUpdatedAt(nowIso());
-        setOptimizationMessage('최적화 상태 조회 중 오류가 발생했습니다.');
-        push('error', '최적화 상태 조회 중 오류가 발생했습니다.', '로그와 서버 상태를 확인하세요.', 'optimization');
-        pushToast({
-          tone: 'error',
-          title: '최적화 상태 조회 실패',
-          description: '최적화 로그와 서버 상태를 확인해 주세요.',
-        });
-      }
-    }, 8_000);
-    return () => window.clearInterval(timer);
-  }, [optimizationHistory, optimizationRunning, push, pushToast, quantWorkflow, updateOptimizationHistory]);
-
-  const refreshValidationResult = useCallback(async (query: BacktestQuery, settings: ValidationStoreSnapshot['savedSettings']) => {
-    try {
-      return await fetchValidationWalkForward(query, settings);
-    } catch {
-      push('warning', '검증 요약을 다시 계산하지 못했습니다.', '백엔드 validation 응답을 확인하세요.', 'backtest');
-      return null;
-    }
-  }, [push]);
-
-  const handleRunDiagnosis = useCallback(async () => {
-    if (validationStore.unsaved) {
-      push('warning', '저장된 설정 기준으로만 진단합니다.', '초안과 baseline 기준이 섞이지 않도록 먼저 설정 저장이 필요합니다.', 'diagnosis');
-      pushToast({ tone: 'warning', title: '먼저 설정 저장', description: '진단도 저장된 설정 기준으로만 계산합니다.' });
-      return;
-    }
-    try {
-      const payload = await fetchValidationDiagnostics(backtestReadyContext.query, backtestReadyContext.settings);
-      setDiagnosticsResult(payload);
-      if (payload.ok) {
-        push('success', 'baseline 진단을 다시 계산했습니다.', (payload.diagnosis?.summary_lines || []).join(' · ') || '차단 요인과 개선 경로를 갱신했습니다.', 'diagnosis');
-        pushToast({ tone: 'success', title: '진단 완료', description: '차단 요인과 개선 경로를 최신 기준으로 갱신했습니다.' });
-        return;
-      }
-      push('error', '진단 계산이 실패했습니다.', payload.error || 'validation diagnostics 응답을 확인하세요.', 'diagnosis');
-      pushToast({ tone: 'error', title: '진단 실패', description: payload.error || 'validation diagnostics 응답을 확인하세요.' });
-    } catch {
-      push('error', '진단 계산 요청에 실패했습니다.', '네트워크 또는 서버 상태를 확인하세요.', 'diagnosis');
-      pushToast({ tone: 'error', title: '진단 요청 실패', description: '네트워크 또는 서버 상태를 확인하세요.' });
-    }
-  }, [backtestReadyContext.query, backtestReadyContext.settings, push, pushToast, validationStore.unsaved]);
-
-  const handleRevalidateCandidate = useCallback(async (candidateKey?: string, candidateLabel?: string) => {
-    if (isBacktestResultStale) {
-      push('warning', '먼저 최신 백테스트를 실행하세요.', 'Search/백테스트 결과 기준이 바뀌면 Revalidate를 바로 실행하지 않습니다.', 'quant-workflow');
-      pushToast({ tone: 'warning', title: '오래된 기준', description: '백테스트 기준을 최신화한 뒤 Revalidate하세요.' });
-      return;
-    }
-    if (isSearchHandoffPending) {
-      push('warning', 'search/후보 연결이 정리 중입니다.', 'Search 버전 동기화가 끝나면 Revalidate 버튼이 활성화됩니다.', 'quant-workflow');
-      pushToast({ tone: 'warning', title: '연결 동기화 진행', description: '잠시 후 Revalidate를 눌러 주십시오.' });
-      return;
-    }
-    if (!searchResult?.available) {
-      push('warning', '전략 설정 탐색 결과가 없어 재검증을 시작할 수 없습니다.', '먼저 전략 설정 탐색을 실행해 전략 후보 셋을 만드세요.', 'quant-workflow');
-      pushToast({ tone: 'warning', title: '전략 후보 셋 없음', description: '전략 설정 탐색 실행 또는 검색 버전 동기화를 확인하세요.' });
-      return;
-    }
-    if (validationStore.unsaved) {
-      push('warning', '저장된 설정 기준으로만 후보 재검증을 실행합니다.', '초안은 먼저 저장해 주세요.', 'quant-workflow');
-      pushToast({ tone: 'warning', title: '먼저 설정 저장', description: '후보 재검증도 저장된 설정 기준으로만 실행합니다.' });
-      return;
-    }
-    const payload = await quantWorkflow.revalidate(backtestReadyContext.query, backtestReadyContext.settings, candidateKey);
-    const resolvedLabel = candidateKey
-      ? (candidateLabel || defaultStrategyCandidate?.label || '선택 전략 후보')
-      : '대표 글로벌 패치';
-    if (payload?.ok) {
-      push('success', `${resolvedLabel} 재검증이 완료되었습니다.`, payload.candidate?.decision?.summary || '최신 후보와 저장 가능 여부를 갱신했습니다.', 'quant-workflow');
-      pushToast({ tone: 'success', title: '재검증 완료', description: payload.candidate?.decision?.label || '운영 후보 상태를 갱신했습니다.' });
-      return;
-    }
-    push('error', `${resolvedLabel} 재검증이 실패했습니다.`, payload?.error || quantWorkflow.lastError || 'workflow 상태를 확인하세요.', 'quant-workflow');
-    pushToast({ tone: 'error', title: '재검증 실패', description: payload?.error || quantWorkflow.lastError || 'workflow 상태를 확인하세요.' });
-  }, [backtestReadyContext.query, backtestReadyContext.settings, defaultStrategyCandidate?.label, isBacktestResultStale, isSearchHandoffPending, push, pushToast, quantWorkflow, searchResult?.available, validationStore.unsaved]);
-
-  const handleSaveGuardrailPolicy = useCallback(async () => {
-    const payload = await quantWorkflow.savePolicy({
-      version: Number(guardrailPolicy?.version || 1),
-      thresholds: {
-        reject: {
-          blocked_reliability_levels: guardrailPolicyForm.reject_blocked_reliability_levels.split(',').map((item) => item.trim()).filter(Boolean),
-          min_profit_factor: Number(guardrailPolicyForm.reject_min_profit_factor),
-          min_oos_return_pct: Number(guardrailPolicyForm.reject_min_oos_return_pct),
-          max_drawdown_pct: Number(guardrailPolicyForm.reject_max_drawdown_pct),
-          min_expected_shortfall_5_pct: Number(guardrailPolicyForm.reject_min_expected_shortfall_5_pct),
-        },
-        adopt: {
-          required_reliability: guardrailPolicyForm.adopt_required_reliability.trim(),
-          min_oos_return_pct: Number(guardrailPolicyForm.adopt_min_oos_return_pct),
-          min_profit_factor: Number(guardrailPolicyForm.adopt_min_profit_factor),
-          max_drawdown_pct: Number(guardrailPolicyForm.adopt_max_drawdown_pct),
-          min_positive_window_ratio: Number(guardrailPolicyForm.adopt_min_positive_window_ratio),
-          min_expected_shortfall_5_pct: Number(guardrailPolicyForm.adopt_min_expected_shortfall_5_pct),
-        },
-        limited_adopt: {
-          allowed_reliability_levels: guardrailPolicyForm.limited_allowed_reliability_levels.split(',').map((item) => item.trim()).filter(Boolean),
-          min_oos_return_pct: Number(guardrailPolicyForm.limited_min_oos_return_pct),
-          min_profit_factor: Number(guardrailPolicyForm.limited_min_profit_factor),
-          max_drawdown_pct: Number(guardrailPolicyForm.limited_max_drawdown_pct),
-          min_positive_window_ratio: Number(guardrailPolicyForm.limited_min_positive_window_ratio),
-          min_expected_shortfall_5_pct: Number(guardrailPolicyForm.limited_min_expected_shortfall_5_pct),
-          min_near_miss_count: Number(guardrailPolicyForm.limited_min_near_miss_count),
-          max_near_miss_count: Number(guardrailPolicyForm.limited_max_near_miss_count),
-        },
-        limited_adopt_runtime: {
-          risk_per_trade_pct_multiplier: Number(guardrailPolicyForm.runtime_risk_per_trade_pct_multiplier),
-          risk_per_trade_pct_cap: Number(guardrailPolicyForm.runtime_risk_per_trade_pct_cap),
-          max_positions_per_market_cap: Number(guardrailPolicyForm.runtime_max_positions_per_market_cap),
-          max_symbol_weight_pct_cap: Number(guardrailPolicyForm.runtime_max_symbol_weight_pct_cap),
-          max_market_exposure_pct_cap: Number(guardrailPolicyForm.runtime_max_market_exposure_pct_cap),
-        },
-      },
-    });
-    if (payload?.ok) {
-      push('success', 'Guardrail policy를 저장했습니다.', '다음 Revalidate부터 새 기준이 바로 적용됩니다.', 'quant-workflow');
-      pushToast({ tone: 'success', title: 'Guardrail policy 저장', description: 'Revalidate / Save / Apply 기준을 갱신했습니다.' });
-      return;
-    }
-    push('error', 'Guardrail policy 저장이 실패했습니다.', payload?.error || quantWorkflow.lastError || '입력값과 서버 상태를 확인하세요.', 'quant-workflow');
-    pushToast({ tone: 'error', title: 'Guardrail policy 저장 실패', description: payload?.error || quantWorkflow.lastError || '입력값과 서버 상태를 확인하세요.' });
-  }, [guardrailPolicy?.version, guardrailPolicyForm, push, pushToast, quantWorkflow]);
-
-  const handleResetGuardrailPolicy = useCallback(async () => {
-    const payload = await quantWorkflow.resetPolicy();
-    if (payload?.ok) {
-      push('info', 'Guardrail policy를 기본값으로 되돌렸습니다.', '현재 운영 기본값과 동일한 기준으로 복구했습니다.', 'quant-workflow');
-      pushToast({ tone: 'info', title: 'Guardrail policy 초기화', description: '기본 기준으로 되돌렸습니다.' });
-      return;
-    }
-    push('error', 'Guardrail policy 초기화가 실패했습니다.', payload?.error || quantWorkflow.lastError || '서버 상태를 확인하세요.', 'quant-workflow');
-    pushToast({ tone: 'error', title: 'Guardrail policy 초기화 실패', description: payload?.error || quantWorkflow.lastError || '서버 상태를 확인하세요.' });
-  }, [push, pushToast, quantWorkflow]);
-
-  const handleSaveValidatedCandidate = useCallback(async () => {
-    const payload = await quantWorkflow.saveCandidate(latestValidatedCandidate?.id);
-    if (payload?.ok) {
-      push('success', '재검증 통과 후보를 저장했습니다.', payload.candidate?.save_note || payload.candidate?.decision?.summary || 'runtime apply 전 단계 스냅샷을 보존했습니다.', 'quant-workflow');
-      pushToast({ tone: 'success', title: '후보 저장 완료', description: '저장된 후보와 runtime apply 가드가 갱신되었습니다.' });
-      return;
-    }
-    push('error', '후보 저장이 차단되었습니다.', payload?.error || quantWorkflow.lastError || 'guardrail 사유를 확인하세요.', 'quant-workflow');
-    pushToast({ tone: 'error', title: '후보 저장 차단', description: payload?.error || quantWorkflow.lastError || 'guardrail 사유를 확인하세요.' });
-  }, [latestValidatedCandidate?.id, push, pushToast, quantWorkflow]);
-
-  const handleApplyRuntimeCandidate = useCallback(async () => {
-    const payload = await quantWorkflow.applyRuntime(savedValidatedCandidate?.id);
-    if (payload?.ok) {
-      push('success', '저장된 후보를 runtime 설정으로 반영했습니다.', `엔진 ${payload.runtime_apply?.engine_state || '-'} · 다음 실행 ${payload.runtime_apply?.applied_at ? formatDateTime(payload.runtime_apply.applied_at) : '-'}`, 'quant-workflow');
-      pushToast({ tone: 'success', title: 'Runtime 반영 완료', description: '다음 paper engine cycle부터 최신 저장 후보를 사용합니다.' });
-      return;
-    }
-    push('error', 'runtime 반영이 차단되었습니다.', payload?.error || quantWorkflow.lastError || 'saved candidate와 guardrail 상태를 확인하세요.', 'quant-workflow');
-    pushToast({ tone: 'error', title: 'Runtime 반영 차단', description: payload?.error || quantWorkflow.lastError || 'saved candidate와 guardrail 상태를 확인하세요.' });
-  }, [push, pushToast, quantWorkflow, savedValidatedCandidate?.id]);
-
-  const handleRefreshAll = useCallback(async () => {
-    onRefresh();
-
-    try {
-      const [statusPayload, paramsPayload] = await Promise.all([
-        getJSON<{ running?: boolean }>('/api/optimization-status', { noStore: true }),
-        getJSON<Record<string, unknown>>('/api/optimized-params', { noStore: true }),
-        quantWorkflow.refresh(),
-        validationStore.loadSavedFromServer(),
-      ]);
-
-      setOptimizationRunning(Boolean(statusPayload.running));
-      if (statusPayload.running) {
-        setOptimizationPhase('running');
-        setOptimizationMessage('이미 실행 중인 최적화 작업을 추적 중입니다.');
-      }
-      if (paramsPayload.status === 'ok') {
-        setOptimizedParams(paramsPayload);
-      }
-    } catch {
-      push('warning', '상태 새로고침 중 일부 정보를 가져오지 못했습니다.', '최적화 상태와 최신 파라미터는 다시 시도해 주세요.', 'refresh');
-    }
-
-    push('info', '화면 상태만 새로고침했습니다.', '마지막 실행 결과 카드는 그대로 유지합니다.', 'refresh');
-    pushToast({
-      tone: 'info',
-      title: '상태만 새로고침했습니다.',
-      description: '마지막 실행 결과는 다시 계산하지 않았습니다.',
-    });
-  }, [onRefresh, push, pushToast, quantWorkflow, validationStore]);
-
-  const handleRunBacktest = useCallback(async () => {
-    if (backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing') return;
-    if (validationStore.unsaved) {
-      push('warning', '저장된 설정만 실행할 수 있습니다.', '먼저 설정 저장을 눌러 실행 기준을 확정해 주세요.', 'backtest');
-      pushToast({ tone: 'warning', title: '먼저 설정 저장', description: '실행 결과와 초안을 섞지 않도록 저장된 설정만 실행합니다.' });
-      return;
-    }
-
-    const executedQuery = validationStore.savedQuery;
-    const executedSettings = validationStore.savedSettings;
-    const runInFlight: BacktestRunInFlightState = {
-      startedAt: nowIso(),
-      contextFingerprint: buildBacktestContextFingerprint(executedQuery, executedSettings),
-      query: executedQuery,
-      settings: executedSettings,
-    };
-    setBacktestRunInFlight(runInFlight);
-    writeBacktestRunInFlight(runInFlight);
-
-    const historyId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    updateRunHistory([
-      {
-        id: historyId,
-        at: nowIso(),
-        market: executedQuery.market_scope,
-        lookbackDays: executedQuery.lookback_days,
-        status: '실행 중',
-        totalReturnPct: null,
-      },
-      ...runHistory,
-    ].slice(0, 30));
-
-    setRunStartedAt(nowIso());
-    setRunFinishedAt('');
-    setBacktestPhase('requesting');
-    setBacktestMessage('저장된 설정으로 백테스트 요청을 전송했습니다.');
-    push('info', '퀀트 백테스트 실행을 시작했습니다.', `시장 ${executedQuery.market_scope === 'kospi' ? 'KOSPI' : executedQuery.market_scope === 'nasdaq' ? 'NASDAQ' : 'KOSPI+NASDAQ'}, 기간 ${executedQuery.lookback_days}일`, 'backtest');
-    pushToast({ tone: 'info', title: '백테스트 실행 시작', description: '저장된 설정 기준으로 결과를 고정합니다.' });
-
-    await Promise.resolve();
-    setBacktestPhase('running');
-    setBacktestMessage('서버에서 성과 계산과 검증 요약을 생성하고 있습니다.');
-
-    try {
-      const result = await run(executedQuery);
-      const validationPayload = result.ok ? await refreshValidationResult(executedQuery, executedSettings) : null;
-      setBacktestPhase('finalizing');
-      setBacktestMessage('결과를 정리 중입니다.');
-      await new Promise((resolve) => window.setTimeout(resolve, 180));
-
-      const finishedAt = nowIso();
-      setRunFinishedAt(finishedAt);
-
-      if (result.ok && result.payload && validationPayload) {
-        setDiagnosticsResult(null);
-        const nextExecutedRun: ExecutedRunState = {
-          executedAt: finishedAt,
-          query: executedQuery,
-          settings: executedSettings,
-          backtest: result.payload,
-          validation: validationPayload,
-        };
-        setExecutedRun(nextExecutedRun);
-        writeJson(EXECUTED_RUN_KEY, nextExecutedRun);
-        setBacktestPhase('success');
-        setBacktestMessage('백테스트가 완료되었습니다. 결과 카드는 마지막 명시적 실행 기준으로 고정됩니다.');
-        updateRunHistory(updateHistoryItem([
-          {
-            id: historyId,
-            at: finishedAt,
-            market: executedQuery.market_scope,
-            lookbackDays: executedQuery.lookback_days,
-            status: '완료',
-            totalReturnPct: metricNumber(result.payload.metrics as Record<string, unknown> | undefined, 'total_return_pct'),
-          },
-          ...runHistory,
-        ].slice(0, 30), historyId, {
-          status: '완료',
-          totalReturnPct: metricNumber(result.payload.metrics as Record<string, unknown> | undefined, 'total_return_pct'),
-        }));
-        push('success', '백테스트가 완료되었습니다.', '마지막 실행 결과 카드와 최근 실행 이력이 갱신되었습니다.', 'backtest');
-        pushToast({ tone: 'success', title: '백테스트 완료', description: '결과 카드를 마지막 실행 기준으로 고정했습니다.' });
-        return;
-      }
-
-      setBacktestPhase('error');
-      setBacktestMessage(result.error || '백테스트 실행 중 오류가 발생했습니다.');
-      updateRunHistory(updateHistoryItem([
-        {
-          id: historyId,
-          at: finishedAt,
-          market: executedQuery.market_scope,
-          lookbackDays: executedQuery.lookback_days,
-          status: '실패',
-          totalReturnPct: null,
-        },
-        ...runHistory,
-      ].slice(0, 30), historyId, { status: '실패', totalReturnPct: null }));
-      push('error', '백테스트 실행이 실패했습니다.', result.error || '상단 로그 보기에서 상세 원인을 확인하세요.', 'backtest');
-      pushToast({ tone: 'error', title: '백테스트 실패', description: result.error || '로그와 서버 상태를 확인해 주세요.' });
-    } finally {
-      clearBacktestRunInFlightState();
-    }
-  }, [
-    backtestPhase,
-    clearBacktestRunInFlightState,
-    push,
-    pushToast,
-    refreshValidationResult,
-    run,
-    runHistory,
-    updateRunHistory,
-    validationStore.savedQuery,
-    validationStore.savedSettings,
-    validationStore.unsaved,
-  ]);
-
-  const handleRunOptimization = useCallback(async () => {
-    if (optimizationRunning || optimizationPhase === 'requesting') return;
-    if (isBacktestResultStale) {
-      push('warning', '백테스트를 최신 기준으로 다시 실행해 주세요.', '오래된 기준에서 바로 Search를 실행하면 후보 풀이 왜곡될 수 있습니다.', 'optimization');
-      pushToast({ tone: 'warning', title: '백테스트 기준 필요', description: 'Search 실행 전 백테스트 기준을 최신화하세요.' });
-      return;
-    }
-    if (validationStore.unsaved) {
-      push('warning', '저장된 설정을 먼저 확정해 주세요.', '초안 상태에서는 최적화를 시작하지 않습니다.', 'optimization');
-      pushToast({ tone: 'warning', title: '먼저 설정 저장', description: '최적화도 저장된 설정 기준으로만 시작합니다.' });
-      return;
-    }
-
-    setOptimizationPhase('requesting');
-    setOptimizationStartedAt(nowIso());
-    setOptimizationUpdatedAt('');
-    setOptimizationMessage('최적화 요청을 전송하고 있습니다.');
-
-    try {
-      const response = await postJSON<{ status?: string; error?: string }>('/api/run-optimization', {
-        query: backtestReadyContext.query,
-        settings: backtestReadyContext.settings,
-      });
-      const payload = response.data;
-
-      if (payload.status === 'started' || payload.status === 'already_running') {
-        const alreadyRunning = payload.status === 'already_running';
-        setOptimizationRunning(true);
-        setOptimizationPhase(alreadyRunning ? 'running' : 'queued');
-        setOptimizationMessage(
-          alreadyRunning
-            ? '이미 실행 중인 최적화 작업을 추적합니다.'
-            : '최적화가 큐에 등록되었습니다. 완료 후 상태 동기화가 갱신됩니다.',
-        );
-        push(
-          'info',
-          alreadyRunning ? '퀀트 최적화가 이미 실행 중입니다.' : '퀀트 최적화를 시작했습니다.',
-          alreadyRunning
-            ? '이미 실행 중인 작업을 계속 추적합니다.'
-            : '완료되면 Search 결과와 후보 연결 상태를 갱신 표시합니다.',
-          'optimization',
-        );
-        pushToast({
-          tone: 'info',
-          title: alreadyRunning ? '최적화 작업 확인' : '최적화 시작',
-          description: alreadyRunning
-            ? '이미 실행 중인 작업을 계속 모니터링합니다.'
-            : '완료되면 Search 결과와 후보 연결 상태를 최신화합니다.',
-        });
-        const historyItem: OptimizationHistoryItem = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          at: nowIso(),
-          status: alreadyRunning ? '실행 중' : '큐 등록',
-          message: alreadyRunning ? '이미 실행 중인 작업에 연결' : '새 최적화 요청',
-        };
-        updateOptimizationHistory([historyItem, ...optimizationHistory].slice(0, 30));
-        return;
-      }
-
-      setOptimizationPhase('error');
-      setOptimizationMessage(payload.error || '최적화 요청 실패');
-      push('error', '최적화 요청이 실패했습니다.', payload.error || '', 'optimization');
-      pushToast({ tone: 'error', title: '최적화 요청 실패', description: payload.error || '백엔드 최적화 엔드포인트를 확인해 주세요.' });
-    } catch {
-      setOptimizationPhase('error');
-      setOptimizationMessage('최적화 요청 중 오류가 발생했습니다.');
-      push('error', '최적화 요청 중 오류가 발생했습니다.', '네트워크 또는 서버 상태를 확인하세요.', 'optimization');
-      pushToast({ tone: 'error', title: '최적화 요청 실패', description: '요청 전송 중 오류가 발생했습니다.' });
-    }
-  }, [backtestReadyContext.query, backtestReadyContext.settings, isBacktestResultStale, optimizationHistory, optimizationPhase, optimizationRunning, push, pushToast, updateOptimizationHistory, validationStore.unsaved]);
-
-  const handleSaveSettings = useCallback(async () => {
-    if (settingsSyncBusy) return;
-    try {
-      const savedAt = await validationStore.saveDraftToServer();
-      const historyItem: SettingSaveItem = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        at: savedAt,
-        market: validationStore.draftQuery.market_scope,
-        lookbackDays: validationStore.draftQuery.lookback_days,
-        strategy: validationStore.draftSettings.strategy,
-      };
-      updateSaveHistory([historyItem, ...saveHistory].slice(0, 30));
-      push('success', '퀀트 검증 설정을 서버에 저장했습니다.', `${validationStore.draftQuery.market_scope === 'kospi' ? 'KOSPI' : validationStore.draftQuery.market_scope === 'nasdaq' ? 'NASDAQ' : 'KOSPI+NASDAQ'} · ${validationStore.draftQuery.lookback_days}일`, 'settings');
-      pushToast({ tone: 'success', title: '서버 저장 완료', description: '이 저장값은 다른 브라우저/기기에서도 같은 기준으로 불러옵니다.' });
-    } catch {
-      push('error', '퀀트 검증 설정 저장이 실패했습니다.', '서버 설정 저장 API 또는 JSON 파일 상태를 확인하세요.', 'settings');
-      pushToast({ tone: 'error', title: '서버 저장 실패', description: '잠시 후 다시 시도해 주세요.' });
-    }
-  }, [push, pushToast, saveHistory, settingsSyncBusy, updateSaveHistory, validationStore]);
-
-
-  const handleLoadSavedSettings = useCallback(async () => {
-    if (settingsSyncBusy) return;
-    try {
-      await validationStore.loadSavedFromServer({ forceDraft: true });
-      setBacktestMessage('서버 저장값을 초안으로 다시 불러왔습니다. 저장된 기준으로 바로 실행할 수 있습니다.');
-      push('info', '서버 저장값을 초안으로 불러왔습니다.', '다른 기기에서 저장한 값도 여기로 즉시 동기화됩니다.', 'settings');
-      pushToast({ tone: 'info', title: '저장값 불러오기 완료', description: '서버 저장값으로 draft를 덮어썼습니다.' });
-    } catch {
-      push('error', '서버 저장값을 불러오지 못했습니다.', '네트워크 또는 백엔드 상태를 확인하세요.', 'settings');
-      pushToast({ tone: 'error', title: '저장값 불러오기 실패', description: '현재 브라우저 초안은 유지했습니다.' });
-    }
-  }, [push, pushToast, settingsSyncBusy, validationStore]);
-
-  const handleResetSettings = useCallback(async () => {
-    if (settingsSyncBusy) return;
-    try {
-      await validationStore.resetSavedToServer();
-      setBacktestMessage('서버 저장값을 기본 quant 값으로 초기화했습니다. 모든 기기에서 같은 기본값을 다시 읽습니다.');
-      push('warning', '서버 저장된 quant 설정을 기본값으로 초기화했습니다.', '브라우저 초안도 함께 기본값으로 덮어썼습니다.', 'settings');
-      pushToast({ tone: 'warning', title: '서버 저장값 초기화', description: '공유 기준이 기본값으로 재설정되었습니다.' });
-    } catch {
-      push('error', '서버 저장값 초기화가 실패했습니다.', '백엔드 상태 또는 저장 파일 권한을 확인하세요.', 'settings');
-      pushToast({ tone: 'error', title: '서버 저장값 초기화 실패', description: '기존 초안과 저장값은 그대로 유지했습니다.' });
-    }
-  }, [push, pushToast, settingsSyncBusy, validationStore]);
-
-  const handleResetWorkflowResults = useCallback(async () => {
-    const payload = await quantWorkflow.resetWorkflow(true);
-    if (payload?.ok) {
-      setDiagnosticsResult(null);
-      setExecutedRun(null);
-      setRunFinishedAt('');
-      setBacktestRunInFlight(null);
-      setBacktestPhase('idle');
-      setOptimizationPhase('idle');
-      setOptimizationRunning(false);
-      setBacktestMessage('전략 검증 결과를 초기화했습니다. 필요하면 기준 백테스트부터 다시 시작하세요.');
-      setOptimizationMessage('전략 설정 탐색 결과를 비웠습니다. 다시 실행하면 새 후보셋을 만듭니다.');
-      setRunHistory([]);
-      setOptimizationHistory([]);
-      setSaveHistory([]);
-      setActiveResultTab('backtest');
-      localStorage.removeItem(RUN_HISTORY_KEY);
-      localStorage.removeItem(OPT_HISTORY_KEY);
-      localStorage.removeItem(SAVE_HISTORY_KEY);
-      localStorage.removeItem(EXECUTED_RUN_KEY);
-      push('warning', '전략 검증 결과를 초기화했습니다.', payload.message || '운영 중인 runtime 반영값은 그대로 두고, 검증 랩 결과만 비웠습니다.', 'quant-workflow');
-      pushToast({ tone: 'warning', title: '전략 검증 결과 초기화', description: payload.message || '검증 랩 결과를 비웠습니다.' });
-      return;
-    }
-    push('error', '전략 검증 결과 초기화가 실패했습니다.', payload?.message || payload?.error || quantWorkflow.lastError || '서버 상태를 확인하세요.', 'quant-workflow');
-    pushToast({ tone: 'error', title: '전략 검증 결과 초기화 실패', description: payload?.message || payload?.error || quantWorkflow.lastError || '서버 상태를 확인하세요.' });
-  }, [push, pushToast, quantWorkflow]);
-
-  const selectAllOnFocus = useCallback((event: FocusEvent<HTMLInputElement>) => {
-    requestAnimationFrame(() => event.currentTarget.select());
   }, []);
 
-  const updateDraftQueryNumber = useCallback((key: keyof BacktestQuery, fallback: number, min?: number) => (event: ChangeEvent<HTMLInputElement>) => {
-    const raw = Number(event.target.value);
-    const nextValue = Number.isFinite(raw) ? raw : fallback;
-    validationStore.setDraftQuery((prev) => ({
-      ...prev,
-      [key]: typeof min === 'number' ? Math.max(min, nextValue) : nextValue,
-    }));
+  useEffect(() => {
+    const raw = localStorage.getItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as StrategyRegistryItem;
+      const strategyKind = strategyKindFromUnknown(payload.strategy_kind || payload.strategy_id);
+      const sourceParams = payload.params && typeof payload.params === 'object' ? payload.params as Record<string, unknown> : {};
+      validationStore.setDraftQuery((prev) => {
+        const synced = syncQueryWithStrategy(prev, strategyKind, prev.market_scope, metadata);
+        return applyStrategyParamsToQuery(synced, sourceParams);
+      });
+      push('info', '전략 프리셋을 검증 랩으로 불러왔습니다.', `${strategyLabel(strategyKind)} · 시장/유니버스는 현재 검증 랩 설정을 유지합니다.`, 'transfer');
+    } catch {
+      push('warning', '전략 프리셋 전달값을 읽지 못했습니다.', undefined, 'transfer');
+    } finally {
+      localStorage.removeItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+    }
+  }, [metadata, push, validationStore]);
+
+  useEffect(() => {
+    if (validationStore.serverLoaded) return;
+    validationStore.loadSavedFromServer().catch(() => undefined);
   }, [validationStore]);
 
-  const updateDraftQueryNullableNumber = useCallback((key: keyof BacktestQuery, min?: number) => (event: ChangeEvent<HTMLInputElement>) => {
-    const { value } = event.target;
+  const fetchOptimizationArtifacts = useCallback(async () => {
+    try {
+      const payload = await getJSON<Record<string, unknown>>('/api/optimized-params', { noStore: true });
+      setOptimizationPayload(payload);
+    } catch {
+      setOptimizationPayload(null);
+    }
+    try {
+      const statusPayload = await getJSON<{ running?: boolean }>('/api/optimization-status', { noStore: true });
+      setOptimizationRunning(Boolean(statusPayload.running));
+    } catch {
+      setOptimizationRunning(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchOptimizationArtifacts().catch(() => undefined);
+  }, [fetchOptimizationArtifacts]);
+
+  useEffect(() => {
+    if (!optimizationRunning) return;
+    const timer = window.setInterval(() => {
+      fetchOptimizationArtifacts().catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [fetchOptimizationArtifacts, optimizationRunning]);
+
+  const displayedResult = useMemo<BacktestData>(() => {
+    if (status === 'ok' || status === 'error') return data;
+    return {};
+  }, [data, status]);
+
+  const editableFields = useMemo(() => {
+    const strategy = metadata?.available_strategies?.find((item) => item.strategy_kind === validationStore.draftQuery.strategy_kind);
+    return strategy?.editable_fields || [];
+  }, [metadata, validationStore.draftQuery.strategy_kind]);
+
+  const statusItems = useMemo(() => ([
+    { label: '전략', value: strategyLabel(validationStore.draftQuery.strategy_kind), tone: 'neutral' as const },
+    { label: 'Regime', value: validationStore.draftQuery.regime_mode === 'auto' ? '자동' : '수동', tone: 'neutral' as const },
+    { label: '리스크', value: validationStore.draftQuery.risk_profile, tone: 'neutral' as const },
+    { label: '백테스트', value: status === 'loading' ? '실행 중' : displayedResult.error ? '실패' : displayedResult.metrics ? '완료' : '대기', tone: displayedResult.error ? 'bad' as const : displayedResult.metrics ? 'good' as const : 'neutral' as const },
+    { label: '최적화', value: optimizationRunning ? '실행 중' : optimizationPayload?.status === 'ok' ? '결과 있음' : '대기', tone: optimizationRunning ? 'neutral' as const : optimizationPayload?.status === 'ok' ? 'good' as const : 'neutral' as const },
+  ]), [displayedResult.error, displayedResult.metrics, optimizationPayload?.status, optimizationRunning, status, validationStore.draftQuery.regime_mode, validationStore.draftQuery.risk_profile, validationStore.draftQuery.strategy_kind]);
+
+  const applyStrategyPreset = useCallback((strategyKind: StrategyKind, marketScope: BacktestQuery['market_scope']) => {
+    validationStore.setDraftQuery((prev) => syncQueryWithStrategy(prev, strategyKind, marketScope, metadata));
+  }, [metadata, validationStore]);
+
+  const handleMarketChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    const marketScope = event.target.value as BacktestQuery['market_scope'];
+    applyStrategyPreset(validationStore.draftQuery.strategy_kind, marketScope);
+  }, [applyStrategyPreset, validationStore.draftQuery.strategy_kind]);
+
+  const handleStrategyChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    applyStrategyPreset(event.target.value as StrategyKind, validationStore.draftQuery.market_scope);
+  }, [applyStrategyPreset, validationStore.draftQuery.market_scope]);
+
+  const updateDraftQuery = useCallback((patch: Partial<BacktestQuery>) => {
+    validationStore.setDraftQuery((prev) => ({ ...prev, ...patch }));
+  }, [validationStore]);
+
+  const updatePortfolioField = useCallback((field: keyof BacktestQuery['portfolio_constraints']) => (numeric: number | null) => {
+    if (numeric === null) return;
     validationStore.setDraftQuery((prev) => {
-      if (value.trim() === '') {
-        return { ...prev, [key]: null };
-      }
-      const raw = Number(value);
-      const nextValue = Number.isFinite(raw) ? raw : null;
+      const nextPortfolio = {
+        ...prev.portfolio_constraints,
+        [field]: numeric,
+      };
       return {
         ...prev,
-        [key]: nextValue === null ? null : (typeof min === 'number' ? Math.max(min, nextValue) : nextValue),
+        portfolio_constraints: nextPortfolio,
+        initial_cash: field === 'initial_cash' ? numeric : prev.initial_cash,
+        max_positions: field === 'max_positions' ? numeric : prev.max_positions,
+        max_holding_days: field === 'max_holding_days' ? numeric : prev.max_holding_days,
       };
     });
   }, [validationStore]);
 
-  const settingsPanel = (
-    <div className="settings-panel-grid">
-      <section className="settings-flow-card">
-        <div className="settings-flow-title">전략 검증 순서</div>
-        <div className="settings-flow-copy">설정 저장 후 기준 백테스트를 실행하면 이후 전략 설정 탐색, 운영 후보 재검증, 운영 후보 저장, 런타임 반영 단계가 끊기지 않습니다. 퀀트 후보와 리서치 후보는 분리해 관리하고, 운영 후보 구성 방식에서만 합칠 수 있습니다.</div>
-        <div className="settings-flow-list">
-          <div><strong>1)</strong> 설정 저장</div>
-          <div><strong>2)</strong> 저장 기준 백테스트 실행</div>
-          <div><strong>3)</strong> 기준 백테스트 진단 (필요 시)</div>
-          <div><strong>4)</strong> 아래 작업 흐름에서 전략 설정 탐색 → 운영 후보 재검증 → 운영 후보 저장 → 런타임 반영</div>
-        </div>
-        <div className="settings-panel-actions">
-          <button className="console-action-button is-primary" onClick={() => { void handleSaveSettings(); }} disabled={settingsSyncBusy}>
-            {settingsSaving ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />저장 중...</span> : '1) 설정 저장'}
-          </button>
-          <button
-            className="console-action-button"
-            onClick={() => { void handleRunBacktest(); }}
-            disabled={backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing'}
-          >
-            {backtestPhase === 'requesting' || backtestPhase === 'running' || backtestPhase === 'finalizing'
-              ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />백테스트 실행 중...</span>
-              : '2) 저장 기준 백테스트'}
-          </button>
-          <button className="console-action-button" onClick={() => { void handleRunDiagnosis(); }} disabled={validationStore.unsaved}>
-            3) 기준 백테스트 진단
-          </button>
-        </div>
-      </section>
+  const updateStrategyParam = useCallback((name: string) => (numeric: number | null) => {
+    validationStore.setDraftQuery((prev) => {
+      const nextParams: Record<string, number | string | boolean | null> = {
+        ...prev.strategy_params,
+        [name]: numeric,
+      };
+      return applyStrategyParamsToQuery({
+        ...prev,
+        strategy_params: nextParams as BacktestQuery['strategy_params'],
+      }, nextParams);
+    });
+  }, [validationStore]);
 
-      <SettingsSection title="기본 전략 설정" description="시장·기간·검증 기준을 정한 뒤 저장하면 백테스트와 재검증 기준이 확정됩니다.">
-        <FieldBlock label="시장" help="백테스트 대상 시장을 선택합니다.">
-          <select
-            className="backtest-input-wrap"
-            style={{ padding: '0 12px' }}
-            value={validationStore.draftQuery.market_scope}
-            onChange={(event) => validationStore.setDraftQuery((prev) => ({ ...prev, market_scope: event.target.value as BacktestQuery['market_scope'] }))}
-          >
-            <option value="kospi">KOSPI</option>
-            <option value="nasdaq">NASDAQ</option>
-            <option value="all">KOSPI+NASDAQ</option>
-          </select>
-        </FieldBlock>
+  const handleSave = useCallback(async () => {
+    try {
+      await validationStore.saveDraftToServer();
+      push('success', '전략 검증 설정을 저장했습니다.', formatValidationSettingsLabel(validationStore.draftSettings, validationStore.draftQuery).join(' · '), 'settings');
+    } catch {
+      push('error', '설정 저장에 실패했습니다.', undefined, 'settings');
+    }
+  }, [push, validationStore]);
 
-        <FieldBlock label="퀀트 전략 이름" help="실행 패널과 저장 이력에 함께 표시됩니다.">
-          <input
-            className="backtest-input-wrap"
-            style={{ padding: '0 12px' }}
-            value={validationStore.draftSettings.strategy}
-            onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, strategy: event.target.value }))}
-            placeholder="예: 퀀트 모멘텀 엔진"
-          />
-        </FieldBlock>
+  const handleRunBacktest = useCallback(async () => {
+    const result = await run(validationStore.draftQuery);
+    if (result.ok) {
+      push(
+        'success',
+        '전략 백테스트를 완료했습니다.',
+        `${strategyLabel(validationStore.draftQuery.strategy_kind)} · ${marketLabel(validationStore.draftQuery.market_scope)} · ${formatCount(result.payload?.metrics?.trade_count ?? 0, '건')}`,
+        'backtest',
+      );
+    } else {
+      push('error', '전략 백테스트에 실패했습니다.', result.error, 'backtest');
+    }
+  }, [push, run, validationStore.draftQuery]);
 
-        <FieldBlock label="백테스트 기간(일)" help="최소 180일, 30일 단위 권장">
-          <IntegerDraftInput
-            value={validationStore.draftQuery.lookback_days}
-            min={180}
-            step={30}
-            onCommit={(next) => validationStore.setDraftQuery((prev) => ({ ...prev, lookback_days: next }))}
-          />
-        </FieldBlock>
+  const handleRunOptimization = useCallback(async () => {
+    setOptimizationMessage('강건성 검증을 요청했습니다.');
+    try {
+      const response = await postJSON<{ status?: string; error?: string }>('/api/run-optimization', {
+        query: validationStore.draftQuery,
+        settings: validationStore.savedSettings,
+      });
+      if (response.data?.status === 'started' || response.data?.status === 'already_running') {
+        setOptimizationRunning(true);
+        push('info', '강건성 검증을 시작했습니다.', `${strategyLabel(validationStore.draftQuery.strategy_kind)} · ${validationStore.draftQuery.regime_mode}`, 'optimization');
+      } else {
+        push('warning', '강건성 검증 응답이 예상과 다릅니다.', response.data?.error, 'optimization');
+      }
+      fetchOptimizationArtifacts().catch(() => undefined);
+    } catch {
+      setOptimizationMessage('강건성 검증 요청에 실패했습니다.');
+      push('error', '강건성 검증 요청에 실패했습니다.', undefined, 'optimization');
+    }
+  }, [fetchOptimizationArtifacts, push, validationStore.draftQuery, validationStore.savedSettings]);
 
-        <FieldBlock label="기준 구간(일)" help="최소 30일, 10일 단위">
-          <IntegerDraftInput
-            value={validationStore.draftSettings.trainingDays}
-            min={30}
-            step={10}
-            onCommit={(next) => validationStore.setDraftSettings((prev) => ({ ...prev, trainingDays: next }))}
-          />
-        </FieldBlock>
+  const actions = useMemo<ActionBarAction[]>(() => ([
+    {
+      label: '설정 저장',
+      tone: 'default',
+      onClick: handleSave,
+      disabled: validationStore.syncStatus === 'saving',
+      busy: validationStore.syncStatus === 'saving',
+    },
+    {
+      label: '백테스트 실행',
+      tone: 'primary',
+      onClick: handleRunBacktest,
+      disabled: status === 'loading',
+      busy: status === 'loading',
+    },
+    {
+      label: '강건성 검증',
+      tone: 'default',
+      onClick: handleRunOptimization,
+      disabled: optimizationRunning,
+      busy: optimizationRunning,
+      busyLabel: '실행 중...',
+    },
+  ]), [handleRunBacktest, handleRunOptimization, handleSave, optimizationRunning, status, validationStore.syncStatus]);
 
-        <FieldBlock label="검증 구간(일)" help="최소 20일, 10일 단위">
-          <IntegerDraftInput
-            value={validationStore.draftSettings.validationDays}
-            min={20}
-            step={10}
-            onCommit={(next) => validationStore.setDraftSettings((prev) => ({ ...prev, validationDays: next }))}
-          />
-        </FieldBlock>
-
-        <FieldBlock label="구간 검증" help="구간별 재학습 여부">
-          <select
-            className="backtest-input-wrap"
-            style={{ padding: '0 12px' }}
-            value={validationStore.draftSettings.walkForward ? 'on' : 'off'}
-            onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, walkForward: event.target.value === 'on' }))}
-          >
-            <option value="on">사용</option>
-            <option value="off">미사용</option>
-          </select>
-        </FieldBlock>
-
-        <FieldBlock label="최소 거래 수(건)" help="검증 통과 최소 거래 수">
-          <IntegerDraftInput
-            value={validationStore.draftSettings.minTrades}
-            min={1}
-            step={1}
-            onCommit={(next) => validationStore.setDraftSettings((prev) => ({ ...prev, minTrades: next }))}
-          />
-        </FieldBlock>
-
-        <FieldBlock label="목표 함수" help="최적화 판단 기준">
-          <select
-            className="backtest-input-wrap"
-            style={{ padding: '0 12px' }}
-            value={validationStore.draftSettings.objective}
-            onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, objective: event.target.value }))}
-          >
-            <option>수익 우선</option>
-            <option>수익+안정 균형</option>
-          </select>
-        </FieldBlock>
-
-        <FieldBlock label="운영 후보 구성 방식" help="퀀트 후보와 리서치 후보를 실제 운영 후보에 어떻게 반영할지 고릅니다. 기본값은 퀀트 후보만 사용입니다.">
-          <select
-            className="backtest-input-wrap"
-            style={{ padding: '0 12px' }}
-            value={validationStore.draftSettings.runtimeCandidateSourceMode}
-            onChange={(event) => validationStore.setDraftSettings((prev) => ({ ...prev, runtimeCandidateSourceMode: event.target.value as typeof prev.runtimeCandidateSourceMode }))}
-          >
-            <option value="quant_only">퀀트 후보만 사용</option>
-            <option value="hybrid">퀀트/리서치 후보 분리 병합</option>
-          </select>
-          <div className="settings-field-help" style={{ marginTop: 8 }}>
-            {runtimeCandidateSourceModeDescription(validationStore.draftSettings.runtimeCandidateSourceMode)}
-          </div>
-        </FieldBlock>
-      </SettingsSection>
-
-      <SettingsSection title="고급 룰 파라미터" description="진입·청산 파라미터를 조정한 뒤 저장하면 백테스트와 최적화에 반영됩니다.">
-        <FieldBlock label="초기 자금" help="시장 기본 통화 기준입니다.">
-          <MoneyValueInput
-            value={validationStore.draftQuery.initial_cash}
-            onChange={(next) => validationStore.setDraftQuery((prev) => ({ ...prev, initial_cash: next }))}
-            min={1}
-            placeholder="예: 100,000,000"
-          />
-        </FieldBlock>
-        <FieldBlock label="최대 보유 종목 수" help="동시 보유 가능한 포지션 수입니다.">
-          <IntegerDraftInput
-            value={validationStore.draftQuery.max_positions}
-            min={1}
-            step={1}
-            onCommit={(next) => validationStore.setDraftQuery((prev) => ({ ...prev, max_positions: next }))}
-          />
-        </FieldBlock>
-        <FieldBlock label="최대 보유 일수" help="포지션 강제 정리 기준입니다.">
-          <IntegerDraftInput
-            value={validationStore.draftQuery.max_holding_days}
-            min={1}
-            step={1}
-            onCommit={(next) => validationStore.setDraftQuery((prev) => ({ ...prev, max_holding_days: next }))}
-          />
-        </FieldBlock>
-        <FieldBlock label="RSI 최소" help="진입 허용 하한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={1} value={validationStore.draftQuery.rsi_min} onChange={updateDraftQueryNumber('rsi_min', validationStore.draftQuery.rsi_min)} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="RSI 최대" help="진입 허용 상한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={1} value={validationStore.draftQuery.rsi_max} onChange={updateDraftQueryNumber('rsi_max', validationStore.draftQuery.rsi_max)} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="거래량 배수 최소" help="평균 대비 거래량 필터입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.volume_ratio_min} onChange={updateDraftQueryNumber('volume_ratio_min', validationStore.draftQuery.volume_ratio_min, 0)} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="손절 폭(%)" help="비우면 손절 조건을 끕니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.stop_loss_pct ?? ''} onChange={updateDraftQueryNullableNumber('stop_loss_pct', 0)} placeholder="예: 5" onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="익절 폭(%)" help="비우면 익절 조건을 끕니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.take_profit_pct ?? ''} onChange={updateDraftQueryNullableNumber('take_profit_pct', 0)} placeholder="예: 12" onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="ADX 최소" help="추세 강도 필터입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} step={0.1} value={validationStore.draftQuery.adx_min ?? ''} onChange={updateDraftQueryNullableNumber('adx_min', 0)} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="MFI 최소" help="자금 유입 하한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.mfi_min ?? ''} onChange={updateDraftQueryNullableNumber('mfi_min')} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="MFI 최대" help="과열 차단 상한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.mfi_max ?? ''} onChange={updateDraftQueryNullableNumber('mfi_max')} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="BB 위치 최소" help="볼린저 밴드 위치 하한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} max={1} step={0.01} value={validationStore.draftQuery.bb_pct_min ?? ''} onChange={updateDraftQueryNullableNumber('bb_pct_min', 0)} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="BB 위치 최대" help="볼린저 밴드 위치 상한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" min={0} max={1} step={0.01} value={validationStore.draftQuery.bb_pct_max ?? ''} onChange={updateDraftQueryNullableNumber('bb_pct_max', 0)} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="Stoch K 최소" help="모멘텀 하한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.stoch_k_min ?? ''} onChange={updateDraftQueryNullableNumber('stoch_k_min')} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-        <FieldBlock label="Stoch K 최대" help="모멘텀 상한선입니다.">
-          <input className="backtest-input-wrap" style={{ padding: '0 12px' }} type="number" step={0.1} value={validationStore.draftQuery.stoch_k_max ?? ''} onChange={updateDraftQueryNullableNumber('stoch_k_max')} onFocus={selectAllOnFocus} />
-        </FieldBlock>
-      </SettingsSection>
-
-      <div className="settings-panel-actions">
-        <button className="console-action-button is-primary" onClick={() => { void handleSaveSettings(); }} disabled={settingsSyncBusy}>
-          {settingsSaving ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />저장 중...</span> : '설정 저장'}
-        </button>
-        <button className="console-action-button" onClick={() => { void handleLoadSavedSettings(); }} disabled={settingsSyncBusy}>
-          {settingsLoading ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />불러오는 중...</span> : '저장값 다시 불러오기'}
-        </button>
-        <button className="console-action-button is-danger" onClick={() => setResetConfirmOpen(true)} disabled={settingsSyncBusy}>
-          {settingsResetting ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />초기화 중...</span> : '서버 저장 초기화'}
-        </button>
-      </div>
-      <div className="detail-list" style={{ marginTop: 8 }}>
-        <div>저장값은 서버 JSON 파일에 보관되어 브라우저/기기/세션이 달라도 같은 기준으로 불러옵니다.</div>
-        <div>이 저장값은 실제 운영 반영값과 분리되며, 기준 백테스트·진단·운영 후보 재검증 기준만 공유합니다. 다만 운영 후보 구성 방식은 여기서 함께 저장되어 API/UI 전체에 같은 값으로 반영됩니다.</div>
-        <div>마지막 서버 저장: {validationStore.lastSavedAt ? formatDateTime(validationStore.lastSavedAt) : '없음'}</div>
-        {validationStore.syncMessage && <div>동기화 상태: {validationStore.syncMessage}</div>}
-      </div>
-    </div>
-  );
+  const summaryMetrics = displayedResult.performance_summary || {};
+  const executionSummary = displayedResult.execution_summary || {};
+  const searchContext = optimizationPayload?.meta && typeof optimizationPayload.meta === 'object'
+    ? (optimizationPayload.meta as Record<string, unknown>).search_context as Record<string, unknown> | undefined
+    : undefined;
+  const optimizerAggregateRobustZone = optimizationPayload?.aggregate_robust_zone && typeof optimizationPayload.aggregate_robust_zone === 'object'
+    ? optimizationPayload.aggregate_robust_zone as {
+      summary?: string;
+      parameter_bands?: Record<string, { label?: string; selected?: unknown; min?: number; max?: number }>;
+    }
+    : undefined;
+  const initialCashCurrency = currencyCode(validationStore.draftQuery.market_scope);
 
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
+        <div className="content-shell console-page-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
-            title="전략 검증 랩"
-            subtitle="저장된 기준, 기준 백테스트, 전략 설정 탐색, 운영 후보, 실제 운영 반영 상태를 한 화면에서 관리합니다. 퀀트 후보와 리서치 후보는 분리해 다루고 실제 운영 후보 구성 단계에서만 연결합니다."
+            title="전략 검증"
+            subtitle="전략 종류를 먼저 선택하고, regime/risk/portfolio 제약을 정한 뒤 전략별 파라미터를 조정합니다. Monte Carlo는 최적값 발굴기가 아니라 전략별 강건성 검증기로 취급합니다."
             lastUpdated={snapshot.fetchedAt}
-            loading={loading}
-            errorMessage={errorMessage}
+            loading={loading || metadataLoading}
+            errorMessage={errorMessage || lastError}
             statusItems={statusItems}
-            onRefresh={handleRefreshAll}
+            onRefresh={onRefresh}
+            actions={actions}
             logs={entries}
             onClearLogs={clear}
-            settingsPanel={settingsPanel}
             settingsDirty={validationStore.unsaved}
             settingsSavedAt={validationStore.lastSavedAt}
           />
 
-          {adoptionDecisionPanel}
+          <section className="page-section console-card-section" style={{ display: 'grid', gap: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>설정</div>
+            <div className="backtest-grid">
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span>전략</span>
+                <select className="backtest-input-wrap" value={validationStore.draftQuery.strategy_kind} onChange={handleStrategyChange}>
+                  <option value="trend_following">Trend Following</option>
+                  <option value="mean_reversion">Mean Reversion</option>
+                  <option value="defensive">Defensive</option>
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span>Regime 모드</span>
+                <select className="backtest-input-wrap" value={validationStore.draftQuery.regime_mode} onChange={(event) => updateDraftQuery({ regime_mode: event.target.value as BacktestQuery['regime_mode'] })}>
+                  <option value="auto">자동</option>
+                  <option value="manual">수동</option>
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span>리스크 프로필</span>
+                <select
+                  className="backtest-input-wrap"
+                  value={validationStore.draftQuery.risk_profile}
+                  onChange={(event) => {
+                    const nextRiskProfile = event.target.value as BacktestQuery['risk_profile'];
+                    validationStore.setDraftQuery((prev) => syncQueryWithStrategy(
+                      { ...prev, risk_profile: nextRiskProfile },
+                      prev.strategy_kind,
+                      prev.market_scope,
+                      metadata,
+                    ));
+                  }}
+                >
+                  <option value="conservative">conservative</option>
+                  <option value="balanced">balanced</option>
+                  <option value="aggressive">aggressive</option>
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span>시장</span>
+                <select className="backtest-input-wrap" value={validationStore.draftQuery.market_scope} onChange={handleMarketChange}>
+                  <option value="kospi">KOSPI</option>
+                  <option value="nasdaq">NASDAQ</option>
+                  <option value="all">KOSPI + NASDAQ</option>
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span>백테스트 기간</span>
+                <NumericInput
+                  value={validationStore.draftQuery.lookback_days}
+                  min={180}
+                  max={1825}
+                  step={30}
+                  onCommit={(numeric) => {
+                    if (numeric === null) return;
+                    updateDraftQuery({ lookback_days: numeric });
+                  }}
+                />
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span>{`초기 자금 (${initialCashCurrency})`}</span>
+                <NumericInput
+                  value={validationStore.draftQuery.portfolio_constraints.initial_cash}
+                  min={1}
+                  step={1000}
+                  currency={initialCashCurrency}
+                  onCommit={updatePortfolioField('initial_cash')}
+                />
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span>최대 포지션</span>
+                <NumericInput value={validationStore.draftQuery.portfolio_constraints.max_positions} min={1} max={20} step={1} onCommit={updatePortfolioField('max_positions')} />
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span>최대 보유일</span>
+                <NumericInput value={validationStore.draftQuery.portfolio_constraints.max_holding_days} min={1} max={180} step={1} onCommit={updatePortfolioField('max_holding_days')} />
+              </label>
+            </div>
 
-          <div className="validation-layout" style={{ gridTemplateColumns: 'minmax(280px, 0.88fr) minmax(0, 1.12fr)' }}>
-            <div className="validation-report-column">
-              <div className="page-section" style={{ padding: 16 }}>
-                <div className="section-head-row">
-                  <div>
-                    <div className="section-title">작업 흐름</div>
-                    <div className="section-copy">이 화면은 읽는 대시보드보다 실행 콘솔에 가깝습니다. 먼저 저장된 기준을 확정하고, 기준 백테스트 이후 전략 설정 탐색 → 운영 후보 재검증 → 운영 후보 저장 → 런타임 반영 순서로 진행합니다.</div>
-                  </div>
-                  <div className={`inline-badge ${
-                    quantWorkflow.busyAction
-                      ? 'is-warning'
-                      : isSearchHandoffPending
-                        ? 'is-warning'
-                        : latestCandidateMatchesSearch
-                          ? 'is-success'
-                          : 'is-warning'
-                  }`}>
-                    {quantWorkflow.busyAction
-                      ? `작업 중 · ${busyActionLabel}`
-                      : isSearchHandoffPending
-                        ? `후보 연결 정리 중`
-                        : latestCandidateMatchesSearch
-                          ? '최신 기준 연결됨'
-                          : '다음 단계 확인 필요'}
-                  </div>
-                </div>
-
-                <div className="operator-note-grid" style={{ marginTop: 12 }}>
-                  <div className={`operator-note-card ${searchResult?.available ? 'is-good' : ''}`}>
-                    <div className="operator-note-label">전략 설정 탐색</div>
-                    <div className="operator-note-copy">{searchResult?.available ? `버전 ${String(searchResult.version || '-')} · ${searchContextLabel || '전략 설정 탐색 완료'}` : '아직 전략 설정 탐색 결과가 없습니다.'}<br />{searchResult?.available ? `출처 ${String(searchResult?.source || searchResult?.global_overlay_source || '-')}` : searchBlockedReason}</div>
-                  </div>
-                  <div className={`operator-note-card ${latestCandidateMatchesSearch ? 'is-good' : latestValidatedCandidate ? 'is-bad' : ''}`}>
-                    <div className="operator-note-label">현재 운영 후보</div>
-                    <div className="operator-note-copy">{latestValidatedCandidate?.decision?.label || '재검증 전'} · 탐색 버전 {String(latestValidatedCandidate?.search_version || '-') || '-'}<br />{latestCandidateMatchesSearch ? '최신 탐색 결과와 같은 기준입니다.' : latestCandidateStateReasons[0] || '최신 탐색 결과와 아직 연결되지 않았습니다.'}</div>
-                  </div>
-                  <div className={`operator-note-card ${savedValidatedCandidate?.saved_at ? (savedCandidateStateReasons.length === 0 ? 'is-good' : 'is-bad') : ''}`}>
-                    <div className="operator-note-label">저장된 운영 후보</div>
-                    <div className="operator-note-copy">{savedValidatedCandidate?.saved_at ? formatDateTime(savedValidatedCandidate.saved_at) : '아직 없음'}<br />{savedCandidateStateReasons[0] || (savedValidatedCandidate?.saved_at ? '런타임 반영 전 스냅샷입니다.' : '운영 후보 저장 전입니다.')}</div>
-                  </div>
-                  <div className={`operator-note-card ${runtimeApplyState?.status === 'applied' && runtimeApplyReasons.length === 0 ? 'is-good' : runtimeApplyReasons.length > 0 ? 'is-bad' : ''}`}>
-                    <div className="operator-note-label">실제 운영 반영 상태</div>
-                    <div className="operator-note-copy">{quantRuntimeSourceLabel(runtimeApplyState?.effective_source)} · {runtimeCandidateSourceModeLabel(runtimeApplyState?.runtime_candidate_source_mode || validationStore.savedSettings.runtimeCandidateSourceMode)}<br />{runtimeApplyReasons[0] || runtimeCandidateSourceModeDescription(runtimeApplyState?.runtime_candidate_source_mode || validationStore.savedSettings.runtimeCandidateSourceMode)}</div>
-                  </div>
-                </div>
-
-                {handoffWarnings.length > 0 && (
-                  <div className="inline-warning-card" style={{ marginTop: 12 }}>
-                    {handoffWarnings.slice(0, 3).map((line) => <div key={line}>{line}</div>)}
-                  </div>
-                )}
-
-                <div className="detail-list" style={{ marginTop: 12 }}>
-                  <div><strong>권장 순서</strong> 1) 설정 저장 2) 기준 백테스트 3) 전략 설정 탐색 4) 운영 후보 재검증 5) 운영 후보 저장 6) 런타임 반영</div>
-                  <div>이 화면은 전략 설정 후보 셋과 그중에서 재검증한 운영 후보만 다룹니다.</div>
-                  <div>런타임 반영은 저장된 운영 후보만 사용할 수 있고, 전략 후보 셋은 상세 결과 탭에서 선택합니다.</div>
-                </div>
-
-                <div className="execution-button-row" style={{ marginTop: 12 }}>
-                  <button className="console-action-button" onClick={() => { void handleRunDiagnosis(); }} disabled={validationStore.unsaved}>
-                    {diagnosticsResult?.ok ? '기준 백테스트 진단 다시 계산' : '기준 백테스트 진단'}
-                  </button>
-                </div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>전략별 파라미터</div>
+              <div className="backtest-grid">
+                {editableFields.map((field) => (
+                  <label key={field.name} style={{ display: 'grid', gap: 6 }}>
+                    <span>{field.label || field.name}</span>
+                    <NumericInput
+                      value={typeof validationStore.draftQuery.strategy_params?.[String(field.name || '')] === 'number'
+                        ? validationStore.draftQuery.strategy_params?.[String(field.name || '')] as number
+                        : numberOrNull(String(validationStore.draftQuery.strategy_params?.[String(field.name || '')] ?? ''))}
+                      min={field.min}
+                      max={field.max}
+                      step={field.step || 1}
+                      decimals={Number(field.step || 1) < 1 ? 2 : 0}
+                      allowNull
+                      onCommit={updateStrategyParam(String(field.name || ''))}
+                    />
+                  </label>
+                ))}
               </div>
+            </div>
+          </section>
 
-              <div className="page-section" style={{ padding: 16 }}>
-                <div className="section-head-row">
-                  <div>
-                    <div className="section-title">다음 액션</div>
-                    <div className="section-copy">각 단계는 현재 상태, 막힌 이유, 바로 실행할 버튼만 남겼습니다.</div>
-                  </div>
-                  <div className={`inline-badge ${quantWorkflow.busyAction ? 'is-warning' : 'is-success'}`}>
-                    {quantWorkflow.busyAction ? busyActionLabel : '즉시 실행 가능'}
-                  </div>
+          <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>실행 요약</div>
+            <div className="console-metric-grid">
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>선택 전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(displayedResult.strategy_kind || validationStore.draftQuery.strategy_kind)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Resolved 전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(String(executionSummary.resolved_strategy_kind || displayedResult.resolved_strategy_kind || validationStore.draftQuery.strategy_kind))}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Resolved Regime</div><div style={{ marginTop: 6, fontWeight: 700 }}>{String(executionSummary.resolved_regime || displayedResult.resolved_regime || validationStore.draftQuery.regime_mode)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Risk 프로필</div><div style={{ marginTop: 6, fontWeight: 700 }}>{displayedResult.risk_profile || validationStore.draftQuery.risk_profile}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>시장</div><div style={{ marginTop: 6, fontWeight: 700 }}>{marketLabel(validationStore.draftQuery.market_scope)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>최근 실행</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatDateTime(displayedResult.generated_at || '') || '-'}</div></div>
+            </div>
+          </section>
+
+          <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>성능 요약</div>
+            <div className="console-metric-grid">
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>CAGR</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.cagr_pct, 2, true)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>MDD</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.max_drawdown_pct, 2, true)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>승률</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.win_rate_pct, 2, true)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Profit Factor</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(summaryMetrics.profit_factor, 2)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>거래 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(summaryMetrics.trade_count, '건')}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>총 수익</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(displayedResult.metrics?.total_return_pct, 2, true)}</div></div>
+            </div>
+          </section>
+
+          <section className="page-section console-data-section" style={{ padding: 0 }}>
+            <div style={{ padding: 16, fontSize: 14, fontWeight: 700 }}>Input Parameter Band</div>
+            <div style={{ padding: '0 16px 16px', display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{displayedResult.parameter_band?.summary || '현재 입력 파라미터가 전략 허용 범위 안에서 어디에 있는지 보여줍니다.'}</div>
+              {Object.entries(displayedResult.parameter_band?.parameter_bands || {}).length > 0 ? (
+                <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
+                        <th style={{ padding: 12, fontSize: 12 }}>파라미터</th>
+                        <th style={{ padding: 12, fontSize: 12 }}>선택값</th>
+                        <th style={{ padding: 12, fontSize: 12 }}>허용 밴드</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(displayedResult.parameter_band?.parameter_bands || {}).map(([key, band]) => (
+                        <tr key={key} style={{ borderTop: '1px solid var(--border)' }}>
+                          <td style={{ padding: 12, fontSize: 12 }}>{band.label || key}</td>
+                          <td style={{ padding: 12, fontSize: 12 }}>{String(band.selected ?? '-')}</td>
+                          <td style={{ padding: 12, fontSize: 12 }}>{`${String(band.min ?? '-')} ~ ${String(band.max ?? '-')}`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
+              ) : <div style={{ padding: 12, fontSize: 12, color: 'var(--text-4)' }}>표시할 밴드가 없습니다.</div>}
+            </div>
+          </section>
 
-                <div className="quant-ops-stage-grid" style={{ marginTop: 12 }}>
-                  <div className={`quant-ops-stage-card is-${searchResult?.available ? 'good' : searchHandoff?.status === 'optimizer_failed' ? 'bad' : 'neutral'}`}>
-                    <div className="quant-ops-stage-title">1. 전략 설정 탐색</div>
-                    <div className="quant-ops-stage-status">{searchResult?.available ? '탐색 결과 있음' : optimizationRunning ? '실행 중' : '대기'}</div>
-                    <div className="quant-ops-stage-copy">{searchContextLabel || '기준 백테스트 이후 사용할 전략 설정 조합을 찾습니다.'}</div>
-                    <div className="quant-ops-stage-copy"><strong>막힌 이유</strong> {searchBlockedReason}</div>
-                    <button
-                      className="console-action-button"
-                      style={{ marginTop: 12, width: '100%' }}
-                      onClick={() => { void handleRunOptimization(); }}
-                      disabled={optimizationRunning || optimizationPhase === 'requesting'}
-                    >
-                      {optimizationRunning || optimizationPhase === 'requesting'
-                        ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />전략 설정 탐색 중...</span>
-                        : searchResult?.available ? '전략 설정 다시 탐색' : '전략 설정 탐색 시작'}
-                    </button>
-                  </div>
-
-                  <div className={`quant-ops-stage-card is-${latestCandidateMatchesSearch ? quantDecisionTone(latestValidatedCandidate?.decision?.status) : 'neutral'}`}>
-                    <div className="quant-ops-stage-title">2. 운영 후보 재검증</div>
-                    <div className="quant-ops-stage-status">{latestCandidateMatchesSearch ? latestValidatedCandidate?.decision?.label || '완료' : '대기'}</div>
-                    <div className="quant-ops-stage-copy">{latestCandidateMatchesSearch ? latestValidatedCandidate?.decision?.summary || '최신 탐색 결과 기준으로 운영 후보를 다시 판정했습니다.' : '전략 설정 탐색 결과를 현재 기준 백테스트로 다시 판정합니다.'}</div>
-                    <div className="quant-ops-stage-copy"><strong>막힌 이유</strong> {revalidateBlockedReason}</div>
-                    <button
-                      className="console-action-button"
-                      style={{ marginTop: 12, width: '100%' }}
-                      onClick={() => { void handleRevalidateCandidate(); }}
-                      disabled={validationStore.unsaved || quantWorkflow.busyAction === 'revalidate' || !searchResult?.available}
-                    >
-                      {quantWorkflow.busyAction === 'revalidate'
-                        ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />운영 후보 재검증 중...</span>
-                        : latestCandidateMatchesSearch ? '운영 후보 다시 검증' : '운영 후보 재검증'}
-                    </button>
-                  </div>
-
-                  <div className={`quant-ops-stage-card is-${latestValidatedCandidate?.guardrails?.can_save ? 'good' : 'neutral'}`}>
-                    <div className="quant-ops-stage-title">3. 운영 후보 저장</div>
-                    <div className="quant-ops-stage-status">{savedValidatedCandidate?.saved_at ? '저장됨' : latestValidatedCandidate?.guardrails?.can_save ? '저장 가능' : '대기'}</div>
-                    <div className="quant-ops-stage-copy">{savedValidatedCandidate?.saved_at ? `저장 시각 ${formatDateTime(savedValidatedCandidate.saved_at)}` : '재검증을 통과한 운영 후보만 저장합니다.'}</div>
-                    <div className="quant-ops-stage-copy"><strong>막힌 이유</strong> {saveBlockedReason}</div>
-                    <button
-                      className="console-action-button"
-                      style={{ marginTop: 12, width: '100%' }}
-                      onClick={() => { void handleSaveValidatedCandidate(); }}
-                      disabled={!latestValidatedCandidate?.guardrails?.can_save || quantWorkflow.busyAction === 'save'}
-                    >
-                      {quantWorkflow.busyAction === 'save'
-                        ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />운영 후보 저장 중...</span>
-                        : '운영 후보 저장'}
-                    </button>
-                  </div>
-
-                  <div className={`quant-ops-stage-card is-${savedValidatedCandidate?.guardrails?.can_apply ? 'good' : runtimeApplyState?.status === 'applied' ? 'good' : 'neutral'}`}>
-                    <div className="quant-ops-stage-title">4. 런타임 반영</div>
-                    <div className="quant-ops-stage-status">{runtimeApplyState?.status === 'applied' ? '반영됨' : savedValidatedCandidate?.guardrails?.can_apply ? '반영 가능' : '대기'}</div>
-                    <div className="quant-ops-stage-copy">{runtimeApplyState?.status === 'applied' ? `${formatDateTime(runtimeApplyState.applied_at)} · 엔진 ${runtimeApplyState.engine_state || '-'}` : '저장된 운영 후보만 실제 운영 설정으로 반영합니다.'}</div>
-                    <div className="quant-ops-stage-copy"><strong>막힌 이유</strong> {applyBlockedReason}</div>
-                    <button
-                      className="console-action-button is-primary"
-                      style={{ marginTop: 12, width: '100%' }}
-                      onClick={() => { void handleApplyRuntimeCandidate(); }}
-                      disabled={!savedValidatedCandidate?.guardrails?.can_apply || quantWorkflow.busyAction === 'apply'}
-                    >
-                      {quantWorkflow.busyAction === 'apply'
-                        ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />런타임 반영 중...</span>
-                        : '런타임 반영'}
-                    </button>
-                  </div>
-                </div>
-
-                {(quantWorkflow.lastError || errorMessage) && (
-                  <div className="inline-warning-card" style={{ marginTop: 12 }}>{quantWorkflow.lastError || errorMessage}</div>
-                )}
-
-                <div className="page-section" style={{ padding: 16, marginTop: 12 }}>
-                  <div className="section-head-row">
-                    <div>
-                      <div className="section-title">검증 결과 초기화</div>
-                      <div className="section-copy">전략 탐색 결과, 운영 후보, 저장 상태, 랩 내부 실행 이력을 한 번에 비웁니다. 이미 반영된 runtime 값은 건드리지 않습니다.</div>
-                    </div>
-                    <button
-                      className="console-action-button is-danger"
-                      onClick={() => setWorkflowResetConfirmOpen(true)}
-                      disabled={quantWorkflow.busyAction === 'reset_workflow'}
-                    >
-                      {quantWorkflow.busyAction === 'reset_workflow'
-                        ? <span className="button-content"><span className="button-spinner" aria-hidden="true" />초기화 중...</span>
-                        : '전략 검증 결과 초기화'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="page-section" style={{ padding: 16 }}>
-                <div className="section-head-row">
-                  <div>
-                    <div className="section-title">고급 정책</div>
-                    <div className="section-copy">저장/반영 조건은 기본 화면에서는 접어 두고, 운영 기준을 조정할 때만 펼칩니다.</div>
-                  </div>
-                  <div className="execution-button-row">
-                    <button className="console-action-button" onClick={() => setPolicyOpen((current) => !current)}>
-                      {policyOpen ? '고급 정책 접기' : '고급 정책 펼치기'}
-                    </button>
-                  </div>
-                </div>
-                <div className="summary-rail is-compact" style={{ marginTop: 12 }}>
-                  {policySummaryLines.map((line) => (
-                    <div key={line} className="summary-rail-item">{line}</div>
+          <section className="page-section console-data-section" style={{ padding: 0 }}>
+            <div style={{ padding: 16, fontSize: 14, fontWeight: 700 }}>Regime Breakdown</div>
+            <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
+                    <th style={{ padding: 12, fontSize: 12 }}>Regime</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>거래 수</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>승률</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>평균 수익</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>Profit Factor</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>전략</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(displayedResult.regime_breakdown || []).map((row) => (
+                    <tr key={row.regime} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: 12, fontSize: 12 }}>{row.regime || '-'}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatCount(row.trade_count, '건')}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(row.win_rate_pct, 2, true)}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(row.avg_return_pct, 2, true)}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(row.profit_factor, 2)}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{(row.strategy_kinds || []).join(', ') || '-'}</td>
+                    </tr>
                   ))}
-                </div>
+                  {(!displayedResult.regime_breakdown || displayedResult.regime_breakdown.length === 0) && (
+                    <tr><td colSpan={6} style={{ padding: 14, fontSize: 12, color: 'var(--text-4)' }}>아직 regime별 결과가 없습니다.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-                {policyOpen && (
-                  <div className="advanced-policy-shell">
-                    <div className="section-head-row" style={{ marginTop: 12 }}>
-                      <div>
-                        <div className="section-subtitle">저장/반영 조건 편집</div>
-                        <div className="section-copy">수치를 바꾸면 다음 운영 후보 재검증부터 새 기준이 적용됩니다.</div>
-                      </div>
-                      <div className={`inline-badge ${guardrailPolicyBusy ? 'is-warning' : 'is-success'}`}>
-                        v{String(guardrailPolicy?.version || '-')} · {guardrailPolicy?.saved_at ? formatDateTime(guardrailPolicy.saved_at) : '기본값'}
-                      </div>
-                    </div>
-                    <div className="validation-report-grid" style={{ marginTop: 12 }}>
-                      <div className="detail-list">
-                        <div><strong>차단 기준</strong></div>
-                        <label>차단 신뢰도 (comma)</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.reject_blocked_reliability_levels || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, reject_blocked_reliability_levels: event.target.value }))} />
-                        <label>최소 PF</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.reject_min_profit_factor || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, reject_min_profit_factor: event.target.value }))} />
-                        <label>최소 미사용 구간 수익률 %</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.reject_min_oos_return_pct || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, reject_min_oos_return_pct: event.target.value }))} />
-                        <label>최대 낙폭 %</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.reject_max_drawdown_pct || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, reject_max_drawdown_pct: event.target.value }))} />
-                        <label>최소 ES(5%) %</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.reject_min_expected_shortfall_5_pct || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, reject_min_expected_shortfall_5_pct: event.target.value }))} />
-                      </div>
-                      <div className="detail-list">
-                        <div><strong>저장 허용 기준</strong></div>
-                        <label>필수 신뢰도</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.adopt_required_reliability || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, adopt_required_reliability: event.target.value }))} />
-                        <label>최소 미사용 구간 수익률 %</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.adopt_min_oos_return_pct || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, adopt_min_oos_return_pct: event.target.value }))} />
-                        <label>최소 PF</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.adopt_min_profit_factor || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, adopt_min_profit_factor: event.target.value }))} />
-                        <label>최대 낙폭 %</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.adopt_max_drawdown_pct || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, adopt_max_drawdown_pct: event.target.value }))} />
-                        <label>최소 양수 윈도우 비율</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.adopt_min_positive_window_ratio || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, adopt_min_positive_window_ratio: event.target.value }))} />
-                        <label>최소 ES(5%) %</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.adopt_min_expected_shortfall_5_pct || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, adopt_min_expected_shortfall_5_pct: event.target.value }))} />
-                      </div>
-                      <div className="detail-list">
-                        <div><strong>조건부 허용 / 반영 제한</strong></div>
-                        <label>허용 신뢰도 (comma)</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.limited_allowed_reliability_levels || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, limited_allowed_reliability_levels: event.target.value }))} />
-                        <label>최소 PF</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.limited_min_profit_factor || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, limited_min_profit_factor: event.target.value }))} />
-                        <label>최대 낙폭 %</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.limited_max_drawdown_pct || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, limited_max_drawdown_pct: event.target.value }))} />
-                        <label>최소 양수 윈도우 비율</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.limited_min_positive_window_ratio || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, limited_min_positive_window_ratio: event.target.value }))} />
-                        <label>최소 ES(5%) %</label>
-                        <input className="backtest-input" value={guardrailPolicyForm.limited_min_expected_shortfall_5_pct || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, limited_min_expected_shortfall_5_pct: event.target.value }))} />
-                        <label>near miss 최소/최대 개수</label>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                          <input className="backtest-input" value={guardrailPolicyForm.limited_min_near_miss_count || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, limited_min_near_miss_count: event.target.value }))} />
-                          <input className="backtest-input" value={guardrailPolicyForm.limited_max_near_miss_count || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, limited_max_near_miss_count: event.target.value }))} />
-                        </div>
-                        <label>반영 리스크 multiplier / cap</label>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                          <input className="backtest-input" value={guardrailPolicyForm.runtime_risk_per_trade_pct_multiplier || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, runtime_risk_per_trade_pct_multiplier: event.target.value }))} />
-                          <input className="backtest-input" value={guardrailPolicyForm.runtime_risk_per_trade_pct_cap || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, runtime_risk_per_trade_pct_cap: event.target.value }))} />
-                        </div>
-                        <label>반영 포지션 / 익스포저 cap</label>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                          <input className="backtest-input" value={guardrailPolicyForm.runtime_max_positions_per_market_cap || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, runtime_max_positions_per_market_cap: event.target.value }))} />
-                          <input className="backtest-input" value={guardrailPolicyForm.runtime_max_symbol_weight_pct_cap || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, runtime_max_symbol_weight_pct_cap: event.target.value }))} />
-                          <input className="backtest-input" value={guardrailPolicyForm.runtime_max_market_exposure_pct_cap || ''} onChange={(event) => setGuardrailPolicyForm((prev) => ({ ...prev, runtime_max_market_exposure_pct_cap: event.target.value }))} />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="execution-button-row" style={{ marginTop: 12 }}>
-                      <button className="console-action-button" onClick={() => { void handleSaveGuardrailPolicy(); }} disabled={guardrailPolicyBusy}>
-                        {quantWorkflow.busyAction === 'save_policy' ? '조건 저장 중...' : '저장/반영 조건 저장'}
-                      </button>
-                      <button className="console-action-button" onClick={() => { void handleResetGuardrailPolicy(); }} disabled={guardrailPolicyBusy}>
-                        {quantWorkflow.busyAction === 'reset_policy' ? '기본값 복구 중...' : '기본값으로 되돌리기'}
-                      </button>
-                    </div>
+          <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>취약 구간 / 실패 원인</div>
+            {(displayedResult.failure_modes || []).length > 0 ? (
+              <div className="console-metric-grid">
+                {(displayedResult.failure_modes || []).map((row) => (
+                  <div key={`${row.reason}-${row.count}`}>
+                    <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{row.reason || '기타'}</div>
+                    <div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(row.count, '건')} · 평균 {formatPercent(row.avg_pnl_pct, 2, true)}</div>
                   </div>
+                ))}
+              </div>
+            ) : <div style={{ fontSize: 12, color: 'var(--text-4)' }}>아직 표시할 실패 원인이 없습니다.</div>}
+          </section>
+
+          <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Monte Carlo 강건성 검증</div>
+            <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
+              {optimizationMessage || '전략별 param grid를 분리해서 robust zone 중심으로 결과를 확인합니다.'}
+            </div>
+            <div className="console-metric-grid">
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(String(searchContext?.strategy_kind || validationStore.draftQuery.strategy_kind))}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>상태</div><div style={{ marginTop: 6, fontWeight: 700 }}>{optimizationRunning ? '실행 중' : optimizationPayload?.status === 'ok' ? '결과 있음' : '대기'}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Optimized Symbols</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_symbols_optimized || 0), '개')}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Reliable</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_reliable || 0), '개')}</div></div>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>Aggregate Robust Zone</div>
+              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
+                {optimizerAggregateRobustZone?.summary || 'optimizer 결과가 있으면 종목별 robust zone의 공통 안정 구간을 보여줍니다.'}
+              </div>
+              {Object.entries(optimizerAggregateRobustZone?.parameter_bands || {}).length > 0 ? (
+                <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
+                        <th style={{ padding: 12, fontSize: 12 }}>파라미터</th>
+                        <th style={{ padding: 12, fontSize: 12 }}>대표값</th>
+                        <th style={{ padding: 12, fontSize: 12 }}>안정 구간</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(optimizerAggregateRobustZone?.parameter_bands || {}).map(([key, band]) => (
+                        <tr key={key} style={{ borderTop: '1px solid var(--border)' }}>
+                          <td style={{ padding: 12, fontSize: 12 }}>{band.label || key}</td>
+                          <td style={{ padding: 12, fontSize: 12 }}>{String(band.selected ?? '-')}</td>
+                          <td style={{ padding: 12, fontSize: 12 }}>{`${String(band.min ?? '-')} ~ ${String(band.max ?? '-')}`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <div style={{ fontSize: 12, color: 'var(--text-4)' }}>표시할 robust zone이 없습니다.</div>}
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>Global Parameter Patch</div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {Object.entries((optimizationPayload?.global_params || {}) as Record<string, unknown>).slice(0, 8).map(([key, value]) => (
+                  <div key={key} style={{ fontSize: 12 }}>{key}: {String(value)}</div>
+                ))}
+                {Object.keys((optimizationPayload?.global_params || {}) as Record<string, unknown>).length === 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text-4)' }}>아직 optimizer global params가 없습니다.</div>
                 )}
               </div>
             </div>
-
-            <div className="validation-report-column">
-              <div className="tab-shell">
-                <div className="tab-shell-caption">
-                  <div className="tab-shell-caption-title">상세 결과</div>
-                  <div className="tab-shell-caption-copy">현재 필요한 결과만 골라 확인하세요.</div>
-                </div>
-                <div className="tab-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                  {resultTabOptions.map((tab, tabIndex) => {
-                    const dirty = tab.key !== 'logs' ? tab.dirty : false;
-                    return (
-                      <button
-                        key={tab.key}
-                        type="button"
-                        className={`tab-button ${activeResultTab === tab.key ? 'active' : ''}`}
-                        onClick={() => {
-                          setActiveResultTab(tab.key);
-                        }}
-                      >
-                        <div className="tab-step">{tabIndex + 1}</div>
-                        <div>
-                          <div className="tab-label">
-                            {tab.label}
-                            {dirty ? <span className="tab-dirty-badge">다시 확인</span> : null}
-                          </div>
-                          <div className="tab-help">{tab.detail}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div style={{ marginTop: 16 }}>
-                {validationResultPanel}
-              </div>
-            </div>
-          </div>
-
-          {loading && <div style={{ color: 'var(--text-3)', fontSize: 12 }}>{UI_TEXT.common.loading}</div>}
+          </section>
         </div>
       </div>
-
-      <ConsoleConfirmDialog
-        open={resetConfirmOpen}
-        title={UI_TEXT.confirm.resetValidationTitle}
-        message={UI_TEXT.confirm.resetValidationMessage}
-        details={[
-          '서버에 저장된 quant 기준을 기본값으로 되돌립니다.',
-          '현재 브라우저 초안도 함께 기본값으로 덮어씁니다.',
-          'runtime optimized params와는 별개라서 운영 반영값은 건드리지 않습니다.',
-        ]}
-        tone="danger"
-        onConfirm={() => {
-          void handleResetSettings();
-          setResetConfirmOpen(false);
-        }}
-        onCancel={() => setResetConfirmOpen(false)}
-      />
-
-      <ConsoleConfirmDialog
-        open={workflowResetConfirmOpen}
-        title="전략 검증 결과 초기화"
-        message="전략 검증 랩의 결과를 정말 모두 비울까요?"
-        details={[
-          '전략 설정 탐색 결과를 비웁니다.',
-          '운영 후보 재검증/저장 상태를 비웁니다.',
-          '랩 내부 실행 이력과 진단 결과를 비웁니다.',
-          '이미 반영된 runtime 값은 건드리지 않습니다.',
-        ]}
-        tone="danger"
-        onConfirm={() => {
-          void handleResetWorkflowResults();
-          setWorkflowResetConfirmOpen(false);
-        }}
-        onCancel={() => setWorkflowResetConfirmOpen(false)}
-      />
     </div>
   );
 }
