@@ -62,6 +62,7 @@ def _install_server_route_stubs() -> list[str]:
         "routes.reports_domain": {
             "handle_reports_explain": lambda date=None: (200, {"date": date}),
             "handle_reports_index": lambda: (200, {"ok": True}),
+            "handle_reports_operations": lambda limit=500: (200, {"ok": True, "limit": limit}),
         },
         "routes.scanner": {"handle_scanner_status": lambda query: (200, {"query": query})},
         "routes.signals": {
@@ -339,6 +340,13 @@ class ApiServerDispatchTests(unittest.TestCase):
 
         self.assertEqual((200, {"ok": True, "stage_status": {}}), result)
         mock_handler.assert_called_once_with()
+
+    def test_dispatch_get_routes_reports_operations(self):
+        with patch("server.handle_reports_operations", return_value=(200, {"ok": True, "report": {}})) as mock_handler:
+            result = dispatch_get("/api/reports/operations", {"limit": ["120"]})
+
+        self.assertEqual((200, {"ok": True, "report": {}}), result)
+        mock_handler.assert_called_once_with(120)
 
     def test_dispatch_post_routes_quant_ops_policy_actions(self):
         with patch("server.handle_quant_ops_save_policy", return_value=(200, {"ok": True})) as mock_save, \

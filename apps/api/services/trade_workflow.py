@@ -119,26 +119,35 @@ def derive_signal_workflow(signal: dict[str, Any]) -> dict[str, Any]:
         "orderable": orderable,
         "order_quantity": order_qty,
         "blocked_reason": blocked_reason if stage == "blocked" else "",
+        "lifecycle_state": "intent" if orderable else ("failed" if stage == "blocked" else ""),
     }
 
 
 def derive_order_workflow(order: dict[str, Any]) -> dict[str, Any]:
+    lifecycle_state = str(order.get("event_type") or order.get("lifecycle_state") or "").strip()
     success = bool(order.get("success"))
     filled_at = str(order.get("filled_at") or "").strip()
-    if success and filled_at:
+    if lifecycle_state == "filled" or (success and filled_at):
         workflow_stage = "filled"
         execution_status = "filled"
+        lifecycle_state = "filled"
+    elif lifecycle_state in {"accepted", "submitted", "partial_fill", "canceled", "failed"}:
+        workflow_stage = "order_sent" if lifecycle_state in {"accepted", "submitted", "partial_fill"} else ("canceled" if lifecycle_state == "canceled" else "rejected")
+        execution_status = lifecycle_state
     elif success:
         workflow_stage = "order_sent"
         execution_status = "submitted"
+        lifecycle_state = "submitted"
     else:
         workflow_stage = "rejected"
         execution_status = str(order.get("reason_code") or order.get("failure_reason") or "rejected")
+        lifecycle_state = "failed"
     return {
         "signal_key": _signal_key(order),
         "workflow_stage": workflow_stage,
         "execution_status": execution_status,
         "orderable": success,
+        "lifecycle_state": lifecycle_state,
     }
 
 
@@ -170,6 +179,7 @@ def build_workflow_summary(signals: list[dict[str, Any]], orders: list[dict[str,
                 "signal_key": key,
                 "workflow_stage": row.get("workflow_stage"),
                 "execution_status": row.get("execution_status"),
+                "lifecycle_state": row.get("lifecycle_state"),
                 "orderable": row.get("orderable"),
                 "last_order_side": row.get("side"),
                 "last_order_success": row.get("success"),
@@ -192,12 +202,25 @@ def build_workflow_summary(signals: list[dict[str, Any]], orders: list[dict[str,
         "blocked": 0,
         "watch": 0,
     }
+    lifecycle_counts = {
+        "intent": 0,
+        "submitted": 0,
+        "accepted": 0,
+        "partial_fill": 0,
+        "filled": 0,
+        "failed": 0,
+        "canceled": 0,
+    }
     for row in rows:
         stage = str(row.get("workflow_stage") or "watch")
         counts[stage] = counts.get(stage, 0) + 1
+        lifecycle_state = str(row.get("lifecycle_state") or "")
+        if lifecycle_state in lifecycle_counts:
+            lifecycle_counts[lifecycle_state] += 1
 
     return {
         "counts": counts,
+        "lifecycle_counts": lifecycle_counts,
         "items": rows,
         "count": len(rows),
     }

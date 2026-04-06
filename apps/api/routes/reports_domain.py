@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from routes.hanna import handle_hanna_brief
 from routes.reports import handle_reports
+from services.operations_report_service import build_operations_report
 
 
 def handle_reports_explain(date: str | None = None) -> tuple[int, dict]:
@@ -28,3 +29,13 @@ def handle_reports_explain(date: str | None = None) -> tuple[int, dict]:
 
 def handle_reports_index() -> tuple[int, dict]:
     return handle_reports()
+
+
+def handle_reports_operations(limit: int = 500) -> tuple[int, dict]:
+    try:
+        return 200, {
+            "ok": True,
+            **build_operations_report(limit=limit),
+        }
+    except Exception as exc:
+        return 500, {"ok": False, "error": str(exc)}

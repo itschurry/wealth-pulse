@@ -422,7 +422,60 @@ export interface PerformanceSummaryResponse {
       filled_price_krw?: number;
       notional_krw?: number;
     }>;
+    operations_report?: {
+      today_signal_count?: number;
+      blocked_count?: number;
+      blocked_reason_counts?: Record<string, number>;
+      execution_counts?: Record<string, number>;
+      execution_event_counts?: Record<string, number>;
+      strategy_performance?: Array<{
+        strategy_id?: string;
+        strategy_name?: string;
+        submitted_count?: number;
+        filled_count?: number;
+        failed_count?: number;
+      }>;
+      data_health?: {
+        stale_count?: number;
+        data_missing_count?: number;
+      };
+    };
+    alerts?: Array<{
+      severity?: 'info' | 'warning' | 'critical' | string;
+      alert_code?: string;
+      message?: string;
+      details?: Record<string, unknown>;
+    }>;
   };
+}
+
+export interface OperationsReportResponse {
+  ok?: boolean;
+  generated_at?: string;
+  report?: {
+    today_signal_count?: number;
+    blocked_count?: number;
+    blocked_reason_counts?: Record<string, number>;
+    execution_counts?: Record<string, number>;
+    execution_event_counts?: Record<string, number>;
+    strategy_performance?: Array<{
+      strategy_id?: string;
+      strategy_name?: string;
+      submitted_count?: number;
+      filled_count?: number;
+      failed_count?: number;
+    }>;
+    data_health?: {
+      stale_count?: number;
+      data_missing_count?: number;
+    };
+  };
+  alerts?: Array<{
+    severity?: 'info' | 'warning' | 'critical' | string;
+    alert_code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  }>;
 }
 
 export interface EngineStatusResponse {

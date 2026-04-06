@@ -5,6 +5,7 @@ import type {
   LiveMarketResponse,
   MacroLatestResponse,
   MarketContextResponse,
+  OperationsReportResponse,
   PerformanceSummaryResponse,
   PortfolioStateResponse,
   QuantOpsActionResponse,
@@ -111,6 +112,10 @@ export function fetchUniverse(refresh = false) {
 
 export function fetchPerformanceSummary() {
   return getJSON<PerformanceSummaryResponse>('/api/performance/summary', { noStore: true });
+}
+
+export function fetchOperationsReport(limit = 500) {
+  return getJSON<OperationsReportResponse>(`/api/reports/operations?limit=${encodeURIComponent(String(limit))}`, { noStore: true });
 }
 
 export function toggleStrategyEnabled(strategyId: string, enabled: boolean) {

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from services.execution_service import get_execution_service
+from services.operations_report_service import build_operations_report
 from services.paper_runtime_store import read_order_events
 
 _ACCOUNT_STATE_PATH = Path(__file__).parent.parent.parent.parent / "storage" / "logs" / "paper_account_state.json"
@@ -74,6 +75,8 @@ def handle_performance_summary() -> tuple[int, dict]:
             for e in sorted(filled_events, key=lambda x: str(x.get("logged_at") or ""), reverse=True)
         ]
 
+        operations_report = build_operations_report(limit=500)
+
         live = {
             "today_signal_count": (
                 int(((engine_state.get("last_summary") or {}).get("candidate_counts_by_market") or {}).get("KOSPI", 0))
@@ -92,6 +95,8 @@ def handle_performance_summary() -> tuple[int, dict]:
             "avg_notional_krw": avg_notional,
             "positions": len(positions),
             "filled_history": filled_history,
+            "operations_report": operations_report.get("report"),
+            "alerts": operations_report.get("alerts"),
         }
         return 200, {"ok": True, "live": live}
     except Exception as exc:

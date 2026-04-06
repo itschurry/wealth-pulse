@@ -36,7 +36,7 @@ from routes.reports import (
     handle_reports,
     handle_today_picks,
 )
-from routes.reports_domain import handle_reports_explain, handle_reports_index
+from routes.reports_domain import handle_reports_explain, handle_reports_index, handle_reports_operations
 from routes.scanner import handle_scanner_status
 from routes.signals import handle_signal_detail, handle_signal_snapshots, handle_signals_rank
 from routes.strategies import (
@@ -100,6 +100,13 @@ def _query_value(query: QueryParams, name: str, default: str = "") -> str:
     return query.get(name, [default])[0] or default
 
 
+def _query_int(query: QueryParams, name: str, default: int) -> int:
+    try:
+        return int(_query_value(query, name, str(default)) or str(default))
+    except (TypeError, ValueError):
+        return default
+
+
 GET_ROUTES: tuple[Route, ...] = (
     Route("/api/engine/status", lambda _path, _query: handle_engine_status()),
     Route("/api/signals/rank", lambda _path, query: handle_signals_rank(query)),
@@ -117,6 +124,7 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/quant-ops/policy", lambda _path, _query: handle_get_quant_ops_policy()),
     Route("/api/reports/explain", lambda _path, query: handle_reports_explain(_query_value(query, "date") or None)),
     Route("/api/reports/index", lambda _path, _query: handle_reports_index()),
+    Route("/api/reports/operations", lambda _path, query: handle_reports_operations(_query_int(query, "limit", 500))),
     Route("/api/hanna/brief", lambda _path, query: handle_hanna_brief(_query_value(query, "date") or None)),
     Route("/api/research/status", lambda _path, query: handle_research_status(query)),
     Route("/api/research/scanner-targets", lambda _path, query: handle_research_scanner_targets(query)),

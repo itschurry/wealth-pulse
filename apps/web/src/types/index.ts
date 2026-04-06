@@ -742,6 +742,7 @@ export interface PaperWorkflowItem {
 
 export interface PaperWorkflowSummary {
   counts?: Record<string, number>;
+  lifecycle_counts?: Record<string, number>;
   items?: PaperWorkflowItem[];
   count?: number;
 }
@@ -829,4 +830,11 @@ export interface PaperEngineState {
   };
   config?: Partial<PaperEngineConfig>;
   workflow_summary?: PaperWorkflowSummary;
+  execution_lifecycle_summary?: {
+    counts?: Record<string, number>;
+    terminal_counts?: Record<string, number>;
+    reason_counts?: Record<string, number>;
+    count?: number;
+    order_count?: number;
+  };
 }

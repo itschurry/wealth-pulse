@@ -53,6 +53,7 @@ class TradeWorkflowTests(unittest.TestCase):
         })
         self.assertEqual("filled", result["workflow_stage"])
         self.assertEqual("filled", result["execution_status"])
+        self.assertEqual("filled", result["lifecycle_state"])
 
     @patch("services.trade_workflow.lookup_company_listing")
     def test_enrich_signal_payload_uses_company_lookup_when_name_is_code(self, mock_lookup):
@@ -110,6 +111,7 @@ class TradeWorkflowTests(unittest.TestCase):
         self.assertEqual("엔비디아", result["name"])
         self.assertEqual("NASDAQ", result["market"])
         self.assertEqual("insufficient_cash", result["execution_status"])
+        self.assertEqual("failed", result["lifecycle_state"])
 
     def test_workflow_summary_promotes_recent_order_state(self):
         summary = build_workflow_summary(
@@ -133,6 +135,7 @@ class TradeWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(1, summary["counts"]["filled"])
         self.assertEqual("filled", summary["items"][0]["workflow_stage"])
+        self.assertEqual(1, summary["lifecycle_counts"]["filled"])
 
 
 if __name__ == "__main__":

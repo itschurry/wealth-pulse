@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
+from api_contract import normalize_legacy_response
 from server import dispatch_get, dispatch_post
 
 
@@ -41,7 +42,7 @@ async def legacy_get(full_path: str, request: Request) -> JSONResponse:
     if result is None:
         return JSONResponse(status_code=404, content={})
     status, payload = result
-    return JSONResponse(status_code=status, content=payload)
+    return JSONResponse(status_code=status, content=normalize_legacy_response(f"/api/{full_path}", status, payload))
 
 
 @app.post("/api/{full_path:path}")
@@ -56,7 +57,7 @@ async def legacy_post(full_path: str, request: Request) -> JSONResponse:
     if result is None:
         return JSONResponse(status_code=404, content={})
     status, response = result
-    return JSONResponse(status_code=status, content=response)
+    return JSONResponse(status_code=status, content=normalize_legacy_response(f"/api/{full_path}", status, response))
 
 
 def main() -> None:

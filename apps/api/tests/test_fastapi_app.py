@@ -69,6 +69,7 @@ def _install_server_route_stubs() -> list[str]:
         "routes.reports_domain": {
             "handle_reports_explain": lambda date=None: (200, {"date": date}),
             "handle_reports_index": lambda: (200, {"ok": True}),
+            "handle_reports_operations": lambda limit=500: (200, {"ok": True, "limit": limit}),
         },
         "routes.scanner": {"handle_scanner_status": lambda query: (200, {"query": query})},
         "routes.signals": {
@@ -163,6 +164,19 @@ class FastApiAppTests(unittest.TestCase):
         self.assertEqual({"ok": True}, response.json())
         mock_dispatch.assert_called_once_with("/api/system/mode", {})
 
+    def test_priority_get_route_wraps_response_in_contract_envelope(self):
+        client = TestClient(app)
+
+        with patch("api_server.dispatch_get", return_value=(200, {"ok": True, "count": 1})) as mock_dispatch:
+            response = client.get("/api/signals/rank")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual({"ok": True, "count": 1}, body["data"])
+        self.assertEqual("signals_rank", body["meta"]["source"])
+        self.assertTrue(body["meta"]["trace_id"])
+        mock_dispatch.assert_called_once_with("/api/signals/rank", {})
+
     def test_legacy_api_post_route_uses_dispatcher(self):
         client = TestClient(app)
 
@@ -170,5 +184,21 @@ class FastApiAppTests(unittest.TestCase):
             response = client.post("/api/validation/settings/save", json={"query": {"market_scope": "kospi"}})
 
         self.assertEqual(200, response.status_code)
-        self.assertEqual({"ok": True, "saved_at": "2026-04-01T08:00:00+09:00"}, response.json())
+        body = response.json()
+        self.assertEqual({"ok": True, "saved_at": "2026-04-01T08:00:00+09:00"}, body["data"])
+        self.assertEqual("validation_settings_save", body["meta"]["source"])
         mock_dispatch.assert_called_once_with("/api/validation/settings/save", {"query": {"market_scope": "kospi"}})
+
+    def test_priority_route_error_uses_error_envelope(self):
+        client = TestClient(app)
+
+        with patch("api_server.dispatch_post", return_value=(409, {"ok": False, "error": "candidate conflict"})) as mock_dispatch:
+            response = client.post("/api/quant-ops/save-candidate", json={"candidate_id": "abc"})
+
+        self.assertEqual(409, response.status_code)
+        body = response.json()
+        self.assertEqual("http_409", body["error"]["error_code"])
+        self.assertEqual("candidate conflict", body["error"]["message"])
+        self.assertEqual({"ok": False}, body["error"]["details"])
+        self.assertEqual("quant-ops/save-candidate".replace("/", "_"), body["meta"]["source"])
+        mock_dispatch.assert_called_once_with("/api/quant-ops/save-candidate", {"candidate_id": "abc"})

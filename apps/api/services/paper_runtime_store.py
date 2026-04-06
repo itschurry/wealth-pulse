@@ -12,6 +12,7 @@ from services.json_utils import json_dump_compact, json_dump_text, read_json_fil
 ENGINE_STATE_PATH = LOGS_DIR / "engine_state.json"
 ENGINE_CYCLES_DIR = LOGS_DIR / "engine_cycles"
 ORDER_EVENTS_PATH = LOGS_DIR / "order_events.jsonl"
+EXECUTION_EVENTS_PATH = LOGS_DIR / "execution_events.jsonl"
 SIGNAL_SNAPSHOTS_PATH = LOGS_DIR / "signal_snapshots.jsonl"
 ACCOUNT_SNAPSHOTS_PATH = LOGS_DIR / "account_snapshots.jsonl"
 UNIVERSE_SNAPSHOTS_DIR = LOGS_DIR / "universe_snapshots"
@@ -139,6 +140,10 @@ def clear_order_events() -> int:
     return _clear_file(ORDER_EVENTS_PATH)
 
 
+def clear_execution_events() -> int:
+    return _clear_file(EXECUTION_EVENTS_PATH)
+
+
 def clear_signal_snapshots() -> int:
     return _clear_file(SIGNAL_SNAPSHOTS_PATH)
 
@@ -154,6 +159,27 @@ def append_order_event(payload: dict[str, Any]) -> None:
 
 def read_order_events(limit: int = 100) -> list[dict[str, Any]]:
     return _read_latest_jsonl(ORDER_EVENTS_PATH, limit)
+
+
+def append_execution_event(payload: dict[str, Any]) -> None:
+    record = {"logged_at": _now_iso(), **payload}
+    _append_jsonl(EXECUTION_EVENTS_PATH, record)
+
+
+def append_execution_events(payloads: list[dict[str, Any]]) -> None:
+    if not payloads:
+        return
+    _ensure_parent(EXECUTION_EVENTS_PATH)
+    with EXECUTION_EVENTS_PATH.open("a", encoding="utf-8") as fp:
+        logged_at = _now_iso()
+        for payload in payloads:
+            if not isinstance(payload, dict):
+                continue
+            fp.write(f"{_json_serialize({'logged_at': logged_at, **payload})}\n")
+
+
+def read_execution_events(limit: int = 200) -> list[dict[str, Any]]:
+    return _read_latest_jsonl(EXECUTION_EVENTS_PATH, limit)
 
 
 def append_signal_snapshot(payload: dict[str, Any]) -> None:
