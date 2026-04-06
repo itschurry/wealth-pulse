@@ -2,6 +2,10 @@ import { useMemo } from 'react';
 import {
   buildTodayReportView,
   buildWatchDecisionView,
+  getRiskGuardState,
+  asReasonCodeList,
+  isRiskBlockedSignal,
+  isRiskEntryAllowed,
 } from '../adapters/consoleViewAdapter';
 import type { ReactNode } from 'react';
 import { UI_TEXT, reasonCodeToKorean, reliabilityToKorean } from '../constants/uiText';
@@ -118,10 +122,11 @@ function buildScorecardCandidates(snapshot: ConsoleSnapshot): ScorecardSignalCan
 function renderTodayReport(snapshot: ConsoleSnapshot) {
   const view = buildTodayReportView(snapshot);
   const signals = snapshot.signals.signals || [];
-  const allowedCount = signals.filter((signal) => signal.entry_allowed).length;
-  const blockedCount = signals.length - allowedCount;
+  const allocator = snapshot.engine.allocator || {};
+  const allowedCount = Number(allocator.entry_allowed_count ?? signals.filter((signal) => signal.entry_allowed).length);
+  const blockedCount = Number((allocator.blocked_count as number | undefined) ?? signals.filter(isRiskBlockedSignal).length);
   const totalSignals = Math.max(allowedCount + blockedCount, 1);
-  const guardAllowed = Boolean(snapshot.engine.risk_guard_state?.entry_allowed);
+  const guardAllowed = isRiskEntryAllowed(snapshot);
   const riskLevel = String(snapshot.engine.allocator?.risk_level || snapshot.signals.risk_level || '-');
   const regime = String(snapshot.engine.allocator?.regime || snapshot.signals.regime || '-');
   const meterScore = riskScore(riskLevel);
@@ -459,11 +464,13 @@ function severityTone(severity: number): 'good' | 'neutral' | 'bad' {
 
 function renderAlerts(snapshot: ConsoleSnapshot) {
   const engineState = snapshot.engine.execution?.state || {};
-  const riskGuard = snapshot.engine.risk_guard_state || snapshot.portfolio.risk_guard_state || {};
+  const riskGuard = getRiskGuardState(snapshot);
+  const guardAllowed = isRiskEntryAllowed(snapshot);
   const allocator = snapshot.engine.allocator || {};
   const validationSummary = snapshot.validation.summary || {};
-  const allowedSignals = Number(allocator.entry_allowed_count || 0);
-  const blockedSignals = Number(allocator.blocked_count || 0);
+  const signals = snapshot.signals.signals || [];
+  const allowedSignals = Number((allocator.entry_allowed_count as number | undefined) ?? signals.filter((item) => item.entry_allowed).length);
+  const blockedSignals = Number((allocator.blocked_count as number | undefined) ?? signals.filter(isRiskBlockedSignal).length);
   const failedOrders = Number(engineState.today_order_counts?.failed || 0);
   const orderFailureSummary = engineState.order_failure_summary || {};
   const repeatedCashRetries = orderFailureSummary.repeated_insufficient_cash || [];
@@ -471,10 +478,10 @@ function renderAlerts(snapshot: ConsoleSnapshot) {
   const isRunning = Boolean(engineState.running);
   const isPaused = engineState.engine_state === 'paused';
   const staleOptimized = Boolean(engineState.optimized_params?.is_stale);
-  const guardBlocked = riskGuard.entry_allowed === false;
+  const guardBlocked = !guardAllowed;
   const validationGateEnabled = Boolean(engineState.validation_policy?.validation_gate_enabled);
   const reliability = reliabilityToKorean(String(validationSummary.oos_reliability || '').toLowerCase());
-  const latestSignals = (snapshot.signals.signals || []).filter((item) => !item.entry_allowed).slice(0, 5);
+  const latestSignals = signals.filter(isRiskBlockedSignal).slice(0, 5);
 
   const alerts = [
     {
@@ -489,7 +496,9 @@ function renderAlerts(snapshot: ConsoleSnapshot) {
       label: '신규 진입 제한',
       value: guardBlocked ? '차단' : '허용',
       detail: guardBlocked
-        ? (riskGuard.reasons || []).map((reason) => reasonCodeToKorean(reason)).join(' · ') || '리스크 가드가 신규 진입을 막고 있습니다.'
+        ? Array.isArray(riskGuard.reasons)
+          ? riskGuard.reasons.map((reason) => reasonCodeToKorean(String(reason))).join(' · ') || '리스크 가드가 신규 진입을 막고 있습니다.'
+          : '리스크 가드가 신규 진입을 막고 있습니다.'
         : '현재 기준으로 신규 진입이 가능합니다.',
       severity: guardBlocked ? 2 : -1,
     },
@@ -528,8 +537,21 @@ function renderAlerts(snapshot: ConsoleSnapshot) {
     failedOrders > 0 ? '실패 주문이 있으면 최근 체결 내역과 엔진 이벤트 로그를 먼저 확인하세요.' : '',
   ].filter(Boolean);
 
-  const riskReasons = (riskGuard.reasons || []).map((reason) => reasonCodeToKorean(reason));
-  const blockedReasonLines = latestSignals.flatMap((signal) => (signal.reason_codes || []).map((reason) => `${formatSymbol(signal.code, signal.name)} · ${reasonCodeToKorean(reason)}`));
+  const riskReasonCodes = Array.isArray(riskGuard.reasons) ? asReasonCodeList(riskGuard.reasons) : [];
+  const riskReasons = riskReasonCodes.map((reason) => reasonCodeToKorean(String(reason)));
+  const blockedReasonLines = latestSignals
+    .flatMap((signal) => {
+      const reasons = asReasonCodeList(signal.reason_codes)
+        .concat(asReasonCodeList(signal.layer_d?.reason_codes))
+        .concat(riskReasonCodes)
+        .concat(
+          typeof signal.final_action_snapshot?.decision_reason === 'string'
+            ? [signal.final_action_snapshot.decision_reason]
+            : [],
+        );
+      return reasons.map((reason) => `${formatSymbol(signal.code, signal.name)} · ${reasonCodeToKorean(reason)}`);
+    },
+    );
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -614,7 +636,7 @@ function renderAlerts(snapshot: ConsoleSnapshot) {
 
 function renderWatchDecision(snapshot: ConsoleSnapshot) {
   const view = buildWatchDecisionView(snapshot);
-  const guardAllowed = Boolean(snapshot.engine.risk_guard_state?.entry_allowed);
+  const guardAllowed = isRiskEntryAllowed(snapshot);
   const riskLevel = String(snapshot.engine.allocator?.risk_level || snapshot.signals.risk_level || '-');
   const signalsAsOf = snapshot.signals.generated_at || snapshot.fetchedAt;
 

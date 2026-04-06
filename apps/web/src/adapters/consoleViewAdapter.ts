@@ -9,6 +9,29 @@ import type {
 } from '../types/consoleView';
 import type { DomainSignal } from '../types/domain';
 
+function isExplicitRiskGuard(state: unknown): state is Record<string, unknown> {
+  if (!state || typeof state !== 'object') return false;
+  return Object.prototype.hasOwnProperty.call(state, 'entry_allowed');
+}
+
+function resolveRiskGuard(snapshot: ConsoleSnapshot): Record<string, unknown> {
+  if (isExplicitRiskGuard(snapshot.engine.risk_guard_state)) {
+    return snapshot.engine.risk_guard_state;
+  }
+  if (isExplicitRiskGuard(snapshot.portfolio.risk_guard_state)) {
+    return snapshot.portfolio.risk_guard_state;
+  }
+  return {};
+}
+
+export function isRiskEntryAllowed(snapshot: ConsoleSnapshot): boolean {
+  return resolveRiskGuard(snapshot).entry_allowed === true;
+}
+
+export function getRiskGuardState(snapshot: ConsoleSnapshot): Record<string, unknown> {
+  return resolveRiskGuard(snapshot);
+}
+
 function translateReasons(reasons: string[]): string[] {
   return reasons.map((reason) => reasonCodeToKorean(reason));
 }
@@ -25,6 +48,63 @@ function dedupeKeepOrder(lines: string[]): string[] {
   return out;
 }
 
+export function isRiskBlockedSignal(signal: DomainSignal): boolean {
+  const signalState = String((signal as { signal_state?: string }).signal_state || '').toLowerCase();
+  const finalAction = String(signal.final_action || signal.final_action_snapshot?.final_action || '').toLowerCase();
+  if (signalState === 'entry') {
+    return finalAction ? finalAction === 'blocked' : !signal.entry_allowed;
+  }
+  if (!signal.entry_allowed && finalAction === 'blocked') {
+    return true;
+  }
+  return false;
+}
+
+function getSignalFinalAction(signal: DomainSignal): string {
+  return String(signal.final_action || signal.final_action_snapshot?.final_action || '').toLowerCase();
+}
+
+function toStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+}
+
+function resolveSignalReasonCodes(signal: DomainSignal, fallbackReasons: string[] = []): string[] {
+  const reasonCodes = asReasonCodeList(signal.reason_codes);
+  if (reasonCodes.length > 0) {
+    return reasonCodes;
+  }
+
+  const layerDReasons = asReasonCodeList(signal.layer_d?.reason_codes);
+  if (layerDReasons.length > 0) {
+    return layerDReasons;
+  }
+
+  const decisionReason =
+    signal.final_action_snapshot?.decision_reason
+    || signal.layer_e?.decision_reason;
+  if (typeof decisionReason === 'string' && decisionReason.trim()) {
+    return [decisionReason.trim()];
+  }
+  const finalAction = getSignalFinalAction(signal);
+  if (finalAction) {
+    return [finalAction];
+  }
+
+  if (!signal.entry_allowed && fallbackReasons.length > 0) {
+    return fallbackReasons;
+  }
+
+  return [];
+}
+
+export function asReasonCodeList(value: unknown): string[] {
+  const raw = toStringList(value);
+  return dedupeKeepOrder(raw.map((item) => String(item)));
+}
+
 function sortSignalsForWatch(signals: DomainSignal[]): DomainSignal[] {
   return [...signals].sort((left, right) => {
     const evGap = Number(right.ev_metrics?.expected_value ?? Number.NEGATIVE_INFINITY)
@@ -39,8 +119,10 @@ function sortSignalsForWatch(signals: DomainSignal[]): DomainSignal[] {
   });
 }
 
-function buildWatchCandidate(signal: DomainSignal, index: number): WatchDecisionCandidate {
-  const reasons = translateReasons(signal.reason_codes || []);
+function buildWatchCandidate(signal: DomainSignal, index: number, fallbackReasons: string[] = []): WatchDecisionCandidate {
+  const finalAction = getSignalFinalAction(signal);
+  const blockedSignal = isRiskBlockedSignal(signal);
+  const reasons = translateReasons(resolveSignalReasonCodes(signal, fallbackReasons));
   const reliabilityRaw = String(signal.ev_metrics?.reliability || signal.validation_snapshot?.strategy_reliability || '').toLowerCase();
   const reliabilityLabel = reliabilityToKorean(reliabilityRaw) || '-';
   const strategyLabel = strategyTypeToKorean(signal.strategy_type || '');
@@ -50,7 +132,8 @@ function buildWatchCandidate(signal: DomainSignal, index: number): WatchDecision
   const scoreLabel = formatNumber(signal.score, 1);
   const evLabel = formatNumber(signal.ev_metrics?.expected_value, 2);
   const winRateLabel = formatPercent(signal.ev_metrics?.win_probability, 1, true);
-  const primaryReason = reasons[0] || (signal.entry_allowed ? '현재 차단 사유 없음' : '차단 사유 데이터 없음');
+  const primaryReason = reasons[0]
+    || (signal.entry_allowed ? '현재 차단 사유 없음' : finalAction ? reasonCodeToKorean(finalAction) : '차단 사유 데이터 없음');
 
   const chips = [
     String(signal.market || '-'),
@@ -65,17 +148,36 @@ function buildWatchCandidate(signal: DomainSignal, index: number): WatchDecision
     ? sizeSummary !== '-'
       ? `권장 수량 ${sizeSummary}`
       : `유동성 ${liquidity}${slippage === undefined ? '' : ` · 슬리피지 ${formatNumber(slippage, 2)} bps`}`
-    : reasons[1]
-      ? `${primaryReason} · ${reasons[1]}`
-      : `차단 사유 ${primaryReason}${slippage === undefined ? '' : ` · 슬리피지 ${formatNumber(slippage, 2)} bps`}`;
+    : blockedSignal
+      ? reasons[1]
+        ? `${primaryReason} · ${reasons[1]}`
+        : `차단 사유 ${primaryReason}${slippage === undefined ? '' : ` · 슬리피지 ${formatNumber(slippage, 2)} bps`}`
+      : finalAction
+        ? reasonCodeToKorean(finalAction)
+        : `참조 ${primaryReason}${slippage === undefined ? '' : ` · 슬리피지 ${formatNumber(slippage, 2)} bps`}`;
+
+  const actionLabel = blockedSignal
+    ? '차단 사유 확인'
+    : finalAction === 'watch_only'
+      ? '관심 후보'
+      : finalAction === 'do_not_touch'
+        ? '관찰'
+        : signal.entry_allowed
+          ? '우선 검토'
+          : '대기';
+  const actionTone = blockedSignal
+    ? 'bad'
+    : signal.entry_allowed
+      ? 'good'
+      : 'neutral';
 
   return {
     key: `${signal.market || 'market'}:${signal.code || 'signal'}:${index}`,
     symbol: formatSymbol(signal.code, signal.name),
     market: String(signal.market || '-'),
     strategyLabel,
-    actionLabel: signal.entry_allowed ? '우선 검토' : '차단 사유 확인',
-    actionTone: signal.entry_allowed ? 'good' : 'bad',
+    actionLabel,
+    actionTone,
     scoreLabel,
     evLabel,
     reliabilityLabel,
@@ -88,19 +190,20 @@ function buildWatchCandidate(signal: DomainSignal, index: number): WatchDecision
 export function buildSignalRows(snapshot: ConsoleSnapshot): SignalTableRow[] {
   const signals = snapshot.signals.signals || [];
   return signals.map((signal) => {
-    const reasons = translateReasons(signal.reason_codes || []);
+    const reasons = translateReasons(resolveSignalReasonCodes(signal));
+    const blockedSignal = isRiskBlockedSignal(signal);
     return {
       signal,
       symbol: formatSymbol(signal.code, signal.name),
-      statusLabel: signal.entry_allowed ? '추천' : '차단',
-      reasonSummary: signal.entry_allowed ? '-' : (reasons.join(', ') || '-'),
+      statusLabel: blockedSignal ? '차단' : '추천',
+      reasonSummary: blockedSignal ? (reasons.join(', ') || '-') : '-',
     };
   });
 }
 
 function classifyMode(snapshot: ConsoleSnapshot): Pick<WatchDecisionView, 'mode' | 'rationale' | 'stanceTitle' | 'stanceSummary'> {
   const riskLevel = String(snapshot.engine.allocator?.risk_level || snapshot.portfolio.risk_level || '');
-  const guardAllowed = Boolean(snapshot.engine.risk_guard_state?.entry_allowed);
+  const guardAllowed = isRiskEntryAllowed(snapshot);
   const oosReliabilityRaw = String(snapshot.validation.summary?.oos_reliability || '').toLowerCase();
   const oosReliabilityLabel = reliabilityToKorean(oosReliabilityRaw);
   const signals = snapshot.signals.signals || [];
@@ -169,15 +272,21 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
   ];
   const summaryLines = dedupeKeepOrder([...analysisLines, ...summaryFallback]).slice(0, 5);
 
-  const guardReasons = translateReasons(snapshot.engine.risk_guard_state?.reasons || []);
-  const blockedReasons = translateReasons(
-    (snapshot.signals.signals || []).flatMap((signal) => signal.entry_allowed ? [] : (signal.reason_codes || [])),
-  );
+  const guardReasonCodes = asReasonCodeList((resolveRiskGuard(snapshot).reasons as string[]) || []);
+  const guardReasons = translateReasons(guardReasonCodes);
+  const blockedReasons = dedupeKeepOrder(
+    (snapshot.signals.signals || [])
+      .filter(isRiskBlockedSignal)
+      .flatMap((signal) => resolveSignalReasonCodes(signal, guardReasonCodes)),
+  ).map((reason) => reasonCodeToKorean(reason));
   const allocator = snapshot.engine.allocator || {};
   const running = Boolean(snapshot.engine.execution?.state?.running);
-  const guardAllowed = Boolean(snapshot.engine.risk_guard_state?.entry_allowed);
-  const allowedCount = Number(allocator.entry_allowed_count || 0);
-  const blockedCount = Number(allocator.blocked_count || 0);
+  const guardAllowed = isRiskEntryAllowed(snapshot);
+  const signals = snapshot.signals.signals || [];
+  const signalBlockedCount = signals.filter(isRiskBlockedSignal).length;
+  const signalAllowedCount = signals.filter((signal) => signal.entry_allowed).length;
+  const allowedCount = Number((allocator.entry_allowed_count as number | undefined) ?? signalAllowedCount);
+  const blockedCount = Number((allocator.blocked_count as number | undefined) ?? signalBlockedCount);
   const decision = classifyMode(snapshot);
 
   const watchPoints = dedupeKeepOrder([
@@ -255,14 +364,15 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
 export function buildWatchDecisionView(snapshot: ConsoleSnapshot): WatchDecisionView {
   const signals = snapshot.signals.signals || [];
   const decision = classifyMode(snapshot);
+  const guardReasonCodes = asReasonCodeList((resolveRiskGuard(snapshot).reasons as string[]) || []);
   const allowedSignals = sortSignalsForWatch(signals.filter((signal) => signal.entry_allowed));
-  const blockedSignals = sortSignalsForWatch(signals.filter((signal) => !signal.entry_allowed));
+  const blockedSignals = sortSignalsForWatch(signals.filter(isRiskBlockedSignal));
   const repeatedBlockedReasons = dedupeKeepOrder(
-    blockedSignals.flatMap((signal) => translateReasons(signal.reason_codes || [])),
+    blockedSignals.flatMap((signal) => translateReasons(resolveSignalReasonCodes(signal, guardReasonCodes))),
   ).slice(0, 3);
 
   const focusCandidates = allowedSignals.slice(0, 3).map((signal, index) => buildWatchCandidate(signal, index));
-  const blockedCandidates = blockedSignals.slice(0, 3).map((signal, index) => buildWatchCandidate(signal, index));
+  const blockedCandidates = blockedSignals.slice(0, 3).map((signal, index) => buildWatchCandidate(signal, index, guardReasonCodes));
 
   const researchQueue = dedupeKeepOrder([
     ...decision.rationale,

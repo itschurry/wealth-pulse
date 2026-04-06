@@ -39,8 +39,8 @@ def _risk_cfg(strategy: dict[str, Any]) -> dict[str, Any]:
         "max_symbol_weight_pct": position_size_pct,
         "max_sector_weight_pct": max(position_size_pct * 2.0, 20.0),
         "max_market_exposure_pct": 70.0,
-        "block_buy_in_risk_off": False,
-        "block_buy_when_risk_high": False,
+        "block_buy_in_risk_off": bool(risk_limits.get("block_buy_in_risk_off", True)),
+        "block_buy_when_risk_high": bool(risk_limits.get("block_buy_when_risk_high", True)),
     }
 
 

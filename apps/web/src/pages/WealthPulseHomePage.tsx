@@ -1,4 +1,10 @@
-import { buildTodayReportView, buildWatchDecisionView } from '../adapters/consoleViewAdapter';
+import {
+  buildTodayReportView,
+  buildWatchDecisionView,
+  getRiskGuardState,
+  isRiskBlockedSignal,
+  isRiskEntryAllowed,
+} from '../adapters/consoleViewAdapter';
 import { UI_TEXT } from '../constants/uiText';
 import type { ConsoleSnapshot } from '../types/consoleView';
 import { explainSizeRecommendation, formatDateTimeWithAge, formatKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
@@ -111,7 +117,7 @@ export function WealthPulseHomePage({
   const allocator = snapshot.engine.allocator || {};
   const signals = snapshot.signals.signals || [];
   const allowedSignals = signals.filter((item) => item.entry_allowed);
-  const blockedSignals = signals.filter((item) => !item.entry_allowed);
+  const blockedSignals = signals.filter(isRiskBlockedSignal);
   const totalAllowedSignals = Number(allocator.entry_allowed_count ?? allowedSignals.length);
   const totalBlockedSignals = Number(allocator.blocked_count ?? blockedSignals.length);
   const totalSignalCount = Math.max(0, totalAllowedSignals + totalBlockedSignals);
@@ -119,9 +125,9 @@ export function WealthPulseHomePage({
     .sort((left, right) => toNumber(right.ev_metrics?.expected_value) - toNumber(left.ev_metrics?.expected_value))
     .slice(0, 5);
 
-  const riskGuard = snapshot.engine.risk_guard_state || snapshot.portfolio.risk_guard_state || {};
-  const riskGuardAllowed = Boolean(riskGuard.entry_allowed);
-  const riskReasons = riskGuard.reasons || [];
+  const riskGuard = getRiskGuardState(snapshot);
+  const riskGuardAllowed = isRiskEntryAllowed(snapshot);
+  const riskReasons = Array.isArray(riskGuard.reasons) ? riskGuard.reasons.map((reason) => String(reason)) : [];
 
   const liveMarket = snapshot.liveMarket || {};
   const marketCtx = snapshot.marketContext || {};

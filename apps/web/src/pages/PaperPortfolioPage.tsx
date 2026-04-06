@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
+import { SymbolIdentity } from '../components/SymbolIdentity';
+import { getRiskGuardState, isRiskEntryAllowed } from '../adapters/consoleViewAdapter';
 import { UI_TEXT, reasonCodeToKorean } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { usePaperTrading } from '../hooks/usePaperTrading';
@@ -177,6 +179,71 @@ function hannaTone(state: HannaState): 'neutral' | 'good' | 'bad' {
   return 'neutral';
 }
 
+function reasonCountRows(counts: Record<string, unknown> | undefined, maxItems = 5, translator: (reason: string) => string = (reason) => reason) {
+  const rows: Array<{ reason: string; label: string; count: number }> = [];
+  if (!counts || typeof counts !== 'object') return rows;
+  for (const [reason, countValue] of Object.entries(counts)) {
+    const numericCount = Number(countValue);
+    if (!Number.isFinite(numericCount)) continue;
+    const normalizedReason = String(reason || '').trim();
+    if (!normalizedReason) continue;
+    rows.push({ reason: normalizedReason, label: translator(normalizedReason) || normalizedReason, count: numericCount });
+  }
+  return rows.sort((left, right) => right.count - left.count).slice(0, maxItems);
+}
+
+function orderFailureSummaryLabel(failure: {
+  latest_failure_reason?: string;
+  top_reason?: string;
+  top_reason_count?: number;
+}) {
+  const latestReason = String(failure?.latest_failure_reason || '').trim();
+  const topReason = String(failure?.top_reason || '').trim();
+  if (latestReason && topReason) {
+    return `${reasonCodeToKorean(topReason)} (${failure.top_reason_count || 0}건), 최근 ${reasonCodeToKorean(latestReason)}`;
+  }
+  if (latestReason) {
+    return reasonCodeToKorean(latestReason);
+  }
+  if (topReason) {
+    return `${reasonCodeToKorean(topReason)} (${failure.top_reason_count || 0}건)`;
+  }
+  return '-';
+}
+
+function parseRecordTime(value: unknown): number {
+  if (!value) return 0;
+  const date = new Date(String(value));
+  const timestamp = date.getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function orderHasExecutedAction(order: Record<string, unknown>, symbolCode: string, market: string, sinceMs: number): boolean {
+  const normalizedCode = String(symbolCode || '').trim().toUpperCase();
+  const normalizedMarket = String(market || '').trim().toUpperCase();
+  const orderType = String(order.order_type || '').toLowerCase();
+  const code = String(order.code || '').trim().toUpperCase();
+  const orderMarket = String(order.market || '').trim().toUpperCase();
+  const success = order.success;
+  const failureReason = String(order.reason_code || order.failure_reason || '').trim();
+
+  if (!success) return false;
+  if (!code || code !== normalizedCode) return false;
+  if (normalizedMarket && orderMarket && orderMarket !== normalizedMarket) return false;
+  if (orderType === 'screened' || orderType === 'screen') return false;
+  if (failureReason && failureReason.toLowerCase() !== 'none' && failureReason.toLowerCase() !== 'ok') return false;
+
+  const submittedAt = parseRecordTime(order.submitted_at);
+  const filledAt = parseRecordTime(order.filled_at);
+  const ts = parseRecordTime(order.ts);
+  const timestamp = parseRecordTime(order.timestamp);
+  const eventTime = Math.max(submittedAt, filledAt, ts, timestamp);
+  if (!eventTime || eventTime < sinceMs) return false;
+  if (eventTime > Date.now() + 20 * 60 * 1000) return false;
+  const maxGapMs = 12 * 60 * 60 * 1000;
+  if (eventTime - sinceMs > maxGapMs) return false;
+  return true;
+}
 
 function workflowStageBucket(stage: unknown): 'discover' | 'signal' | 'decision' | 'order' {
   const value = String(stage || '').toLowerCase();
@@ -222,6 +289,27 @@ function workflowStatusLabel(status: unknown): string {
   return reasonCodeToKorean(value);
 }
 
+function riskDecisionLabel(value: string): string {
+  return value === 'allowed' ? '허용' : value === 'blocked' ? '차단' : value || '-';
+}
+
+function riskMessageLabel(value: unknown): string {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized === '-') return '-';
+  if (normalized === 'scan_only') return '비진입 신호라 주문 리스크 평가를 생략했습니다.';
+  return reasonCodeToKorean(normalized);
+}
+
+function layerEventSnapshot<T extends Record<string, unknown>>(events: unknown, layer: string): T | undefined {
+  if (!Array.isArray(events)) return undefined;
+  const matched = events.find((event) => {
+    if (!event || typeof event !== 'object') return false;
+    return String((event as { layer?: string }).layer || '').toUpperCase() === layer.toUpperCase();
+  }) as { snapshot?: T } | undefined;
+  if (!matched?.snapshot || typeof matched.snapshot !== 'object') return undefined;
+  return matched.snapshot;
+}
+
 export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh }: PaperPortfolioPageProps) {
   const { pushToast } = useToast();
   const { entries, push, clear } = useConsoleLogs();
@@ -229,7 +317,9 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const [savedSettings, setSavedSettings] = useState<PaperSettings>(() => readSettings());
   const [settingsSavedAt, setSettingsSavedAt] = useState(() => readSettingsSavedAt());
   const [settingsSaving, setSettingsSaving] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'engine-toggle' | 'pause' | 'resume' | 'reset' | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    'engine-toggle' | 'pause' | 'resume' | 'reset' | 'history-clear' | 'history-reset' | null
+  >(null);
   const [workflowTab, setWorkflowTab] = useState<'all' | 'discover' | 'signal' | 'decision' | 'order'>('all');
   const [workflowSearch, setWorkflowSearch] = useState('');
   const [workflowOnlyBlocked, setWorkflowOnlyBlocked] = useState(false);
@@ -245,6 +335,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     status,
     lastError,
     refresh,
+    clearRuntimeLogs,
     reset,
     refreshEngineStatus,
     refreshRuntimeLogs,
@@ -252,12 +343,14 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     stopEngine,
     pauseEngine,
     resumeEngine,
+    clearHistory,
   } = usePaperTrading();
 
   const positions = account.positions || [];
-  const riskGuardState = snapshot.engine.risk_guard_state || snapshot.portfolio.risk_guard_state || {};
+  const riskGuardState = getRiskGuardState(snapshot);
+  const riskGuardAllowed = isRiskEntryAllowed(snapshot);
   const orders = [...(account.orders || [])].sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
-  const mergedOrderHistory = (orderEvents.length > 0 ? orderEvents : orders as unknown as Record<string, unknown>[])
+  const mergedOrderHistory = orderEvents
     .slice(0, 80)
     .sort((a, b) => String((b as { timestamp?: string; ts?: string }).timestamp || (b as { ts?: string }).ts || '')
       .localeCompare(String((a as { timestamp?: string; ts?: string }).timestamp || (a as { ts?: string }).ts || '')));
@@ -295,7 +388,31 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           risk_check?: { reason_code?: string; message?: string };
           risk_reason_code?: string;
           risk_message?: string;
+          layer_d?: {
+            allowed?: boolean;
+            blocked?: boolean;
+            reason_codes?: string[];
+            liquidity_state?: string;
+          };
+          final_action_snapshot?: {
+            decision_reason?: string;
+            final_action?: string;
+          };
+          layer_events?: Array<{
+            layer?: string;
+            snapshot?: Record<string, unknown>;
+          }>;
         };
+        const layerDSnapshot = item.layer_d || layerEventSnapshot<{
+          allowed?: boolean;
+          blocked?: boolean;
+          reason_codes?: string[];
+          liquidity_state?: string;
+        }>(item.layer_events, 'D');
+        const layerESnapshot = item.final_action_snapshot || layerEventSnapshot<{
+          decision_reason?: string;
+          final_action?: string;
+        }>(item.layer_events, 'E');
         const hannaState = resolveHannaStateWithProvider(
           item.research_status,
           item.research_unavailable,
@@ -303,23 +420,103 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           snapshot.research.freshness,
         );
         const rawReasonCodes = Array.isArray(item.reason_codes) ? item.reason_codes.map((code) => String(code)) : [];
-        const riskReasonCode = String(item.risk_reason_code || item.risk_check?.reason_code || '-');
+        const layerDAllowed = layerDSnapshot?.allowed === true || layerDSnapshot?.blocked === false;
+        const layerDBlocked = layerDSnapshot?.blocked === true || layerDSnapshot?.allowed === false;
+        const riskDecision = layerDAllowed ? 'allowed' : layerDBlocked ? 'blocked' : (item.entry_allowed ? 'allowed' : 'blocked');
+        const riskReasonCode = String(
+          item.risk_reason_code
+          || layerDSnapshot?.reason_codes?.[0]
+          || item.risk_check?.reason_code
+          || '-',
+        );
+        const riskMessage = String(
+          item.risk_message
+          || layerESnapshot?.decision_reason
+          || layerDSnapshot?.liquidity_state
+          || item.risk_check?.message
+          || '-',
+        );
+        const symbolCode = String(item.code || '').trim().toUpperCase();
+        const symbolName = String(item.name || '').trim();
         return {
           key: `${item.timestamp || item.logged_at || 'time'}:${item.market || 'market'}:${item.code || 'code'}`,
           timestamp: String(item.timestamp || item.logged_at || ''),
-          symbol: formatSymbol(item.code, item.name),
+          symbolCode,
+          symbolName,
           strategy: String(item.strategy_name || item.strategy_id || '-'),
           market: String(item.market || '-'),
           hannaState,
-          riskDecision: item.entry_allowed ? 'allowed' : 'blocked',
+          riskDecision,
           riskReasonCode,
-          riskMessage: String(item.risk_message || item.risk_check?.message || '-'),
-          finalAction: String(item.final_action || '-'),
+          riskMessage,
+          finalAction: String(item.final_action || layerESnapshot?.final_action || '-'),
           translatedReasons: rawReasonCodes.map((code) => reasonCodeToKorean(code)),
           rawReasons: rawReasonCodes,
         };
       });
   }, [signalSnapshots]);
+  const readinessSignals = useMemo(() => {
+    const cutoffMs = Date.now() - (14 * 24 * 60 * 60 * 1000);
+    return signalRiskActionLogs
+      .filter((item) => item.riskDecision === 'allowed' && item.finalAction === 'review_for_entry' && !!item.symbolCode)
+      .map((item) => {
+        const signalTs = parseRecordTime(item.timestamp);
+        return {
+          ...item,
+          hasOrder: signalTs > 0 && signalTs >= cutoffMs
+            ? mergedOrderHistory.some((order) => orderHasExecutedAction(order as Record<string, unknown>, item.symbolCode, item.market, signalTs))
+            : false,
+        };
+      })
+      .slice(0, 8);
+  }, [mergedOrderHistory, signalRiskActionLogs]);
+  const readinessSignalGapCount = readinessSignals.filter((item) => !item.hasOrder).length;
+  const riskGuardBlockCount = signalRiskActionLogs.filter((item) => item.riskDecision === 'blocked').length;
+  const readinessSignalCount = readinessSignals.length;
+  const riskActionCheck = useMemo(() => {
+    if (signalRiskActionLogs.length === 0) {
+      return {
+        tone: 'neutral' as const,
+        title: '아직 판별 로그 없음',
+        detail: 'Risk/Action 로그가 쌓이지 않았습니다. 엔진을 1회 실행하고 시계열을 갱신하세요.',
+        steps: [
+          'Layer B 신호 수집 → Layer D risk 판단 → Layer E final action',
+          '모든 단계가 비어 있으면 이번 사이클이 생성되지 않은 상태입니다.',
+        ],
+      };
+    }
+    if (readinessSignalCount > 0 && readinessSignalGapCount > 0) {
+      return {
+        tone: 'bad' as const,
+        title: '주문으로 안 넘어가는 후보가 있습니다',
+        detail: `진입 허용 + review_for_entry가 ${formatCount(readinessSignalCount, '건')}건 있었지만, 최근 주문 이벤트로 이어진 건이 ${formatCount(readinessSignalGapCount, '건')}건입니다.`,
+        steps: [
+          `대상 후보: ${readinessSignals.filter((item) => !item.hasOrder).map((item) => `${item.symbolCode}(${item.market})`).slice(0, 3).join(', ') || '-'}`,
+          'Layer D에서 허용이 났는데도 주문 이벤트가 없다면 실시간 주문 채널/사이클 실행 상태를 확인하세요.',
+        ],
+      };
+    }
+    if (riskGuardBlockCount > 0) {
+      return {
+        tone: 'bad' as const,
+        title: '리스크 가드가 주 원인으로 보입니다',
+        detail: `Risk/Action에서 차단은 ${formatCount(riskGuardBlockCount, '건')}건입니다.`,
+        steps: [
+          '실제 Layer D가 차단이면 주문이 들어오지 않는 것이 정상입니다.',
+          '차단 사유는 reason code와 risk_message에 적혀 있습니다.',
+        ],
+      };
+    }
+    return {
+      tone: 'good' as const,
+      title: '리스크/액션 경로는 주문 허용 상태',
+      detail: '최근 후보가 review_for_entry 또는 allowed 상태이면 주문 이벤트가 만들어져야 합니다.',
+      steps: [
+        '최근 주문 실패가 계속 난다면 엔진 실행 중단/브로커 에러/잔고 상태를 점검하세요.',
+        '워크플로우 단계에서 order_ready → order_sent로 넘어가는지 확인하세요.',
+      ],
+    };
+  }, [readinessSignalCount, readinessSignalGapCount, riskGuardBlockCount, signalRiskActionLogs.length]);
 
   const effectiveWorkflowSummary = workflowSummary?.items?.length ? workflowSummary : engineState.workflow_summary || { counts: {}, items: [], count: 0 };
   const workflowItems = useMemo(() => {
@@ -401,8 +598,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     },
     {
       label: '리스크 가드',
-      value: riskGuardState.entry_allowed ? UI_TEXT.status.active : UI_TEXT.status.inactive,
-      tone: riskGuardState.entry_allowed ? 'good' : 'bad',
+      value: riskGuardAllowed ? UI_TEXT.status.active : UI_TEXT.status.inactive,
+      tone: riskGuardAllowed ? 'good' : 'bad',
     },
     {
       label: '계좌 상태',
@@ -419,7 +616,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       value: currentHannaState,
       tone: hannaTone(currentHannaState),
     },
-  ]), [currentHannaState, engineState.engine_state, engineState.running, riskGuardState.entry_allowed, status, vm.positionCount]);
+  ]), [currentHannaState, engineState.engine_state, engineState.running, riskGuardAllowed, status, vm.positionCount]);
 
   const handleRefreshAll = useCallback(async () => {
     onRefresh();
@@ -599,6 +796,78 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     }
   }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, settings.initialCashKrw, settings.initialCashUsd, settings.paperDays]);
 
+  const handleClearPaperHistory = useCallback(async () => {
+    if (pendingAction) return;
+    setPendingAction('history-clear');
+    try {
+      const result = await clearHistory({ clear_all: true });
+      if (!result.ok) {
+        push('error', '실행 로그 초기화에 실패했습니다.', result.error || '', 'paper');
+        pushToast({
+          tone: 'error',
+          title: '실행 로그 초기화 실패',
+          description: result.error || '최근 체결 내역 및 Risk/Action 로그 정리를 다시 시도해 주세요.',
+        });
+        return;
+      }
+      clearRuntimeLogs();
+      clear();
+      await refreshRuntimeLogs();
+      push(
+        'success',
+        '실행 로그를 정리했습니다.',
+        `삭제 건수: 주문 ${result.clear_count?.order_events || 0}건, Signal ${result.clear_count?.signal_snapshots || 0}건, 계좌 ${result.clear_count?.account_snapshots || 0}건, 엔진 ${result.clear_count?.engine_cycles || 0}건`,
+        'paper',
+      );
+      pushToast({
+        tone: 'success',
+        title: '최근 로그 정리 완료',
+        description: `주문/엔진/계좌/리스크 로그가 초기화되어 화면 목록이 초기화됩니다.`,
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, push, pushToast, refreshRuntimeLogs]);
+
+  const handleClearPaperHistoryAndReset = useCallback(async () => {
+    if (pendingAction) return;
+    setPendingAction('history-reset');
+    try {
+      const result = await clearHistory({
+        clear_all: true,
+        reset_account: true,
+        initial_cash_krw: settings.initialCashKrw,
+        initial_cash_usd: settings.initialCashUsd,
+        paper_days: settings.paperDays,
+      });
+      if (!result.ok) {
+        push('error', '완전 정리 실패', result.error || '', 'paper');
+        pushToast({
+          tone: 'error',
+          title: '모의투자 완전 정리 실패',
+          description: result.error || '계좌 초기화값 기반으로 로그 및 계좌 상태를 다시 설정하지 못했습니다.',
+        });
+        return;
+      }
+      clearRuntimeLogs();
+      clear();
+      await Promise.all([refresh(true), refreshEngineStatus(), refreshRuntimeLogs()]);
+      push(
+        'success',
+        '로그와 계좌 상태를 완전히 정리했습니다.',
+        `삭제 건수: 주문 ${result.clear_count?.order_events || 0}건, Signal ${result.clear_count?.signal_snapshots || 0}건, 계좌 ${result.clear_count?.account_snapshots || 0}건, 엔진 ${result.clear_count?.engine_cycles || 0}건`,
+        'paper',
+      );
+      pushToast({
+        tone: 'success',
+        title: '완전 정리 완료',
+        description: '초기 자금 기준으로 계좌가 초기화되고, 실행 로그 히스토리가 초기 상태로 재설정됩니다.',
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, refresh, refreshEngineStatus, refreshRuntimeLogs, settings.initialCashKrw, settings.initialCashUsd, settings.paperDays, push, pushToast]);
+
   useEffect(() => {
     if (!autoRefreshEnabled) return;
     if (!(engineState.running || engineState.engine_state === 'paused')) return;
@@ -742,8 +1011,54 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const takeProfitPctDefault = toNumber(engineState.config?.take_profit_pct, NaN);
   const skipReasonCounts = engineState.last_summary?.skip_reason_counts || {};
   const orderFailureSummary = engineState.order_failure_summary || {};
+  const blockedReasonRows = reasonCountRows(
+    engineState.last_summary?.blocked_reason_counts,
+    6,
+    reasonCodeToKorean,
+  );
+  const skipReasonRows = reasonCountRows(
+    skipReasonCounts,
+    6,
+    reasonCodeToKorean,
+  );
+  const riskGuardReasons = Array.isArray(riskGuardState?.reasons)
+    ? riskGuardState.reasons.map((item) => String(item)).filter(Boolean)
+    : [];
+  const riskGuardReasonRows = reasonCountRows(
+    riskGuardReasons.reduce<Record<string, number>>((acc, reason) => {
+      const normalized = String(reason || '').trim();
+      if (!normalized) return acc;
+      acc[normalized] = (acc[normalized] || 0) + 1;
+      return acc;
+    }, {}),
+    6,
+    reasonCodeToKorean,
+  );
+  const latestScreenedFailure = useMemo(() => {
+    for (const rawOrder of mergedOrderHistory) {
+      const item = rawOrder as { success?: boolean; order_type?: string };
+      if (item.order_type && String(item.order_type).toLowerCase() === 'screened' && item.success === false) {
+        return rawOrder;
+      }
+    }
+    return null;
+  }, [mergedOrderHistory]);
+  const latestFailureOrder = useMemo(() => {
+    for (const rawOrder of mergedOrderHistory) {
+      const item = rawOrder as { success?: boolean };
+      if (item.success === false) {
+        return rawOrder;
+      }
+    }
+    return null;
+  }, [mergedOrderHistory]);
+  const validationFailureHint = orderFailureSummaryLabel(orderFailureSummary as {
+    latest_failure_reason?: string;
+    top_reason?: string;
+    top_reason_count?: number;
+  });
   const repeatedCashRetries = orderFailureSummary.repeated_insufficient_cash || [];
-  const entryAllowed = Boolean(riskGuardState.entry_allowed);
+  const entryAllowed = riskGuardAllowed;
   const todayFailCount = Number(engineState.today_order_counts?.failed || 0);
   const todayInsufficientCashFailCount = Number(orderFailureSummary.insufficient_cash_failed || 0);
   const trustScore = useMemo(() => {
@@ -838,6 +1153,20 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 tone: 'default',
               },
               {
+                label: '실행 로그 전부 삭제',
+                onClick: () => { void handleClearPaperHistory(); },
+                tone: 'danger',
+                busy: pendingAction === 'history-clear',
+                busyLabel: '삭제 중...',
+                confirmTitle: '실행 로그를 삭제할까요?',
+                confirmMessage: '최근 체결 내역/리스크-액션 로그/엔진 로그를 제거합니다.',
+                confirmDetails: [
+                  '삭제 대상: 주문 이벤트, signal snapshot, 계좌 스냅샷, 엔진 사이클 로그',
+                  '삭제 대상: 최근 체결 내역, 엔진 사이클, Risk/Action 표시 데이터',
+                  '이 작업은 되돌릴 수 없습니다.',
+                ],
+              },
+              {
                 label: '모의투자 초기화',
                 onClick: () => { void handleReset(); },
                 tone: 'danger',
@@ -846,6 +1175,20 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 confirmTitle: UI_TEXT.confirm.resetPaperTitle,
                 confirmMessage: UI_TEXT.confirm.resetPaperMessage,
                 confirmDetails: ['계좌, 포지션, 주문/사이클 기준 데이터가 새 초기 자금으로 다시 설정됩니다.', '이 작업은 되돌릴 수 없습니다.'],
+              },
+              {
+                label: '계좌/엔진 히스토리 완전 정리',
+                onClick: () => { void handleClearPaperHistoryAndReset(); },
+                tone: 'danger',
+                busy: pendingAction === 'history-reset',
+                busyLabel: '완전 정리 중...',
+                confirmTitle: '로그/히스토리를 완전히 정리할까요?',
+                confirmMessage: '로그, 계좌 스냅샷, 엔진 실행 이력까지 초기 상태로 되돌립니다.',
+                confirmDetails: [
+                  '삭제 대상: 주문 이벤트, signal snapshot, 계좌 스냅샷, 엔진 사이클 로그',
+                  '계좌/포지션/현금은 화면 설정의 초기 자금 기준으로 초기화됩니다.',
+                  '이 작업은 되돌릴 수 없습니다.',
+                ],
               },
             ]}
             settingsPanel={settingsPanel}
@@ -923,6 +1266,86 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 <div>매도 체결: {formatCount(todaySellCount, '건')}</div>
                 <div>실패 주문: {formatCount(todayFailCount, '건')}</div>
                 <div>순증가 포지션: {formatCount(todayBuyCount - todaySellCount, '건')}</div>
+              </div>
+            </div>
+            <div className="page-section" style={{ padding: 16, gridColumn: '1 / -1' }}>
+              <div className="section-title">동작 검증 체크리스트</div>
+              <div className="section-copy">실제 주문이 안 될 때 빠르게 원인별로 판단하려면 아래를 확인한다.</div>
+              <div style={{ marginTop: 12, overflowX: 'auto' }}>
+                <div className="validation-decision-grid" style={{ gridTemplateColumns: 'repeat(5, minmax(220px, 1fr))', minWidth: 1160 }}>
+                  <div className={`summary-metric-card ${engineState.running ? 'is-good' : 'is-bad'}`}>
+                    <div className="summary-metric-label">1. 실행 루프</div>
+                    <div className="summary-metric-value">{engineState.running ? '가동중' : '정지'}</div>
+                    <div className="summary-metric-detail">최근 {formatDateTime(engineState.last_run_at)} · 다음 {formatDateTime(engineState.next_run_at)}</div>
+                  </div>
+                  <div className={`summary-metric-card ${entryAllowed ? 'is-good' : 'is-bad'}`}>
+                    <div className="summary-metric-label">2. 리스크 가드</div>
+                    <div className="summary-metric-value">{entryAllowed ? '통과' : '차단'}</div>
+                    <div className="summary-metric-detail">
+                      {riskGuardReasonRows.length > 0 ? riskGuardReasonRows.slice(0, 2).map((item) => `${item.label}(${formatCount(item.count, '건')})`).join(' · ') : '해제'}
+                    </div>
+                  </div>
+                  <div className={`summary-metric-card ${orderFailureSummary?.today_failed ? 'is-bad' : 'is-good'}`}>
+                    <div className="summary-metric-label">3. 당일 실패</div>
+                    <div className="summary-metric-value">{formatCount(todayFailCount, '건')}</div>
+                    <div className="summary-metric-detail">{validationFailureHint}</div>
+                  </div>
+                  <div className={`summary-metric-card ${blockedReasonRows.length > 0 ? 'is-bad' : 'is-good'}`}>
+                    <div className="summary-metric-label">4. 진입 거부 사유</div>
+                    <div className="summary-metric-value">{formatCount(blockedReasonRows.length, '개')}</div>
+                    <div className="summary-metric-detail">
+                      {blockedReasonRows.slice(0, 2).map((item) => `${item.label} ${formatCount(item.count, '건')}`).join(' · ') || '기록 없음'}
+                    </div>
+                  </div>
+                  <div className={`summary-metric-card ${skipReasonRows.length > 0 ? 'is-bad' : 'is-good'}`}>
+                    <div className="summary-metric-label">5. 스크리닝/필터</div>
+                    <div className="summary-metric-value">{formatCount(skipReasonRows.length, '개')}</div>
+                    <div className="summary-metric-detail">
+                      {skipReasonRows.slice(0, 2).map((item) => `${item.label} ${formatCount(item.count, '건')}`).join(' · ') || '기록 없음'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <div
+                  className="detail-list"
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text-3)',
+                    display: 'flex',
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                    alignItems: 'center',
+                  }}
+                >
+                  <div>
+                    최근 실패 주문: {latestFailureOrder ? (
+                      <strong style={{ color: 'var(--text-1)' }}>
+                        <SymbolIdentity
+                          code={(latestFailureOrder as { code?: string }).code}
+                          name={(latestFailureOrder as { name?: string }).name}
+                          market={(latestFailureOrder as { market?: string }).market}
+                          compact
+                        />
+                      </strong>
+                    ) : '없음'} · {latestFailureOrder ? explainOrderFailureReason(String((latestFailureOrder as { failure_reason?: string; reason_code?: string }).failure_reason || (latestFailureOrder as { reason_code?: string }).reason_code || '-')) : '원인 미기록'}
+                  </div>
+                  <div>
+                    최근 스크리닝 차단: {latestScreenedFailure ? (
+                      <strong style={{ color: 'var(--text-1)' }}>
+                        <SymbolIdentity
+                          code={(latestScreenedFailure as { code?: string }).code}
+                          name={(latestScreenedFailure as { name?: string }).name}
+                          market={(latestScreenedFailure as { market?: string }).market}
+                          compact
+                        />
+                      </strong>
+                    ) : '없음'} · {
+                      String((latestScreenedFailure as { failure_reason?: string; reason_code?: string } | null)?.failure_reason || (latestScreenedFailure as { reason_code?: string } | null)?.reason_code || '-')
+                    }
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1103,9 +1526,11 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   };
                   const isSuccess = item.success !== false;
                   return (
-                  <div key={item.order_id || `${item.code || 'order'}-${index}`} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px', fontSize: 12 }}>
+                    <div key={item.order_id || `${item.code || 'order'}-${index}`} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px', fontSize: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span>{formatSymbol(item.code, item.name)}</span>
+                      <div>
+                        <SymbolIdentity code={item.code} name={item.name} market={item.market} compact />
+                      </div>
                       <span style={{ color: isSuccess ? (item.side === 'buy' ? 'var(--up)' : 'var(--down)') : 'var(--down)', fontWeight: 700 }}>
                         {isSuccess ? (item.side === 'buy' ? '매수' : '매도') : '실패'}
                       </span>
@@ -1122,8 +1547,9 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                         <div>상세: {item.message || explainOrderFailureReason(item.failure_reason)}</div>
                       </div>
                     )}
-                  </div>
-                );})}
+                    </div>
+                  );
+                })}
                 {mergedOrderHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noTrades}</div>}
               </div>
             </div>
@@ -1266,13 +1692,16 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             <div className="responsive-card-list" style={{ marginTop: 12 }}>
               {visibleWorkflowItems.map((item) => {
                 const tone = workflowStatusTone(item.execution_status);
-                const symbol = formatSymbol(item.code, item.name);
+                const workflowSymbolCode = String(item.code || '').trim().toUpperCase();
+                const workflowSymbolName = String(item.name || '').trim();
                 const statusLabel = reasonCodeToKorean(String(item.blocked_reason || item.last_order_reason || item.execution_status || '-'));
                 return (
-                  <article key={`${item.signal_key || symbol}-${item.last_order_at || item.timestamp || item.logged_at || ''}`} className="responsive-card">
+                  <article key={`${item.signal_key || workflowSymbolCode || item.last_order_at || item.timestamp || item.logged_at || ''}`} className="responsive-card">
                     <div className="responsive-card-head">
                       <div>
-                        <div className="responsive-card-title">{symbol}</div>
+                        <div className="responsive-card-title">
+                          <SymbolIdentity code={workflowSymbolCode} name={workflowSymbolName} compact />
+                        </div>
                         <div className="signal-cell-copy">{String(item.market || '-')} · {String(item.strategy_name || item.strategy_id || '-')}</div>
                       </div>
                       <div className={tone === 'good' ? 'inline-badge is-success' : tone === 'bad' ? 'inline-badge is-danger' : 'inline-badge'}>{workflowStageLabel(item.workflow_stage)}</div>
@@ -1301,6 +1730,15 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               </div>
               <div className={hannaBadgeClass(currentHannaState)}>Hanna {currentHannaState}</div>
             </div>
+            <div style={{ marginTop: 12 }}>
+              <div className={`inline-badge ${riskActionCheck.tone === 'good' ? 'is-success' : riskActionCheck.tone === 'bad' ? 'is-danger' : ''}`}>{riskActionCheck.title}</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-3)' }}>{riskActionCheck.detail}</div>
+              <div className="detail-list" style={{ marginTop: 8, gap: 4 }}>
+                {riskActionCheck.steps.map((step) => (
+                  <div key={step} style={{ color: 'var(--text-3)' }}>{step}</div>
+                ))}
+              </div>
+            </div>
             <div className="responsive-table-desktop" style={{ overflow: 'auto', marginTop: 12 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                 <thead>
@@ -1319,8 +1757,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     <tr key={item.key} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatDateTime(item.timestamp)}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>
-                        <div style={{ fontWeight: 700 }}>{item.symbol}</div>
-                        <div className="signal-cell-copy">{item.market}</div>
+                        <SymbolIdentity code={item.symbolCode} name={item.symbolName} compact />
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>{item.strategy}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>
@@ -1328,15 +1765,15 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
                         <div className={item.riskDecision === 'allowed' ? 'inline-badge is-success' : 'inline-badge is-danger'}>
-                          {item.riskDecision}
+                          {riskDecisionLabel(item.riskDecision)}
                         </div>
                         <div className="signal-cell-copy" style={{ marginTop: 6 }}>{reasonCodeToKorean(item.riskReasonCode)}</div>
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
                         <div className={item.finalAction === 'review_for_entry' ? 'inline-badge is-success' : item.finalAction === 'blocked' ? 'inline-badge is-danger' : 'inline-badge'}>
-                          {item.finalAction}
+                          {reasonCodeToKorean(item.finalAction)}
                         </div>
-                        <div className="signal-cell-copy" style={{ marginTop: 6 }}>{item.riskMessage}</div>
+                        <div className="signal-cell-copy" style={{ marginTop: 6 }}>{riskMessageLabel(item.riskMessage)}</div>
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
                         <div>{item.translatedReasons.join(', ') || '-'}</div>
@@ -1359,16 +1796,18 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 <article key={`${item.key}-card`} className="responsive-card">
                   <div className="responsive-card-head">
                     <div>
-                      <div className="responsive-card-title">{item.symbol}</div>
+                      <div className="responsive-card-title">
+                        <SymbolIdentity code={item.symbolCode} name={item.symbolName} />
+                      </div>
                       <div className="signal-cell-copy">{item.market} · {item.strategy}</div>
                     </div>
                     <div className={hannaBadgeClass(item.hannaState)}>{item.hannaState}</div>
                   </div>
                   <div className="responsive-card-grid">
                     <div><div className="responsive-card-label">시각</div><div className="responsive-card-value">{formatDateTime(item.timestamp)}</div></div>
-                    <div><div className="responsive-card-label">Layer D</div><div className="responsive-card-value">{item.riskDecision} · {reasonCodeToKorean(item.riskReasonCode)}</div></div>
-                    <div><div className="responsive-card-label">Layer E</div><div className="responsive-card-value">{item.finalAction}</div></div>
-                    <div><div className="responsive-card-label">상세</div><div className="responsive-card-value">{item.riskMessage}</div></div>
+                    <div><div className="responsive-card-label">Layer D</div><div className="responsive-card-value">{riskDecisionLabel(item.riskDecision)} · {reasonCodeToKorean(item.riskReasonCode)}</div></div>
+                    <div><div className="responsive-card-label">Layer E</div><div className="responsive-card-value">{reasonCodeToKorean(item.finalAction)}</div></div>
+                    <div><div className="responsive-card-label">상세</div><div className="responsive-card-value">{riskMessageLabel(item.riskMessage)}</div></div>
                     <div style={{ gridColumn: '1 / -1' }}><div className="responsive-card-label">reason code</div><div className="responsive-card-value">{item.translatedReasons.join(', ') || '-'}</div><div className="signal-cell-copy">{item.rawReasons.join(', ') || '-'}</div></div>
                   </div>
                 </article>
