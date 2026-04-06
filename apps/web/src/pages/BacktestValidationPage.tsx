@@ -824,9 +824,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 </button>
                 <button
                   className="ghost-button"
-                  onClick={() => { window.location.href = '/console/strategies'; }}
+                  onClick={() => { window.location.href = '/lab/strategies'; }}
                 >
-                  전략 관리로 이동
+                  전략 프리셋으로 이동
                 </button>
               </div>
             )}

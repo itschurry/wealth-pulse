@@ -21,13 +21,13 @@ import {
   weakestComponents,
 } from '../utils/strategyScorecard';
 import type { ConsoleSnapshot } from '../types/consoleView';
-import type { ReportTab } from '../types/navigation';
+import type { AnalysisTab } from '../types/navigation';
 
 interface ReportsPageProps {
   snapshot: ConsoleSnapshot;
   loading: boolean;
   errorMessage: string;
-  reportTab: ReportTab;
+  reportTab: Extract<AnalysisTab, 'today-report' | 'alerts' | 'watch-decision'>;
   onRefresh: () => void;
 }
 
@@ -69,13 +69,13 @@ function riskScore(value: string): number {
   return 46;
 }
 
-function tabHeadline(tab: ReportTab): string {
+function tabHeadline(tab: Extract<AnalysisTab, 'today-report' | 'alerts' | 'watch-decision'>): string {
   if (tab === 'alerts') return '리스크 알림';
   if (tab === 'watch-decision') return '관심 시나리오';
   return '투자 브리프';
 }
 
-function tabDescription(tab: ReportTab): string {
+function tabDescription(tab: Extract<AnalysisTab, 'today-report' | 'alerts' | 'watch-decision'>): string {
   if (tab === 'alerts') return '실행 전·실행 중 조치가 필요한 운영 리스크를 먼저 모아보는 화면입니다.';
   if (tab === 'watch-decision') return '이 탭은 매수 확정판이 아니라 오늘 다시 볼 허용 후보와 막힌 후보를 분리해 두는 research queue입니다.';
   return '리서치 요약은 참고용이고, live path 최종 판단은 Layer E final action과 Risk Gate가 끝냅니다.';

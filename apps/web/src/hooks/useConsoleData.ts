@@ -19,7 +19,7 @@ import {
 } from '../api/domain';
 import { UI_TEXT } from '../constants/uiText';
 import type { ConsoleDataState, ConsoleSnapshot } from '../types/consoleView';
-import type { ConsoleTab, ReportTab, TopSection } from '../types/navigation';
+import type { AnalysisTab, LabTab, OperationsTab, TopSection } from '../types/navigation';
 
 const FAST_POLLING_MS = 15_000;
 const MID_POLLING_MS = 30_000;
@@ -29,8 +29,9 @@ type SnapshotKey = keyof Omit<ConsoleSnapshot, 'fetchedAt'>;
 
 interface ConsoleDataRoute {
   section: TopSection;
-  consoleTab: ConsoleTab;
-  reportTab: ReportTab;
+  operationsTab: OperationsTab;
+  labTab: LabTab;
+  analysisTab: AnalysisTab;
 }
 
 interface ConsoleDataProfile {
@@ -65,7 +66,7 @@ function emptySnapshot(): ConsoleSnapshot {
 }
 
 function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
-  if (route.section === 'home') {
+  if (route.section === 'operations' && route.operationsTab === 'overview') {
     return {
       signalLimit: 40,
       initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket'],
@@ -75,7 +76,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.section === 'reports') {
+  if (route.section === 'analysis' && ['today-report', 'alerts', 'watch-decision'].includes(route.analysisTab)) {
     return {
       signalLimit: 80,
       initialTargets: ['engine', 'signals', 'validation', 'reports', 'research', 'todayPicks', 'hannaBrief'],
@@ -85,7 +86,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.consoleTab === 'orders') {
+  if (route.section === 'operations' && route.operationsTab === 'orders') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'research', 'portfolio'],
@@ -95,7 +96,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.consoleTab === 'strategies') {
+  if (route.section === 'operations' && route.operationsTab === 'strategies') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'strategies', 'research'],
@@ -105,7 +106,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.consoleTab === 'scanner') {
+  if (route.section === 'operations' && route.operationsTab === 'scanner') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'scanner', 'research'],
@@ -115,7 +116,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-if (route.consoleTab === 'performance') {
+  if (route.section === 'operations' && route.operationsTab === 'performance') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'performance', 'research'],
@@ -125,12 +126,42 @@ if (route.consoleTab === 'performance') {
     };
   }
 
-  if (route.consoleTab === 'watchlist' || route.consoleTab === 'research') {
+  if (route.section === 'analysis' && (route.analysisTab === 'watchlist' || route.analysisTab === 'research')) {
     return {
       signalLimit: 0,
       initialTargets: ['engine'],
       fastTargets: ['engine'],
       midTargets: [],
+      slowTargets: [],
+    };
+  }
+
+  if (route.section === 'lab' && route.labTab === 'validation') {
+    return {
+      signalLimit: 0,
+      initialTargets: ['engine', 'strategies', 'research', 'validation'],
+      fastTargets: ['engine'],
+      midTargets: ['strategies'],
+      slowTargets: ['research', 'validation'],
+    };
+  }
+
+  if (route.section === 'lab' && route.labTab === 'strategies') {
+    return {
+      signalLimit: 0,
+      initialTargets: ['engine', 'strategies', 'research'],
+      fastTargets: ['engine'],
+      midTargets: ['strategies'],
+      slowTargets: ['research'],
+    };
+  }
+
+  if (route.section === 'lab' && route.labTab === 'universe') {
+    return {
+      signalLimit: 0,
+      initialTargets: ['engine', 'universe'],
+      fastTargets: ['engine'],
+      midTargets: ['universe'],
       slowTargets: [],
     };
   }
@@ -153,7 +184,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
   });
   const profile = useMemo(
     () => resolveDataProfile(route),
-    [route.consoleTab, route.reportTab, route.section],
+    [route.analysisTab, route.labTab, route.operationsTab, route.section],
   );
 
   const patchSnapshot = useCallback((partial: Partial<ConsoleSnapshot>, hasError: boolean) => {

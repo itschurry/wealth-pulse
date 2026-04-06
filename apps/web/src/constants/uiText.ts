@@ -1,22 +1,28 @@
 export const UI_TEXT = {
   appName: 'WealthPulse',
   topTabs: {
-    home: '내 대시보드',
-    console: '운영 콘솔',
-    reports: '리서치 리포트',
+    operations: '운영',
+    lab: '실험',
+    analysis: '분석',
   },
-  consoleTabs: {
-    strategies: '전략 관리',
+  operationsTabs: {
+    overview: '운영 개요',
+    strategies: '전략 상태',
     scanner: '장중 스캐너',
     orders: '주문/리스크',
-    universe: '유니버스',
     performance: '성과',
-    validation: '전략 검증 랩',
   },
-  reportTabs: {
+  labTabs: {
+    strategies: '전략 프리셋',
+    validation: '전략 검증 랩',
+    universe: '유니버스',
+  },
+  analysisTabs: {
     todayReport: '투자 브리프',
     alerts: '리스크 알림',
     watchDecision: '관심 시나리오',
+    watchlist: '관심 종목',
+    research: '리서치 스냅샷',
   },
   common: {
     refresh: '새로고침',

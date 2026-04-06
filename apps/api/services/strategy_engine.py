@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+try:
+    from domains.report.market_context_service import get_market_context
+except ModuleNotFoundError:  # pragma: no cover - package import fallback
+    from apps.api.domains.report.market_context_service import get_market_context
 from helpers import _now_iso
-from routes.reports import _get_market_context
 from services.risk_guard_service import build_risk_guard_state as _build_account_risk_guard_state
 from services.live_layers import build_layer_c_snapshot, build_layer_d_snapshot, build_layer_e_snapshot, build_layer_events
 from services.live_signal_engine import build_live_signal_book
@@ -13,11 +16,12 @@ from services.optimized_params_store import load_execution_optimized_params
 from services.reliability_policy import should_apply_symbol_overlay
 from services.signal_service import collect_pick_candidates, normalize_runtime_candidate_source_mode
 from services.sizing_service import recommend_position_size
+from services.trade_workflow import enrich_signal_payload
 
 
 def _context_snapshot() -> tuple[str, str]:
     try:
-        payload = _get_market_context()
+        payload = get_market_context()
     except Exception:
         payload = {}
     context = payload.get("context") if isinstance(payload, dict) else {}
@@ -213,6 +217,10 @@ def _build_signal_from_candidate(
     reasons = [str(item) for item in (candidate.get("reasons") or []) if str(item)]
     signal_state = str(candidate.get("signal_state") or "entry")
     timestamp = _now_iso()
+    decision_quant_score = max(
+        _to_float(candidate.get("score"), 0.0),
+        max(0.0, min(100.0, _to_float(ev_metrics.get("expected_value"), 0.0) * 100.0)),
+    )
 
     size_recommendation = recommend_position_size(
         account=account,
@@ -247,7 +255,7 @@ def _build_signal_from_candidate(
             "market": normalized_market,
             "universe_rule": candidate.get("candidate_source_detail") or candidate.get("source") or "runtime_candidate_pool",
         },
-        score=_to_float(candidate.get("score"), 0.0),
+        score=decision_quant_score,
         reasons=reasons,
         technical_snapshot=technical_snapshot,
     )
@@ -259,7 +267,7 @@ def _build_signal_from_candidate(
     )
     layer_e = build_layer_e_snapshot(
         signal_state=signal_state,
-        quant_score=_to_float(candidate.get("score"), 0.0),
+        quant_score=decision_quant_score,
         research=layer_c,
         risk=layer_d,
         timestamp=timestamp,
@@ -269,7 +277,7 @@ def _build_signal_from_candidate(
         layer_a={"layer": "A", "market": normalized_market, "source": "strategy_engine_candidate_pool"},
         layer_b={
             "layer": "B",
-            "quant_score": round(_to_float(candidate.get("score"), 0.0) / 100.0, 4),
+            "quant_score": round(decision_quant_score / 100.0, 4),
             "signal_state": signal_state,
             "quant_tags": reasons,
             "technical_snapshot": {
@@ -302,6 +310,7 @@ def _build_signal_from_candidate(
             "liquidity_gate_status": "ok" if entry_allowed else "blocked",
             **(candidate.get("execution_realism") if isinstance(candidate.get("execution_realism"), dict) else {}),
         },
+        "candidate_source_mode": str(candidate.get("candidate_source_mode") or candidate.get("candidate_runtime_source_mode") or cfg.get("runtime_candidate_source_mode") or "quant_only"),
         "candidate_runtime_source_mode": str(candidate.get("candidate_runtime_source_mode") or cfg.get("runtime_candidate_source_mode") or "quant_only"),
         "candidate_research_source": layer_c.get("provider"),
         "research_status": layer_c.get("provider_status"),

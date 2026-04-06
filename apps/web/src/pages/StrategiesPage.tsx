@@ -14,14 +14,15 @@ interface StrategiesPageProps {
   loading: boolean;
   errorMessage: string;
   onRefresh: () => void;
+  mode?: 'operations' | 'lab';
 }
 
 function lifecycleBadge(item: StrategyRegistryItem): { className: string; label: string } {
-  if (item.enabled) return { className: 'inline-badge is-success', label: 'live' };
-  if (item.status === 'ready') return { className: 'inline-badge', label: 'ready' };
-  if (item.status === 'paused') return { className: 'inline-badge is-warning', label: 'paused' };
-  if (item.status === 'archived') return { className: 'inline-badge is-danger', label: 'archived' };
-  return { className: 'inline-badge is-danger', label: 'draft' };
+  if (item.enabled) return { className: 'inline-badge is-success', label: 'applied' };
+  if (item.status === 'ready') return { className: 'inline-badge', label: 'approved' };
+  if (item.status === 'paused') return { className: 'inline-badge is-warning', label: 'stale' };
+  if (item.status === 'archived') return { className: 'inline-badge is-danger', label: 'blocked' };
+  return { className: 'inline-badge is-danger', label: 'candidate' };
 }
 
 function formatParamValue(value: unknown): string {
@@ -85,18 +86,19 @@ function buildPresetPayload(
   };
 }
 
-export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: StrategiesPageProps) {
+export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mode = 'lab' }: StrategiesPageProps) {
   const { entries, push, clear } = useConsoleLogs();
   const [pendingId, setPendingId] = useState('');
   const [selectedStrategyId, setSelectedStrategyId] = useState('');
   const items = snapshot.strategies.items || [];
   const summary = snapshot.strategies.summary || {};
+  const readOnly = mode === 'operations';
 
   const statusItems = useMemo(() => ([
     { label: '전체 전략', value: `${summary.total || items.length}개`, tone: 'neutral' as const },
-    { label: '활성 전략', value: `${summary.enabled || 0}개`, tone: (summary.enabled || 0) > 0 ? 'good' as const : 'neutral' as const },
+    { label: '적용됨', value: `${summary.enabled || 0}개`, tone: (summary.enabled || 0) > 0 ? 'good' as const : 'neutral' as const },
     { label: '승인됨', value: `${summary.counts?.approved || 0}개`, tone: 'good' as const },
-    { label: '중지/대기', value: `${(summary.counts?.paused || 0) + (summary.counts?.testing || 0)}개`, tone: 'bad' as const },
+    { label: '재확인 필요', value: `${(summary.counts?.paused || 0) + (summary.counts?.testing || 0)}개`, tone: 'bad' as const },
   ]), [items.length, summary]);
 
   const handleRefresh = useCallback(() => {
@@ -225,8 +227,10 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
       <div className="page-frame">
         <div className="content-shell console-page-shell strategies-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
-            title="전략 관리"
-            subtitle="실시간 엔진은 승인된 Strategy Registry만 읽습니다. approval status, enable 상태, universe rule, scan cycle을 여기서 분리해서 관리합니다."
+            title={readOnly ? '전략 상태' : '전략 프리셋'}
+            subtitle={readOnly
+              ? '운영 모드에서는 승인/적용된 전략 상태와 enable 현황만 확인합니다. 프리셋 생성, 삭제, 검증 이관은 실험 모드에서만 허용합니다.'
+              : '실시간 엔진은 승인된 Strategy Registry만 읽습니다. approval status, enable 상태, universe rule, scan cycle을 여기서 분리해서 관리합니다.'}
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
@@ -234,7 +238,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
             onRefresh={handleRefresh}
             logs={entries}
             onClearLogs={clear}
-            actions={[
+            actions={readOnly ? [] : [
               {
                 label: '기본 전략 추가',
                 onClick: () => { void handleSeedDefaults(); },
@@ -307,9 +311,9 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                             <button
                               className="ghost-button"
                               onClick={() => handleToggle(strategyId, !enabled)}
-                              disabled={!strategyId || pendingId === strategyId}
+                              disabled={readOnly || !strategyId || pendingId === strategyId}
                             >
-                              {pendingId === strategyId ? '처리 중...' : enabled ? '비활성화' : '활성화'}
+                              {readOnly ? '운영 전용' : pendingId === strategyId ? '처리 중...' : enabled ? '비활성화' : '활성화'}
                             </button>
                           </div>
                         </td>
@@ -358,9 +362,9 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                       <button
                         className="ghost-button"
                         onClick={() => handleToggle(strategyId, !enabled)}
-                        disabled={!strategyId || pendingId === strategyId}
+                        disabled={readOnly || !strategyId || pendingId === strategyId}
                       >
-                        {pendingId === strategyId ? '처리 중...' : enabled ? '비활성화' : '활성화'}
+                        {readOnly ? '운영 전용' : pendingId === strategyId ? '처리 중...' : enabled ? '비활성화' : '활성화'}
                       </button>
                     </div>
                   </article>
@@ -379,18 +383,22 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <span className={lifecycleBadge(selectedStrategy).className}>{lifecycleBadge(selectedStrategy).label}</span>
-                  <button className="ghost-button" onClick={() => { void handleClonePreset(); }} disabled={!selectedStrategy.strategy_id}>
-                    현재 전략 복제
-                  </button>
-                  <button className="ghost-button" onClick={() => {
-                    localStorage.setItem(STRATEGY_VALIDATION_TRANSFER_KEY, JSON.stringify(selectedStrategy));
-                    window.location.href = '/console/validation';
-                  }}>
-                    전략 검증 랩 열기
-                  </button>
-                  <button className="ghost-button" onClick={() => { void handleDeletePreset(); }} disabled={!selectedStrategy.strategy_id || pendingId === String(selectedStrategy.strategy_id)}>
-                    프리셋 삭제
-                  </button>
+                  {!readOnly && (
+                    <>
+                      <button className="ghost-button" onClick={() => { void handleClonePreset(); }} disabled={!selectedStrategy.strategy_id}>
+                        현재 전략 복제
+                      </button>
+                      <button className="ghost-button" onClick={() => {
+                        localStorage.setItem(STRATEGY_VALIDATION_TRANSFER_KEY, JSON.stringify(selectedStrategy));
+                        window.location.href = '/lab/validation';
+                      }}>
+                        전략 검증 랩 열기
+                      </button>
+                      <button className="ghost-button" onClick={() => { void handleDeletePreset(); }} disabled={!selectedStrategy.strategy_id || pendingId === String(selectedStrategy.strategy_id)}>
+                        프리셋 삭제
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -437,7 +445,11 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                 <div className="section-head-row">
                   <div>
                     <div className="section-title">현재 저장된 파라미터 프리셋</div>
-                    <div className="section-copy">여기 값은 현재 전략 레지스트리에 저장된 프리셋이야. 실험용으로 값을 바꿔보는 건 검증 랩에서 하는 게 맞아.</div>
+                    <div className="section-copy">
+                      {readOnly
+                        ? '운영 모드에서는 적용 후보를 읽기 전용으로 확인합니다. 값 변경과 검증은 실험 모드에서만 수행합니다.'
+                        : '여기 값은 현재 전략 레지스트리에 저장된 프리셋이야. 실험용으로 값을 바꿔보는 건 검증 랩에서 하는 게 맞아.'}
+                    </div>
                   </div>
                 </div>
                 <div className="strategy-param-grid">

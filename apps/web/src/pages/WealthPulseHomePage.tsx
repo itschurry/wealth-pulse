@@ -14,8 +14,8 @@ interface WealthPulseHomePageProps {
   loading: boolean;
   errorMessage: string;
   onRefresh: () => void;
-  onGoConsole: () => void;
-  onGoReports: () => void;
+  onGoLab: () => void;
+  onGoAnalysis: () => void;
 }
 
 interface PositionView {
@@ -68,8 +68,8 @@ export function WealthPulseHomePage({
   loading,
   errorMessage,
   onRefresh,
-  onGoConsole,
-  onGoReports,
+  onGoLab,
+  onGoAnalysis,
 }: WealthPulseHomePageProps) {
   const todayView = buildTodayReportView(snapshot);
   const watchView = buildWatchDecisionView(snapshot);
@@ -156,8 +156,8 @@ export function WealthPulseHomePage({
             <div className="wealth-home-hero-copy">포트폴리오 요약, 진입 가능 신호, 리스크 상태를 한 화면에서 확인합니다.</div>
             <div className="wealth-home-hero-actions">
               <button className="ghost-button" onClick={onRefresh}>데이터 새로고침</button>
-              <button className="ghost-button" onClick={onGoConsole}>운영 콘솔 열기</button>
-              <button className="ghost-button" onClick={onGoReports}>리포트 열기</button>
+              <button className="ghost-button" onClick={onGoLab}>실험 모드 열기</button>
+              <button className="ghost-button" onClick={onGoAnalysis}>분석 모드 열기</button>
             </div>
             {!!errorMessage && <div className="wealth-home-error">{errorMessage}</div>}
           </section>

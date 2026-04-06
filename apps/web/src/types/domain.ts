@@ -154,6 +154,8 @@ export interface DomainSignal {
   candidate_source_detail?: string;
   candidate_source_tier?: string;
   candidate_source_priority?: number;
+  candidate_source_mode?: string;
+  /** Legacy compatibility field. Prefer candidate_source_mode in new UI code. */
   candidate_runtime_source_mode?: string;
   candidate_research_source?: string;
   research_status?: string;
@@ -209,7 +211,7 @@ export interface StrategyRegistryItem {
   name?: string;
   version?: number;
   enabled?: boolean;
-  /** draft | ready | paused | archived — operator label, independent from enabled */
+  /** Internal compatibility status. UI must map this to candidate/approved/applied/blocked/stale terms. */
   status?: 'draft' | 'ready' | 'paused' | 'archived';
   market?: string;
   universe_rule?: string;

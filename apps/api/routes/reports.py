@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Any
 
 import cache as _cache
+try:
+    from domains.report.market_context_service import get_market_context
+except ModuleNotFoundError:  # pragma: no cover - package import fallback
+    from apps.api.domains.report.market_context_service import get_market_context
 from market_utils import resolve_market
 from services.reliability_service import assess_validation_reliability
 from services.report_cache import get_cached_payload
@@ -113,14 +117,6 @@ def _get_macro() -> dict:
     return _get_cached_report(_cache._macro_cache, "macro", {"error": "거시 지표 결과가 없습니다."})
 
 
-def _get_market_context() -> dict:
-    return _get_cached_report(
-        _cache._market_context_cache,
-        "market_context",
-        {"error": "시장 컨텍스트 결과가 없습니다."},
-    )
-
-
 def _get_market_dashboard() -> dict:
     from routes.market import _build_market
 
@@ -133,7 +129,7 @@ def _get_market_dashboard() -> dict:
     return {
         "market": market,
         "macro": _get_macro(),
-        "context": _get_market_context(),
+        "context": get_market_context(),
     }
 
 
@@ -262,6 +258,7 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
         "candidate_source_detail": item.get("candidate_source_detail"),
         "candidate_source_tier": item.get("candidate_source_tier"),
         "candidate_source_priority": item.get("candidate_source_priority"),
+        "candidate_source_mode": item.get("candidate_source_mode") or item.get("candidate_runtime_source_mode"),
         "candidate_runtime_source_mode": item.get("candidate_runtime_source_mode"),
         "candidate_research_source": item.get("candidate_research_source"),
         "research_status": item.get("research_status"),
@@ -605,7 +602,7 @@ def handle_macro() -> tuple[int, dict]:
 def handle_market_context(date: str | None) -> tuple[int, dict]:
     try:
         data = (
-            _get_market_context() if not date
+            get_market_context() if not date
             else _load_report_json("market_context", date, latest=False) or {"error": "해당 날짜 시장 컨텍스트가 없습니다."}
         )
         return 200, data

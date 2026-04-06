@@ -1,5 +1,7 @@
-export type TopSection = 'home' | 'console' | 'reports';
+export type TopSection = 'operations' | 'lab' | 'analysis';
 
-export type ConsoleTab = 'strategies' | 'scanner' | 'orders' | 'performance' | 'validation' | 'watchlist' | 'research';
+export type OperationsTab = 'overview' | 'strategies' | 'scanner' | 'orders' | 'performance';
 
-export type ReportTab = 'today-report' | 'alerts' | 'watch-decision';
+export type LabTab = 'validation' | 'strategies' | 'universe';
+
+export type AnalysisTab = 'today-report' | 'alerts' | 'watch-decision' | 'watchlist' | 'research';
