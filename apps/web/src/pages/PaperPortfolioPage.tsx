@@ -5,7 +5,7 @@ import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { usePaperTrading } from '../hooks/usePaperTrading';
 import { useToast } from '../hooks/useToast';
 import type { ActionBarStatusItem, ConsoleSnapshot, PaperViewModel } from '../types/consoleView';
-import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
+import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol, formatSymbolLabel, formatUSD } from '../utils/format';
 
 interface PaperPortfolioPageProps {
   snapshot: ConsoleSnapshot;
@@ -177,6 +177,62 @@ function hannaTone(state: HannaState): 'neutral' | 'good' | 'bad' {
   return 'neutral';
 }
 
+
+function workflowStageBucket(stage: unknown): 'discover' | 'signal' | 'decision' | 'order' {
+  const value = String(stage || '').toLowerCase();
+  if (value === 'watch' || value === 'blocked') return 'discover';
+  if (value === 'signal_generated') return 'signal';
+  if (value === 'execution_decided' || value === 'order_ready') return 'decision';
+  return 'order';
+}
+
+function workflowStageLabel(stage: unknown): string {
+  const value = String(stage || '').toLowerCase();
+  if (value === 'watch') return '탐색';
+  if (value === 'blocked') return '탐색 차단';
+  if (value === 'signal_generated') return '신호 생성';
+  if (value === 'execution_decided') return '판단 완료';
+  if (value === 'order_ready') return '주문 준비';
+  if (value === 'order_sent') return '주문 전송';
+  if (value === 'filled') return '체결';
+  if (value === 'rejected') return '주문 거절';
+  return value || '-';
+}
+
+function workflowStatusTone(status: unknown): 'good' | 'bad' | 'neutral' {
+  const value = String(status || '').toLowerCase();
+  if (['filled', 'submitted', 'ready_for_order'].includes(value)) return 'good';
+  if (['rejected', 'risk_blocked', 'non_entry_signal', 'insufficient_cash', 'daily_buy_limit_reached', 'symbol_daily_limit_reached'].includes(value)) return 'bad';
+  return 'neutral';
+}
+
+function workflowStatusLabel(status: unknown): string {
+  const value = String(status || '').toLowerCase();
+  if (!value) return '-';
+  if (value === 'watch_only') return '관찰 전용';
+  if (value === 'non_entry_signal') return '진입 신호 아님';
+  if (value === 'risk_blocked') return '리스크 차단';
+  if (value === 'ready_for_order') return '주문 가능';
+  if (value === 'size_pending') return '수량 계산 대기';
+  if (value === 'operator_review') return '운영자 검토';
+  if (value === 'signal_detected') return '신호 감지';
+  if (value === 'submitted') return '주문 전송됨';
+  if (value === 'filled') return '체결 완료';
+  if (value === 'exit_signal') return '청산 신호';
+  return reasonCodeToKorean(value);
+}
+
+function riskDecisionLabel(raw: string | undefined): string {
+  const value = String(raw || '').toLowerCase();
+  if (value === 'allowed') return '통과';
+  if (value === 'blocked') return '차단';
+  return reasonCodeToKorean(value || '-');
+}
+
+function finalActionLabel(raw: string | undefined): string {
+  return reasonCodeToKorean(String(raw || '-'));
+}
+
 export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh }: PaperPortfolioPageProps) {
   const { pushToast } = useToast();
   const { entries, push, clear } = useConsoleLogs();
@@ -185,6 +241,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const [settingsSavedAt, setSettingsSavedAt] = useState(() => readSettingsSavedAt());
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [pendingAction, setPendingAction] = useState<'engine-toggle' | 'pause' | 'resume' | 'reset' | null>(null);
+  const [workflowTab, setWorkflowTab] = useState<'all' | 'discover' | 'signal' | 'decision' | 'order'>('all');
+  const [workflowSearch, setWorkflowSearch] = useState('');
+  const [workflowOnlyBlocked, setWorkflowOnlyBlocked] = useState(false);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const {
     account,
     engineState,
@@ -192,6 +252,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     orderEvents,
     accountHistory,
     signalSnapshots,
+    workflowSummary,
     status,
     lastError,
     refresh,
@@ -223,6 +284,27 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     if (states.includes('healthy')) return 'healthy';
     return resolveProviderHannaState(snapshot.research.status, snapshot.research.freshness);
   }, [snapshot.research.freshness, snapshot.research.status, snapshot.signals.signals]);
+  const symbolNameByCode = useMemo(() => {
+    const pairs: Array<[string, string]> = [];
+    for (const signal of snapshot.signals.signals || []) {
+      const code = String(signal.code || '').trim();
+      const name = String(signal.name || '').trim();
+      if (code && name) pairs.push([code, name]);
+    }
+    for (const position of positions) {
+      const code = String(position.code || '').trim();
+      const name = String(position.name || '').trim();
+      if (code && name) pairs.push([code, name]);
+    }
+    for (const row of signalSnapshots) {
+      const data = row as { code?: string; name?: string };
+      const code = String(data.code || '').trim();
+      const name = String(data.name || '').trim();
+      if (code && name) pairs.push([code, name]);
+    }
+    return new Map(pairs);
+  }, [positions, signalSnapshots, snapshot.signals.signals]);
+
   const signalRiskActionLogs = useMemo(() => {
     return [...signalSnapshots]
       .sort((left, right) => String((right as { timestamp?: string; logged_at?: string }).timestamp || (right as { logged_at?: string }).logged_at || '')
@@ -254,10 +336,14 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         );
         const rawReasonCodes = Array.isArray(item.reason_codes) ? item.reason_codes.map((code) => String(code)) : [];
         const riskReasonCode = String(item.risk_reason_code || item.risk_check?.reason_code || '-');
+        const code = String(item.code || '').trim();
+        const resolvedName = String(item.name || symbolNameByCode.get(code) || '').trim();
         return {
           key: `${item.timestamp || item.logged_at || 'time'}:${item.market || 'market'}:${item.code || 'code'}`,
           timestamp: String(item.timestamp || item.logged_at || ''),
-          symbol: formatSymbol(item.code, item.name),
+          code: code || '-',
+          name: resolvedName,
+          symbol: formatSymbolLabel(code, resolvedName, ' · '),
           strategy: String(item.strategy_name || item.strategy_id || '-'),
           market: String(item.market || '-'),
           hannaState,
@@ -269,7 +355,62 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           rawReasons: rawReasonCodes,
         };
       });
-  }, [signalSnapshots]);
+  }, [signalSnapshots, snapshot.research.freshness, snapshot.research.status, symbolNameByCode]);
+
+  const effectiveWorkflowSummary = workflowSummary?.items?.length ? workflowSummary : engineState.workflow_summary || { counts: {}, items: [], count: 0 };
+  const workflowItems = useMemo(() => {
+    const items = Array.isArray(effectiveWorkflowSummary.items) ? effectiveWorkflowSummary.items : [];
+    return [...items]
+      .sort((left, right) => String(right.last_order_at || right.fetched_at || right.timestamp || right.logged_at || '')
+        .localeCompare(String(left.last_order_at || left.fetched_at || left.timestamp || left.logged_at || '')));
+  }, [effectiveWorkflowSummary]);
+  const workflowCounts = useMemo(() => {
+    const counts = effectiveWorkflowSummary.counts || {};
+    return {
+      discover: Number(counts.watch || 0) + Number(counts.blocked || 0),
+      signal: Number(counts.signal_generated || 0),
+      decision: Number(counts.execution_decided || 0) + Number(counts.order_ready || 0),
+      order: Number(counts.order_sent || 0) + Number(counts.filled || 0) + Number(counts.rejected || 0),
+      ready: Number(counts.order_ready || 0),
+      filled: Number(counts.filled || 0),
+      rejected: Number(counts.rejected || 0),
+    };
+  }, [effectiveWorkflowSummary]);
+  const workflowBlockedItems = useMemo(() => workflowItems.filter((item) => {
+    const status = String(item.execution_status || '').toLowerCase();
+    return workflowStageBucket(item.workflow_stage) === 'discover' || workflowStatusTone(status) === 'bad';
+  }), [workflowItems]);
+  const workflowBlockedReasonSummary = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of workflowBlockedItems) {
+      const key = String(item.blocked_reason || item.last_order_reason || item.execution_status || 'unknown');
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+      .map(([reason, count]) => ({
+        reason,
+        label: reasonCodeToKorean(reason),
+        count,
+      }));
+  }, [workflowBlockedItems]);
+  const visibleWorkflowItems = useMemo(() => {
+    const keyword = workflowSearch.trim().toLowerCase();
+    const filtered = workflowItems.filter((item) => {
+      if (workflowTab !== 'all' && workflowStageBucket(item.workflow_stage) !== workflowTab) return false;
+      if (workflowOnlyBlocked) {
+        const status = String(item.execution_status || '').toLowerCase();
+        if (!(workflowStageBucket(item.workflow_stage) === 'discover' || workflowStatusTone(status) === 'bad')) return false;
+      }
+      if (!keyword) return true;
+      return [item.code, item.name, item.market, item.strategy_name, item.strategy_id, item.execution_status, item.blocked_reason, item.last_order_reason, item.final_action]
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ')
+        .includes(keyword);
+    });
+    return filtered.slice(0, 16);
+  }, [workflowItems, workflowOnlyBlocked, workflowSearch, workflowTab]);
 
   const vm = useMemo<PaperViewModel>(() => {
     const unrealized = positions.reduce((sum, item) => sum + toNumber(item.unrealized_pnl_krw), 0);
@@ -495,12 +636,13 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, settings.initialCashKrw, settings.initialCashUsd, settings.paperDays]);
 
   useEffect(() => {
+    if (!autoRefreshEnabled) return;
     if (!(engineState.running || engineState.engine_state === 'paused')) return;
     const timer = window.setInterval(() => {
       void refreshRuntimeLogs();
     }, 10_000);
     return () => window.clearInterval(timer);
-  }, [engineState.engine_state, engineState.running, refreshRuntimeLogs]);
+  }, [autoRefreshEnabled, engineState.engine_state, engineState.running, refreshRuntimeLogs]);
 
   const settingsPanel = (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -585,6 +727,24 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           onChange={(event) => setSettings((prev) => ({ ...prev, maxOrdersPerSymbol: Math.max(1, Number(event.target.value) || 1) }))}
         />
       </label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="console-action-button"
+          disabled={settingsSaving || !settingsDirty}
+          onClick={() => setSettings(savedSettings)}
+        >
+          저장값으로 되돌리기
+        </button>
+        <button
+          type="button"
+          className="console-action-button"
+          disabled={settingsSaving}
+          onClick={() => setSettings(defaultSettings())}
+        >
+          기본값 불러오기
+        </button>
+      </div>
       <button
         className="console-action-button is-primary"
         disabled={settingsSaving}
@@ -1037,11 +1197,145 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
+
           <div className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
               <div>
-                <div className="section-title">Risk / Action 로그</div>
-                <div className="section-copy">Layer D risk 결과와 Layer E final action을 분리해서 보여줍니다. Hanna 상태는 참고 정보이고 주문 허용 여부는 risk veto 기준으로 읽으면 됩니다.</div>
+                <div className="section-title">실행 워크플로우</div>
+                <div className="section-copy">탐색 → 신호 → 판단 → 주문으로 끊어서 본다. 어디서 막혔는지, 주문 직전까지 갔는지, 체결됐는지 한 번에 보이게 정리했다.</div>
+              </div>
+              <div className={`inline-badge ${workflowCounts.ready > 0 ? 'is-success' : ''}`}>주문 준비 {formatCount(workflowCounts.ready, '건')}</div>
+            </div>
+
+            <div className="validation-decision-grid" style={{ marginTop: 12 }}>
+              {[
+                { key: 'discover', label: '탐색', value: workflowCounts.discover, detail: 'watch + blocked', tone: workflowTab === 'discover' ? 'is-good' : '' },
+                { key: 'signal', label: '신호', value: workflowCounts.signal, detail: 'signal_generated', tone: workflowTab === 'signal' ? 'is-good' : '' },
+                { key: 'decision', label: '판단', value: workflowCounts.decision, detail: 'execution_decided + order_ready', tone: workflowTab === 'decision' ? 'is-good' : '' },
+                { key: 'order', label: '주문', value: workflowCounts.order, detail: `체결 ${workflowCounts.filled} · 거절 ${workflowCounts.rejected}`, tone: workflowTab === 'order' ? (workflowCounts.rejected > workflowCounts.filled ? 'is-bad' : 'is-good') : '' },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`summary-metric-card ${item.tone}`}
+                  style={{ textAlign: 'left', cursor: 'pointer' }}
+                  onClick={() => setWorkflowTab((prev) => (prev === item.key ? 'all' : item.key as 'discover' | 'signal' | 'decision' | 'order'))}
+                >
+                  <div className="summary-metric-label">{item.label}</div>
+                  <div className="summary-metric-value">{formatCount(item.value, '건')}</div>
+                  <div className="summary-metric-detail">{item.detail}</div>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+              {[
+                { key: 'all', label: '전체' },
+                { key: 'discover', label: '탐색' },
+                { key: 'signal', label: '신호' },
+                { key: 'decision', label: '판단' },
+                { key: 'order', label: '주문' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={workflowTab === tab.key ? 'inline-badge is-success' : 'inline-badge'}
+                  onClick={() => setWorkflowTab(tab.key as 'all' | 'discover' | 'signal' | 'decision' | 'order')}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  className="backtest-input-wrap"
+                  style={{ padding: '0 12px', minWidth: 220 }}
+                  type="text"
+                  placeholder="종목/전략/차단 사유 검색"
+                  value={workflowSearch}
+                  onChange={(event) => setWorkflowSearch(event.target.value)}
+                />
+                <label className="inline-badge" style={{ cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={workflowOnlyBlocked}
+                    onChange={(event) => setWorkflowOnlyBlocked(event.target.checked)}
+                    style={{ marginRight: 6 }}
+                  />
+                  막힌 건만 보기
+                </label>
+                <label className={autoRefreshEnabled ? 'inline-badge is-success' : 'inline-badge'} style={{ cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={autoRefreshEnabled}
+                    onChange={(event) => setAutoRefreshEnabled(event.target.checked)}
+                    style={{ marginRight: 6 }}
+                  />
+                  10초 자동 갱신
+                </label>
+                {(workflowSearch || workflowOnlyBlocked || workflowTab !== 'all') && (
+                  <button
+                    type="button"
+                    className="console-action-button"
+                    onClick={() => {
+                      setWorkflowSearch('');
+                      setWorkflowOnlyBlocked(false);
+                      setWorkflowTab('all');
+                    }}
+                  >
+                    필터 초기화
+                  </button>
+                )}
+              </div>
+              {workflowBlockedReasonSummary.length > 0 && (
+                <div className="detail-list" style={{ gap: 8 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text-2)' }}>지금 제일 많이 막는 이유</div>
+                  {workflowBlockedReasonSummary.map((item) => (
+                    <div key={item.reason}>{item.label} · {formatCount(item.count, '건')}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="responsive-card-list" style={{ marginTop: 12 }}>
+              {visibleWorkflowItems.map((item) => {
+                const tone = workflowStatusTone(item.execution_status);
+                const code = String(item.code || '').trim();
+                const resolvedName = String(item.name || symbolNameByCode.get(code) || '').trim();
+                const symbol = formatSymbolLabel(code, resolvedName, ' · ');
+                const statusLabel = reasonCodeToKorean(String(item.blocked_reason || item.last_order_reason || item.execution_status || '-'));
+                return (
+                  <article key={`${item.signal_key || symbol}-${item.last_order_at || item.timestamp || item.logged_at || ''}`} className="responsive-card">
+                    <div className="responsive-card-head">
+                      <div>
+                        <div className="responsive-card-title">{symbol}</div>
+                        <div className="signal-cell-copy">{String(item.market || '-')} · {String(item.strategy_name || item.strategy_id || '-')}</div>
+                      </div>
+                      <div className={tone === 'good' ? 'inline-badge is-success' : tone === 'bad' ? 'inline-badge is-danger' : 'inline-badge'}>{workflowStageLabel(item.workflow_stage)}</div>
+                    </div>
+                    <div className="responsive-card-grid">
+                      <div><div className="responsive-card-label">실행 상태</div><div className="responsive-card-value">{workflowStatusLabel(item.execution_status)}</div></div>
+                      <div><div className="responsive-card-label">주문 가능</div><div className="responsive-card-value">{item.orderable ? `예 · ${formatCount(item.order_quantity || 0, '주')}` : '아니오'}</div></div>
+                      <div><div className="responsive-card-label">최종 액션</div><div className="responsive-card-value">{reasonCodeToKorean(String(item.final_action || '-'))}</div></div>
+                      <div><div className="responsive-card-label">마지막 시각</div><div className="responsive-card-value">{formatDateTime(item.last_order_at || item.fetched_at || item.timestamp || item.logged_at || '')}</div></div>
+                      <div><div className="responsive-card-label">키</div><div className="responsive-card-value">{String(item.signal_key || '-')}</div></div>
+                      <div><div className="responsive-card-label">주문 결과</div><div className="responsive-card-value">{item.last_order_success === undefined ? '-' : item.last_order_success ? '성공' : '실패'}</div></div>
+                      <div style={{ gridColumn: '1 / -1' }}><div className="responsive-card-label">설명</div><div className="responsive-card-value">{statusLabel}</div></div>
+                    </div>
+                  </article>
+                );
+              })}
+              {visibleWorkflowItems.length === 0 && <div style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>아직 워크플로우 이벤트가 없다. 엔진을 한 번 돌리면 탐색부터 주문까지 누적된다.</div>}
+            </div>
+          </div>
+
+          <div className="page-section" style={{ padding: 16 }}>
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">리스크 / 최종판단 로그</div>
+                <div className="section-copy">Hanna는 참고 신호만 보여줍니다. 실제 주문 차단 여부는 Layer D, 최종 행동은 Layer E를 보면 됩니다. 영어 코드만 던지지 않고 바로 읽히게 정리했습니다.</div>
               </div>
               <div className={hannaBadgeClass(currentHannaState)}>Hanna {currentHannaState}</div>
             </div>
@@ -1052,10 +1346,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     <th style={{ padding: 12, fontSize: 12 }}>시각</th>
                     <th style={{ padding: 12, fontSize: 12 }}>종목</th>
                     <th style={{ padding: 12, fontSize: 12 }}>전략</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>Hanna</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>Layer D</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>Layer E</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>reason code</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>Hanna 상태</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>리스크 판정</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>최종 판단</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>사유</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1063,8 +1357,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     <tr key={item.key} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatDateTime(item.timestamp)}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>
-                        <div style={{ fontWeight: 700 }}>{item.symbol}</div>
-                        <div className="signal-cell-copy">{item.market}</div>
+                        <div style={{ fontWeight: 700 }}>{item.code}</div>
+                        <div className="signal-cell-copy">{item.name || '종목명 없음'} · {item.market}</div>
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>{item.strategy}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>
@@ -1072,13 +1366,13 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
                         <div className={item.riskDecision === 'allowed' ? 'inline-badge is-success' : 'inline-badge is-danger'}>
-                          {item.riskDecision}
+                          {riskDecisionLabel(item.riskDecision)}
                         </div>
                         <div className="signal-cell-copy" style={{ marginTop: 6 }}>{reasonCodeToKorean(item.riskReasonCode)}</div>
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
                         <div className={item.finalAction === 'review_for_entry' ? 'inline-badge is-success' : item.finalAction === 'blocked' ? 'inline-badge is-danger' : 'inline-badge'}>
-                          {item.finalAction}
+                          {finalActionLabel(item.finalAction)}
                         </div>
                         <div className="signal-cell-copy" style={{ marginTop: 6 }}>{item.riskMessage}</div>
                       </td>
@@ -1110,10 +1404,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   </div>
                   <div className="responsive-card-grid">
                     <div><div className="responsive-card-label">시각</div><div className="responsive-card-value">{formatDateTime(item.timestamp)}</div></div>
-                    <div><div className="responsive-card-label">Layer D</div><div className="responsive-card-value">{item.riskDecision} · {reasonCodeToKorean(item.riskReasonCode)}</div></div>
-                    <div><div className="responsive-card-label">Layer E</div><div className="responsive-card-value">{item.finalAction}</div></div>
-                    <div><div className="responsive-card-label">상세</div><div className="responsive-card-value">{item.riskMessage}</div></div>
-                    <div style={{ gridColumn: '1 / -1' }}><div className="responsive-card-label">reason code</div><div className="responsive-card-value">{item.translatedReasons.join(', ') || '-'}</div><div className="signal-cell-copy">{item.rawReasons.join(', ') || '-'}</div></div>
+                    <div><div className="responsive-card-label">리스크 판정</div><div className="responsive-card-value">{riskDecisionLabel(item.riskDecision)} · {reasonCodeToKorean(item.riskReasonCode)}</div></div>
+                    <div><div className="responsive-card-label">최종 판단</div><div className="responsive-card-value">{finalActionLabel(item.finalAction)}</div></div>
+                    <div><div className="responsive-card-label">상세 설명</div><div className="responsive-card-value">{item.riskMessage}</div></div>
+                    <div style={{ gridColumn: '1 / -1' }}><div className="responsive-card-label">사유</div><div className="responsive-card-value">{item.translatedReasons.join(', ') || '-'}</div><div className="signal-cell-copy">{item.rawReasons.join(', ') || '-'}</div></div>
                   </div>
                 </article>
               ))}

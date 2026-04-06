@@ -214,7 +214,7 @@ def _build_signal_from_candidate(
         layer_e=layer_e,
     )
 
-    return {
+    return enrich_signal_payload({
         **candidate,
         "market": normalized_market,
         "signal_state": signal_state,
@@ -244,7 +244,7 @@ def _build_signal_from_candidate(
         "layer_e": layer_e,
         "layer_events": layer_events,
         "fetched_at": timestamp,
-    }
+    })
 
 
 def build_signal_book(

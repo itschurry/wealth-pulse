@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getJSON, postJSON } from '../api/client';
-import type { PaperAccountData, PaperEngineConfig, PaperEngineState, PaperSeedPositionInput, PaperSkippedItem } from '../types';
+import type { PaperAccountData, PaperEngineConfig, PaperEngineState, PaperSeedPositionInput, PaperSkippedItem, PaperWorkflowSummary } from '../types';
 
 const EMPTY_ACCOUNT: PaperAccountData = {
   mode: 'paper',
@@ -65,6 +65,12 @@ type SignalSnapshotsResponse = {
   error?: string;
 };
 
+type PaperWorkflowResponse = {
+  ok?: boolean;
+  workflow?: PaperWorkflowSummary;
+  error?: string;
+};
+
 export function usePaperTrading() {
   const [account, setAccount] = useState<PaperAccountData>(EMPTY_ACCOUNT);
   const [engineState, setEngineState] = useState<PaperEngineState>({ running: false, engine_state: 'stopped' });
@@ -74,6 +80,7 @@ export function usePaperTrading() {
   const [orderEvents, setOrderEvents] = useState<Record<string, unknown>[]>([]);
   const [accountHistory, setAccountHistory] = useState<Record<string, unknown>[]>([]);
   const [signalSnapshots, setSignalSnapshots] = useState<Record<string, unknown>[]>([]);
+  const [workflowSummary, setWorkflowSummary] = useState<PaperWorkflowSummary>({ counts: {}, items: [], count: 0 });
 
   const refresh = useCallback(async (refreshQuotes = true) => {
     try {
@@ -182,7 +189,11 @@ export function usePaperTrading() {
       if (payload.account) {
         setAccount(payload.account as PaperAccountData);
       }
-      setEngineState((payload.state || { running: false, engine_state: 'stopped' }) as PaperEngineState);
+      const nextState = (payload.state || { running: false, engine_state: 'stopped' }) as PaperEngineState;
+      setEngineState(nextState);
+      if (nextState.workflow_summary) {
+        setWorkflowSummary(nextState.workflow_summary);
+      }
       return { ok: true, payload };
     } catch {
       const message = '자동매매 상태 조회 중 오류가 발생했습니다.';
@@ -193,16 +204,18 @@ export function usePaperTrading() {
 
   const refreshRuntimeLogs = useCallback(async () => {
     try {
-      const [cyclesPayload, ordersPayload, historyPayload, snapshotsPayload] = await Promise.all([
+      const [cyclesPayload, ordersPayload, historyPayload, snapshotsPayload, workflowPayload] = await Promise.all([
         getJSON<PaperCyclesResponse>('/api/paper/engine/cycles?limit=30', { noStore: true }),
         getJSON<PaperOrderEventsResponse>('/api/paper/orders?limit=60', { noStore: true }),
         getJSON<PaperAccountHistoryResponse>('/api/paper/account/history?limit=60', { noStore: true }),
         getJSON<SignalSnapshotsResponse>('/api/signals/snapshots?limit=120', { noStore: true }),
+        getJSON<PaperWorkflowResponse>('/api/paper/workflow?limit=120', { noStore: true }),
       ]);
       setCycles(Array.isArray(cyclesPayload.cycles) ? cyclesPayload.cycles : []);
       setOrderEvents(Array.isArray(ordersPayload.orders) ? ordersPayload.orders : []);
       setAccountHistory(Array.isArray(historyPayload.history) ? historyPayload.history : []);
       setSignalSnapshots(Array.isArray(snapshotsPayload.snapshots) ? snapshotsPayload.snapshots : []);
+      setWorkflowSummary(workflowPayload.workflow || { counts: {}, items: [], count: 0 });
       return { ok: true };
     } catch {
       return { ok: false };
@@ -318,6 +331,7 @@ export function usePaperTrading() {
     orderEvents,
     accountHistory,
     signalSnapshots,
+    workflowSummary,
     status,
     lastError,
     refresh,

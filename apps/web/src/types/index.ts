@@ -717,6 +717,35 @@ export interface PaperSkippedItem {
   reason?: string;
 }
 
+
+export interface PaperWorkflowItem {
+  signal_key?: string;
+  workflow_stage?: string;
+  execution_status?: string;
+  orderable?: boolean;
+  order_quantity?: number;
+  blocked_reason?: string;
+  last_order_side?: string;
+  last_order_success?: boolean;
+  last_order_at?: string;
+  last_order_reason?: string;
+  market?: string;
+  code?: string;
+  name?: string;
+  strategy_name?: string;
+  strategy_id?: string;
+  final_action?: string;
+  timestamp?: string;
+  logged_at?: string;
+  fetched_at?: string;
+}
+
+export interface PaperWorkflowSummary {
+  counts?: Record<string, number>;
+  items?: PaperWorkflowItem[];
+  count?: number;
+}
+
 export interface PaperEngineState {
   engine_state?: 'idle' | 'running' | 'paused' | 'stopped' | 'error' | string;
   running: boolean;
@@ -799,4 +828,5 @@ export interface PaperEngineState {
     }>;
   };
   config?: Partial<PaperEngineConfig>;
+  workflow_summary?: PaperWorkflowSummary;
 }

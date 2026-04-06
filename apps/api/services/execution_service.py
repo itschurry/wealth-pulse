@@ -53,6 +53,13 @@ from services.paper_runtime_store import (
     read_signal_snapshots,
     save_engine_state,
 )
+from services.trade_workflow import (
+    build_workflow_summary,
+    derive_order_workflow,
+    derive_signal_workflow,
+    enrich_order_payload,
+    enrich_signal_payload,
+)
 from services.reliability_service import assess_validation_reliability
 from services.reliability_policy import overlay_policy_metadata, should_apply_symbol_overlay
 from services.signal_service import (
@@ -318,6 +325,10 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
     payload_state["today_realized_pnl"] = _today_realized_pnl(account)
     payload_state["current_equity"] = round(
         _to_float(account.get("equity_krw"), 0.0), 2)
+    payload_state["workflow_summary"] = build_workflow_summary(
+        read_signal_snapshots(limit=120),
+        read_order_events(limit=120),
+    )
     return {
         "ok": True,
         "state": payload_state,
@@ -1213,7 +1224,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 event = result.get("event") or {}
                 executed_sells.append(
                     {"code": code, "market": market, "reason": reason, "quantity": event.get("quantity")})
-                append_order_event({
+                append_order_event(enrich_order_payload({
                     "timestamp": event.get("ts") or _now_iso(),
                     "success": True,
                     "side": "sell",
@@ -1234,13 +1245,13 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "quote_source": event.get("quote_source"),
                     "quote_fetched_at": event.get("quote_fetched_at"),
                     "quote_is_stale": event.get("quote_is_stale"),
-                })
+                }))
                 orders = (result.get("account") or {}).get("orders", orders)
             else:
                 failure_reason = result.get("error") or "sell_failed"
                 skipped.append({"code": code, "market": market,
                                "reason": failure_reason})
-                append_order_event({
+                append_order_event(enrich_order_payload({
                     "timestamp": _now_iso(),
                     "success": False,
                     "side": "sell",
@@ -1258,7 +1269,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "message": failure_reason,
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{code}",
-                })
+                }))
                 notifier.notify_order_failure({
                     "code": code,
                     "market": market,
@@ -1309,7 +1320,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     key = str(reason or "unknown")
                     blocked_reason_counts[key] = blocked_reason_counts.get(
                         key, 0) + 1
-                append_order_event({
+                append_order_event(enrich_order_payload({
                     "timestamp": _now_iso(),
                     "success": False,
                     "side": "buy",
@@ -1329,7 +1340,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "message": str(risk_check.get("message") or "risk gate blocked order"),
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{candidate.get('code')}",
-                })
+                }))
             candidate["entry_allowed"] = entry_allowed
             candidate["reason_codes"] = merged_reasons
             if entry_allowed:
@@ -1343,7 +1354,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 candidate.get("execution_realism"), dict) else {}
             report_reasoning = candidate.get("report_reasoning") if isinstance(
                 candidate.get("report_reasoning"), dict) else {}
-            signal_snapshots.append({
+            signal_snapshots.append(enrich_signal_payload({
                 "timestamp": started_at,
                 "cycle_id": cycle_id,
                 "signal_id": f"{cycle_id}:{market}:{candidate.get('code')}",
@@ -1382,7 +1393,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 "fetched_at": signal_book.get("generated_at") or started_at,
                 "is_stale": False,
                 "risk_check": risk_check,
-            })
+            }))
 
         blocked_counts_by_market[market] = blocked_count
         candidate_counts_by_market[market] = len(market_signals)
@@ -1437,7 +1448,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "quantity": event.get("quantity"),
                     "filled_price_local": event.get("filled_price_local"),
                 })
-                append_order_event({
+                append_order_event(enrich_order_payload({
                     "timestamp": event.get("ts") or _now_iso(),
                     "success": True,
                     "side": "buy",
@@ -1460,13 +1471,13 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "quote_source": event.get("quote_source"),
                     "quote_fetched_at": event.get("quote_fetched_at"),
                     "quote_is_stale": event.get("quote_is_stale"),
-                })
+                }))
                 orders = (result.get("account") or {}).get("orders", orders)
             else:
                 failure_reason = result.get("error") or "buy_failed"
                 skipped.append({"code": code, "name": cand_name, "market": market,
                                "reason": failure_reason})
-                append_order_event({
+                append_order_event(enrich_order_payload({
                     "timestamp": _now_iso(),
                     "success": False,
                     "side": "buy",
@@ -1486,7 +1497,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "message": failure_reason,
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{code}",
-                })
+                }))
                 notifier.notify_order_failure({
                     "code": code,
                     "market": market,
@@ -1870,7 +1881,7 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
         )
         if result.get("ok"):
             event = result.get("event") or {}
-            append_order_event({
+            append_order_event(enrich_order_payload({
                 "timestamp": event.get("ts") or _now_iso(),
                 "success": True,
                 "side": side,
@@ -1891,7 +1902,7 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
                 "quote_source": event.get("quote_source"),
                 "quote_fetched_at": event.get("quote_fetched_at"),
                 "quote_is_stale": event.get("quote_is_stale"),
-            })
+            }))
             account = result.get("account") if isinstance(result.get(
                 "account"), dict) else engine.get_account(refresh_quotes=False)
             unrealized = sum(
@@ -1914,7 +1925,7 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
             })
         else:
             reason = str(result.get("error") or "order_failed")
-            append_order_event({
+            append_order_event(enrich_order_payload({
                 "timestamp": _now_iso(),
                 "success": False,
                 "side": side,
@@ -1932,7 +1943,7 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
                 "message": reason,
                 "originating_cycle_id": "",
                 "originating_signal_key": f"{market}:{code}",
-            })
+            }))
             get_notification_service().notify_order_failure({
                 "code": code,
                 "market": market,
@@ -2086,8 +2097,18 @@ def handle_paper_account_history(limit: int = 100) -> tuple[int, dict]:
 
 def handle_signal_snapshots(limit: int = 200) -> tuple[int, dict]:
     try:
-        rows = read_signal_snapshots(limit=limit)
+        rows = [enrich_signal_payload(item) for item in read_signal_snapshots(limit=limit)]
         return 200, {"ok": True, "snapshots": rows, "count": len(rows)}
+    except Exception as exc:
+        return 500, {"ok": False, "error": str(exc)}
+
+
+def handle_paper_workflow(limit: int = 120) -> tuple[int, dict]:
+    try:
+        signals = read_signal_snapshots(limit=limit)
+        orders = read_order_events(limit=limit)
+        summary = build_workflow_summary(signals, orders)
+        return 200, {"ok": True, "workflow": summary}
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
 
@@ -2131,6 +2152,9 @@ class ExecutionService:
 
     def signal_snapshots(self, limit: int = 200) -> tuple[int, dict]:
         return handle_signal_snapshots(limit)
+
+    def paper_workflow(self, limit: int = 120) -> tuple[int, dict]:
+        return handle_paper_workflow(limit)
 
 
 _execution_service: ExecutionService | None = None

@@ -19,6 +19,7 @@ from services.paper_runtime_store import load_strategy_scan, save_strategy_scan
 from services.sizing_service import recommend_position_size
 from services.strategy_registry import list_strategies
 from services.universe_builder import get_universe_snapshot
+from services.trade_workflow import enrich_signal_payload
 from market_utils import normalize_market
 
 
@@ -368,7 +369,7 @@ def scan_strategy(
         candidate["layer_events"] = build_layer_events(layer_a=layer_a, layer_b=layer_b, layer_c=layer_c, layer_d=layer_d, layer_e=layer_e)
         candidate["entry_allowed"] = layer_e.get("final_action") == "review_for_entry"
 
-        candidates.append(candidate)
+        candidates.append(enrich_signal_payload(candidate))
 
     candidates.sort(
         key=lambda item: (

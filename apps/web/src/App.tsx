@@ -170,6 +170,14 @@ export default function App() {
   }
 
   function moveToConsoleTab(tab: ConsoleTab) {
+    if (tab === 'validation') {
+      const next = toRouteState('/console/validation');
+      pushPath(next.canonicalPath);
+      setRoute(next);
+      setMobileNavOpen(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     const target = CONSOLE_TABS.find((item) => item.id === tab);
     if (!target) return;
     const next = toRouteState(target.path);
