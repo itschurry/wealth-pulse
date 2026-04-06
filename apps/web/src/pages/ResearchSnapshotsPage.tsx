@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchResearchSnapshotLatest, fetchResearchSnapshots } from '../api/domain';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
+import { SymbolIdentity } from '../components/SymbolIdentity';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import type { ConsoleSnapshot } from '../types/consoleView';
 import type { ResearchSnapshotItem } from '../types/domain';
-import { formatDateTime, formatNumber, formatSymbol } from '../utils/format';
+import { formatDateTime, formatDateTimeWithAge, formatNumber } from '../utils/format';
 
 interface ResearchSnapshotsPageProps {
   snapshot: ConsoleSnapshot;
@@ -14,24 +15,27 @@ interface ResearchSnapshotsPageProps {
 }
 
 const MARKET_OPTIONS = [
-  { value: 'KOSPI', label: 'KOSPI' },
-  { value: 'KOSDAQ', label: 'KOSDAQ' },
-  { value: 'NASDAQ', label: 'NASDAQ' },
-  { value: 'NYSE', label: 'NYSE' },
+  { label: 'KOSPI', value: 'KOSPI' },
+  { label: 'NASDAQ', value: 'NASDAQ' },
 ];
 
-function ScoreBar({ value, max = 100, label }: { value: number; max?: number; label: string }) {
-  const pct = Math.min(100, Math.max(0, (value / max) * 100));
-  const tone = pct >= 70 ? 'var(--success)' : pct >= 40 ? 'var(--warn, #e6a817)' : 'var(--danger, #d94f4f)';
+function snapshotStatus(item: ResearchSnapshotItem): { label: string; tone: string } {
+  const score = Number(item.research_score);
+  if (!Number.isFinite(score)) return { label: '점수 대기', tone: 'inline-badge' };
+  if (score >= 0.8) return { label: '우선 검토', tone: 'inline-badge is-success' };
+  if (score >= 0.6) return { label: '리서치 후보', tone: 'inline-badge' };
+  return { label: '관찰 유지', tone: 'inline-badge is-danger' };
+}
+
+function ScoreBar({ label, value }: { label: string; value: number }) {
+  const width = Math.max(0, Math.min(100, value * 100));
   return (
-    <div style={{ marginBottom: 6 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
-        <span style={{ color: 'var(--text-3)' }}>{label}</span>
-        <span style={{ fontWeight: 600 }}>{formatNumber(value, 1)}</span>
+    <div className="workspace-score-row">
+      <div className="workspace-score-label">{label}</div>
+      <div className="workspace-score-track">
+        <div className="workspace-score-fill" style={{ width: `${width}%` }} />
       </div>
-      <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: tone, borderRadius: 2 }} />
-      </div>
+      <div className="workspace-score-value">{formatNumber(value, 2)}</div>
     </div>
   );
 }
@@ -40,50 +44,40 @@ function SnapshotCard({ item }: { item: ResearchSnapshotItem }) {
   const components = item.components && typeof item.components === 'object' ? item.components as Record<string, number> : {};
   const warnings = Array.isArray(item.warnings) ? item.warnings : [];
   const tags = Array.isArray(item.tags) ? item.tags : [];
+  const status = snapshotStatus(item);
 
   return (
-    <div className="page-section" style={{ padding: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+    <div className="page-section workspace-analysis-section" style={{ padding: 16 }}>
+      <div className="workspace-card-head" style={{ marginBottom: 12 }}>
         <div>
-          <div className="section-title">{formatSymbol(item.symbol, item.name)} <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{item.market}</span></div>
-          <div style={{ fontSize: 11, color: 'var(--text-4)', marginTop: 2 }}>{formatDateTime(item.generated_at || item.bucket_ts)}</div>
+          <div className="section-title"><SymbolIdentity code={item.symbol} name={item.name} market={item.market} /></div>
+          <div className="section-copy">생성 {formatDateTimeWithAge(item.generated_at || item.bucket_ts)}</div>
         </div>
-        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-          <div style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-            {item.research_score != null ? formatNumber(item.research_score, 1) : '-'}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+            {item.research_score != null ? formatNumber(item.research_score, 1) : '점수 대기'}
           </div>
-          <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Research Score</div>
+          <div className={status.tone} style={{ marginTop: 6 }}>{status.label}</div>
         </div>
       </div>
 
       {Object.keys(components).length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Components</div>
-          {Object.entries(components).map(([k, v]) => (
-            <ScoreBar key={k} label={k} value={typeof v === 'number' ? v : 0} />
+        <div className="workspace-score-grid">
+          {Object.entries(components).map(([key, value]) => (
+            <ScoreBar key={key} label={key} value={typeof value === 'number' ? value : 0} />
           ))}
         </div>
       )}
 
-      {item.summary && (
-        <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 10 }}>{item.summary}</div>
-      )}
+      <div className="workspace-summary-card" style={{ marginTop: 12 }}>
+        <div className="workspace-summary-title">요약</div>
+        <div className="workspace-summary-copy">{item.summary || '요약 없음'}</div>
+      </div>
 
-      {warnings.length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          {warnings.map((w, i) => (
-            <div key={i} className="inline-badge" style={{ marginRight: 4, marginBottom: 4, background: 'var(--danger-soft, rgba(217,79,79,0.12))', color: 'var(--danger, #d94f4f)' }}>
-              {w}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tags.length > 0 && (
-        <div>
-          {tags.map((t, i) => (
-            <span key={i} className="inline-badge" style={{ marginRight: 4, marginBottom: 4 }}>{t}</span>
-          ))}
+      {(warnings.length > 0 || tags.length > 0) && (
+        <div className="workspace-chip-row" style={{ marginTop: 12 }}>
+          {warnings.map((warning, index) => <span key={`w-${index}`} className="inline-badge is-danger">{warning}</span>)}
+          {tags.map((tag, index) => <span key={`t-${index}`} className="inline-badge">{tag}</span>)}
         </div>
       )}
     </div>
@@ -162,19 +156,28 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
     }
   };
 
+  const topReviewCount = useMemo(
+    () => recentSnapshots.filter((item) => Number(item.research_score) >= 0.8).length,
+    [recentSnapshots],
+  );
+  const lowScoreCount = useMemo(
+    () => recentSnapshots.filter((item) => Number.isFinite(Number(item.research_score)) && Number(item.research_score) < 0.6).length,
+    [recentSnapshots],
+  );
+
   const statusItems = [
     { label: '최근 스냅샷', value: `${recentSnapshots.length}개`, tone: recentSnapshots.length > 0 ? 'good' as const : 'neutral' as const },
-    { label: '종목', value: latestSnapshot ? `${latestSnapshot.symbol} · ${latestSnapshot.market}` : '-', tone: 'neutral' as const },
+    { label: '우선 검토', value: `${topReviewCount}개`, tone: topReviewCount > 0 ? 'good' as const : 'neutral' as const },
     { label: '조회 이력', value: `${history.length}개`, tone: history.length > 0 ? 'good' as const : 'neutral' as const },
   ];
 
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
+        <div className="content-shell workspace-grid">
           <ConsoleActionBar
             title="리서치 스냅샷"
-            subtitle="Hanna 연구 점수 이력을 종목별로 조회합니다."
+            subtitle="리서치가 쌓이는지, 점수가 어느 구간에 몰리는지, 특정 종목 근거가 있는지 한 흐름으로 보여줍니다."
             lastUpdated={latestSnapshot?.generated_at || latestSnapshot?.bucket_ts || ''}
             loading={loading}
             errorMessage={errorMessage}
@@ -185,175 +188,175 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
             actions={[]}
           />
 
-          <section className="page-section" style={{ padding: 16 }}>
-            <div className="section-head-row" style={{ marginBottom: 10 }}>
+          <section className="page-section workspace-two-column">
+            <div className="workspace-card-block">
+              <div className="workspace-card-head">
+                <div>
+                  <div className="section-title">종목 조회</div>
+                  <div className="section-copy">코드와 시장을 넣으면 최신 스냅샷과 이력을 같이 가져옵니다.</div>
+                </div>
+              </div>
+              <div className="workspace-query-grid">
+                <div>
+                  <div className="workspace-field-label">종목 코드</div>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="예: 005930, AAPL"
+                    value={symbol}
+                    onChange={(e) => setSymbol(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && void handleQuery()}
+                    style={{ width: '100%', padding: '10px 12px', fontSize: 13 }}
+                  />
+                </div>
+                <div>
+                  <div className="workspace-field-label">시장</div>
+                  <select
+                    className="input-field"
+                    value={market}
+                    onChange={(e) => setMarket(e.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', fontSize: 13 }}
+                  >
+                    {MARKET_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  className="action-button is-primary"
+                  onClick={() => void handleQuery()}
+                  disabled={queryLoading}
+                  style={{ alignSelf: 'end', padding: '10px 18px', fontSize: 13 }}
+                >
+                  {queryLoading ? '조회 중...' : '조회'}
+                </button>
+              </div>
+            </div>
+
+            <div className="workspace-card-block">
+              <div className="workspace-card-head">
+                <div>
+                  <div className="section-title">리서치 상태 요약</div>
+                  <div className="section-copy">지금 저장소가 단순 적재인지, 실제로 읽을만한 후보가 있는지 구분해줍니다.</div>
+                </div>
+              </div>
+              <div className="workspace-mini-metrics">
+                <div className="workspace-mini-metric"><span>우선 검토</span><strong>{topReviewCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>저점수</span><strong>{lowScoreCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>최근 선택</span><strong>{latestSnapshot?.symbol || '-'}</strong></div>
+                <div className="workspace-mini-metric"><span>최근 생성</span><strong>{latestSnapshot ? formatDateTime(latestSnapshot.generated_at || latestSnapshot.bucket_ts) : '대기'}</strong></div>
+              </div>
+            </div>
+          </section>
+
+          <section className="page-section workspace-table-section">
+            <div className="workspace-card-head">
               <div>
                 <div className="section-title">최신 스냅샷 목록</div>
-                <div className="section-copy">지금 저장소에 있는 최신 Hanna snapshot을 먼저 보여줍니다.</div>
+                <div className="section-copy">점수, 상태, 요약을 먼저 보고 클릭하면 해당 종목 상세를 아래에서 봅니다.</div>
               </div>
               <div className="inline-badge">{recentLoading ? '불러오는 중...' : `${recentSnapshots.length}개`}</div>
             </div>
             {recentSnapshots.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>표시할 최신 snapshot이 없습니다.</div>
+              <div className="workspace-empty-state">표시할 최신 snapshot이 없다.</div>
             ) : (
               <div style={{ overflow: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+                <table className="workspace-table" style={{ minWidth: 840 }}>
                   <thead>
-                    <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                      <th style={{ padding: 10, fontSize: 12 }}>종목</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>시장</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>생성 시각</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>점수</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>요약</th>
+                    <tr>
+                      <th>종목</th>
+                      <th>생성 시각</th>
+                      <th>점수</th>
+                      <th>상태</th>
+                      <th>요약</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {recentSnapshots.map((item, idx) => (
-                      <tr
-                        key={`${item.market}-${item.symbol}-${item.bucket_ts || idx}`}
-                        style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
-                        onClick={() => {
-                          setSymbol(item.symbol || '');
-                          setMarket(item.market || 'KOSPI');
-                          setLatestSnapshot(item);
-                        }}
-                      >
-                        <td style={{ padding: 10, fontSize: 12, fontWeight: 600 }}>{formatSymbol(item.symbol, item.name)}</td>
-                        <td style={{ padding: 10, fontSize: 12 }}>{item.market || '-'}</td>
-                        <td style={{ padding: 10, fontSize: 12, whiteSpace: 'nowrap' }}>{formatDateTime(item.generated_at || item.bucket_ts)}</td>
-                        <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{item.research_score != null ? formatNumber(item.research_score, 1) : '-'}</td>
-                        <td style={{ padding: 10, fontSize: 12, color: 'var(--text-3)' }}>{item.summary ? (item.summary.length > 70 ? `${item.summary.slice(0, 70)}…` : item.summary) : '-'}</td>
-                      </tr>
-                    ))}
+                    {recentSnapshots.map((item, idx) => {
+                      const status = snapshotStatus(item);
+                      return (
+                        <tr
+                          key={`${item.market}-${item.symbol}-${item.bucket_ts || idx}`}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => {
+                            setSymbol(item.symbol || '');
+                            setMarket(item.market || 'KOSPI');
+                            setLatestSnapshot(item);
+                          }}
+                        >
+                          <td><SymbolIdentity code={item.symbol} name={item.name} market={item.market} /></td>
+                          <td>{formatDateTime(item.generated_at || item.bucket_ts)}</td>
+                          <td>{item.research_score != null ? formatNumber(item.research_score, 1) : '점수 대기'}</td>
+                          <td><span className={status.tone}>{status.label}</span></td>
+                          <td>{item.summary ? (item.summary.length > 84 ? `${item.summary.slice(0, 84)}…` : item.summary) : '요약 없음'}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             )}
           </section>
 
-          <section className="page-section" style={{ padding: 16 }}>
-            <div className="section-title" style={{ marginBottom: 10 }}>종목 조회</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div style={{ flex: '1 1 180px' }}>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4 }}>종목 코드</div>
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="예: 005930, AAPL"
-                  value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && void handleQuery()}
-                  style={{ width: '100%', padding: '8px 12px', fontSize: 13 }}
-                />
-              </div>
-              <div style={{ flex: '0 0 140px' }}>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4 }}>시장</div>
-                <select
-                  className="input-field"
-                  value={market}
-                  onChange={(e) => setMarket(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', fontSize: 13 }}
-                >
-                  {MARKET_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="button"
-                className="action-button is-primary"
-                onClick={() => void handleQuery()}
-                disabled={queryLoading}
-                style={{ alignSelf: 'flex-end', padding: '8px 20px', fontSize: 13 }}
-              >
-                {queryLoading ? '조회 중...' : '조회'}
-              </button>
-            </div>
-          </section>
-
-          {latestSnapshot && (
-            <div>
-              <div className="section-title" style={{ marginBottom: 8, paddingLeft: 2 }}>최신 스냅샷</div>
-              <SnapshotCard item={latestSnapshot} />
-            </div>
-          )}
+          {latestSnapshot && <SnapshotCard item={latestSnapshot} />}
 
           {queried && !latestSnapshot && !queryLoading && (
-            <div className="page-section" style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>
-              {symbol.trim().toUpperCase()} ({market}) 에 대한 리서치 스냅샷이 없습니다.
+            <div className="page-section workspace-empty-state">
+              {symbol.trim().toUpperCase()} ({market}) 에 대한 리서치 스냅샷이 없다.
             </div>
           )}
 
           {history.length > 0 && (
-            <section className="page-section" style={{ padding: 16 }}>
-              <div className="section-head-row" style={{ marginBottom: 10 }}>
-                <div className="section-title">스냅샷 이력</div>
+            <section className="page-section workspace-table-section">
+              <div className="workspace-card-head">
+                <div>
+                  <div className="section-title">스냅샷 이력</div>
+                  <div className="section-copy">클릭해서 상세 컴포넌트와 경고를 펼쳐봅니다.</div>
+                </div>
                 <div className="inline-badge">{history.length}개</div>
               </div>
               <div style={{ overflow: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
+                <table className="workspace-table" style={{ minWidth: 760 }}>
                   <thead>
-                    <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                      <th style={{ padding: 10, fontSize: 12 }}>기준 시각</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>점수</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>요약</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>경고</th>
+                    <tr>
+                      <th>기준 시각</th>
+                      <th>점수</th>
+                      <th>상태</th>
+                      <th>요약</th>
+                      <th>경고</th>
                     </tr>
                   </thead>
                   <tbody>
                     {history.map((item, idx) => {
                       const warnings = Array.isArray(item.warnings) ? item.warnings : [];
-                      const isExpanded = expandedIdx === idx;
                       const components = item.components && typeof item.components === 'object' ? item.components as Record<string, number> : {};
+                      const isExpanded = expandedIdx === idx;
+                      const status = snapshotStatus(item);
                       return (
                         <>
-                          <tr
-                            key={`${item.bucket_ts}-${idx}`}
-                            style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
-                            onClick={() => setExpandedIdx(isExpanded ? null : idx)}
-                          >
-                            <td style={{ padding: 10, fontSize: 12, whiteSpace: 'nowrap' }}>{formatDateTime(item.bucket_ts)}</td>
-                            <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                              {item.research_score != null ? formatNumber(item.research_score, 1) : '-'}
-                            </td>
-                            <td style={{ padding: 10, fontSize: 12, color: 'var(--text-3)', maxWidth: 320 }}>
-                              {item.summary ? (item.summary.length > 80 ? `${item.summary.slice(0, 80)}…` : item.summary) : '-'}
-                            </td>
-                            <td style={{ padding: 10, fontSize: 12 }}>
-                              {warnings.length > 0
-                                ? warnings.slice(0, 2).map((w, i) => (
-                                    <span key={i} className="inline-badge" style={{ marginRight: 4, background: 'var(--danger-soft, rgba(217,79,79,0.12))', color: 'var(--danger, #d94f4f)', fontSize: 10 }}>{w}</span>
-                                  ))
-                                : <span style={{ color: 'var(--text-4)' }}>-</span>}
-                              {warnings.length > 2 && <span style={{ fontSize: 10, color: 'var(--text-4)' }}>+{warnings.length - 2}</span>}
-                            </td>
+                          <tr key={`${item.bucket_ts}-${idx}`} style={{ cursor: 'pointer' }} onClick={() => setExpandedIdx(isExpanded ? null : idx)}>
+                            <td>{formatDateTime(item.bucket_ts)}</td>
+                            <td>{item.research_score != null ? formatNumber(item.research_score, 1) : '점수 대기'}</td>
+                            <td><span className={status.tone}>{status.label}</span></td>
+                            <td>{item.summary ? (item.summary.length > 88 ? `${item.summary.slice(0, 88)}…` : item.summary) : '요약 없음'}</td>
+                            <td>{warnings.length > 0 ? warnings.join(', ') : '경고 없음'}</td>
                           </tr>
                           {isExpanded && (
-                            <tr key={`${item.bucket_ts}-${idx}-detail`} style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-soft)' }}>
-                              <td colSpan={4} style={{ padding: '12px 16px' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
+                            <tr>
+                              <td colSpan={5}>
+                                <div className="workspace-expanded-panel">
                                   {Object.keys(components).length > 0 && (
-                                    <div>
-                                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase' }}>Components</div>
-                                      {Object.entries(components).map(([k, v]) => (
-                                        <ScoreBar key={k} label={k} value={typeof v === 'number' ? v : 0} />
+                                    <div className="workspace-score-grid" style={{ marginBottom: 12 }}>
+                                      {Object.entries(components).map(([key, value]) => (
+                                        <ScoreBar key={key} label={key} value={typeof value === 'number' ? value : 0} />
                                       ))}
                                     </div>
                                   )}
-                                  {item.summary && (
-                                    <div style={{ gridColumn: 'span 2' }}>
-                                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase' }}>요약</div>
-                                      <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6 }}>{item.summary}</div>
-                                    </div>
-                                  )}
-                                  {warnings.length > 0 && (
-                                    <div>
-                                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase' }}>경고</div>
-                                      {warnings.map((w, i) => (
-                                        <div key={i} style={{ fontSize: 12, color: 'var(--danger, #d94f4f)', marginBottom: 2 }}>· {w}</div>
-                                      ))}
-                                    </div>
-                                  )}
+                                  <div className="workspace-summary-card">
+                                    <div className="workspace-summary-title">상세 요약</div>
+                                    <div className="workspace-summary-copy">{item.summary || '요약 없음'}</div>
+                                  </div>
                                 </div>
                               </td>
                             </tr>

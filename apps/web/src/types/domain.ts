@@ -209,11 +209,12 @@ export interface StrategyRegistryItem {
   name?: string;
   version?: number;
   enabled?: boolean;
-  approval_status?: string;
+  /** draft | ready | paused | archived — operator label, independent from enabled */
+  status?: 'draft' | 'ready' | 'paused' | 'archived';
   market?: string;
   universe_rule?: string;
   scan_cycle?: string;
-  approved_at?: string;
+  enabled_at?: string;
   entry_rule?: string;
   exit_rule?: string;
   params?: Record<string, unknown>;
@@ -396,27 +397,29 @@ export interface ResearchStatusResponse {
 
 export interface PerformanceSummaryResponse {
   ok?: boolean;
-  research?: Array<{
-    strategy_id?: string;
-    strategy_kind?: string;
-    name?: string;
-    approval_status?: string;
-    enabled?: boolean;
-    backtest_return_pct?: number;
-    max_drawdown_pct?: number;
-    win_rate_pct?: number;
-    sharpe?: number;
-    walk_forward_return_pct?: number;
-  }>;
   live?: {
     today_signal_count?: number;
     today_order_count?: number;
     today_reject_count?: number;
     today_screened_block_count?: number;
-    filled_count?: number;
+    total_filled_count?: number;
+    total_reject_count?: number;
+    total_screened_count?: number;
     realized_pnl_krw?: number;
     unrealized_pnl_krw?: number;
+    total_return_pct?: number;
+    initial_cash_krw?: number;
+    avg_notional_krw?: number;
     positions?: number;
+    filled_history?: Array<{
+      logged_at?: string;
+      code?: string;
+      market?: string;
+      side?: string;
+      quantity?: number;
+      filled_price_krw?: number;
+      notional_krw?: number;
+    }>;
   };
 }
 

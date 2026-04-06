@@ -5,7 +5,7 @@ import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { usePaperTrading } from '../hooks/usePaperTrading';
 import { useToast } from '../hooks/useToast';
 import type { ActionBarStatusItem, ConsoleSnapshot, PaperViewModel } from '../types/consoleView';
-import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol, formatSymbolLabel, formatUSD } from '../utils/format';
+import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
 
 interface PaperPortfolioPageProps {
   snapshot: ConsoleSnapshot;
@@ -222,17 +222,6 @@ function workflowStatusLabel(status: unknown): string {
   return reasonCodeToKorean(value);
 }
 
-function riskDecisionLabel(raw: string | undefined): string {
-  const value = String(raw || '').toLowerCase();
-  if (value === 'allowed') return '통과';
-  if (value === 'blocked') return '차단';
-  return reasonCodeToKorean(value || '-');
-}
-
-function finalActionLabel(raw: string | undefined): string {
-  return reasonCodeToKorean(String(raw || '-'));
-}
-
 export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh }: PaperPortfolioPageProps) {
   const { pushToast } = useToast();
   const { entries, push, clear } = useConsoleLogs();
@@ -284,27 +273,6 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     if (states.includes('healthy')) return 'healthy';
     return resolveProviderHannaState(snapshot.research.status, snapshot.research.freshness);
   }, [snapshot.research.freshness, snapshot.research.status, snapshot.signals.signals]);
-  const symbolNameByCode = useMemo(() => {
-    const pairs: Array<[string, string]> = [];
-    for (const signal of snapshot.signals.signals || []) {
-      const code = String(signal.code || '').trim();
-      const name = String(signal.name || '').trim();
-      if (code && name) pairs.push([code, name]);
-    }
-    for (const position of positions) {
-      const code = String(position.code || '').trim();
-      const name = String(position.name || '').trim();
-      if (code && name) pairs.push([code, name]);
-    }
-    for (const row of signalSnapshots) {
-      const data = row as { code?: string; name?: string };
-      const code = String(data.code || '').trim();
-      const name = String(data.name || '').trim();
-      if (code && name) pairs.push([code, name]);
-    }
-    return new Map(pairs);
-  }, [positions, signalSnapshots, snapshot.signals.signals]);
-
   const signalRiskActionLogs = useMemo(() => {
     return [...signalSnapshots]
       .sort((left, right) => String((right as { timestamp?: string; logged_at?: string }).timestamp || (right as { logged_at?: string }).logged_at || '')
@@ -336,14 +304,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         );
         const rawReasonCodes = Array.isArray(item.reason_codes) ? item.reason_codes.map((code) => String(code)) : [];
         const riskReasonCode = String(item.risk_reason_code || item.risk_check?.reason_code || '-');
-        const code = String(item.code || '').trim();
-        const resolvedName = String(item.name || symbolNameByCode.get(code) || '').trim();
         return {
           key: `${item.timestamp || item.logged_at || 'time'}:${item.market || 'market'}:${item.code || 'code'}`,
           timestamp: String(item.timestamp || item.logged_at || ''),
-          code: code || '-',
-          name: resolvedName,
-          symbol: formatSymbolLabel(code, resolvedName, ' · '),
+          symbol: formatSymbol(item.code, item.name),
           strategy: String(item.strategy_name || item.strategy_id || '-'),
           market: String(item.market || '-'),
           hannaState,
@@ -355,7 +319,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           rawReasons: rawReasonCodes,
         };
       });
-  }, [signalSnapshots, snapshot.research.freshness, snapshot.research.status, symbolNameByCode]);
+  }, [signalSnapshots]);
 
   const effectiveWorkflowSummary = workflowSummary?.items?.length ? workflowSummary : engineState.workflow_summary || { counts: {}, items: [], count: 0 };
   const workflowItems = useMemo(() => {
@@ -1302,9 +1266,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             <div className="responsive-card-list" style={{ marginTop: 12 }}>
               {visibleWorkflowItems.map((item) => {
                 const tone = workflowStatusTone(item.execution_status);
-                const code = String(item.code || '').trim();
-                const resolvedName = String(item.name || symbolNameByCode.get(code) || '').trim();
-                const symbol = formatSymbolLabel(code, resolvedName, ' · ');
+                const symbol = formatSymbol(item.code, item.name);
                 const statusLabel = reasonCodeToKorean(String(item.blocked_reason || item.last_order_reason || item.execution_status || '-'));
                 return (
                   <article key={`${item.signal_key || symbol}-${item.last_order_at || item.timestamp || item.logged_at || ''}`} className="responsive-card">
@@ -1334,8 +1296,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           <div className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
               <div>
-                <div className="section-title">리스크 / 최종판단 로그</div>
-                <div className="section-copy">Hanna는 참고 신호만 보여줍니다. 실제 주문 차단 여부는 Layer D, 최종 행동은 Layer E를 보면 됩니다. 영어 코드만 던지지 않고 바로 읽히게 정리했습니다.</div>
+                <div className="section-title">Risk / Action 로그</div>
+                <div className="section-copy">Layer D risk 결과와 Layer E final action을 분리해서 보여줍니다. Hanna 상태는 참고 정보이고 주문 허용 여부는 risk veto 기준으로 읽으면 됩니다.</div>
               </div>
               <div className={hannaBadgeClass(currentHannaState)}>Hanna {currentHannaState}</div>
             </div>
@@ -1346,10 +1308,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     <th style={{ padding: 12, fontSize: 12 }}>시각</th>
                     <th style={{ padding: 12, fontSize: 12 }}>종목</th>
                     <th style={{ padding: 12, fontSize: 12 }}>전략</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>Hanna 상태</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>리스크 판정</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>최종 판단</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>사유</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>Hanna</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>Layer D</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>Layer E</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>reason code</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1357,8 +1319,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     <tr key={item.key} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatDateTime(item.timestamp)}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>
-                        <div style={{ fontWeight: 700 }}>{item.code}</div>
-                        <div className="signal-cell-copy">{item.name || '종목명 없음'} · {item.market}</div>
+                        <div style={{ fontWeight: 700 }}>{item.symbol}</div>
+                        <div className="signal-cell-copy">{item.market}</div>
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>{item.strategy}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>
@@ -1366,13 +1328,13 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
                         <div className={item.riskDecision === 'allowed' ? 'inline-badge is-success' : 'inline-badge is-danger'}>
-                          {riskDecisionLabel(item.riskDecision)}
+                          {item.riskDecision}
                         </div>
                         <div className="signal-cell-copy" style={{ marginTop: 6 }}>{reasonCodeToKorean(item.riskReasonCode)}</div>
                       </td>
                       <td style={{ padding: 12, fontSize: 12 }}>
                         <div className={item.finalAction === 'review_for_entry' ? 'inline-badge is-success' : item.finalAction === 'blocked' ? 'inline-badge is-danger' : 'inline-badge'}>
-                          {finalActionLabel(item.finalAction)}
+                          {item.finalAction}
                         </div>
                         <div className="signal-cell-copy" style={{ marginTop: 6 }}>{item.riskMessage}</div>
                       </td>
@@ -1404,10 +1366,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   </div>
                   <div className="responsive-card-grid">
                     <div><div className="responsive-card-label">시각</div><div className="responsive-card-value">{formatDateTime(item.timestamp)}</div></div>
-                    <div><div className="responsive-card-label">리스크 판정</div><div className="responsive-card-value">{riskDecisionLabel(item.riskDecision)} · {reasonCodeToKorean(item.riskReasonCode)}</div></div>
-                    <div><div className="responsive-card-label">최종 판단</div><div className="responsive-card-value">{finalActionLabel(item.finalAction)}</div></div>
-                    <div><div className="responsive-card-label">상세 설명</div><div className="responsive-card-value">{item.riskMessage}</div></div>
-                    <div style={{ gridColumn: '1 / -1' }}><div className="responsive-card-label">사유</div><div className="responsive-card-value">{item.translatedReasons.join(', ') || '-'}</div><div className="signal-cell-copy">{item.rawReasons.join(', ') || '-'}</div></div>
+                    <div><div className="responsive-card-label">Layer D</div><div className="responsive-card-value">{item.riskDecision} · {reasonCodeToKorean(item.riskReasonCode)}</div></div>
+                    <div><div className="responsive-card-label">Layer E</div><div className="responsive-card-value">{item.finalAction}</div></div>
+                    <div><div className="responsive-card-label">상세</div><div className="responsive-card-value">{item.riskMessage}</div></div>
+                    <div style={{ gridColumn: '1 / -1' }}><div className="responsive-card-label">reason code</div><div className="responsive-card-value">{item.translatedReasons.join(', ') || '-'}</div><div className="signal-cell-copy">{item.rawReasons.join(', ') || '-'}</div></div>
                   </div>
                 </article>
               ))}

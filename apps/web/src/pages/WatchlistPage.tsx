@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchWatchlist, fetchWatchlistActions, saveWatchlist, searchStocks } from '../api/domain';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
+import { SymbolIdentity } from '../components/SymbolIdentity';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import type { ConsoleSnapshot } from '../types/consoleView';
 import type { StockSearchResult, WatchlistAction, WatchlistActionItem, WatchlistItem } from '../types/domain';
-import { formatDateTime, formatKRW, formatNumber, formatSymbol } from '../utils/format';
+import { formatDateTime, formatKRW, formatNumber } from '../utils/format';
 
 interface WatchlistPageProps {
   snapshot: ConsoleSnapshot;
@@ -17,10 +18,41 @@ function isKospi(market: string): boolean {
   return market.toUpperCase() === 'KOSPI' || market.toUpperCase() === 'KOSDAQ';
 }
 
+function normalizeItems(items: WatchlistItem[]) {
+  return [...items]
+    .map((item) => ({
+      code: item.code,
+      name: item.name,
+      market: item.market,
+    }))
+    .sort((left, right) => `${left.market}:${left.code}`.localeCompare(`${right.market}:${right.code}`));
+}
+
+function displayMetric(value: number | undefined, kind: 'price' | 'pct' | 'analysis' | 'volume', market?: string) {
+  if (value == null || Number.isNaN(Number(value))) {
+    if (kind === 'price') return '시세 대기';
+    if (kind === 'analysis') return '분석 전';
+    if (kind === 'volume') return '집계 대기';
+    return '변동 대기';
+  }
+  if (kind === 'price') return isKospi(String(market || '')) ? formatKRW(value) : `$${formatNumber(value, 2)}`;
+  if (kind === 'pct') return `${value >= 0 ? '▲' : '▼'}${Math.abs(value).toFixed(2)}%`;
+  if (kind === 'analysis') return formatNumber(value, 1);
+  return formatNumber(value, 2);
+}
+
+function actionTone(action?: string) {
+  const value = String(action || '').toLowerCase();
+  if (value === 'buy') return 'inline-badge is-success';
+  if (value === 'sell') return 'inline-badge is-danger';
+  return 'inline-badge';
+}
+
 export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPageProps) {
   const { entries, push, clear } = useConsoleLogs();
 
   const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [savedItems, setSavedItems] = useState<WatchlistItem[]>([]);
   const [actionItems, setActionItems] = useState<WatchlistActionItem[]>([]);
   const [actions, setActions] = useState<WatchlistAction[]>([]);
   const [actionsGeneratedAt, setActionsGeneratedAt] = useState('');
@@ -39,10 +71,14 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
   useEffect(() => {
     setPageLoading(true);
     fetchWatchlist()
-      .then((res) => setItems(res.items || []))
+      .then((res) => {
+        const next = res.items || [];
+        setItems(next);
+        setSavedItems(next);
+      })
       .catch(() => push('error', '관심 종목 불러오기 실패', undefined, 'watchlist'))
       .finally(() => setPageLoading(false));
-  }, []);
+  }, [push]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -53,6 +89,8 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const dirty = useMemo(() => JSON.stringify(normalizeItems(items)) !== JSON.stringify(normalizeItems(savedItems)), [items, savedItems]);
 
   const handleSearchChange = useCallback((query: string) => {
     setSearchQuery(query);
@@ -70,7 +108,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
       } catch {
         setSearchResults([]);
       }
-    }, 300);
+    }, 250);
   }, []);
 
   const handleAddItem = useCallback((result: StockSearchResult) => {
@@ -92,6 +130,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
     setSaveLoading(true);
     try {
       await saveWatchlist(items);
+      setSavedItems(items);
       push('success', '관심 종목 저장 완료', undefined, 'watchlist');
     } catch {
       push('error', '저장 실패', undefined, 'watchlist');
@@ -111,7 +150,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
       setActionItems(res.data.items || []);
       setActions(res.data.actions || []);
       setActionsGeneratedAt(new Date().toISOString());
-      push('success', `분석 완료 — ${(res.data.actions || []).length}개 액션`, undefined, 'watchlist');
+      push('success', `분석 완료 · ${(res.data.actions || []).length}개 액션`, undefined, 'watchlist');
     } catch {
       push('error', '분석 실패', undefined, 'watchlist');
     } finally {
@@ -121,18 +160,23 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
 
   const statusItems = [
     { label: '관심 종목', value: `${items.length}개`, tone: 'neutral' as const },
+    { label: '저장 상태', value: dirty ? '수정됨' : '동기화', tone: dirty ? 'bad' as const : 'good' as const },
     { label: '분석 액션', value: `${actions.length}개`, tone: actions.length > 0 ? 'good' as const : 'neutral' as const },
   ];
 
   const enrichedMap = new Map(actionItems.map((item) => [`${item.market}:${item.code}`, item]));
+  const priceReadyCount = actionItems.filter((item) => item.price != null || item.technicals?.current_price != null).length;
+  const rsiReadyCount = actionItems.filter((item) => item.technicals?.rsi14 != null).length;
+  const buyActions = actions.filter((item) => String(item.action || '').toLowerCase() === 'buy').length;
+  const reviewActions = actions.filter((item) => String(item.action || '').toLowerCase() === 'watch').length;
 
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
+        <div className="content-shell workspace-grid">
           <ConsoleActionBar
             title="관심 종목"
-            subtitle="종목을 추가하고 기술적 분석과 수급 데이터를 조회합니다. 저장 버튼을 눌러야 목록이 서버에 반영됩니다."
+            subtitle="편집, 저장, 분석을 분리해서 보여줍니다. 저장 전 변경과 최근 분석 상태를 여기서 바로 확인합니다."
             lastUpdated={actionsGeneratedAt}
             loading={loading || pageLoading}
             errorMessage={errorMessage}
@@ -154,71 +198,92 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
                 onClick: handleSave,
                 busy: saveLoading,
                 busyLabel: '저장 중...',
+                disabled: !dirty,
+                disabledReason: dirty ? '' : '변경 없음',
               },
             ]}
           />
 
-          <section className="page-section" style={{ padding: 16 }}>
-            <div className="section-title" style={{ marginBottom: 10 }}>종목 검색</div>
-            <div ref={searchContainerRef} style={{ position: 'relative', maxWidth: 400 }}>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="종목명 또는 코드 검색..."
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
-                style={{ width: '100%', padding: '8px 12px', fontSize: 13 }}
-              />
-              {searchOpen && searchResults.length > 0 && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  right: 0,
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  zIndex: 100,
-                  maxHeight: 240,
-                  overflowY: 'auto',
-                }}>
-                  {searchResults.map((result) => (
-                    <button
-                      key={`${result.market}:${result.code}`}
-                      type="button"
-                      className="ghost-button"
-                      style={{ width: '100%', textAlign: 'left', padding: '8px 12px', borderRadius: 0, borderBottom: '1px solid var(--border)' }}
-                      onClick={() => handleAddItem(result)}
-                    >
-                      <span style={{ fontWeight: 600 }}>{result.name}</span>
-                      <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-3)' }}>{result.code} · {result.market}</span>
-                    </button>
-                  ))}
+          <section className="page-section workspace-two-column">
+            <div className="workspace-card-block">
+              <div className="workspace-card-head">
+                <div>
+                  <div className="section-title">종목 검색 / 추가</div>
+                  <div className="section-copy">검색 결과는 아래 표를 덮지 않게 별도 패널처럼 띄웁니다.</div>
                 </div>
-              )}
+                {dirty && <div className="inline-badge is-danger">저장되지 않은 변경 있음</div>}
+              </div>
+              <div ref={searchContainerRef} className="workspace-search-shell">
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="종목명 또는 코드 검색"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
+                  style={{ width: '100%', padding: '10px 12px', fontSize: 13 }}
+                />
+                {searchOpen && searchResults.length > 0 && (
+                  <div className="workspace-search-dropdown">
+                    {searchResults.map((result) => (
+                      <button
+                        key={`${result.market}:${result.code}`}
+                        type="button"
+                        className="workspace-search-result"
+                        onClick={() => handleAddItem(result)}
+                      >
+                        <SymbolIdentity code={result.code} name={result.name} market={result.market} compact />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="workspace-help-row">
+                <span className="inline-badge">추가 후 저장 필요</span>
+                <span className="workspace-muted-copy">목록 수정만으로 서버 반영되진 않음</span>
+              </div>
+            </div>
+
+            <div className="workspace-card-block">
+              <div className="workspace-card-head">
+                <div>
+                  <div className="section-title">편집 / 분석 상태</div>
+                  <div className="section-copy">지금 페이지에서 어디까지 된 건지 숫자로 바로 봅니다.</div>
+                </div>
+                <div className="inline-badge">{actionsGeneratedAt ? formatDateTime(actionsGeneratedAt) : '분석 전'}</div>
+              </div>
+              <div className="workspace-mini-metrics">
+                <div className="workspace-mini-metric"><span>서버 저장</span><strong>{savedItems.length}개</strong></div>
+                <div className="workspace-mini-metric"><span>가격 준비</span><strong>{priceReadyCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>RSI 준비</span><strong>{rsiReadyCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>매수 후보</span><strong>{buyActions}개</strong></div>
+                <div className="workspace-mini-metric"><span>관찰 후보</span><strong>{reviewActions}개</strong></div>
+              </div>
             </div>
           </section>
 
-          <section className="page-section" style={{ padding: 16 }}>
-            <div className="section-head-row" style={{ marginBottom: 10 }}>
-              <div className="section-title">관심 종목 목록</div>
+          <section className="page-section workspace-table-section">
+            <div className="workspace-card-head">
+              <div>
+                <div className="section-title">관심 종목 목록</div>
+                <div className="section-copy">종목 표기는 이름 / 코드 · 시장 형식으로 통일했습니다.</div>
+              </div>
               <div className="inline-badge">{items.length}개</div>
             </div>
             {items.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-4)', padding: '12px 0' }}>관심 종목이 없습니다. 위에서 검색하여 추가하세요.</div>
+              <div className="workspace-empty-state">관심 종목이 없습니다. 위에서 검색해서 추가해.</div>
             ) : (
               <div style={{ overflow: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
+                <table className="workspace-table" style={{ minWidth: 760 }}>
                   <thead>
-                    <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                      <th style={{ padding: 10, fontSize: 12 }}>종목</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>시장</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>현재가</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>등락률</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>RSI</th>
-                      <th style={{ padding: 10, fontSize: 12 }}>거래량비</th>
-                      <th style={{ padding: 10, fontSize: 12 }}></th>
+                    <tr>
+                      <th>종목</th>
+                      <th>현재가</th>
+                      <th>등락률</th>
+                      <th>RSI</th>
+                      <th>거래량비</th>
+                      <th>액션</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -229,25 +294,19 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
                       const price = item.price ?? (technicals.current_price as number | undefined);
                       const rsi = technicals.rsi14 as number | undefined;
                       const volRatio = technicals.volume_ratio as number | undefined;
+                      const action = actions.find((candidate) => candidate.code === item.code && candidate.market === item.market);
                       return (
-                        <tr key={`${item.market}:${item.code}`} style={{ borderTop: '1px solid var(--border)' }}>
-                          <td style={{ padding: 10, fontSize: 12 }}>
-                            <div style={{ fontWeight: 600 }}>{formatSymbol(item.code, item.name)}</div>
+                        <tr key={`${item.market}:${item.code}`}>
+                          <td><SymbolIdentity code={item.code} name={item.name} market={item.market} /></td>
+                          <td>{displayMetric(price, 'price', item.market)}</td>
+                          <td className={changePct != null ? (changePct >= 0 ? 'is-up' : 'is-down') : ''}>{displayMetric(changePct, 'pct')}</td>
+                          <td>{displayMetric(rsi, 'analysis')}</td>
+                          <td>{displayMetric(volRatio, 'volume')}</td>
+                          <td>
+                            <span className={actionTone(action?.action)}>{action?.action || '분석 전'}</span>
+                            {action?.reason && <div className="workspace-row-subcopy">{action.reason}</div>}
                           </td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{item.market}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>
-                            {price != null ? (isKospi(item.market) ? formatKRW(price) : `$${formatNumber(price, 2)}`) : '-'}
-                          </td>
-                          <td style={{ padding: 10, fontSize: 12 }}>
-                            {changePct != null ? (
-                              <span className={changePct >= 0 ? 'is-up' : 'is-down'}>
-                                {changePct >= 0 ? '▲' : '▼'}{Math.abs(changePct).toFixed(2)}%
-                              </span>
-                            ) : '-'}
-                          </td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{rsi != null ? formatNumber(rsi, 1) : '-'}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>{volRatio != null ? formatNumber(volRatio, 2) : '-'}</td>
-                          <td style={{ padding: 10, fontSize: 12 }}>
+                          <td style={{ textAlign: 'right' }}>
                             <button
                               type="button"
                               className="ghost-button"
@@ -267,23 +326,20 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
           </section>
 
           {actions.length > 0 && (
-            <section className="page-section" style={{ padding: 16 }}>
-              <div className="section-head-row" style={{ marginBottom: 12 }}>
+            <section className="page-section workspace-analysis-section">
+              <div className="workspace-card-head">
                 <div>
-                  <div className="section-title">분석 결과</div>
-                  <div className="section-copy">{formatDateTime(actionsGeneratedAt)}</div>
+                  <div className="section-title">최근 분석 결과</div>
+                  <div className="section-copy">매수/관찰/회피 판단을 카드로 먼저 보여줍니다.</div>
                 </div>
                 <div className="inline-badge">{actions.length}개 액션</div>
               </div>
               <div className="operator-note-grid">
                 {actions.map((action, i) => (
                   <div key={`action-${i}`} className="operator-note-card">
-                    <div className="operator-note-label">{action.name || action.code || '-'} {action.code ? `(${action.code})` : ''}</div>
-                    <div className="operator-note-copy">{action.market || '-'}</div>
+                    <div className="operator-note-label"><SymbolIdentity code={action.code} name={action.name} market={action.market} compact /></div>
                     <div style={{ marginTop: 6 }}>
-                      <span className={`inline-badge ${action.action === 'watch' ? '' : action.action === 'buy' ? 'is-success' : ''}`}>
-                        {action.action || '-'}
-                      </span>
+                      <span className={actionTone(action.action)}>{action.action || '관찰'}</span>
                     </div>
                     {action.reason && <div className="operator-note-copy" style={{ marginTop: 6 }}>{action.reason}</div>}
                     {action.confidence && <div className="operator-note-copy" style={{ marginTop: 4 }}>신뢰도 {action.confidence}</div>}

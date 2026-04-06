@@ -45,6 +45,7 @@ from routes.strategies import (
     handle_strategy_delete,
     handle_strategy_detail,
     handle_strategy_save,
+    handle_strategy_seed_defaults,
     handle_strategy_toggle,
 )
 from routes.trading import (
@@ -178,6 +179,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route("/api/strategies/toggle", lambda _path, payload: handle_strategy_toggle(payload)),
     Route("/api/strategies/save", lambda _path, payload: handle_strategy_save(payload)),
     Route("/api/strategies/delete", lambda _path, payload: handle_strategy_delete(payload)),
+    Route("/api/strategies/seed-defaults", lambda _path, payload: handle_strategy_seed_defaults(payload)),
     Route("/api/research/ingest/bulk", lambda _path, payload: handle_research_ingest_bulk(payload)),
     Route("/api/run-optimization", lambda _path, _payload: handle_run_optimization(_payload)),
     Route("/api/validation/settings/save", lambda _path, payload: handle_validation_settings_save(payload)),

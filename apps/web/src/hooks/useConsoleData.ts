@@ -115,17 +115,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.consoleTab === 'universe') {
-    return {
-      signalLimit: 0,
-      initialTargets: ['universe', 'research'],
-      fastTargets: [],
-      midTargets: ['universe'],
-      slowTargets: ['research'],
-    };
-  }
-
-  if (route.consoleTab === 'performance') {
+if (route.consoleTab === 'performance') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'performance', 'research'],

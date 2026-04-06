@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { getJSON, postJSON } from '../api/client';
-import { fetchStrategyMetadata } from '../api/domain';
+import { fetchStrategyMetadata, fetchValidationBacktest, fetchValidationWalkForward, saveStrategyPreset } from '../api/domain';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
-import { useBacktest, defaultBacktestQuery } from '../hooks/useBacktest';
+import { defaultBacktestQuery } from '../hooks/useBacktest';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { formatValidationSettingsLabel, useValidationSettingsStore } from '../hooks/useValidationSettingsStore';
+import type { ValidationSettings } from '../hooks/useValidationSettingsStore';
 import type { BacktestData, BacktestQuery, StrategyKind } from '../types';
-import type { StrategyRegistryItem } from '../types/domain';
+import type { StrategyRegistryItem, ValidationResponse } from '../types/domain';
 import type { ActionBarAction, ConsoleSnapshot } from '../types/consoleView';
 import type { StrategiesMetadataResponse } from '../types/domain';
 import { formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatUSD } from '../utils/format';
@@ -243,7 +244,25 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   const [optimizationRunning, setOptimizationRunning] = useState(false);
   const [optimizationPayload, setOptimizationPayload] = useState<Record<string, unknown> | null>(null);
   const [optimizationMessage, setOptimizationMessage] = useState('');
-  const { data, status, lastError, run } = useBacktest(validationStore.savedQuery, { autoRun: false });
+  const [data, setData] = useState<BacktestData>({});
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [lastError, setLastError] = useState('');
+  const [wfData, setWfData] = useState<ValidationResponse>({});
+  const [wfStatus, setWfStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [wfLastError, setWfLastError] = useState('');
+
+  // Bug 1 fix: read transfer payload immediately on mount before any effects run,
+  // then apply once metadata is available to avoid the race condition where
+  // the effect ran with null metadata and cleared the localStorage key.
+  const transferRef = useRef<StrategyRegistryItem | null>(null);
+  const transferApplied = useRef(false);
+  if (transferRef.current === null && !transferApplied.current) {
+    const raw = localStorage.getItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+    if (raw) {
+      localStorage.removeItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+      try { transferRef.current = JSON.parse(raw) as StrategyRegistryItem; } catch { /* ignore */ }
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -264,11 +283,12 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     };
   }, []);
 
+  // Bug 1 fix: apply the transfer only after metadata is loaded (1 time)
   useEffect(() => {
-    const raw = localStorage.getItem(STRATEGY_VALIDATION_TRANSFER_KEY);
-    if (!raw) return;
+    if (metadataLoading || transferApplied.current || !transferRef.current) return;
+    transferApplied.current = true;
+    const payload = transferRef.current;
     try {
-      const payload = JSON.parse(raw) as StrategyRegistryItem;
       const strategyKind = strategyKindFromUnknown(payload.strategy_kind || payload.strategy_id);
       const sourceParams = payload.params && typeof payload.params === 'object' ? payload.params as Record<string, unknown> : {};
       validationStore.setDraftQuery((prev) => {
@@ -277,11 +297,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       });
       push('info', '전략 프리셋을 검증 랩으로 불러왔습니다.', `${strategyLabel(strategyKind)} · 시장/유니버스는 현재 검증 랩 설정을 유지합니다.`, 'transfer');
     } catch {
-      push('warning', '전략 프리셋 전달값을 읽지 못했습니다.', undefined, 'transfer');
-    } finally {
-      localStorage.removeItem(STRATEGY_VALIDATION_TRANSFER_KEY);
+      push('warning', '전략 프리셋 전달값을 적용하지 못했습니다.', undefined, 'transfer');
     }
-  }, [metadata, push, validationStore]);
+  }, [metadataLoading, metadata, push, validationStore]);
 
   useEffect(() => {
     if (validationStore.serverLoaded) return;
@@ -389,26 +407,68 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     }
   }, [push, validationStore]);
 
-  const handleRunBacktest = useCallback(async () => {
-    const result = await run(validationStore.draftQuery);
-    if (result.ok) {
-      push(
-        'success',
-        '전략 백테스트를 완료했습니다.',
-        `${strategyLabel(validationStore.draftQuery.strategy_kind)} · ${marketLabel(validationStore.draftQuery.market_scope)} · ${formatCount(result.payload?.metrics?.trade_count ?? 0, '건')}`,
-        'backtest',
-      );
-    } else {
-      push('error', '전략 백테스트에 실패했습니다.', result.error, 'backtest');
+  const handleRunWalkForward = useCallback(async () => {
+    setWfStatus('loading');
+    setWfLastError('');
+    try {
+      const result = await fetchValidationWalkForward(validationStore.draftQuery, validationStore.draftSettings);
+      setWfData(result);
+      if (result.ok === false) {
+        setWfStatus('error');
+        const msg = 'Walk-forward 검증에 실패했습니다.';
+        setWfLastError(msg);
+        push('error', msg, undefined, 'walkforward');
+      } else {
+        setWfStatus('ok');
+        push(
+          'success',
+          'Walk-forward 검증을 완료했습니다.',
+          `윈도우 ${result.summary?.windows ?? 0}개 · 양호 비율 ${formatPercent(result.summary?.positive_window_ratio, 1, true)}`,
+          'walkforward',
+        );
+      }
+    } catch {
+      setWfStatus('error');
+      const msg = 'Walk-forward 응답을 불러오지 못했습니다.';
+      setWfLastError(msg);
+      push('error', msg, undefined, 'walkforward');
     }
-  }, [push, run, validationStore.draftQuery]);
+  }, [push, validationStore.draftQuery, validationStore.draftSettings]);
+
+  // Bug 2 fix: use /api/validation/backtest (extended metrics) instead of /api/backtest/run
+  const handleRunBacktest = useCallback(async () => {
+    setStatus('loading');
+    setLastError('');
+    try {
+      const result = await fetchValidationBacktest(validationStore.draftQuery, validationStore.draftSettings);
+      setData(result);
+      if (result.error) {
+        setStatus('error');
+        setLastError(result.error);
+        push('error', '전략 백테스트에 실패했습니다.', result.error, 'backtest');
+      } else {
+        setStatus('ok');
+        push(
+          'success',
+          '전략 백테스트를 완료했습니다.',
+          `${strategyLabel(validationStore.draftQuery.strategy_kind)} · ${marketLabel(validationStore.draftQuery.market_scope)} · ${formatCount(result.metrics?.trade_count ?? result.performance_summary?.trade_count ?? 0, '건')}`,
+          'backtest',
+        );
+      }
+    } catch {
+      setStatus('error');
+      const msg = '백테스트 응답을 불러오지 못했습니다.';
+      setLastError(msg);
+      push('error', msg, undefined, 'backtest');
+    }
+  }, [push, validationStore.draftQuery, validationStore.draftSettings]);
 
   const handleRunOptimization = useCallback(async () => {
     setOptimizationMessage('강건성 검증을 요청했습니다.');
     try {
       const response = await postJSON<{ status?: string; error?: string }>('/api/run-optimization', {
         query: validationStore.draftQuery,
-        settings: validationStore.savedSettings,
+        settings: validationStore.draftSettings,
       });
       if (response.data?.status === 'started' || response.data?.status === 'already_running') {
         setOptimizationRunning(true);
@@ -421,7 +481,61 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       setOptimizationMessage('강건성 검증 요청에 실패했습니다.');
       push('error', '강건성 검증 요청에 실패했습니다.', undefined, 'optimization');
     }
-  }, [fetchOptimizationArtifacts, push, validationStore.draftQuery, validationStore.savedSettings]);
+  }, [fetchOptimizationArtifacts, push, validationStore.draftQuery, validationStore.draftSettings]);
+
+  const [presetSaving, setPresetSaving] = useState(false);
+  const handleSaveAsPreset = useCallback(async () => {
+    const q = validationStore.draftQuery;
+    const defaultName = `${q.strategy_kind === 'mean_reversion' ? 'Mean Reversion' : q.strategy_kind === 'defensive' ? 'Defensive' : 'Trend Following'} · ${q.market_scope.toUpperCase()} · ${q.risk_profile}`;
+    const rawName = window.prompt('프리셋 이름을 입력해줘.', defaultName);
+    if (!rawName) return;
+    const name = rawName.trim();
+    const defaultId = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'validated_preset';
+    const strategyId = window.prompt('전략 ID를 입력해줘.', defaultId);
+    if (!strategyId) return;
+
+    const metrics = displayedResult.metrics;
+    const perf = displayedResult.performance_summary;
+    const researchSummary = {
+      backtest_return_pct: metrics?.total_return_pct ?? perf?.cagr_pct ?? null,
+      max_drawdown_pct: metrics?.max_drawdown_pct ?? perf?.max_drawdown_pct ?? null,
+      win_rate_pct: metrics?.win_rate_pct ?? perf?.win_rate_pct ?? null,
+      sharpe: metrics?.sharpe ?? null,
+      walk_forward_return_pct: null,
+    };
+
+    const market = q.market_scope === 'nasdaq' ? 'NASDAQ' : 'KOSPI';
+    const universeRule = q.market_scope === 'nasdaq' ? 'sp500' : q.market_scope === 'all' ? 'multi_market' : 'kospi';
+    const payload = {
+      strategy_id: strategyId.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''),
+      strategy_kind: q.strategy_kind,
+      name,
+      enabled: false,
+      status: 'ready',
+      market,
+      universe_rule: universeRule,
+      scan_cycle: q.market_scope === 'nasdaq' ? '15m' : '5m',
+      params: { ...q.strategy_params },
+      risk_limits: {
+        max_positions: q.portfolio_constraints.max_positions,
+        position_size_pct: 0.1,
+        daily_loss_limit_pct: 0.02,
+      },
+      research_summary: researchSummary,
+    };
+
+    setPresetSaving(true);
+    try {
+      const response = await saveStrategyPreset(payload);
+      if (!response.ok) {
+        push('error', '프리셋 저장에 실패했습니다.', '', 'settings');
+        return;
+      }
+      push('success', `프리셋 "${name}" 을 저장했습니다.`, '전략 관리에서 상태를 확인하고 활성화할 수 있습니다.', 'settings');
+    } finally {
+      setPresetSaving(false);
+    }
+  }, [displayedResult, push, validationStore.draftQuery]);
 
   const actions = useMemo<ActionBarAction[]>(() => ([
     {
@@ -439,6 +553,14 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       busy: status === 'loading',
     },
     {
+      label: 'Walk-forward 검증',
+      tone: 'default',
+      onClick: handleRunWalkForward,
+      disabled: wfStatus === 'loading',
+      busy: wfStatus === 'loading',
+      busyLabel: '검증 중...',
+    },
+    {
       label: '강건성 검증',
       tone: 'default',
       onClick: handleRunOptimization,
@@ -446,7 +568,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       busy: optimizationRunning,
       busyLabel: '실행 중...',
     },
-  ]), [handleRunBacktest, handleRunOptimization, handleSave, optimizationRunning, status, validationStore.syncStatus]);
+  ]), [handleRunBacktest, handleRunOptimization, handleRunWalkForward, handleSave, optimizationRunning, status, validationStore.syncStatus, wfStatus]);
 
   const summaryMetrics = displayedResult.performance_summary || {};
   const executionSummary = displayedResult.execution_summary || {};
@@ -562,7 +684,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             <div style={{ display: 'grid', gap: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>전략별 파라미터</div>
               <div className="backtest-grid">
-                {editableFields.map((field) => (
+                {editableFields.length > 0 ? editableFields.map((field) => (
                   <label key={field.name} style={{ display: 'grid', gap: 6 }}>
                     <span>{field.label || field.name}</span>
                     <NumericInput
@@ -577,7 +699,91 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                       onCommit={updateStrategyParam(String(field.name || ''))}
                     />
                   </label>
-                ))}
+                )) : !metadataLoading ? (
+                  Object.entries(validationStore.draftQuery.strategy_params || {})
+                    .filter(([, v]) => typeof v === 'number')
+                    .map(([key, value]) => (
+                      <label key={key} style={{ display: 'grid', gap: 6 }}>
+                        <span>{key}</span>
+                        <NumericInput
+                          value={value as number}
+                          decimals={(value as number) % 1 !== 0 ? 2 : 0}
+                          allowNull
+                          onCommit={updateStrategyParam(key)}
+                        />
+                      </label>
+                    ))
+                ) : null}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>검증 설정</div>
+              <div className="backtest-grid">
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span>학습 구간 (일)</span>
+                  <NumericInput
+                    value={validationStore.draftSettings.trainingDays}
+                    min={30}
+                    max={730}
+                    step={30}
+                    onCommit={(v) => { if (v !== null) validationStore.setDraftSettings((prev) => ({ ...prev, trainingDays: v })); }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span>검증 구간 (일)</span>
+                  <NumericInput
+                    value={validationStore.draftSettings.validationDays}
+                    min={20}
+                    max={365}
+                    step={20}
+                    onCommit={(v) => { if (v !== null) validationStore.setDraftSettings((prev) => ({ ...prev, validationDays: v })); }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span>최소 거래수</span>
+                  <NumericInput
+                    value={validationStore.draftSettings.minTrades}
+                    min={1}
+                    max={200}
+                    step={5}
+                    onCommit={(v) => { if (v !== null) validationStore.setDraftSettings((prev) => ({ ...prev, minTrades: v })); }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span>Walk-forward</span>
+                  <select
+                    className="backtest-input-wrap"
+                    value={validationStore.draftSettings.walkForward ? 'on' : 'off'}
+                    onChange={(e) => validationStore.setDraftSettings((prev) => ({ ...prev, walkForward: e.target.value === 'on' }))}
+                  >
+                    <option value="on">사용</option>
+                    <option value="off">미사용</option>
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span>Objective</span>
+                  <select
+                    className="backtest-input-wrap"
+                    value={validationStore.draftSettings.objective}
+                    onChange={(e) => validationStore.setDraftSettings((prev) => ({ ...prev, objective: e.target.value }))}
+                  >
+                    <option value="수익 우선">수익 우선</option>
+                    <option value="안정성 우선">안정성 우선</option>
+                    <option value="균형">균형</option>
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span>후보 소스</span>
+                  <select
+                    className="backtest-input-wrap"
+                    value={validationStore.draftSettings.runtimeCandidateSourceMode}
+                    onChange={(e) => validationStore.setDraftSettings((prev) => ({ ...prev, runtimeCandidateSourceMode: e.target.value as ValidationSettings['runtimeCandidateSourceMode'] }))}
+                  >
+                    <option value="quant_only">quant_only</option>
+                    <option value="hybrid">hybrid</option>
+                  </select>
+                </label>
               </div>
             </div>
           </section>
@@ -604,6 +810,75 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
               <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>거래 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(summaryMetrics.trade_count, '건')}</div></div>
               <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>총 수익</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(displayedResult.metrics?.total_return_pct, 2, true)}</div></div>
             </div>
+            {status === 'ok' && !displayedResult.error && (
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-4)', flex: 1, minWidth: 180 }}>
+                  백테스트 완료 · 이 파라미터를 전략 레지스트리에 저장하면 전략 관리에서 활성화할 수 있습니다.
+                </div>
+                <button
+                  className="ghost-button"
+                  onClick={() => { void handleSaveAsPreset(); }}
+                  disabled={presetSaving}
+                >
+                  {presetSaving ? '저장 중...' : '이 결과로 프리셋 저장'}
+                </button>
+                <button
+                  className="ghost-button"
+                  onClick={() => { window.location.href = '/console/strategies'; }}
+                >
+                  전략 관리로 이동
+                </button>
+              </div>
+            )}
+          </section>
+
+          <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Walk-forward 검증 결과</div>
+            {wfStatus === 'error' && (
+              <div style={{ fontSize: 12, color: 'var(--tone-bad)' }}>{wfLastError}</div>
+            )}
+            {wfStatus === 'idle' && (
+              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>Walk-forward 검증 버튼을 눌러 결과를 확인하세요. 학습·검증 구간을 슬라이딩하며 OOS 신뢰도를 측정합니다.</div>
+            )}
+            {(wfStatus === 'ok' || wfStatus === 'loading') && (
+              <>
+                <div className="console-metric-grid">
+                  <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>윈도우 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(wfData.summary?.windows, '개')}</div></div>
+                  <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>양호 비율</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(wfData.summary?.positive_window_ratio, 1, true)}</div></div>
+                  <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>OOS 신뢰도</div><div style={{ marginTop: 6, fontWeight: 700 }}>{wfData.summary?.oos_reliability || '-'}</div></div>
+                  <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Composite Score</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(wfData.summary?.composite_score, 2)}</div></div>
+                </div>
+                {wfData.segments && (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>구간별 지표</div>
+                    <div className="console-metric-grid">
+                      {(['train', 'validation', 'oos'] as const).map((seg) => {
+                        const s = wfData.segments?.[seg];
+                        if (!s) return null;
+                        const scorecard = s.strategy_scorecard;
+                        const score = scorecard?.composite_score;
+                        const components = scorecard?.components || {};
+                        return (
+                          <div key={seg} style={{ display: 'grid', gap: 4, padding: 10, background: 'var(--bg-soft)', borderRadius: 6 }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-4)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{seg}</div>
+                            {scorecard ? (
+                              <>
+                                <div style={{ fontSize: 12 }}>Score {formatNumber(score, 2)}</div>
+                                {Object.entries(components).slice(0, 3).map(([k, v]) => (
+                                  <div key={k} style={{ fontSize: 11, color: 'var(--text-3)' }}>{k}: {formatNumber(v, 2)}</div>
+                                ))}
+                              </>
+                            ) : (
+                              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>데이터 없음</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </section>
 
           <section className="page-section console-data-section" style={{ padding: 0 }}>

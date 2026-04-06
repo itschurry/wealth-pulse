@@ -7,10 +7,10 @@ import { PerformancePage } from './pages/PerformancePage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ScannerPage } from './pages/ScannerPage';
 import { StrategiesPage } from './pages/StrategiesPage';
-import { UniversePage } from './pages/UniversePage';
 import { ResearchSnapshotsPage } from './pages/ResearchSnapshotsPage';
 import { WatchlistPage } from './pages/WatchlistPage';
 import { WealthPulseHomePage } from './pages/WealthPulseHomePage';
+import { WorkspaceStageRail } from './components/WorkspaceStageRail';
 import type { ConsoleTab, ReportTab, TopSection } from './types/navigation';
 
 interface RouteState {
@@ -24,8 +24,7 @@ const CONSOLE_TABS: Array<{ id: Exclude<ConsoleTab, 'validation'>; label: string
   { id: 'strategies', label: UI_TEXT.consoleTabs.strategies, path: '/console/strategies', hint: '승인 전략과 enable 상태' },
   { id: 'scanner', label: UI_TEXT.consoleTabs.scanner, path: '/console/scanner', hint: '전략별 scan cycle과 후보군' },
   { id: 'orders', label: UI_TEXT.consoleTabs.orders, path: '/console/orders', hint: '주문 상태와 리스크 거절 사유' },
-  { id: 'universe', label: UI_TEXT.consoleTabs.universe, path: '/console/universe', hint: '규칙별 종목군과 변경 내역' },
-  { id: 'performance', label: UI_TEXT.consoleTabs.performance, path: '/console/performance', hint: '연구 성과와 운용 성과 분리' },
+{ id: 'performance', label: UI_TEXT.consoleTabs.performance, path: '/console/performance', hint: '연구 성과와 운용 성과 분리' },
   { id: 'watchlist', label: '관심 종목', path: '/console/watchlist', hint: '종목 추가·관리·분석' },
   { id: 'research', label: '리서치 스냅샷', path: '/console/research', hint: 'Hanna 점수 이력 조회' },
 ];
@@ -62,6 +61,7 @@ function toRouteState(pathname: string): RouteState {
     '/reports': '/reports/today-report',
     '/console/backtest': '/console/validation',
     '/console/validation-lab': '/console/validation',
+    '/console/universe': '/console/strategies',
     '/reports/today': '/reports/today-report',
     '/reports/recommendations': '/reports/today-report',
     '/reports/today-recommendations': '/reports/today-report',
@@ -317,6 +317,19 @@ export default function App() {
             <h1 className="app-main-title">{activeLabel}</h1>
             <div className="app-main-copy">{SECTION_COPY[route.section]}</div>
           </div>
+          {route.section === 'console' && ['validation', 'watchlist', 'scanner', 'research', 'orders'].includes(route.consoleTab) && (
+            <WorkspaceStageRail
+              current={route.consoleTab === 'validation'
+                ? 'validation'
+                : route.consoleTab === 'watchlist'
+                  ? 'watchlist'
+                  : route.consoleTab === 'scanner'
+                    ? 'scanner'
+                    : route.consoleTab === 'research'
+                      ? 'research'
+                      : 'orders'}
+            />
+          )}
         </header>
 
         <div className="app-main-content">
@@ -330,8 +343,7 @@ export default function App() {
           {route.section === 'console' && route.consoleTab === 'strategies' && <StrategiesPage {...sharedProps} />}
           {route.section === 'console' && route.consoleTab === 'scanner' && <ScannerPage {...sharedProps} />}
           {route.section === 'console' && route.consoleTab === 'orders' && <PaperPortfolioPage {...sharedProps} />}
-          {route.section === 'console' && route.consoleTab === 'universe' && <UniversePage {...sharedProps} />}
-          {route.section === 'console' && route.consoleTab === 'performance' && <PerformancePage {...sharedProps} />}
+{route.section === 'console' && route.consoleTab === 'performance' && <PerformancePage {...sharedProps} />}
           {route.section === 'console' && route.consoleTab === 'validation' && <BacktestValidationPage {...sharedProps} />}
           {route.section === 'console' && route.consoleTab === 'watchlist' && <WatchlistPage {...sharedProps} />}
           {route.section === 'console' && route.consoleTab === 'research' && <ResearchSnapshotsPage {...sharedProps} />}

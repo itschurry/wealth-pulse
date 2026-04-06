@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
-import { deleteStrategyPreset, saveStrategyPreset, toggleStrategyEnabled } from '../api/domain';
+import { deleteStrategyPreset, saveStrategyPreset, seedDefaultStrategies, toggleStrategyEnabled } from '../api/domain';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { loadBacktestQuery } from '../hooks/useBacktest';
 import type { StrategyRegistryItem } from '../types/domain';
@@ -14,6 +14,14 @@ interface StrategiesPageProps {
   loading: boolean;
   errorMessage: string;
   onRefresh: () => void;
+}
+
+function lifecycleBadge(item: StrategyRegistryItem): { className: string; label: string } {
+  if (item.enabled) return { className: 'inline-badge is-success', label: 'live' };
+  if (item.status === 'ready') return { className: 'inline-badge', label: 'ready' };
+  if (item.status === 'paused') return { className: 'inline-badge is-warning', label: 'paused' };
+  if (item.status === 'archived') return { className: 'inline-badge is-danger', label: 'archived' };
+  return { className: 'inline-badge is-danger', label: 'draft' };
 }
 
 function formatParamValue(value: unknown): string {
@@ -42,33 +50,38 @@ function strategyContextFromValidationLab() {
   return { market: 'KOSPI', universe_rule: 'kospi', scan_cycle: '5m' };
 }
 
+const PRESET_PARAMS_CONTEXT_FIELDS = new Set([
+  'market', 'strategy_kind', 'regime_mode',
+  'signal_interval', 'signal_range',
+  'scan_limit', 'candidate_top_n',
+]);
+
 function buildPresetPayload(
   source: StrategyRegistryItem | undefined,
-  options: {
-    strategyId: string;
-    name: string;
-  },
+  options: { strategyId: string; name: string },
 ): Record<string, unknown> {
   const { strategyId, name } = options;
   const validationContext = strategyContextFromValidationLab();
-  const params = source?.params && typeof source.params === 'object' ? source.params : {};
+  // strip context fields — backend fills these from the outer strategy fields
+  const rawParams = source?.params && typeof source.params === 'object' ? source.params : {};
+  const params = Object.fromEntries(
+    Object.entries(rawParams).filter(([key]) => !PRESET_PARAMS_CONTEXT_FIELDS.has(key)),
+  );
   const riskLimits = source?.risk_limits && typeof source.risk_limits === 'object' ? source.risk_limits : {};
-  const researchSummary = source?.research_summary && typeof source.research_summary === 'object' ? source.research_summary : {};
   const strategyKind = String(source?.strategy_kind || source?.strategy_id || 'trend_following');
   return {
-    ...(source || {}),
     strategy_id: slugifyStrategyId(strategyId),
     strategy_kind: strategyKind,
     name,
     enabled: false,
-    approval_status: 'draft',
-    approved_at: '',
+    status: 'draft',
+    enabled_at: '',
     market: validationContext.market,
     universe_rule: validationContext.universe_rule,
     scan_cycle: validationContext.scan_cycle,
     params,
     risk_limits: riskLimits,
-    research_summary: researchSummary,
+    research_summary: {},
   };
 }
 
@@ -111,11 +124,36 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
     return items.find((item) => String(item.strategy_id || '') === selectedStrategyId) || items[0];
   }, [items, selectedStrategyId]);
 
+  const PARAMS_CONTEXT_FIELDS = new Set([
+    'market', 'strategy_kind', 'regime_mode',
+    'signal_interval', 'signal_range',
+    'scan_limit', 'candidate_top_n',
+  ]);
   const selectedParams = useMemo(() => {
     const params = selectedStrategy?.params;
     if (!params || typeof params !== 'object') return [] as Array<[string, unknown]>;
-    return Object.entries(params).slice(0, 12);
-  }, [selectedStrategy]);
+    return Object.entries(params).filter(([key]) => !PARAMS_CONTEXT_FIELDS.has(key));
+  }, [selectedStrategy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSeedDefaults = useCallback(async () => {
+    setPendingId('seed');
+    try {
+      const response = await seedDefaultStrategies();
+      if (!response.ok) {
+        push('error', '기본 전략 추가에 실패했습니다.', '', 'engine');
+        return;
+      }
+      const seeded = response.data?.seeded || [];
+      if (seeded.length === 0) {
+        push('info', '추가할 기본 전략이 없습니다. 이미 모두 존재합니다.', undefined, 'engine');
+      } else {
+        push('success', `기본 전략 ${seeded.length}개를 추가했습니다.`, seeded.join(', '), 'engine');
+      }
+      onRefresh();
+    } finally {
+      setPendingId('');
+    }
+  }, [onRefresh, push]);
 
   const handleCreatePreset = useCallback(async () => {
     const base = selectedStrategy || items.find((item) => item.strategy_kind === 'trend_following') || items[0];
@@ -198,6 +236,13 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
             onClearLogs={clear}
             actions={[
               {
+                label: '기본 전략 추가',
+                onClick: () => { void handleSeedDefaults(); },
+                tone: 'default',
+                busy: pendingId === 'seed',
+                busyLabel: '추가 중...',
+              },
+              {
                 label: '새 프리셋 추가',
                 onClick: () => { void handleCreatePreset(); },
                 tone: 'primary',
@@ -218,7 +263,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                     <th style={{ padding: 12, fontSize: 12 }}>유니버스</th>
                     <th style={{ padding: 12, fontSize: 12 }}>스캔 주기</th>
                     <th style={{ padding: 12, fontSize: 12 }}>연구 성과</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>최근 승인</th>
+                    <th style={{ padding: 12, fontSize: 12 }}>활성화 일시</th>
                     <th style={{ padding: 12, fontSize: 12 }}>액션</th>
                   </tr>
                 </thead>
@@ -240,8 +285,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                           </button>
                         </td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>
-                          <div>{item.approval_status || '-'}</div>
-                          <div className={`inline-badge ${enabled ? 'is-success' : 'is-danger'}`} style={{ marginTop: 6 }}>{enabled ? 'enabled' : 'disabled'}</div>
+                          <span className={lifecycleBadge(item).className}>{lifecycleBadge(item).label}</span>
                         </td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{item.market || '-'}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{item.universe_rule || '-'}</td>
@@ -250,7 +294,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                           <div>수익률 {formatPercent(research.backtest_return_pct, 1, true)}</div>
                           <div className="signal-cell-copy">WF {formatPercent(research.walk_forward_return_pct, 1, true)} · Sharpe {research.sharpe ?? '-'}</div>
                         </td>
-                        <td style={{ padding: 12, verticalAlign: 'top' }}>{formatDateTime(item.approved_at)}</td>
+                        <td style={{ padding: 12, verticalAlign: 'top' }}>{formatDateTime(item.enabled_at)}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                             <button
@@ -293,15 +337,15 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                         <div className="responsive-card-title">{item.name || strategyId}</div>
                         <div className="signal-cell-copy">{strategyId} · v{item.version || 1}</div>
                       </div>
-                      <div className={`inline-badge ${enabled ? 'is-success' : 'is-danger'}`}>{enabled ? 'enabled' : 'disabled'}</div>
+                      <span className={lifecycleBadge(item).className}>{lifecycleBadge(item).label}</span>
                     </div>
                     <div className="responsive-card-grid">
-                      <div><div className="responsive-card-label">상태</div><div className="responsive-card-value">{item.approval_status || '-'}</div></div>
+                      <div><div className="responsive-card-label">상태</div><div className="responsive-card-value" style={{ marginTop: 4 }}><span className={lifecycleBadge(item).className}>{lifecycleBadge(item).label}</span></div></div>
                       <div><div className="responsive-card-label">시장</div><div className="responsive-card-value">{item.market || '-'}</div></div>
                       <div><div className="responsive-card-label">유니버스</div><div className="responsive-card-value">{item.universe_rule || '-'}</div></div>
                       <div><div className="responsive-card-label">스캔 주기</div><div className="responsive-card-value">{item.scan_cycle || '-'}</div></div>
                       <div><div className="responsive-card-label">연구 성과</div><div className="responsive-card-value">수익률 {formatPercent(research.backtest_return_pct, 1, true)} · WF {formatPercent(research.walk_forward_return_pct, 1, true)}</div></div>
-                      <div><div className="responsive-card-label">최근 승인</div><div className="responsive-card-value">{formatDateTime(item.approved_at)}</div></div>
+                      <div><div className="responsive-card-label">활성화 일시</div><div className="responsive-card-value">{formatDateTime(item.enabled_at)}</div></div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       <button
@@ -334,8 +378,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                   <div className="section-copy">전략 관리와 전략 검증 랩 사이를 이어주는 현재 저장값 요약이야. 여기서 전략 정체성과 현재 프리셋을 먼저 보고, 검증 랩에서 백테스트/최적화 흐름으로 넘어가면 돼.</div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <span className={`inline-badge ${selectedStrategy.enabled ? 'is-success' : 'is-danger'}`}>{selectedStrategy.enabled ? 'enabled' : 'disabled'}</span>
-                  <span className="inline-badge">{selectedStrategy.approval_status || 'draft'}</span>
+                  <span className={lifecycleBadge(selectedStrategy).className}>{lifecycleBadge(selectedStrategy).label}</span>
                   <button className="ghost-button" onClick={() => { void handleClonePreset(); }} disabled={!selectedStrategy.strategy_id}>
                     현재 전략 복제
                   </button>
@@ -375,7 +418,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                   <div className="detail-list">
                     <div><strong>Entry</strong> · {selectedStrategy.entry_rule || '-'}</div>
                     <div><strong>Exit</strong> · {selectedStrategy.exit_rule || '-'}</div>
-                    <div><strong>최근 승인</strong> · {formatDateTime(selectedStrategy.approved_at)}</div>
+                    <div><strong>활성화 일시</strong> · {formatDateTime(selectedStrategy.enabled_at)}</div>
                   </div>
                 </div>
 

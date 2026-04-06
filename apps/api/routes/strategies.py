@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from schemas.strategy_metadata import build_strategy_metadata_payload
-from services.strategy_registry import delete_strategy, get_strategy, list_strategies, save_strategy, set_strategy_enabled, summarize_registry
+from services.strategy_registry import delete_strategy, get_strategy, list_strategies, save_strategy, seed_default_strategies, set_strategy_enabled, summarize_registry
 
 
 def handle_strategies_list(query: dict[str, list[str]]) -> tuple[int, dict]:
@@ -72,5 +72,13 @@ def handle_strategy_save(payload: dict) -> tuple[int, dict]:
         return 200, {"ok": True, "item": item}
     except ValueError as exc:
         return 400, {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        return 500, {"ok": False, "error": str(exc)}
+
+
+def handle_strategy_seed_defaults(_payload: dict) -> tuple[int, dict]:
+    try:
+        seeded = seed_default_strategies()
+        return 200, {"ok": True, "seeded": seeded, "count": len(seeded)}
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}

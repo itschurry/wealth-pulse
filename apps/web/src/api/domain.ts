@@ -29,7 +29,7 @@ import type {
   WatchlistResponse,
   StockSearchResponse,
 } from '../types/domain';
-import type { BacktestQuery } from '../types';
+import type { BacktestData, BacktestQuery } from '../types';
 import type { ValidationSettings } from '../hooks/useValidationSettingsStore';
 
 function serializeValidationSettings(settings: ValidationSettings) {
@@ -125,6 +125,10 @@ export function deleteStrategyPreset(strategyId: string) {
   return postJSON<{ ok: boolean; strategy_id?: string; error?: string }>('/api/strategies/delete', { strategy_id: strategyId });
 }
 
+export function seedDefaultStrategies() {
+  return postJSON<{ ok: boolean; seeded?: string[]; count?: number; error?: string }>('/api/strategies/seed-defaults', {});
+}
+
 export function fetchPortfolioState(refresh = true) {
   return getJSON<PortfolioStateResponse>(`/api/portfolio/state?refresh=${refresh ? '1' : '0'}`, { noStore: true });
 }
@@ -155,7 +159,7 @@ export function fetchResearchSnapshots(params?: {
 }
 
 export function fetchValidationBacktest(query?: BacktestQuery, settings?: ValidationSettings) {
-  return getJSON<ValidationResponse>(`/api/validation/backtest${buildValidationQueryString(query, settings)}`, { noStore: true });
+  return getJSON<BacktestData>(`/api/validation/backtest${buildValidationQueryString(query, settings)}`, { noStore: true });
 }
 
 export function fetchValidationWalkForward(query?: BacktestQuery, settings?: ValidationSettings) {
