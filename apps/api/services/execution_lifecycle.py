@@ -40,7 +40,8 @@ def _normalize_reason_code(raw: Any) -> str:
 
 def normalize_execution_reason(raw_reason: Any, *, order_type: str = "") -> str:
     value = _normalize_reason_code(raw_reason)
-    if value:
+    # "ok"는 리스크 체크 통과 상태코드이며 실패 사유가 아니다.
+    if value and value != "ok":
         return value
     if str(order_type or "").lower() == "screened":
         return "risk_blocked"

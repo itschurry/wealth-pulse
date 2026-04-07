@@ -1352,7 +1352,11 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "notional_krw": None,
                     "failure_reason": reason_code,
                     "reason_code": reason_code,
-                    "message": str(risk_check.get("message") or "risk gate blocked order"),
+                    "message": (
+                        str(risk_check.get("message") or "")
+                        if str(risk_check.get("reason_code") or "") not in ("", "ok")
+                        else ""
+                    ) or reason_code or "screened",
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{candidate.get('code')}",
                 })

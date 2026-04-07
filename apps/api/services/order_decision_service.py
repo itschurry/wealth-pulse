@@ -17,7 +17,9 @@ def summarize_order_decision(signal: dict[str, Any]) -> dict[str, Any]:
     size_recommendation = signal.get("size_recommendation") if isinstance(signal.get("size_recommendation"), dict) else {}
     order_qty = _to_int(size_recommendation.get("quantity") or 0)
     risk_check = signal.get("risk_check") if isinstance(signal.get("risk_check"), dict) else {}
-    blocked_reason = str(risk_check.get("reason_code") or final_action or "risk_blocked")
+    _risk_code = str(risk_check.get("reason_code") or "")
+    # "ok"는 리스크 체크 통과 상태코드이며 차단 사유가 아니다.
+    blocked_reason = (_risk_code if _risk_code and _risk_code != "ok" else None) or final_action or "risk_blocked"
 
     action = "hold"
     reason_code = "watch_only"
