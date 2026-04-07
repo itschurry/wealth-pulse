@@ -7,6 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 settings_stub = types.ModuleType("config.settings")
 settings_stub.LOGS_DIR = Path(tempfile.gettempdir()) / "daily-market-brief-test-logs"
 settings_stub.LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -29,7 +33,7 @@ class ValidationSettingsStoreTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual("kospi", payload["query"]["market_scope"])
         self.assertEqual(1095, payload["query"]["lookback_days"])
-        self.assertEqual("퀀트 전략 엔진", payload["settings"]["strategy"])
+        self.assertEqual(180, payload["settings"]["trainingDays"])
         self.assertEqual("", payload["saved_at"])
         self.assertEqual(1, payload["version"])
         self.assertEqual("saved", payload["state"]["saved"]["status"])
@@ -52,7 +56,6 @@ class ValidationSettingsStoreTests(unittest.TestCase):
                     "bb_pct_max": "2.0",
                 },
                 "settings": {
-                    "strategy": "공유 검증 전략",
                     "trainingDays": "120",
                     "validationDays": "30",
                     "walkForward": False,
@@ -66,7 +69,7 @@ class ValidationSettingsStoreTests(unittest.TestCase):
         self.assertEqual(365, payload["query"]["lookback_days"])
         self.assertEqual(1, payload["query"]["max_holding_days"])
         self.assertEqual(1.0, payload["query"]["bb_pct_max"])
-        self.assertEqual("공유 검증 전략", payload["settings"]["strategy"])
+        self.assertEqual(120, payload["settings"]["trainingDays"])
         self.assertFalse(payload["settings"]["walkForward"])
         self.assertEqual(payload["saved_at"], payload["updated_at"])
         self.assertEqual(payload["query"], payload["state"]["saved"]["query"])
@@ -77,14 +80,14 @@ class ValidationSettingsStoreTests(unittest.TestCase):
         with patch.object(store, "BACKTEST_VALIDATION_SETTINGS_PATH", self.path):
             store.save_persisted_validation_settings({
                 "query": {"market_scope": "all", "lookback_days": 365},
-                "settings": {"strategy": "임시 전략", "walkForward": False},
+                "settings": {"walkForward": False},
             })
             payload = store.reset_persisted_validation_settings()
 
         self.assertTrue(payload["ok"])
         self.assertEqual("kospi", payload["query"]["market_scope"])
         self.assertEqual(1095, payload["query"]["lookback_days"])
-        self.assertEqual("퀀트 전략 엔진", payload["settings"]["strategy"])
+        self.assertEqual(180, payload["settings"]["trainingDays"])
         self.assertTrue(payload["settings"]["walkForward"])
 
 

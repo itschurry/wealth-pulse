@@ -14,6 +14,7 @@ from services.backtest_params_store import (
     _normalize_query as _normalize_saved_query,
     _normalize_settings as _normalize_saved_settings,
     load_persisted_validation_settings,
+    save_persisted_validation_settings,
 )
 from services.optimized_params_store import (
     RUNTIME_OPTIMIZED_PARAMS_PATH,
@@ -23,6 +24,7 @@ from services.optimized_params_store import (
     write_runtime_optimized_params,
 )
 from services.quant_guardrail_policy_store import load_quant_guardrail_policy
+from services.strategy_registry import list_strategies, save_strategy
 from services.validation_service import run_validation_diagnostics
 from services.signal_service import normalize_runtime_candidate_source_mode
 
@@ -257,6 +259,81 @@ def _strategy_candidate_patch(item: dict[str, Any]) -> dict[str, Any]:
         for key, value in item.items()
         if key in _OPTIMIZABLE_KEYS and value not in (None, "")
     }
+
+
+def _market_from_query(base_query: dict[str, Any]) -> str | None:
+    market_scope = str(base_query.get("market_scope") or "").strip().lower()
+    if market_scope == "kospi":
+        return "KOSPI"
+    if market_scope == "nasdaq":
+        return "NASDAQ"
+    return None
+
+
+def _candidate_preset_pool(base_query: dict[str, Any]) -> list[dict[str, Any]]:
+    market = _market_from_query(base_query)
+    if not market:
+        return []
+    strategy_kind = str(base_query.get("strategy_kind") or "").strip()
+    items = list_strategies(market=market)
+    return [
+        item for item in items
+        if str(item.get("strategy_kind") or "").strip() == strategy_kind
+    ]
+
+
+def _resolve_candidate_preset(base_query: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    pool = _candidate_preset_pool(base_query)
+    if not pool:
+        return None, "strategy_preset_missing"
+
+    enabled = [item for item in pool if bool(item.get("enabled"))]
+    if len(enabled) == 1:
+        return dict(enabled[0]), None
+    if len(pool) == 1:
+        return dict(pool[0]), None
+
+    ready = [item for item in pool if str(item.get("status") or "") == "ready"]
+    if len(ready) == 1:
+        return dict(ready[0]), None
+
+    return None, "strategy_preset_ambiguous"
+
+
+def _candidate_strategy_label(base_query: dict[str, Any], preset: dict[str, Any] | None) -> str:
+    if isinstance(preset, dict):
+        return str(preset.get("name") or preset.get("strategy_id") or "전략 프리셋")
+    market = _market_from_query(base_query) or "MULTI"
+    strategy_kind = str(base_query.get("strategy_kind") or "strategy").strip() or "strategy"
+    return f"{market} {strategy_kind}"
+
+
+def _merge_preset_patch(preset: dict[str, Any], patch: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(preset)
+    params = merged.get("params") if isinstance(merged.get("params"), dict) else {}
+    next_params = {
+        **params,
+        **{
+            key: value
+            for key, value in patch.items()
+            if key in _OPTIMIZABLE_KEYS and value not in (None, "")
+        },
+    }
+    merged["params"] = next_params
+    metrics = candidate.get("metrics") if isinstance(candidate.get("metrics"), dict) else {}
+    validation = candidate.get("validation") if isinstance(candidate.get("validation"), dict) else {}
+    segments = validation.get("segments") if isinstance(validation.get("segments"), dict) else {}
+    oos = segments.get("oos") if isinstance(segments.get("oos"), dict) else {}
+    merged["research_summary"] = {
+        **(merged.get("research_summary") if isinstance(merged.get("research_summary"), dict) else {}),
+        "backtest_return_pct": oos.get("total_return_pct"),
+        "max_drawdown_pct": oos.get("max_drawdown_pct"),
+        "win_rate_pct": oos.get("win_rate_pct"),
+        "sharpe": oos.get("sharpe"),
+        "walk_forward_return_pct": metrics.get("oos_return_pct"),
+    }
+    merged["updated_at"] = _now_iso()
+    return merged
 
 
 def _normalize_strategy_candidates(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -590,12 +667,20 @@ def _merge_query_patch(
 ) -> dict[str, Any]:
     merged = copy.deepcopy(query or {})
     protected = {str(key) for key in (preserve_keys or set())}
+    portfolio_constraints = merged.get("portfolio_constraints") if isinstance(merged.get("portfolio_constraints"), dict) else {}
+    strategy_params = merged.get("strategy_params") if isinstance(merged.get("strategy_params"), dict) else {}
     for key, value in (patch or {}).items():
         if key not in _OPTIMIZABLE_KEYS:
             continue
         if key in protected:
             continue
         merged[key] = value
+        if key == "max_holding_days":
+            portfolio_constraints = {**portfolio_constraints, key: value}
+            merged["portfolio_constraints"] = portfolio_constraints
+        else:
+            strategy_params = {**strategy_params, key: value}
+            merged["strategy_params"] = strategy_params
     return merged
 
 
@@ -837,6 +922,7 @@ def _build_candidate(
     mutated_query: dict[str, Any],
     settings: dict[str, Any],
     diagnostics: dict[str, Any],
+    preset: dict[str, Any] | None,
 ) -> dict[str, Any]:
     validation = diagnostics.get("validation") if isinstance(diagnostics.get("validation"), dict) else {}
     diagnosis = diagnostics.get("diagnosis") if isinstance(diagnostics.get("diagnosis"), dict) else {}
@@ -858,7 +944,8 @@ def _build_candidate(
         "created_at": _now_iso(),
         "source": "optimizer_global_overlay",
         "runtime_candidate_source_mode": runtime_candidate_source_mode,
-        "strategy_label": str(settings.get("strategy") or "퀀트 전략 엔진"),
+        "strategy_label": _candidate_strategy_label(base_query, preset),
+        "strategy_id": str(preset.get("strategy_id") or "") if isinstance(preset, dict) else "",
         "search_version": str(search.get("version") or ""),
         "search_optimized_at": str(search.get("optimized_at") or ""),
         "search_is_stale": bool(search.get("is_stale")),
@@ -1077,13 +1164,17 @@ def _revalidate_optimizer_candidate_impl(
             "details": diagnostics,
         }
 
+    preset, preset_error = _resolve_candidate_preset(resolved_query)
     candidate = _build_candidate(
         search=search,
         base_query=resolved_query,
         mutated_query=mutated_query,
         settings=resolved_settings,
         diagnostics=diagnostics,
+        preset=preset,
     )
+    if preset_error:
+        candidate["preset_error"] = preset_error
     if isinstance(selected_search_candidate, dict):
         candidate["source"] = "optimizer_search_candidate"
         candidate["search_candidate_key"] = str(selected_search_candidate.get("key") or "")
@@ -1271,10 +1362,36 @@ def save_validated_candidate(payload: dict[str, Any]) -> dict[str, Any]:
             "workflow": get_quant_ops_workflow(),
         }
 
+    preset, preset_error = _resolve_candidate_preset(
+        candidate.get("base_query") if isinstance(candidate.get("base_query"), dict) else {}
+    )
+    if preset_error or not preset:
+        return {
+            "ok": False,
+            "error": str(preset_error or "strategy_preset_missing"),
+            "candidate": candidate,
+            "workflow": get_quant_ops_workflow(),
+        }
+
+    patch = candidate.get("patch") if isinstance(candidate.get("patch"), dict) else {}
+    persisted_preset = save_strategy(_merge_preset_patch(preset, patch, candidate))
+    query_payload = candidate.get("candidate_query") if isinstance(candidate.get("candidate_query"), dict) else (
+        candidate.get("base_query") if isinstance(candidate.get("base_query"), dict) else {}
+    )
+    settings_payload = _normalize_saved_settings(
+        candidate.get("settings") if isinstance(candidate.get("settings"), dict) else {}
+    )
+    validation_state = save_persisted_validation_settings({
+        "query": query_payload,
+        "settings": settings_payload,
+    })
+
     saved_candidate = {
         **candidate,
         "saved_at": _now_iso(),
         "save_note": note,
+        "strategy_label": str(persisted_preset.get("name") or persisted_preset.get("strategy_id") or candidate.get("strategy_label") or ""),
+        "strategy_id": str(persisted_preset.get("strategy_id") or candidate.get("strategy_id") or ""),
     }
     state = _load_state()
     state["saved_candidate"] = saved_candidate
@@ -1286,6 +1403,8 @@ def save_validated_candidate(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "candidate": saved_candidate,
+        "preset": persisted_preset,
+        "validation_settings": validation_state,
         "workflow": get_quant_ops_workflow(),
     }
 

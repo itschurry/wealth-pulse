@@ -6,7 +6,6 @@ import type { BacktestQuery } from '../types';
 import type { PersistedValidationSettingsResponse } from '../types/domain';
 
 export interface ValidationSettings {
-  strategy: string;
   trainingDays: number;
   validationDays: number;
   walkForward: boolean;
@@ -39,7 +38,6 @@ function emit() {
 
 function defaultValidationSettings(): ValidationSettings {
   return {
-    strategy: '퀀트 전략 엔진',
     trainingDays: 180,
     validationDays: 60,
     walkForward: true,
@@ -51,7 +49,6 @@ function defaultValidationSettings(): ValidationSettings {
 function clampValidationSettings(raw: Partial<ValidationSettings> | null | undefined): ValidationSettings {
   const fallback = defaultValidationSettings();
   return {
-    strategy: raw?.strategy || fallback.strategy,
     trainingDays: Math.max(30, Number(raw?.trainingDays) || fallback.trainingDays),
     validationDays: Math.max(20, Number(raw?.validationDays) || fallback.validationDays),
     walkForward: typeof raw?.walkForward === 'boolean' ? raw.walkForward : fallback.walkForward,
@@ -353,7 +350,7 @@ export function formatValidationSettingsLabel(settings: ValidationSettings, quer
   return [
     `${query.market_scope === 'kospi' ? 'KOSPI' : query.market_scope === 'nasdaq' ? 'NASDAQ' : 'KOSPI+NASDAQ'} · 탐색 기간 ${query.lookback_days}일`,
     `${strategyLabel} · regime ${query.regime_mode} · risk ${query.risk_profile}`,
-    `${settings.strategy} · 검증 ${settings.validationDays}일${settings.trainingDays ? ` · UI 설정 학습 구간 ${settings.trainingDays}일` : ''}`,
+    `검증 ${settings.validationDays}일${settings.trainingDays ? ` · UI 설정 학습 구간 ${settings.trainingDays}일` : ''}`,
     `${settings.walkForward ? 'Walk-forward 사용' : 'Walk-forward 미사용'} · 최소 거래수 ${settings.minTrades}건 · ${settings.objective}`,
   ];
 }

@@ -36,7 +36,6 @@ _DEFAULT_QUERY: dict[str, Any] = {
 }
 
 _DEFAULT_SETTINGS: dict[str, Any] = {
-    "strategy": "퀀트 전략 엔진",
     "trainingDays": 180,
     "validationDays": 60,
     "walkForward": True,
@@ -188,7 +187,6 @@ def _normalize_query(raw: dict[str, Any] | None) -> dict[str, Any]:
 def _normalize_settings(raw: dict[str, Any] | None) -> dict[str, Any]:
     raw = raw or {}
     return {
-        "strategy": str(raw.get("strategy") or _DEFAULT_SETTINGS["strategy"]),
         "trainingDays": _to_int(raw.get("trainingDays"), int(_DEFAULT_SETTINGS["trainingDays"]), minimum=30),
         "validationDays": _to_int(raw.get("validationDays"), int(_DEFAULT_SETTINGS["validationDays"]), minimum=20),
         "walkForward": bool(raw.get("walkForward")) if "walkForward" in raw else bool(_DEFAULT_SETTINGS["walkForward"]),
@@ -285,6 +283,13 @@ def load_persisted_validation_settings() -> dict[str, Any]:
     query = _normalize_query(payload.get("query") if isinstance(payload.get("query"), dict) else None)
     settings = _normalize_settings(payload.get("settings") if isinstance(payload.get("settings"), dict) else None)
     saved_at = str(payload.get("saved_at") or "")
+    normalized_payload = {
+        "query": query,
+        "settings": settings,
+        "saved_at": saved_at,
+    }
+    if payload and payload != normalized_payload:
+        _write_json(BACKTEST_VALIDATION_SETTINGS_PATH, normalized_payload)
     return _build_response(query, settings, saved_at)
 
 

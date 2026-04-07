@@ -26,6 +26,8 @@ with patch.dict(sys.modules, {
     "config.settings": settings_stub,
 }):
     from services import quant_ops_service as svc  # noqa: E402
+    from services import backtest_params_store as validation_store  # noqa: E402
+    from services import strategy_registry as registry_svc  # noqa: E402
 
 
 _NOW = dt.datetime(2026, 3, 31, 12, 0, tzinfo=dt.timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -135,7 +137,17 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self.state_path = Path(self.tmpdir.name) / "quant_ops_state.json"
+        self.validation_settings_path = Path(self.tmpdir.name) / "backtest_validation_settings.json"
+        self.strategy_registry_path = Path(self.tmpdir.name) / "strategy_registry.json"
         self.runtime_store: dict[str, dict] = {"payload": {}}
+        self.path_patches = [
+            patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path),
+            patch.object(validation_store, "BACKTEST_VALIDATION_SETTINGS_PATH", self.validation_settings_path),
+            patch.object(registry_svc, "STRATEGY_REGISTRY_PATH", self.strategy_registry_path),
+        ]
+        for item in self.path_patches:
+            item.start()
+            self.addCleanup(item.stop)
         self.search_payload = {
             "optimized_at": _NOW,
             "version": "search-2026-03-31T12:00:00+09:00",
@@ -243,7 +255,6 @@ class QuantOpsWorkflowTests(unittest.TestCase):
                     "lookback_days": 365,
                 },
                 "settings": {
-                    "strategy": "퀀트 운영 전략",
                     "trainingDays": 180,
                     "validationDays": 60,
                     "walkForward": True,
@@ -257,6 +268,8 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual("runtime_candidates", candidate["runtime_candidate_source_mode"])
         self.assertEqual("adopt", candidate["decision"]["status"])
         self.assertTrue(candidate["guardrails"]["can_save"])
+        self.assertEqual("trend_following", candidate["strategy_id"])
+        self.assertEqual("Trend Following", candidate["strategy_label"])
         self.assertIn("stop_loss_pct: 5.0 → 6.0", candidate["patch_lines"])
         self.assertEqual(18, candidate["candidate_query"]["max_holding_days"])
         self.assertTrue(result["workflow"]["search_result"]["available"])
@@ -280,7 +293,6 @@ class QuantOpsWorkflowTests(unittest.TestCase):
                     "max_holding_days": 21,
                 },
                 "settings": {
-                    "strategy": "퀀트 운영 전략",
                     "trainingDays": 180,
                     "validationDays": 60,
                     "walkForward": True,
@@ -347,7 +359,6 @@ class QuantOpsWorkflowTests(unittest.TestCase):
                     "take_profit_pct": 11.0,
                 },
                 "settings": {
-                    "strategy": "자동 handoff 전략",
                     "trainingDays": 200,
                     "validationDays": 50,
                     "walkForward": True,
@@ -821,6 +832,13 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertTrue(result["candidate"]["guardrails"]["can_save"])
         self.assertTrue(save_result["ok"])
         self.assertEqual("limited_adopt", save_result["candidate"]["decision"]["status"])
+        saved_preset = registry_svc.get_strategy("trend_following")
+        self.assertIsNotNone(saved_preset)
+        self.assertEqual(6.0, saved_preset["params"]["stop_loss_pct"])
+        self.assertEqual(18.0, saved_preset["params"]["take_profit_pct"])
+        validation_payload = validation_store.load_persisted_validation_settings()
+        self.assertEqual(6.0, validation_payload["query"]["stop_loss_pct"])
+        self.assertEqual(18.0, validation_payload["query"]["take_profit_pct"])
 
     def test_apply_limited_adopt_runtime_clamps_risk_and_positions(self):
         execution_stub = types.ModuleType("services.execution_service")

@@ -10,7 +10,6 @@ import {
   useValidationSettingsStore,
 } from '../hooks/useValidationSettingsStore';
 import { VALIDATION_TRANSFER_STORAGE_KEY } from '../lib/validationConfigStorage';
-import type { ValidationSettings } from '../hooks/useValidationSettingsStore';
 import type { BacktestData, BacktestQuery, StrategyKind } from '../types';
 import type { StrategyRegistryItem, ValidationResponse } from '../types/domain';
 import type { ActionBarAction, ConsoleSnapshot } from '../types/consoleView';
