@@ -909,18 +909,22 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
         candidate.get("settings"), dict) else {}
     decision = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
 
-    for key, value in patch.items():
-        if key in _OPTIMIZABLE_KEYS and value not in (None, ""):
-            merged[key] = value
+    # Determine which market this candidate was optimized for.
+    # Patch values are market-specific and must not bleed into other markets.
+    base_query = candidate.get("base_query") if isinstance(candidate.get("base_query"), dict) else {}
+    candidate_market = normalize_strategy_market(str(base_query.get("market_scope") or ""))
 
     profile_map = merged.get("market_profiles") if isinstance(
         merged.get("market_profiles"), dict) else _auto_trader_profile_map(merged)
     next_profile_map: dict[str, dict[str, Any]] = {}
     for market, payload in profile_map.items():
         current_payload = dict(payload) if isinstance(payload, dict) else {}
-        for key, value in patch.items():
-            if key in _OPTIMIZABLE_KEYS and value not in (None, ""):
-                current_payload[key] = value
+        # Apply patch only to the market this candidate was validated for.
+        # If candidate_market is unknown, apply to all (safe fallback).
+        if not candidate_market or normalize_strategy_market(market) == candidate_market:
+            for key, value in patch.items():
+                if key in _OPTIMIZABLE_KEYS and value not in (None, ""):
+                    current_payload[key] = value
         next_profile_map[market] = current_payload
     merged["market_profiles"] = next_profile_map
 

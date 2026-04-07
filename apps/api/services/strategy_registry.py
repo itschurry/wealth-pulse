@@ -192,8 +192,9 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
 
     strategy_kind = str(payload.get("strategy_kind") or strategy_id).strip() or strategy_id
 
+    _risk_profile = str(params_raw.get("risk_profile") or "balanced")
     merged_params = {
-        **serialize_strategy_profile(default_strategy_profile(market, strategy_kind=strategy_kind)),
+        **serialize_strategy_profile(default_strategy_profile(market, strategy_kind=strategy_kind, risk_profile=_risk_profile)),
         **params_raw,
         # outer market always wins — prevents clone-from-different-market contamination
         "market": market,
@@ -207,10 +208,10 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
         "status": status,
         "market": market,
         "universe_rule": _UNIVERSE_RULE_ALIASES.get(
-            str(payload.get("universe_rule") or "kospi").strip().lower(),
-            str(payload.get("universe_rule") or "kospi").strip() or "kospi",
+            str(payload.get("universe_rule") or ("kospi" if market == "KOSPI" else "sp500")).strip().lower(),
+            str(payload.get("universe_rule") or ("kospi" if market == "KOSPI" else "sp500")).strip() or ("kospi" if market == "KOSPI" else "sp500"),
         ),
-        "scan_cycle": str(payload.get("scan_cycle") or "5m").strip() or "5m",
+        "scan_cycle": str(payload.get("scan_cycle") or ("5m" if market == "KOSPI" else "15m")).strip() or ("5m" if market == "KOSPI" else "15m"),
         "entry_rule": str(payload.get("entry_rule") or "").strip(),
         "exit_rule": str(payload.get("exit_rule") or "").strip(),
         "params": merged_params,

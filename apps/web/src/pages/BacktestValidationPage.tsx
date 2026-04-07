@@ -521,7 +521,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       market,
       universe_rule: universeRule,
       scan_cycle: q.market_scope === 'nasdaq' ? '15m' : '5m',
-      params: { ...q.strategy_params },
+      params: { ...q.strategy_params, risk_profile: q.risk_profile },
       risk_limits: {
         max_positions: q.portfolio_constraints.max_positions,
         position_size_pct: 0.1,
