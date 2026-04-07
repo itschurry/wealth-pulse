@@ -91,7 +91,7 @@ def _get_analysis() -> dict:
     return _get_cached_report(
         _cache._analysis_cache,
         "analysis",
-        {"error": "분석 결과가 없습니다. run_once.py를 먼저 실행하세요."},
+        {"error": "분석 결과가 없습니다. 먼저 리포트 생성을 실행하세요."},
     )
 
 
@@ -99,7 +99,7 @@ def _get_recommendations() -> dict:
     return _get_cached_report(
         _cache._recommendation_cache,
         "recommendations",
-        {"error": "추천 결과가 없습니다. run_once.py를 먼저 실행하세요.", "recommendations": []},
+        {"error": "추천 결과가 없습니다. 먼저 리포트 생성을 실행하세요.", "recommendations": []},
     )
 
 

@@ -34,7 +34,7 @@ def get_recommendations() -> dict[str, Any]:
     return _get_cached_report(
         _cache._recommendation_cache,
         "recommendations",
-        {"error": "추천 결과가 없습니다. run_once.py를 먼저 실행하세요.", "recommendations": []},
+        {"error": "추천 결과가 없습니다. 먼저 리포트 생성을 실행하세요.", "recommendations": []},
     )
 
 

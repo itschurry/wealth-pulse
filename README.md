@@ -112,20 +112,6 @@ docker compose up -d --build
 
 ## 자주 쓰는 명령
 
-### 원샷 리포트 생성
-
-```bash
-cd apps/api
-python3 run_once.py
-```
-
-### 스케줄러 실행
-
-```bash
-cd apps/api
-python3 scheduler.py
-```
-
 ### 모의투자 엔진 상태 조회
 
 ```bash
