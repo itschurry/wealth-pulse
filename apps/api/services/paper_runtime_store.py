@@ -19,6 +19,13 @@ UNIVERSE_SNAPSHOTS_DIR = LOGS_DIR / "universe_snapshots"
 STRATEGY_SCANS_DIR = LOGS_DIR / "strategy_scans"
 RUNTIME_EVENTS_PATH = LOGS_DIR / "runtime_events.jsonl"
 
+# 서버 시작 시 execution_events.jsonl 파일이 없으면 빈 파일로 초기화한다.
+# order_events.jsonl 은 paper_reset 시 생성되지만 execution_events.jsonl 은
+# 첫 번째 이벤트 기록 전까지 존재하지 않아 모니터링 도구에서 오류를 일으킬 수 있다.
+EXECUTION_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+if not EXECUTION_EVENTS_PATH.exists():
+    EXECUTION_EVENTS_PATH.touch()
+
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -40,8 +47,7 @@ def _read_lines(path: Path) -> list[str]:
 
 
 def _clear_file(path: Path) -> int:
-    if not path.exists():
-        return 0
+    _ensure_parent(path)
     removed = len(_read_lines(path))
     path.write_text("", encoding="utf-8")
     return removed

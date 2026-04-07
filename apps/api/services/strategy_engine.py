@@ -70,18 +70,18 @@ def _normalize_live_signal_candidate(
     normalized.setdefault("final_action", "blocked")
     normalized.setdefault(
         "risk_check",
-        {"passed": bool(normalized.get("entry_allowed")), "reason_code": "OK" if bool(normalized.get("entry_allowed")) else "FALLBACK_BLOCKED", "message": "fallback_live_candidate", "checks": []},
+        {"passed": bool(normalized.get("entry_allowed")), "reason_code": "ok" if bool(normalized.get("entry_allowed")) else "fallback_blocked", "message": "fallback_live_candidate", "checks": []},
     )
     if not isinstance(normalized.get("risk_check"), dict):
-        normalized["risk_check"] = {"passed": bool(normalized.get("entry_allowed")), "reason_code": "OK" if bool(normalized.get("entry_allowed")) else "FALLBACK_BLOCKED", "message": "fallback_live_candidate", "checks": []}
+        normalized["risk_check"] = {"passed": bool(normalized.get("entry_allowed")), "reason_code": "ok" if bool(normalized.get("entry_allowed")) else "fallback_blocked", "message": "fallback_live_candidate", "checks": []}
     else:
         normalized["risk_check"]["passed"] = bool(normalized.get("entry_allowed"))
         if bool(normalized.get("entry_allowed")):
-            normalized["risk_check"]["reason_code"] = str(normalized["risk_check"].get("reason_code") or "OK") if str(normalized["risk_check"].get("reason_code") or "").strip() else "OK"
+            normalized["risk_check"]["reason_code"] = str(normalized["risk_check"].get("reason_code") or "ok") if str(normalized["risk_check"].get("reason_code") or "").strip() else "ok"
         else:
-            normalized["risk_check"].setdefault("reason_code", "FALLBACK_BLOCKED")
+            normalized["risk_check"].setdefault("reason_code", "fallback_blocked")
             normalized["risk_check"].setdefault("message", "fallback_live_candidate")
-            normalized.setdefault("reason_codes", ["FALLBACK_BLOCKED"])
+            normalized.setdefault("reason_codes", ["fallback_blocked"])
     normalized.setdefault("execution_realism", {})
     return normalized
 
@@ -241,7 +241,7 @@ def _build_signal_from_candidate(
     entry_allowed = bool(risk_guard_state.get("entry_allowed", True)) and gate_passed
     risk_check = {
         "passed": gate_passed,
-        "reason_code": "OK" if gate_passed else str(candidate.get("gate_status") or "blocked"),
+        "reason_code": "ok" if gate_passed else str(candidate.get("gate_status") or "blocked"),
         "message": ", ".join([str(item) for item in (candidate.get("gate_reasons") or []) if str(item)]) or "candidate_policy",
         "checks": [],
     }

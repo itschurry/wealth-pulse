@@ -128,48 +128,64 @@ def _normalize_query(raw: dict[str, Any] | None) -> dict[str, Any]:
     strategy_params_raw = raw.get("strategy_params") if isinstance(raw.get("strategy_params"), dict) else {}
     default_portfolio = portfolio_defaults(market_scope)
     default_params = strategy_defaults(strategy_kind, market="NASDAQ" if market_scope == "nasdaq" else "KOSPI", risk_profile=risk_profile)
+
+    def _pval(key: str) -> Any:
+        """nested 우선, flat 폴백으로 단일 원천에서 포트폴리오 값을 읽는다."""
+        v = portfolio_raw.get(key)
+        return v if v is not None else raw.get(key)
+
+    def _sval(key: str) -> Any:
+        """nested 우선, flat 폴백으로 단일 원천에서 전략 파라미터 값을 읽는다."""
+        v = strategy_params_raw.get(key)
+        return v if v is not None else raw.get(key)
+
+    # 정규화된 nested dict를 먼저 계산한 뒤 flat 필드를 그것으로부터 파생시킨다.
+    # 이렇게 하면 flat 필드와 nested 필드가 항상 동일한 값을 갖고 중복 계산이 없다.
+    portfolio_constraints = {
+        "market_scope": market_scope,
+        "initial_cash": _to_int(_pval("initial_cash"), int(default_portfolio["initial_cash"]), minimum=1),
+        "max_positions": _to_int(_pval("max_positions"), int(default_portfolio["max_positions"]), minimum=1),
+        "max_holding_days": _to_int(_pval("max_holding_days"), int(default_portfolio["max_holding_days"]), minimum=1),
+    }
+    strategy_params = {
+        "rsi_min": _to_float(_sval("rsi_min"), float(default_params["rsi_min"])),
+        "rsi_max": _to_float(_sval("rsi_max"), float(default_params["rsi_max"])),
+        "volume_ratio_min": _to_float(_sval("volume_ratio_min"), float(default_params["volume_ratio_min"]), minimum=0.0),
+        "stop_loss_pct": _to_nullable_float(_sval("stop_loss_pct"), default_params.get("stop_loss_pct"), minimum=0.0),
+        "take_profit_pct": _to_nullable_float(_sval("take_profit_pct"), default_params.get("take_profit_pct"), minimum=0.0),
+        "adx_min": _to_nullable_float(_sval("adx_min"), default_params.get("adx_min"), minimum=0.0),
+        "mfi_min": _to_nullable_float(_sval("mfi_min"), default_params.get("mfi_min")),
+        "mfi_max": _to_nullable_float(_sval("mfi_max"), default_params.get("mfi_max")),
+        "bb_pct_min": _to_nullable_float(_sval("bb_pct_min"), default_params.get("bb_pct_min"), minimum=0.0, maximum=1.0),
+        "bb_pct_max": _to_nullable_float(_sval("bb_pct_max"), default_params.get("bb_pct_max"), minimum=0.0, maximum=1.0),
+        "stoch_k_min": _to_nullable_float(_sval("stoch_k_min"), default_params.get("stoch_k_min")),
+        "stoch_k_max": _to_nullable_float(_sval("stoch_k_max"), default_params.get("stoch_k_max")),
+        "trade_suppression_threshold": _to_nullable_float(_sval("trade_suppression_threshold"), default_params.get("trade_suppression_threshold"), minimum=0.0),
+    }
     return {
         "market_scope": market_scope,
         "strategy_kind": strategy_kind,
         "regime_mode": regime_mode,
         "risk_profile": risk_profile,
         "lookback_days": _to_int(raw.get("lookback_days"), int(_DEFAULT_QUERY["lookback_days"]), minimum=180),
-        "initial_cash": _to_int(raw.get("initial_cash"), int(_DEFAULT_QUERY["initial_cash"]), minimum=1),
-        "max_positions": _to_int(raw.get("max_positions"), int(_DEFAULT_QUERY["max_positions"]), minimum=1),
-        "max_holding_days": _to_int(raw.get("max_holding_days"), int(_DEFAULT_QUERY["max_holding_days"]), minimum=1),
-        "portfolio_constraints": {
-            "market_scope": market_scope,
-            "initial_cash": _to_int(portfolio_raw.get("initial_cash"), int(default_portfolio["initial_cash"]), minimum=1),
-            "max_positions": _to_int(portfolio_raw.get("max_positions"), int(default_portfolio["max_positions"]), minimum=1),
-            "max_holding_days": _to_int(portfolio_raw.get("max_holding_days"), int(default_portfolio["max_holding_days"]), minimum=1),
-        },
-        "strategy_params": {
-            "rsi_min": _to_float(strategy_params_raw.get("rsi_min"), float(default_params["rsi_min"])),
-            "rsi_max": _to_float(strategy_params_raw.get("rsi_max"), float(default_params["rsi_max"])),
-            "volume_ratio_min": _to_float(strategy_params_raw.get("volume_ratio_min"), float(default_params["volume_ratio_min"]), minimum=0.0),
-            "stop_loss_pct": _to_nullable_float(strategy_params_raw.get("stop_loss_pct"), default_params.get("stop_loss_pct"), minimum=0.0),
-            "take_profit_pct": _to_nullable_float(strategy_params_raw.get("take_profit_pct"), default_params.get("take_profit_pct"), minimum=0.0),
-            "adx_min": _to_nullable_float(strategy_params_raw.get("adx_min"), default_params.get("adx_min"), minimum=0.0),
-            "mfi_min": _to_nullable_float(strategy_params_raw.get("mfi_min"), default_params.get("mfi_min")),
-            "mfi_max": _to_nullable_float(strategy_params_raw.get("mfi_max"), default_params.get("mfi_max")),
-            "bb_pct_min": _to_nullable_float(strategy_params_raw.get("bb_pct_min"), default_params.get("bb_pct_min"), minimum=0.0, maximum=1.0),
-            "bb_pct_max": _to_nullable_float(strategy_params_raw.get("bb_pct_max"), default_params.get("bb_pct_max"), minimum=0.0, maximum=1.0),
-            "stoch_k_min": _to_nullable_float(strategy_params_raw.get("stoch_k_min"), default_params.get("stoch_k_min")),
-            "stoch_k_max": _to_nullable_float(strategy_params_raw.get("stoch_k_max"), default_params.get("stoch_k_max")),
-            "trade_suppression_threshold": _to_nullable_float(strategy_params_raw.get("trade_suppression_threshold"), default_params.get("trade_suppression_threshold"), minimum=0.0),
-        },
-        "rsi_min": _to_int(raw.get("rsi_min"), int(_DEFAULT_QUERY["rsi_min"])),
-        "rsi_max": _to_int(raw.get("rsi_max"), int(_DEFAULT_QUERY["rsi_max"])),
-        "volume_ratio_min": _to_float(raw.get("volume_ratio_min"), float(_DEFAULT_QUERY["volume_ratio_min"]), minimum=0.0),
-        "stop_loss_pct": _to_nullable_float(raw.get("stop_loss_pct"), _DEFAULT_QUERY["stop_loss_pct"], minimum=0.0),
-        "take_profit_pct": _to_nullable_float(raw.get("take_profit_pct"), _DEFAULT_QUERY["take_profit_pct"], minimum=0.0),
-        "adx_min": _to_nullable_float(raw.get("adx_min"), _DEFAULT_QUERY["adx_min"], minimum=0.0),
-        "mfi_min": _to_nullable_float(raw.get("mfi_min"), _DEFAULT_QUERY["mfi_min"]),
-        "mfi_max": _to_nullable_float(raw.get("mfi_max"), _DEFAULT_QUERY["mfi_max"]),
-        "bb_pct_min": _to_nullable_float(raw.get("bb_pct_min"), _DEFAULT_QUERY["bb_pct_min"], minimum=0.0, maximum=1.0),
-        "bb_pct_max": _to_nullable_float(raw.get("bb_pct_max"), _DEFAULT_QUERY["bb_pct_max"], minimum=0.0, maximum=1.0),
-        "stoch_k_min": _to_nullable_float(raw.get("stoch_k_min"), _DEFAULT_QUERY["stoch_k_min"]),
-        "stoch_k_max": _to_nullable_float(raw.get("stoch_k_max"), _DEFAULT_QUERY["stoch_k_max"]),
+        "portfolio_constraints": portfolio_constraints,
+        "strategy_params": strategy_params,
+        # flat 필드는 nested canonical 값에서 파생 (하위호환 유지, 별도 계산 없음)
+        "initial_cash": portfolio_constraints["initial_cash"],
+        "max_positions": portfolio_constraints["max_positions"],
+        "max_holding_days": portfolio_constraints["max_holding_days"],
+        "rsi_min": strategy_params["rsi_min"],
+        "rsi_max": strategy_params["rsi_max"],
+        "volume_ratio_min": strategy_params["volume_ratio_min"],
+        "stop_loss_pct": strategy_params["stop_loss_pct"],
+        "take_profit_pct": strategy_params["take_profit_pct"],
+        "adx_min": strategy_params["adx_min"],
+        "mfi_min": strategy_params["mfi_min"],
+        "mfi_max": strategy_params["mfi_max"],
+        "bb_pct_min": strategy_params["bb_pct_min"],
+        "bb_pct_max": strategy_params["bb_pct_max"],
+        "stoch_k_min": strategy_params["stoch_k_min"],
+        "stoch_k_max": strategy_params["stoch_k_max"],
     }
 
 
@@ -206,9 +222,42 @@ def _build_state_snapshot(
     }
 
 
+def _load_runtime_apply_meta() -> dict[str, Any] | None:
+    """quant_ops_state.json 의 runtime_apply 메타만 읽는다. 없으면 None."""
+    path = LOGS_DIR / "quant_ops_state.json"
+    try:
+        if not path.exists():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        ra = payload.get("runtime_apply") if isinstance(payload, dict) else None
+        return ra if isinstance(ra, dict) and ra.get("applied_at") else None
+    except Exception:
+        return None
+
+
 def _build_response(query: dict[str, Any], settings: dict[str, Any], saved_at: str) -> dict[str, Any]:
     source = str(BACKTEST_VALIDATION_SETTINGS_PATH)
     updated_at = saved_at or ""
+    ra = _load_runtime_apply_meta()
+    approved_snapshot: dict[str, Any] | None = None
+    applied_snapshot: dict[str, Any] | None = None
+    if ra:
+        ra_source = str(LOGS_DIR / "quant_ops_state.json")
+        if ra.get("approved_at"):
+            approved_snapshot = {
+                "status": "approved",
+                "candidate_id": ra.get("candidate_id"),
+                "updated_at": str(ra.get("approved_at")),
+                "version": STATE_SCHEMA_VERSION,
+                "source": ra_source,
+            }
+        applied_snapshot = {
+            "status": "applied",
+            "candidate_id": ra.get("candidate_id"),
+            "updated_at": str(ra.get("applied_at")),
+            "version": STATE_SCHEMA_VERSION,
+            "source": ra_source,
+        }
     return {
         "ok": True,
         "query": query,
@@ -225,8 +274,8 @@ def _build_response(query: dict[str, Any], settings: dict[str, Any], saved_at: s
                 updated_at=updated_at,
                 source=source,
             ),
-            "approved": None,
-            "applied": None,
+            "approved": approved_snapshot,
+            "applied": applied_snapshot,
             "displayed": _build_state_snapshot(
                 query=query,
                 settings=settings,

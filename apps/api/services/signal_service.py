@@ -9,7 +9,7 @@ from analyzer.candidate_selector import (
     select_market_candidates,
 )
 from market_utils import lookup_company_listing, normalize_market, resolve_market
-from routes.reports import _get_recommendations, _get_today_picks
+from services.research_signal_service import get_recommendations as _get_recommendations, get_today_picks as _get_today_picks
 from services.optimized_params_store import load_execution_optimized_params
 
 DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]

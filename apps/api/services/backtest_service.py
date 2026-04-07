@@ -321,7 +321,7 @@ class BacktestService:
 
         if not _OPTIMIZED_PARAMS_PATH.exists():
             try:
-                from routes.optimization import handle_run_optimization
+                from services.optimization_runner import handle_run_optimization
 
                 payload = self._build_optimization_payload(query)
                 _, optimization_payload = handle_run_optimization(payload)

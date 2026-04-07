@@ -16,8 +16,8 @@ from helpers import (
     _SUPPORTED_AUTO_TRADE_MARKETS,
     _now_iso,
 )
-from routes.market import _paper_fx_rate, _resolve_stock_quote
-from routes.watchlist import _compute_technical_snapshot
+from analyzer.technical_snapshot import fetch_technical_snapshot as _compute_technical_snapshot
+from services.market_data_service import get_paper_fx_rate as _paper_fx_rate, resolve_stock_quote as _resolve_stock_quote
 from analyzer.shared_strategy import (
     build_strategy_profile,
     default_strategy_profile,
@@ -61,6 +61,7 @@ from services.paper_runtime_store import (
     save_engine_state,
 )
 from services.execution_lifecycle import build_execution_events, normalize_execution_reason, summarize_execution_events
+from services.order_decision_service import summarize_order_decision
 from services.trade_workflow import (
     build_workflow_summary,
     derive_order_workflow,
@@ -1332,18 +1333,17 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             if not isinstance(signal, dict):
                 continue
             candidate = dict(signal)
-            merged_reasons = list(candidate.get("reason_codes") or [])
             signal_state = str(candidate.get("signal_state") or "")
             risk_check = candidate.get("risk_check") if isinstance(candidate.get("risk_check"), dict) else {}
-            entry_allowed = bool(candidate.get("entry_allowed")) and signal_state == "entry"
-            if signal_state == "entry" and not entry_allowed:
+            decision = summarize_order_decision(candidate)
+            entry_allowed = decision["orderable"]
+            reason_code = decision["reason_code"]
+            merged_reasons = list(candidate.get("reason_codes") or []) or ([reason_code] if reason_code else [])
+            if decision["action"] == "block":
                 blocked_count += 1
-                if not merged_reasons and risk_check.get("reason_code"):
-                    merged_reasons = [str(risk_check.get("reason_code"))]
                 for reason in merged_reasons:
                     key = str(reason or "unknown")
-                    blocked_reason_counts[key] = blocked_reason_counts.get(
-                        key, 0) + 1
+                    blocked_reason_counts[key] = blocked_reason_counts.get(key, 0) + 1
                 _record_execution_order({
                     "timestamp": _now_iso(),
                     "success": False,
@@ -1352,15 +1352,15 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "market": candidate.get("market") or market,
                     "strategy_id": candidate.get("strategy_id"),
                     "strategy_name": candidate.get("strategy_name"),
-                    "quantity": int(((candidate.get("size_recommendation") or {}).get("quantity") or 0) if isinstance(candidate.get("size_recommendation"), dict) else 0),
+                    "quantity": decision["order_quantity"],
                     "order_type": "screened",
                     "submitted_at": started_at,
                     "filled_at": "",
                     "filled_price_local": None,
                     "filled_price_krw": None,
                     "notional_krw": None,
-                    "failure_reason": str(risk_check.get("reason_code") or merged_reasons[0] if merged_reasons else "RISK_GUARD_BLOCKED"),
-                    "reason_code": str(risk_check.get("reason_code") or merged_reasons[0] if merged_reasons else "RISK_GUARD_BLOCKED"),
+                    "failure_reason": reason_code,
+                    "reason_code": reason_code,
                     "message": str(risk_check.get("message") or "risk gate blocked order"),
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{candidate.get('code')}",

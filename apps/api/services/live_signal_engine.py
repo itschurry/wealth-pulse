@@ -5,7 +5,7 @@ from typing import Any
 
 from analyzer.shared_strategy import profile_from_mapping, should_enter_from_snapshot, should_exit_from_snapshot
 from helpers import _KST
-from routes.watchlist import _compute_technical_snapshot
+from analyzer.technical_snapshot import fetch_technical_snapshot as _compute_technical_snapshot
 from services.live_layers import (
     build_layer_a_snapshot,
     build_layer_b_snapshot,
@@ -284,7 +284,7 @@ def scan_strategy(
             },
             "size_recommendation": {"quantity": 0, "reason": "signal_only"},
             "risk_inputs": {"stop_loss_pct": profile.stop_loss_pct or 5.0},
-            "risk_check": {"passed": signal_state != "entry", "reason_code": "OK", "message": "scan_only", "checks": []},
+            "risk_check": {"passed": signal_state != "entry", "reason_code": "ok", "message": "scan_only", "checks": []},
             "entry_allowed": signal_state != "entry",
             "risk_guard_state": base_risk_state,
             "last_scanned_at": _now_iso(),
@@ -318,11 +318,11 @@ def scan_strategy(
                 candidate["risk_check"] = risk_final
                 candidate["entry_allowed"] = bool(risk_final.get("passed"))
                 if not candidate["entry_allowed"]:
-                    candidate["reason_codes"] = [str(risk_final.get("reason_code") or "RISK_GUARD_BLOCKED")]
+                    candidate["reason_codes"] = [str(risk_final.get("reason_code") or "risk_guard_blocked")]
                     candidate["execution_realism"]["liquidity_gate_status"] = str(risk_final.get("reason_code") or "blocked")
             else:
                 candidate["entry_allowed"] = False
-                candidate["reason_codes"] = [str(risk_pre.get("reason_code") or "RISK_GUARD_BLOCKED")]
+                candidate["reason_codes"] = [str(risk_pre.get("reason_code") or "risk_guard_blocked")]
         else:
             candidate["entry_allowed"] = False
 

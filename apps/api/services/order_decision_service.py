@@ -47,10 +47,15 @@ def summarize_order_decision(signal: dict[str, Any]) -> dict[str, Any]:
       action = "hold"
       reason_code = "signal_detected"
 
+    ev_metrics = signal.get("ev_metrics") if isinstance(signal.get("ev_metrics"), dict) else {}
+    confidence = float(ev_metrics.get("confidence") or ev_metrics.get("win_rate") or 0.0)
     return {
-      "action": action,
-      "reason_code": reason_code,
-      "orderable": orderable,
-      "order_quantity": order_qty,
-      "blocked_reason": reason_code if action == "block" else "",
+        "action": action,
+        "reason_code": reason_code,
+        "orderable": orderable,
+        "order_quantity": order_qty,
+        "blocked_reason": reason_code if action == "block" else "",
+        "confidence": confidence,
+        "sizing_summary": size_recommendation,
+        "trace_id": str(signal.get("trace_id") or signal.get("signal_id") or ""),
     }

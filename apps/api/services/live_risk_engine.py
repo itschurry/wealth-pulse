@@ -6,16 +6,16 @@ from services.risk_guard_service import build_risk_guard_state
 
 
 _REASON_MESSAGES = {
-    "DAILY_LOSS_LIMIT_EXCEEDED": "일일 손실 한도를 넘어 신규 진입을 차단했습니다.",
-    "LOSS_STREAK_COOLDOWN": "연속 손실 쿨다운이 끝날 때까지 신규 진입을 차단했습니다.",
-    "MAX_POSITIONS_REACHED": "전략별 최대 포지션 수에 도달했습니다.",
-    "DUPLICATE_POSITION": "동일 종목 포지션이 이미 존재합니다.",
-    "LIQUIDITY_TOO_LOW": "거래량 기준을 충족하지 못해 유동성이 부족합니다.",
-    "SPREAD_TOO_WIDE": "현재 스프레드가 허용 범위를 초과했습니다.",
-    "POSITION_SIZE_LIMIT_EXCEEDED": "포지션 비중 한도를 초과합니다.",
-    "RISK_GUARD_BLOCKED": "포트폴리오 리스크 가드가 신규 진입을 차단했습니다.",
-    "SIZE_ZERO": "사이징 결과가 0주여서 주문을 만들지 않았습니다.",
-    "OK": "주문 가능",
+    "daily_loss_limit_exceeded": "일일 손실 한도를 넘어 신규 진입을 차단했습니다.",
+    "loss_streak_cooldown": "연속 손실 쿨다운이 끝날 때까지 신규 진입을 차단했습니다.",
+    "max_positions_reached": "전략별 최대 포지션 수에 도달했습니다.",
+    "duplicate_position": "동일 종목 포지션이 이미 존재합니다.",
+    "liquidity_too_low": "거래량 기준을 충족하지 못해 유동성이 부족합니다.",
+    "spread_too_wide": "현재 스프레드가 허용 범위를 초과했습니다.",
+    "position_size_limit_exceeded": "포지션 비중 한도를 초과합니다.",
+    "risk_guard_blocked": "포트폴리오 리스크 가드가 신규 진입을 차단했습니다.",
+    "size_zero": "사이징 결과가 0주여서 주문을 만들지 않았습니다.",
+    "ok": "주문 가능",
 }
 
 
@@ -51,10 +51,10 @@ def build_strategy_risk_state(*, account: dict[str, Any], strategy: dict[str, An
 def _guard_reason_code(state: dict[str, Any]) -> str:
     reasons = [str(item or "") for item in state.get("reasons", [])]
     if "daily_loss_limit_reached" in reasons:
-        return "DAILY_LOSS_LIMIT_EXCEEDED"
+        return "daily_loss_limit_exceeded"
     if "loss_streak_cooldown" in reasons:
-        return "LOSS_STREAK_COOLDOWN"
-    return "RISK_GUARD_BLOCKED"
+        return "loss_streak_cooldown"
+    return "risk_guard_blocked"
 
 
 def evaluate_entry_risk(
@@ -87,29 +87,29 @@ def evaluate_entry_risk(
     checks.append({
         "id": "portfolio_guard",
         "passed": bool(state.get("entry_allowed", True)),
-        "reason_code": _guard_reason_code(state) if not bool(state.get("entry_allowed", True)) else "OK",
-        "message": _REASON_MESSAGES[_guard_reason_code(state)] if not bool(state.get("entry_allowed", True)) else _REASON_MESSAGES["OK"],
+        "reason_code": _guard_reason_code(state) if not bool(state.get("entry_allowed", True)) else "ok",
+        "message": _REASON_MESSAGES[_guard_reason_code(state)] if not bool(state.get("entry_allowed", True)) else _REASON_MESSAGES["ok"],
         "details": list(state.get("reasons", [])),
     })
     checks.append({
         "id": "max_positions",
         "passed": len(market_positions) < max_positions,
-        "reason_code": "MAX_POSITIONS_REACHED" if len(market_positions) >= max_positions else "OK",
-        "message": _REASON_MESSAGES["MAX_POSITIONS_REACHED"] if len(market_positions) >= max_positions else _REASON_MESSAGES["OK"],
+        "reason_code": "max_positions_reached" if len(market_positions) >= max_positions else "ok",
+        "message": _REASON_MESSAGES["max_positions_reached"] if len(market_positions) >= max_positions else _REASON_MESSAGES["ok"],
         "current": len(market_positions),
         "limit": max_positions,
     })
     checks.append({
         "id": "duplicate_position",
         "passed": not duplicate_exists,
-        "reason_code": "DUPLICATE_POSITION" if duplicate_exists else "OK",
-        "message": _REASON_MESSAGES["DUPLICATE_POSITION"] if duplicate_exists else _REASON_MESSAGES["OK"],
+        "reason_code": "duplicate_position" if duplicate_exists else "ok",
+        "message": _REASON_MESSAGES["duplicate_position"] if duplicate_exists else _REASON_MESSAGES["ok"],
     })
     checks.append({
         "id": "liquidity",
         "passed": volume_avg20 >= min_liquidity,
-        "reason_code": "LIQUIDITY_TOO_LOW" if volume_avg20 < min_liquidity else "OK",
-        "message": _REASON_MESSAGES["LIQUIDITY_TOO_LOW"] if volume_avg20 < min_liquidity else _REASON_MESSAGES["OK"],
+        "reason_code": "liquidity_too_low" if volume_avg20 < min_liquidity else "ok",
+        "message": _REASON_MESSAGES["liquidity_too_low"] if volume_avg20 < min_liquidity else _REASON_MESSAGES["ok"],
         "current": volume_avg20,
         "limit": min_liquidity,
     })
@@ -117,8 +117,8 @@ def evaluate_entry_risk(
     checks.append({
         "id": "spread",
         "passed": not spread_failed,
-        "reason_code": "SPREAD_TOO_WIDE" if spread_failed else "OK",
-        "message": _REASON_MESSAGES["SPREAD_TOO_WIDE"] if spread_failed else _REASON_MESSAGES["OK"],
+        "reason_code": "spread_too_wide" if spread_failed else "ok",
+        "message": _REASON_MESSAGES["spread_too_wide"] if spread_failed else _REASON_MESSAGES["ok"],
         "current": spread_pct,
         "limit": max_spread_pct,
     })
@@ -132,8 +132,8 @@ def evaluate_entry_risk(
         checks.append({
             "id": "position_size",
             "passed": not size_failed,
-            "reason_code": "POSITION_SIZE_LIMIT_EXCEEDED" if size_failed else "OK",
-            "message": _REASON_MESSAGES["POSITION_SIZE_LIMIT_EXCEEDED"] if size_failed else _REASON_MESSAGES["OK"],
+            "reason_code": "position_size_limit_exceeded" if size_failed else "ok",
+            "message": _REASON_MESSAGES["position_size_limit_exceeded"] if size_failed else _REASON_MESSAGES["ok"],
             "current": round(estimated_weight_pct, 4),
             "limit": position_size_pct,
         })
@@ -141,8 +141,8 @@ def evaluate_entry_risk(
         checks.append({
             "id": "position_size",
             "passed": False,
-            "reason_code": "SIZE_ZERO",
-            "message": _REASON_MESSAGES["SIZE_ZERO"],
+            "reason_code": "size_zero",
+            "message": _REASON_MESSAGES["size_zero"],
             "current": 0,
             "limit": position_size_pct,
         })
@@ -150,8 +150,8 @@ def evaluate_entry_risk(
     failure = next((item for item in checks if not bool(item.get("passed"))), None)
     return {
         "passed": failure is None,
-        "reason_code": str((failure or {}).get("reason_code") or "OK"),
-        "message": str((failure or {}).get("message") or _REASON_MESSAGES["OK"]),
+        "reason_code": str((failure or {}).get("reason_code") or "ok"),
+        "message": str((failure or {}).get("message") or _REASON_MESSAGES["ok"]),
         "checks": checks,
         "risk_state": state,
     }

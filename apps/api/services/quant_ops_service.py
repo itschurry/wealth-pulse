@@ -1437,6 +1437,7 @@ def apply_saved_candidate_to_runtime(payload: dict[str, Any]) -> dict[str, Any]:
 
     runtime_apply = {
         "candidate_id": saved_candidate.get("id"),
+        "approved_at": _now_iso(),
         "applied_at": runtime_payload.get("applied_at"),
         "engine_state": ((engine_state_payload.get("state") or {}).get("engine_state") if isinstance(engine_state_payload.get("state"), dict) else None),
         "next_run_at": ((engine_state_payload.get("state") or {}).get("next_run_at") if isinstance(engine_state_payload.get("state"), dict) else None),
