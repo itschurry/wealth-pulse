@@ -36,10 +36,7 @@ from services.notification_service import get_notification_service
 from services.optimized_params_store import (
     RUNTIME_OPTIMIZED_PARAMS_PATH as STORE_RUNTIME_OPTIMIZED_PARAMS_PATH,
     SEARCH_OPTIMIZED_PARAMS_PATH as STORE_SEARCH_OPTIMIZED_PARAMS_PATH,
-    load_effective_optimized_params,
     load_execution_optimized_params,
-    load_runtime_optimized_params,
-    load_search_optimized_params,
 )
 from services.paper_runtime_store import (
     append_account_snapshot,
@@ -64,8 +61,6 @@ from services.execution_lifecycle import build_execution_events, normalize_execu
 from services.order_decision_service import summarize_order_decision
 from services.trade_workflow import (
     build_workflow_summary,
-    derive_order_workflow,
-    derive_signal_workflow,
     enrich_order_payload,
     enrich_signal_payload,
 )

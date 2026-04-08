@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from services.execution_service import _default_auto_trader_config, get_execution_service
+from services.execution_service import get_execution_service
 
 
 def _parse_limit(query: dict[str, list[str]], default: int, minimum: int = 1, maximum: int = 500) -> int:

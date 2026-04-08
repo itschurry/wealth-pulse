@@ -167,17 +167,6 @@ def _search_catalog(query: str, limit: int = 10) -> list[dict]:
     return [item[1] for item in ordered[:max(1, limit)]]
 
 
-def _paper_fx_rate() -> float | None:
-    try:
-        if _cache._market_cache["data"] is not None:
-            usd_krw = _cache._market_cache["data"].get("usd_krw")
-            if isinstance(usd_krw, (int, float)) and usd_krw > 0:
-                return float(usd_krw)
-        value = _usd_krw()
-        return float(value) if value and value > 0 else None
-    except Exception:
-        return None
-
 
 def _resolve_stock_quote(code: str, market: str = "") -> dict:
     normalized_input = code.split(".")[0].strip().upper()

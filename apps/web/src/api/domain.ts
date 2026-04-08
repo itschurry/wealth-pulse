@@ -5,7 +5,6 @@ import type {
   LiveMarketResponse,
   MacroLatestResponse,
   MarketContextResponse,
-  OperationsReportResponse,
   PerformanceSummaryResponse,
   PortfolioStateResponse,
   QuantOpsActionResponse,
@@ -23,7 +22,6 @@ import type {
   StrategiesMetadataResponse,
   TodayPicksResponse,
   UniverseResponse,
-  ValidationDiagnosticsResponse,
   ValidationResponse,
   WatchlistActionsResponse,
   WatchlistItem,
@@ -110,10 +108,6 @@ export function fetchPerformanceSummary() {
   return getJSON<PerformanceSummaryResponse>('/api/performance/summary', { noStore: true });
 }
 
-export function fetchOperationsReport(limit = 500) {
-  return getJSON<OperationsReportResponse>(`/api/reports/operations?limit=${encodeURIComponent(String(limit))}`, { noStore: true });
-}
-
 export function toggleStrategyEnabled(strategyId: string, enabled: boolean) {
   return postJSON<StrategiesResponse>('/api/strategies/toggle', { strategy_id: strategyId, enabled });
 }
@@ -177,10 +171,6 @@ export function fetchValidationWalkForwardWithOptions(
   if (options?.refresh) params.set('refresh', '1');
   const queryString = params.toString();
   return getJSON<ValidationResponse>(`/api/validation/walk-forward${queryString ? `?${queryString}` : ''}`, { noStore: true });
-}
-
-export function fetchValidationDiagnostics(query?: BacktestQuery, settings?: ValidationSettings) {
-  return getJSON<ValidationDiagnosticsResponse>(`/api/validation/diagnostics${buildValidationQueryString(query, settings)}`, { noStore: true });
 }
 
 export function fetchValidationSettings() {
