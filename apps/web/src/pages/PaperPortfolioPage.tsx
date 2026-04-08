@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { SymbolIdentity } from '../components/SymbolIdentity';
 import { getRiskGuardState, isRiskEntryAllowed } from '../adapters/consoleViewAdapter';
@@ -77,6 +77,7 @@ function readSettingsSavedAt(): string {
 }
 
 function toNumber(value: unknown, fallback = 0): number {
+  if (value === null || value === undefined) return fallback;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
 }
@@ -349,11 +350,18 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const positions = account.positions || [];
   const riskGuardState = getRiskGuardState(snapshot);
   const riskGuardAllowed = isRiskEntryAllowed(snapshot);
-  const orders = [...(account.orders || [])].sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
-  const mergedOrderHistory = orderEvents
-    .slice(0, 80)
-    .sort((a, b) => String((b as { timestamp?: string; ts?: string }).timestamp || (b as { ts?: string }).ts || '')
-      .localeCompare(String((a as { timestamp?: string; ts?: string }).timestamp || (a as { ts?: string }).ts || '')));
+  const deferredWorkflowSearch = useDeferredValue(workflowSearch);
+  const orders = useMemo(
+    () => [...(account.orders || [])].sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || ''))),
+    [account.orders],
+  );
+  const mergedOrderHistory = useMemo(
+    () => orderEvents
+      .slice(0, 80)
+      .sort((a, b) => String((b as { timestamp?: string; ts?: string }).timestamp || (b as { ts?: string }).ts || '')
+        .localeCompare(String((a as { timestamp?: string; ts?: string }).timestamp || (a as { ts?: string }).ts || ''))),
+    [orderEvents],
+  );
   const currentHannaState = useMemo<HannaState>(() => {
     const states = (snapshot.signals.signals || []).map((signal) => resolveHannaStateWithProvider(
       signal.research_status,
@@ -557,7 +565,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       }));
   }, [workflowBlockedItems]);
   const visibleWorkflowItems = useMemo(() => {
-    const keyword = workflowSearch.trim().toLowerCase();
+    const keyword = deferredWorkflowSearch.trim().toLowerCase();
     const filtered = workflowItems.filter((item) => {
       if (workflowTab !== 'all' && workflowStageBucket(item.workflow_stage) !== workflowTab) return false;
       if (workflowOnlyBlocked) {
@@ -571,7 +579,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         .includes(keyword);
     });
     return filtered.slice(0, 16);
-  }, [workflowItems, workflowOnlyBlocked, workflowSearch, workflowTab]);
+  }, [deferredWorkflowSearch, workflowItems, workflowOnlyBlocked, workflowTab]);
 
   const vm = useMemo<PaperViewModel>(() => {
     const unrealized = positions.reduce((sum, item) => sum + toNumber(item.unrealized_pnl_krw), 0);
@@ -585,9 +593,20 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     };
   }, [account.cash_krw, account.cash_usd, account.equity_krw, account.realized_pnl_krw, positions]);
 
-  const todayOrders = orders.filter((order) => isToday(order.ts));
-  const todayBuyCount = todayOrders.filter((order) => order.side === 'buy').length;
-  const todaySellCount = todayOrders.filter((order) => order.side === 'sell').length;
+  const todayOrderStats = useMemo(() => {
+    const todayOrders = orders.filter((order) => isToday(order.ts));
+    let todayBuyCount = 0;
+    let todaySellCount = 0;
+    for (const order of todayOrders) {
+      if (order.side === 'buy') {
+        todayBuyCount += 1;
+      } else if (order.side === 'sell') {
+        todaySellCount += 1;
+      }
+    }
+    return { todayOrders, todayBuyCount, todaySellCount };
+  }, [orders]);
+  const { todayOrders, todayBuyCount, todaySellCount } = todayOrderStats;
   const settingsDirty = useMemo(() => JSON.stringify(settings) !== JSON.stringify(savedSettings), [savedSettings, settings]);
 
   const statusItems = useMemo<ActionBarStatusItem[]>(() => ([
