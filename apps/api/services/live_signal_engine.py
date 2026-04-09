@@ -291,7 +291,10 @@ def scan_strategy(
                 "slippage_bps": None,
             },
             "size_recommendation": {"quantity": 0, "reason": "signal_only"},
-            "risk_inputs": {"stop_loss_pct": profile.stop_loss_pct or 5.0},
+            "risk_inputs": {
+                "stop_loss_pct": profile.stop_loss_pct or 5.0,
+                **({"take_profit_pct": float(profile.take_profit_pct)} if getattr(profile, "take_profit_pct", None) is not None else {}),
+            },
             "risk_check": {"passed": signal_state != "entry", "reason_code": "ok", "message": "scan_only", "checks": []},
             "entry_allowed": signal_state != "entry",
             "risk_guard_state": base_risk_state,

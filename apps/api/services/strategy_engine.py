@@ -196,9 +196,17 @@ def _risk_inputs_for_candidate(candidate: dict[str, Any], optimized_payload: dic
     if stop_loss_pct in (None, ""):
         stop_loss_pct = cfg.get("stop_loss_pct", 5.0)
 
-    return {
-        "stop_loss_pct": _to_float(stop_loss_pct, 5.0),
-    }
+    take_profit_pct = overlay.get("take_profit_pct") if isinstance(overlay, dict) else None
+    if take_profit_pct in (None, ""):
+        take_profit_pct = candidate.get("take_profit_pct")
+    if take_profit_pct in (None, ""):
+        take_profit_pct = cfg.get("take_profit_pct")
+
+    result = {"stop_loss_pct": _to_float(stop_loss_pct, 5.0)}
+    tp = _to_float(take_profit_pct)
+    if tp is not None:
+        result["take_profit_pct"] = tp
+    return result
 
 
 def _build_signal_from_candidate(

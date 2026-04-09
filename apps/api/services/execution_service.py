@@ -1053,6 +1053,7 @@ def _auto_invest_picks(
         risk_inputs = item.get("risk_inputs") if isinstance(
             item.get("risk_inputs"), dict) else {}
         stop_loss_pct = risk_inputs.get("stop_loss_pct")
+        take_profit_pct = risk_inputs.get("take_profit_pct")
 
         order_result = engine.place_order(
             side="buy",
@@ -1062,7 +1063,7 @@ def _auto_invest_picks(
             order_type="market",
             limit_price=None,
             stop_loss_pct=stop_loss_pct,
-            take_profit_pct=None,
+            take_profit_pct=take_profit_pct,
         )
         if not order_result.get("ok"):
             skipped.append(
@@ -1440,6 +1441,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             risk_inputs = candidate.get("risk_inputs") if isinstance(
                 candidate.get("risk_inputs"), dict) else {}
             stop_loss_pct = risk_inputs.get("stop_loss_pct")
+            take_profit_pct = risk_inputs.get("take_profit_pct")
 
             result = engine.place_order(
                 side="buy",
@@ -1448,7 +1450,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 quantity=quantity,
                 order_type="market",
                 stop_loss_pct=stop_loss_pct,
-                take_profit_pct=None,
+                take_profit_pct=take_profit_pct,
             )
             if result.get("ok"):
                 buy_count += 1
