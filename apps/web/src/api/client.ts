@@ -62,8 +62,23 @@ function withDefaults(options: RequestOptions = {}): RequestInit {
   };
 }
 
+const FETCH_TIMEOUT_MS = 20_000;
+
+function withTimeout(signal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const cleanup = () => window.clearTimeout(timer);
+
+  if (signal) {
+    signal.addEventListener('abort', () => controller.abort());
+  }
+
+  return { signal: controller.signal, cleanup };
+}
+
 export async function getJSON<T>(url: string, options: RequestOptions = {}): Promise<T> {
-  const res = await fetch(resolveApiUrl(url), withDefaults({ ...options, method: 'GET' }));
+  const { signal, cleanup } = withTimeout(options.signal as AbortSignal | undefined);
+  const res = await fetch(resolveApiUrl(url), withDefaults({ ...options, method: 'GET', signal })).finally(cleanup);
   const payload = (await res.json()) as T | ApiEnvelope<T>;
   if (isApiEnvelope<T>(payload)) {
     if (payload.error) return normalizeErrorPayload<T>(payload.error);
