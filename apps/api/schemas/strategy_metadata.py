@@ -178,7 +178,7 @@ _RISK_ADJUSTMENTS = {
 
 _STRATEGY_FIELDS = {
     "trend_following": [
-        {"name": "volume_ratio_min", "label": "거래량 비율 최소", "type": "number", "min": 0.5, "max": 3.0, "step": 0.05},
+        {"name": "volume_ratio_min", "label": "거래량 비율 최소", "type": "number", "min": 0.2, "max": 3.0, "step": 0.05},
         {"name": "adx_min", "label": "ADX 최소", "type": "number", "min": 5.0, "max": 40.0, "step": 0.5},
         {"name": "rsi_min", "label": "RSI 하한", "type": "number", "min": 10.0, "max": 60.0, "step": 1},
         {"name": "rsi_max", "label": "RSI 상한", "type": "number", "min": 50.0, "max": 90.0, "step": 1},
@@ -194,7 +194,7 @@ _STRATEGY_FIELDS = {
         {"name": "stop_loss_pct", "label": "손절", "type": "number", "min": 1.0, "max": 12.0, "step": 0.5},
     ],
     "defensive": [
-        {"name": "volume_ratio_min", "label": "거래량 비율 최소", "type": "number", "min": 0.5, "max": 3.0, "step": 0.05},
+        {"name": "volume_ratio_min", "label": "거래량 비율 최소", "type": "number", "min": 0.2, "max": 3.0, "step": 0.05},
         {"name": "trade_suppression_threshold", "label": "리스크 차단선", "type": "number", "min": 1.0, "max": 10.0, "step": 0.1},
         {"name": "stop_loss_pct", "label": "손절", "type": "number", "min": 1.0, "max": 10.0, "step": 0.5},
         {"name": "take_profit_pct", "label": "익절", "type": "number", "min": 2.0, "max": 15.0, "step": 0.5},

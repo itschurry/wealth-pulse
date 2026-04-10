@@ -97,7 +97,7 @@ def normalize_strategy_profile(profile: StrategyProfile) -> StrategyProfile:
         max_holding_days=max(1, min(180, int(profile.max_holding_days))),
         rsi_min=rsi_min,
         rsi_max=rsi_max,
-        volume_ratio_min=max(0.5, min(5.0, float(profile.volume_ratio_min))),
+        volume_ratio_min=max(0.2, min(5.0, float(profile.volume_ratio_min))),
         stop_loss_pct=stop_loss,
         take_profit_pct=take_profit,
         signal_interval=_normalize_signal_interval(profile.signal_interval),

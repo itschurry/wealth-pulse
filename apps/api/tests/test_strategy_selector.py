@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analyzer.shared_strategy import build_strategy_profile
+from analyzer.shared_strategy import should_enter_from_snapshot
 from routes.strategies import handle_strategy_metadata
 from services.strategy_selector import resolve_strategy
 
@@ -43,6 +44,45 @@ class StrategySelectorTests(unittest.TestCase):
 
         self.assertEqual("bear", selection["regime"])
         self.assertEqual("defensive", selection["strategy_kind"])
+
+    def test_manual_mode_preserves_custom_entry_thresholds(self):
+        profile = build_strategy_profile(
+            "NASDAQ",
+            strategy_kind="trend_following",
+            regime_mode="manual",
+            risk_profile="aggressive",
+            volume_ratio_min=0.35,
+            adx_min=12.0,
+            bb_pct_max=1.0,
+            stoch_k_max=99.0,
+            stop_loss_pct=4.0,
+            take_profit_pct=8.0,
+        )
+        snapshot = {
+            "close": 1574.45,
+            "current_price": 1574.45,
+            "trade_price": 1574.45,
+            "sma20": 1416.22,
+            "sma60": 1318.37,
+            "volume_ratio": 0.91,
+            "rsi14": 64.3,
+            "macd": 36.787,
+            "macd_signal": 24.795,
+            "macd_hist": 11.993,
+            "adx14": 17.7,
+            "mfi14": 62.1,
+            "bb_pct": 1.0,
+            "stoch_k": 92.1,
+        }
+
+        selection = resolve_strategy(profile, snapshot)
+
+        self.assertEqual("trend_following", selection["strategy_kind"])
+        self.assertEqual(0.35, selection["profile"].volume_ratio_min)
+        self.assertEqual(12.0, selection["profile"].adx_min)
+        self.assertEqual(1.0, selection["profile"].bb_pct_max)
+        self.assertEqual(99.0, selection["profile"].stoch_k_max)
+        self.assertTrue(should_enter_from_snapshot(snapshot, profile))
 
     def test_strategy_metadata_endpoint_exposes_three_strategies(self):
         status, payload = handle_strategy_metadata()
