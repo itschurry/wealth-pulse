@@ -1011,6 +1011,42 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual("runtime", apply_result["workflow"]["runtime_apply"]["effective_source"])
         self.assertTrue(self.runtime_store["payload"])
 
+    def test_apply_runtime_returns_failure_when_engine_apply_fails(self):
+        execution_stub = types.ModuleType("services.execution_service")
+        execution_stub.apply_quant_candidate_runtime_config = lambda candidate: {
+            "ok": False,
+            "error": "engine_sync_failed",
+            "state": {
+                "engine_state": "stopped",
+                "next_run_at": None,
+                "config": {},
+            },
+        }
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", side_effect=lambda: self.runtime_store.get("payload") or None), \
+             patch.object(svc, "write_runtime_optimized_params", side_effect=self._runtime_writer), \
+             patch.object(svc, "clear_runtime_optimized_params", side_effect=lambda: self.runtime_store.pop("payload", None)), \
+             patch.object(svc, "run_validation_diagnostics", return_value=_adopt_diagnostics()), \
+             patch.dict(sys.modules, {"services.execution_service": execution_stub}):
+            svc.revalidate_optimizer_candidate({
+                "query": {"market_scope": "kospi", "lookback_days": 365},
+                "settings": {"strategy": "운영 전략", "minTrades": 8},
+            })
+            save_result = svc.save_validated_candidate({"note": "operator 승인"})
+            apply_result = svc.apply_saved_candidate_to_runtime({})
+
+        self.assertTrue(save_result["ok"])
+        self.assertFalse(apply_result["ok"])
+        self.assertEqual("engine_apply_failed", apply_result["error"])
+        self.assertIsNone(self.runtime_store.get("payload"))
+        persisted = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual("failed", persisted["runtime_apply"]["status"])
+        self.assertEqual("engine_sync_failed", persisted["runtime_apply"]["error"])
+        self.assertEqual("failed", apply_result["workflow"]["runtime_apply"]["status"])
+        self.assertIn("engine_apply_failed", apply_result["workflow"]["runtime_apply"]["reasons"])
+
     def test_policy_override_can_promote_candidate_to_full_adopt(self):
         custom_policy = {
             "policy": {

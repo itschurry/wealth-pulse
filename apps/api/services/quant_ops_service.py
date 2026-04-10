@@ -19,6 +19,7 @@ from services.backtest_params_store import (
 from services.optimized_params_store import (
     RUNTIME_OPTIMIZED_PARAMS_PATH,
     SEARCH_OPTIMIZED_PARAMS_PATH,
+    clear_runtime_optimized_params,
     load_runtime_optimized_params,
     load_search_optimized_params,
     write_runtime_optimized_params,
@@ -553,11 +554,12 @@ def _candidate_activity_state(
 
 def _canonicalize_runtime_summary(runtime_payload: dict[str, Any], saved_candidate: dict[str, Any] | None) -> dict[str, Any]:
     summary = copy.deepcopy(runtime_payload)
-    reasons: list[str] = []
+    reasons: list[str] = list(summary.get("reasons") or [])
     if not summary.get("available"):
-        summary["status"] = "missing"
+        status = str(summary.get("status") or "missing")
+        summary["status"] = status
         summary["active"] = False
-        summary["reasons"] = []
+        summary["reasons"] = reasons if status == "failed" else []
         return summary
 
     if isinstance(saved_candidate, dict):
@@ -974,9 +976,10 @@ def _runtime_summary(runtime_payload: dict[str, Any] | None, state_runtime: dict
     runtime_payload = runtime_payload or {}
     state_runtime = state_runtime if isinstance(state_runtime, dict) else {}
     meta = runtime_payload.get("meta") if isinstance(runtime_payload.get("meta"), dict) else {}
+    failed_without_payload = (not runtime_payload) and str(state_runtime.get("status") or "") == "failed"
     return {
         "available": bool(runtime_payload),
-        "status": "applied" if runtime_payload else "missing",
+        "status": "failed" if failed_without_payload else ("applied" if runtime_payload else "missing"),
         "runtime_candidate_source_mode": normalize_runtime_candidate_source_mode(
             runtime_payload.get("runtime_candidate_source_mode") or meta.get("runtime_candidate_source_mode") or "runtime_candidates"
         ),
@@ -989,6 +992,8 @@ def _runtime_summary(runtime_payload: dict[str, Any] | None, state_runtime: dict
         "source": str(RUNTIME_OPTIMIZED_PARAMS_PATH),
         "engine_state": state_runtime.get("engine_state"),
         "next_run_at": state_runtime.get("next_run_at"),
+        "error": str(state_runtime.get("error") or "") if failed_without_payload else "",
+        "reasons": list(state_runtime.get("reasons") or []) if failed_without_payload else [],
     }
 
 
@@ -1564,6 +1569,7 @@ def apply_saved_candidate_to_runtime(payload: dict[str, Any]) -> dict[str, Any]:
             "workflow": get_quant_ops_workflow(),
         }
 
+    previous_runtime_payload = load_runtime_optimized_params()
     search_payload = load_search_optimized_params()
     runtime_payload = _build_runtime_payload(saved_candidate, search_payload)
     write_runtime_optimized_params(runtime_payload)
@@ -1585,6 +1591,28 @@ def apply_saved_candidate_to_runtime(payload: dict[str, Any]) -> dict[str, Any]:
         "applied_symbol_count": 0,
         "skipped_symbols": {},
     }
+
+    if not bool(engine_state_payload.get("ok")):
+        if previous_runtime_payload:
+            write_runtime_optimized_params(previous_runtime_payload)
+        else:
+            clear_runtime_optimized_params()
+        runtime_apply.update({
+            "status": "failed",
+            "error": str(engine_state_payload.get("error") or "engine_apply_failed"),
+            "reasons": ["engine_apply_failed"],
+        })
+        state["runtime_apply"] = runtime_apply
+        _save_state(state)
+        return {
+            "ok": False,
+            "error": "engine_apply_failed",
+            "candidate": saved_candidate,
+            "runtime_apply": runtime_apply,
+            "engine": engine_state_payload,
+            "workflow": get_quant_ops_workflow(),
+        }
+
     saved_candidate = {
         **saved_candidate,
         "applied_at": runtime_payload.get("applied_at"),

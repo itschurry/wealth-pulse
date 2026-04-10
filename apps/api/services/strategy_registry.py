@@ -54,6 +54,23 @@ def _normalize_status(value: Any, *, fallback: str = "draft") -> str:
     return fallback
 
 
+def _to_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    raw = str(value).strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 def _risk_limits(market: str, *, max_positions: int, position_size_pct: float, daily_loss_limit_pct: float) -> dict[str, Any]:
     return {
         "max_positions": int(max_positions),
@@ -171,7 +188,7 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("strategy_id is required")
 
     market = _normalize_market(payload.get("market"))
-    enabled = bool(payload.get("enabled", False))
+    enabled = _to_bool(payload.get("enabled"), False)
 
     # status is independent from enabled — engine reads enabled, status is operator label
     # also migrate legacy approval_status field
@@ -334,7 +351,7 @@ def summarize_registry() -> dict[str, Any]:
     for item in strategies:
         st = str(item.get("status") or "draft")
         counts[st] = counts.get(st, 0) + 1
-        if bool(item.get("enabled")):
+        if _to_bool(item.get("enabled"), False):
             enabled_count += 1
     return {
         "total": len(strategies),

@@ -36,6 +36,20 @@ class LiveRuntimeArchitectureTests(unittest.TestCase):
                 "version": 1,
                 "research_summary": {},
                 "updated_at": "2026-04-03T00:00:00+00:00",
+            },
+            {
+                "strategy_id": "legacy_disabled",
+                "name": "Legacy Disabled",
+                "enabled": "false",
+                "approval_status": "approved",
+                "market": "KOSPI",
+                "universe_rule": "kospi",
+                "scan_cycle": "5m",
+                "params": {},
+                "risk_limits": {},
+                "version": 1,
+                "research_summary": {},
+                "updated_at": "2026-04-03T00:00:00+00:00",
             }
         ], ensure_ascii=False), encoding="utf-8")
         registry_svc.STRATEGY_REGISTRY_PATH = self._tmp_registry
@@ -50,13 +64,21 @@ class LiveRuntimeArchitectureTests(unittest.TestCase):
         except Exception:
             pass
 
-    def test_strategy_registry_live_only_returns_enabled_approved(self):
+    def test_strategy_registry_live_only_returns_enabled_rows(self):
         rows = registry_svc.list_strategies(live_only=True)
         self.assertGreaterEqual(len(rows), 1)
         self.assertTrue(all(item.get("enabled") for item in rows))
-        self.assertTrue(all(item.get("approval_status") == "approved" for item in rows))
+        self.assertNotIn("legacy_disabled", [item.get("strategy_id") for item in rows])
 
-    def test_enabling_draft_strategy_auto_derives_approved_status(self):
+    def test_strategy_registry_normalizes_false_string_enabled(self):
+        disabled = registry_svc.get_strategy("legacy_disabled")
+        summary = registry_svc.summarize_registry()
+
+        self.assertIsNotNone(disabled)
+        self.assertFalse(disabled["enabled"])
+        self.assertEqual(1, summary["enabled"])
+
+    def test_enabling_draft_strategy_keeps_operator_status(self):
         registry_svc.save_strategy({
             "strategy_id": "draft_strategy",
             "name": "Draft Strategy",
@@ -72,7 +94,7 @@ class LiveRuntimeArchitectureTests(unittest.TestCase):
         saved = registry_svc.set_strategy_enabled("draft_strategy", True)
 
         self.assertTrue(saved["enabled"])
-        self.assertEqual("approved", saved["approval_status"])
+        self.assertEqual("draft", saved["status"])
 
     def test_universe_builder_returns_rule_snapshot(self):
         snapshot = universe_svc.get_universe_snapshot("kospi", market="KOSPI", refresh=True)

@@ -98,6 +98,18 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
   const engineRequestIdRef = useRef(0);
   const runtimeLogsRequestIdRef = useRef(0);
 
+  const invalidateAccountRequests = useCallback(() => {
+    accountRequestIdRef.current += 1;
+  }, []);
+
+  const invalidateEngineRequests = useCallback(() => {
+    engineRequestIdRef.current += 1;
+  }, []);
+
+  const invalidateRuntimeLogRequests = useCallback(() => {
+    runtimeLogsRequestIdRef.current += 1;
+  }, []);
+
   const refresh = useCallback(async (refreshQuotes = true) => {
     const requestId = accountRequestIdRef.current + 1;
     accountRequestIdRef.current = requestId;
@@ -130,6 +142,8 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     stop_loss_pct?: number | null;
     take_profit_pct?: number | null;
   }) => {
+    invalidateAccountRequests();
+    invalidateRuntimeLogRequests();
     try {
       const response = await postJSON<PaperOrderResponse>('/api/paper/order', params);
       const payload = response.data;
@@ -147,7 +161,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
       setLastError(message);
       return { ok: false, error: message };
     }
-  }, []);
+  }, [invalidateAccountRequests, invalidateRuntimeLogRequests]);
 
   const reset = useCallback(async (params?: {
     initial_cash_krw?: number;
@@ -155,6 +169,9 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     paper_days?: number;
     seed_positions?: PaperSeedPositionInput[];
   }) => {
+    invalidateAccountRequests();
+    invalidateEngineRequests();
+    invalidateRuntimeLogRequests();
     try {
       const response = await postJSON<PaperOrderResponse>('/api/paper/reset', params || {});
       const payload = response.data;
@@ -172,7 +189,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
       setLastError(message);
       return { ok: false, error: message };
     }
-  }, []);
+  }, [invalidateAccountRequests, invalidateEngineRequests, invalidateRuntimeLogRequests]);
 
   const autoInvest = useCallback(async (params?: {
     market?: 'KOSPI' | 'NASDAQ';
@@ -185,6 +202,8 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     theme_priority_bonus?: number;
     theme_focus?: Array<'automotive' | 'robotics' | 'physical_ai'>;
   }) => {
+    invalidateAccountRequests();
+    invalidateRuntimeLogRequests();
     try {
       const response = await postJSON<PaperAutoInvestResponse>('/api/paper/auto-invest', params || {});
       const payload = response.data;
@@ -202,7 +221,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
       setLastError(message);
       return { ok: false, error: message };
     }
-  }, []);
+  }, [invalidateAccountRequests, invalidateRuntimeLogRequests]);
 
   const refreshEngineStatus = useCallback(async () => {
     const requestId = engineRequestIdRef.current + 1;
@@ -277,6 +296,9 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     initial_cash_usd?: number;
     paper_days?: number;
   } = { clear_all: true }) => {
+    invalidateAccountRequests();
+    invalidateEngineRequests();
+    invalidateRuntimeLogRequests();
     try {
       const response = await postJSON<PaperHistoryClearResponse>('/api/paper/history/clear', payload);
       const payloadData = response.data;
@@ -297,7 +319,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
       setLastError(message);
       return { ok: false, error: message };
     }
-  }, []);
+  }, [invalidateAccountRequests, invalidateEngineRequests, invalidateRuntimeLogRequests]);
 
   const clearRuntimeLogs = useCallback(() => {
     setCycles([]);
@@ -308,6 +330,8 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
   }, []);
 
   const startEngine = useCallback(async (params?: Partial<PaperEngineConfig>) => {
+    invalidateEngineRequests();
+    invalidateRuntimeLogRequests();
     try {
       const response = await postJSON<PaperEngineResponse>('/api/paper/engine/start', params || {});
       const payload = response.data;
@@ -326,9 +350,11 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
       setLastError(message);
       return { ok: false, error: message };
     }
-  }, []);
+  }, [invalidateEngineRequests, invalidateRuntimeLogRequests]);
 
   const stopEngine = useCallback(async () => {
+    invalidateEngineRequests();
+    invalidateRuntimeLogRequests();
     try {
       const response = await postJSON<PaperEngineResponse>('/api/paper/engine/stop');
       const payload = response.data;
@@ -349,9 +375,11 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
       setLastError(message);
       return { ok: false, error: message };
     }
-  }, []);
+  }, [invalidateEngineRequests, invalidateRuntimeLogRequests]);
 
   const pauseEngine = useCallback(async () => {
+    invalidateEngineRequests();
+    invalidateRuntimeLogRequests();
     try {
       const response = await postJSON<PaperEngineResponse>('/api/paper/engine/pause');
       const payload = response.data;
@@ -370,9 +398,11 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
       setLastError(message);
       return { ok: false, error: message };
     }
-  }, []);
+  }, [invalidateEngineRequests, invalidateRuntimeLogRequests]);
 
   const resumeEngine = useCallback(async () => {
+    invalidateEngineRequests();
+    invalidateRuntimeLogRequests();
     try {
       const response = await postJSON<PaperEngineResponse>('/api/paper/engine/resume');
       const payload = response.data;
@@ -391,7 +421,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
       setLastError(message);
       return { ok: false, error: message };
     }
-  }, []);
+  }, [invalidateEngineRequests, invalidateRuntimeLogRequests]);
 
   useEffect(() => {
     refresh(true);

@@ -132,6 +132,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
   }, []);
 
   const handleAddItem = useCallback((result: StockSearchResult) => {
+    analysisRequestIdRef.current += 1;
     setItems((prev) => {
       if (prev.some((item) => item.code === result.code && item.market === result.market)) return prev;
       return [...prev, { code: result.code, name: result.name, market: result.market }];
@@ -144,11 +145,13 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
   }, [push]);
 
   const handleRemove = useCallback((code: string, market: string) => {
+    analysisRequestIdRef.current += 1;
     setItems((prev) => prev.filter((item) => !(item.code === code && item.market === market)));
     clearAnalysisState(setActionItems, setActions, setActionsGeneratedAt);
   }, []);
 
   const handleSave = useCallback(async () => {
+    analysisRequestIdRef.current += 1;
     setSaveLoading(true);
     try {
       const response = await saveWatchlist(items);

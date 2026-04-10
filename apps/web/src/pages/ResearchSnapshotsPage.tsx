@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchResearchSnapshotLatest, fetchResearchSnapshots } from '../api/domain';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { SymbolIdentity } from '../components/SymbolIdentity';
@@ -96,6 +96,7 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
   const [queryLoading, setQueryLoading] = useState(false);
   const [recentLoading, setRecentLoading] = useState(false);
   const [queried, setQueried] = useState(false);
+  const queryRequestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +127,8 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
       push('warning', '종목 코드를 입력하세요', undefined, 'research');
       return;
     }
+    const requestId = queryRequestIdRef.current + 1;
+    queryRequestIdRef.current = requestId;
     setQueryLoading(true);
     setQueried(false);
     setLatestSnapshot(null);
@@ -137,6 +140,7 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
         fetchResearchSnapshotLatest({ symbol: normalizedSymbol, market: targetMarket }),
         fetchResearchSnapshots({ symbol: normalizedSymbol, market: targetMarket, limit: 50, descending: true }),
       ]);
+      if (queryRequestIdRef.current !== requestId) return;
 
       const latestPayload = latestRes.status === 'fulfilled' ? latestRes.value : null;
       const historyPayload = histRes.status === 'fulfilled' ? histRes.value : null;
@@ -158,9 +162,12 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
         setQueried(true);
       }
     } catch {
+      if (queryRequestIdRef.current !== requestId) return;
       push('error', '조회 실패', undefined, 'research');
     } finally {
-      setQueryLoading(false);
+      if (queryRequestIdRef.current === requestId) {
+        setQueryLoading(false);
+      }
     }
   }, [push]);
 
