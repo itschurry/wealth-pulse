@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchEngineStatus,
   fetchHannaBrief,
@@ -196,6 +196,57 @@ export function useConsoleData(route: ConsoleDataRoute) {
     () => resolveDataProfile(route),
     [route.dashboardTab, route.labTab, route.page, route.researchTab],
   );
+  const routeKey = useMemo(
+    () => [route.page, route.dashboardTab, route.labTab, route.researchTab].join('::'),
+    [route.dashboardTab, route.labTab, route.page, route.researchTab],
+  );
+  const routeVersionRef = useRef(0);
+  const requestVersionRef = useRef<Record<SnapshotKey, number>>({
+    engine: 0,
+    signals: 0,
+    strategies: 0,
+    scanner: 0,
+    universe: 0,
+    performance: 0,
+    portfolio: 0,
+    research: 0,
+    validation: 0,
+    reports: 0,
+    liveMarket: 0,
+    marketContext: 0,
+    todayPicks: 0,
+    recommendations: 0,
+    macro: 0,
+    hannaBrief: 0,
+  });
+
+  useEffect(() => {
+    routeVersionRef.current += 1;
+    requestVersionRef.current = {
+      engine: 0,
+      signals: 0,
+      strategies: 0,
+      scanner: 0,
+      universe: 0,
+      performance: 0,
+      portfolio: 0,
+      research: 0,
+      validation: 0,
+      reports: 0,
+      liveMarket: 0,
+      marketContext: 0,
+      todayPicks: 0,
+      recommendations: 0,
+      macro: 0,
+      hannaBrief: 0,
+    };
+    setState({
+      snapshot: emptySnapshot(),
+      loading: true,
+      hasError: false,
+      errorMessage: '',
+    });
+  }, [routeKey]);
 
   const patchSnapshot = useCallback((partial: Partial<ConsoleSnapshot>, hasError: boolean) => {
     setState((prev) => ({
@@ -210,8 +261,23 @@ export function useConsoleData(route: ConsoleDataRoute) {
     }));
   }, []);
 
+  const isFailedPayload = useCallback((value: unknown) => {
+    if (!value || typeof value !== 'object') return false;
+    const candidate = value as { ok?: boolean };
+    return candidate.ok === false;
+  }, []);
+
   const fetchPartition = useCallback(async (targets: SnapshotKey[], scannerRefresh = false, scannerCacheOnly = false) => {
     if (targets.length === 0) return;
+
+    const routeVersion = routeVersionRef.current;
+    const targetVersions = Object.fromEntries(
+      targets.map((key) => {
+        const nextVersion = (requestVersionRef.current[key] || 0) + 1;
+        requestVersionRef.current[key] = nextVersion;
+        return [key, nextVersion];
+      }),
+    ) as Record<SnapshotKey, number>;
 
     const tasks = targets.map((key) => {
       if (key === 'engine') return fetchEngineStatus();
@@ -238,14 +304,28 @@ export function useConsoleData(route: ConsoleDataRoute) {
 
     results.forEach((result, idx) => {
       const key = targets[idx];
+      const isStale = routeVersionRef.current !== routeVersion || requestVersionRef.current[key] !== targetVersions[key];
+      if (isStale) {
+        return;
+      }
       if (result.status === 'fulfilled') {
+        if (isFailedPayload(result.value)) {
+          hasError = true;
+          return;
+        }
         partial[key] = result.value;
       } else {
         hasError = true;
       }
     });
+    if (routeVersionRef.current !== routeVersion) {
+      return;
+    }
+    if (Object.keys(partial).length === 0 && !hasError) {
+      return;
+    }
     patchSnapshot(partial, hasError);
-  }, [patchSnapshot, profile.signalLimit]);
+  }, [isFailedPayload, patchSnapshot, profile.signalLimit]);
 
   const refresh = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, hasError: false, errorMessage: '' }));

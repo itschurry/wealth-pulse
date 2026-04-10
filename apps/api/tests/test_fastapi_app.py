@@ -202,3 +202,18 @@ class FastApiAppTests(unittest.TestCase):
         self.assertEqual({"ok": False}, body["error"]["details"])
         self.assertEqual("quant-ops/save-candidate".replace("/", "_"), body["meta"]["source"])
         mock_dispatch.assert_called_once_with("/api/quant-ops/save-candidate", {"candidate_id": "abc"})
+
+    def test_legacy_api_post_rejects_malformed_json(self):
+        client = TestClient(app)
+
+        with patch("api_server.dispatch_post") as mock_dispatch:
+            response = client.post(
+                "/api/validation/settings/save",
+                data="{not-json",
+                headers={"Content-Type": "application/json"},
+            )
+
+        self.assertEqual(400, response.status_code)
+        body = response.json()
+        self.assertEqual("invalid_json", body["error"]["message"])
+        mock_dispatch.assert_not_called()

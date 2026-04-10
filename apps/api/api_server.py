@@ -56,9 +56,15 @@ async def legacy_post(full_path: str, request: Request) -> JSONResponse:
     try:
         body = await request.json()
     except Exception:
-        body = {}
+        return JSONResponse(
+            status_code=400,
+            content=normalize_legacy_response(path, 400, {"ok": False, "error": "invalid_json"}),
+        )
     if not isinstance(body, dict):
-        body = {}
+        return JSONResponse(
+            status_code=400,
+            content=normalize_legacy_response(path, 400, {"ok": False, "error": "json_object_required"}),
+        )
     result = await asyncio.to_thread(dispatch_post, path, body)
     if result is None:
         return JSONResponse(status_code=404, content={})

@@ -4,10 +4,27 @@ from schemas.strategy_metadata import build_strategy_metadata_payload
 from services.strategy_registry import delete_strategy, get_strategy, list_strategies, save_strategy, seed_default_strategies, set_strategy_enabled, summarize_registry
 
 
+def _to_bool(raw: object, default: bool) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if value in {"0", "false", "f", "no", "n", "off", ""}:
+            return False
+        return default
+    if raw is None:
+        return default
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    return default
+
+
 def handle_strategies_list(query: dict[str, list[str]]) -> tuple[int, dict]:
     try:
         market = (query.get("market", [""])[0] or "").strip().upper()
-        live_only = (query.get("live_only", ["0"])[0] or "0").strip() == "1"
+        live_only = _to_bool((query.get("live_only", ["0"])[0] or "0"), False)
         rows = list_strategies(live_only=live_only, market=market or None)
         return 200, {
             "ok": True,
@@ -42,7 +59,7 @@ def handle_strategy_detail(path: str) -> tuple[int, dict]:
 def handle_strategy_toggle(payload: dict) -> tuple[int, dict]:
     try:
         strategy_id = str(payload.get("strategy_id") or "").strip()
-        enabled = bool(payload.get("enabled"))
+        enabled = _to_bool(payload.get("enabled"), False)
         if not strategy_id:
             return 400, {"ok": False, "error": "strategy_id required"}
         item = set_strategy_enabled(strategy_id, enabled)

@@ -1479,6 +1479,27 @@ def _runtime_restrictions_for_candidate(candidate: dict[str, Any]) -> dict[str, 
         **copy.deepcopy(runtime_thresholds),
     }
 
+def _approved_runtime_symbol_payload(search_payload: dict[str, Any] | None, candidate: dict[str, Any], applied_at: str) -> tuple[dict[str, Any], list[str]]:
+    payload = search_payload if isinstance(search_payload, dict) else {}
+    per_symbol = payload.get("per_symbol") if isinstance(payload.get("per_symbol"), dict) else {}
+    approved: dict[str, Any] = {}
+    approved_symbols: list[str] = []
+    for raw_code, raw_item in per_symbol.items():
+        code = str(raw_code or "").strip().upper()
+        item = raw_item if isinstance(raw_item, dict) else {}
+        if not code or not bool(item.get("is_reliable")):
+            continue
+        approved[code] = {
+            **copy.deepcopy(item),
+            "approved_candidate_id": candidate.get("id"),
+            "approved_saved_at": candidate.get("saved_at") or applied_at,
+            "approved_by_quant_ops": True,
+        }
+        approved_symbols.append(code)
+    return approved, approved_symbols
+
+
+
 def _build_runtime_payload(
     candidate: dict[str, Any],
     search_payload: dict[str, Any] | None,
@@ -1490,6 +1511,7 @@ def _build_runtime_payload(
     decision = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
     runtime_restrictions = _runtime_restrictions_for_candidate(candidate)
     guardrail_policy = candidate.get("guardrail_policy") if isinstance(candidate.get("guardrail_policy"), dict) else _current_guardrail_policy()
+    approved_per_symbol, approved_symbols = _approved_runtime_symbol_payload(search_payload, candidate, applied_at)
     return {
         "optimized_at": applied_at,
         "applied_at": applied_at,
@@ -1499,7 +1521,7 @@ def _build_runtime_payload(
         "runtime_restrictions": runtime_restrictions,
         "validation_baseline": _global_runtime_validation_baseline(candidate),
         "guardrail_policy": copy.deepcopy(guardrail_policy),
-        "per_symbol": {},
+        "per_symbol": approved_per_symbol,
         "meta": {
             **meta,
             "applied_candidate_id": candidate.get("id"),
@@ -1516,8 +1538,8 @@ def _build_runtime_payload(
             "guardrail_policy_version": guardrail_policy.get("version"),
             "guardrail_policy_saved_at": guardrail_policy.get("saved_at"),
             "guardrail_policy": copy.deepcopy(guardrail_policy),
-            "approved_symbol_count": 0,
-            "approved_symbols": [],
+            "approved_symbol_count": len(approved_symbols),
+            "approved_symbols": approved_symbols,
         },
     }
 

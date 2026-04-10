@@ -395,7 +395,7 @@ function renderTodayReport(snapshot: ConsoleSnapshot) {
             {(snapshot.todayPicks.picks || []).slice(0, 6).map((pick, i) => (
               <div key={`pick-${i}`} className="operator-note-card">
                 <div className="operator-note-label">{pick.name || pick.code || '-'} {pick.code ? `(${pick.code})` : ''}</div>
-                <div className="operator-note-copy">{pick.market || '-'} · {pick.signal_label || '-'}</div>
+                <div className="operator-note-copy">{pick.market || '-'} · {pick.signal_label || pick.signal || '-'}</div>
                 {pick.expected_value != null && <div className="operator-note-copy">EV {formatNumber(pick.expected_value, 2)} · 승률 {formatPercent((pick.win_probability || 0) * 100, 1)}</div>}
               </div>
             ))}

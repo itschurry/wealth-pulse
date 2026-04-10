@@ -48,6 +48,12 @@ function actionTone(action?: string) {
   return 'inline-badge';
 }
 
+function clearAnalysisState(setActionItems: (items: WatchlistActionItem[]) => void, setActions: (actions: WatchlistAction[]) => void, setActionsGeneratedAt: (value: string) => void) {
+  setActionItems([]);
+  setActions([]);
+  setActionsGeneratedAt('');
+}
+
 export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPageProps) {
   const { entries, push, clear } = useConsoleLogs();
 
@@ -66,6 +72,8 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
   const [saveLoading, setSaveLoading] = useState(false);
 
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestIdRef = useRef(0);
+  const analysisRequestIdRef = useRef(0);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -87,7 +95,14 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+      searchRequestIdRef.current += 1;
+      analysisRequestIdRef.current += 1;
+    };
   }, []);
 
   const dirty = useMemo(() => JSON.stringify(normalizeItems(items)) !== JSON.stringify(normalizeItems(savedItems)), [items, savedItems]);
@@ -96,16 +111,21 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
     setSearchQuery(query);
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (!query.trim()) {
+      searchRequestIdRef.current += 1;
       setSearchResults([]);
       setSearchOpen(false);
       return;
     }
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
     searchDebounceRef.current = setTimeout(async () => {
       try {
         const res = await searchStocks(query);
+        if (searchRequestIdRef.current !== requestId) return;
         setSearchResults(res.results || []);
         setSearchOpen(true);
       } catch {
+        if (searchRequestIdRef.current !== requestId) return;
         setSearchResults([]);
       }
     }, 250);
@@ -116,6 +136,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
       if (prev.some((item) => item.code === result.code && item.market === result.market)) return prev;
       return [...prev, { code: result.code, name: result.name, market: result.market }];
     });
+    clearAnalysisState(setActionItems, setActions, setActionsGeneratedAt);
     setSearchQuery('');
     setSearchResults([]);
     setSearchOpen(false);
@@ -124,13 +145,18 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
 
   const handleRemove = useCallback((code: string, market: string) => {
     setItems((prev) => prev.filter((item) => !(item.code === code && item.market === market)));
+    clearAnalysisState(setActionItems, setActions, setActionsGeneratedAt);
   }, []);
 
   const handleSave = useCallback(async () => {
     setSaveLoading(true);
     try {
-      await saveWatchlist(items);
+      const response = await saveWatchlist(items);
+      if (!response.ok || response.data?.ok === false) {
+        throw new Error(response.data?.error || response.error?.message || '저장 실패');
+      }
       setSavedItems(items);
+      clearAnalysisState(setActionItems, setActions, setActionsGeneratedAt);
       push('success', '관심 종목 저장 완료', undefined, 'watchlist');
     } catch {
       push('error', '저장 실패', undefined, 'watchlist');
@@ -144,17 +170,26 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
       push('warning', '관심 종목이 없습니다', undefined, 'watchlist');
       return;
     }
+    const requestId = analysisRequestIdRef.current + 1;
+    analysisRequestIdRef.current = requestId;
     setActionLoading(true);
     try {
       const res = await fetchWatchlistActions(items);
+      if (analysisRequestIdRef.current !== requestId) return;
+      if (!res.ok || res.data?.error) {
+        throw new Error(res.data?.error || res.error?.message || '분석 실패');
+      }
       setActionItems(res.data.items || []);
       setActions(res.data.actions || []);
       setActionsGeneratedAt(new Date().toISOString());
       push('success', `분석 완료 · ${(res.data.actions || []).length}개 액션`, undefined, 'watchlist');
     } catch {
+      if (analysisRequestIdRef.current !== requestId) return;
       push('error', '분석 실패', undefined, 'watchlist');
     } finally {
-      setActionLoading(false);
+      if (analysisRequestIdRef.current === requestId) {
+        setActionLoading(false);
+      }
     }
   }, [items, push]);
 

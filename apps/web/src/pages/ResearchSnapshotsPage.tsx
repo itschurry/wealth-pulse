@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchResearchSnapshotLatest, fetchResearchSnapshots } from '../api/domain';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { SymbolIdentity } from '../components/SymbolIdentity';
@@ -103,8 +103,10 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
       setRecentLoading(true);
       try {
         const response = await fetchResearchSnapshots({ limit: 30, descending: true });
-        if (!cancelled && Array.isArray(response?.snapshots)) {
+        if (!cancelled && response?.ok !== false && Array.isArray(response?.snapshots)) {
           setRecentSnapshots(response.snapshots);
+        } else if (!cancelled) {
+          setRecentSnapshots([]);
         }
       } catch {
         if (!cancelled) setRecentSnapshots([]);
@@ -118,8 +120,9 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
     };
   }, []);
 
-  const handleQuery = async () => {
-    if (!symbol.trim()) {
+  const runQuery = useCallback(async (targetSymbol: string, targetMarket: string) => {
+    const normalizedSymbol = targetSymbol.trim().toUpperCase();
+    if (!normalizedSymbol) {
       push('warning', '종목 코드를 입력하세요', undefined, 'research');
       return;
     }
@@ -131,22 +134,27 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
 
     try {
       const [latestRes, histRes] = await Promise.allSettled([
-        fetchResearchSnapshotLatest({ symbol: symbol.trim().toUpperCase(), market }),
-        fetchResearchSnapshots({ symbol: symbol.trim().toUpperCase(), market, limit: 50, descending: true }),
+        fetchResearchSnapshotLatest({ symbol: normalizedSymbol, market: targetMarket }),
+        fetchResearchSnapshots({ symbol: normalizedSymbol, market: targetMarket, limit: 50, descending: true }),
       ]);
 
-      if (latestRes.status === 'fulfilled' && latestRes.value?.snapshot) {
-        setLatestSnapshot(latestRes.value.snapshot);
+      const latestPayload = latestRes.status === 'fulfilled' ? latestRes.value : null;
+      const historyPayload = histRes.status === 'fulfilled' ? histRes.value : null;
+      const latestFailed = latestRes.status === 'rejected' || latestPayload?.ok === false;
+      const historyFailed = histRes.status === 'rejected' || historyPayload?.ok === false;
+
+      if (!latestFailed && latestPayload?.snapshot) {
+        setLatestSnapshot(latestPayload.snapshot);
       }
 
-      if (histRes.status === 'fulfilled' && Array.isArray(histRes.value?.snapshots)) {
-        setHistory(histRes.value.snapshots);
+      if (!historyFailed && Array.isArray(historyPayload?.snapshots)) {
+        setHistory(historyPayload.snapshots);
       }
 
-      if (latestRes.status === 'rejected' && histRes.status === 'rejected') {
-        push('error', '조회 실패', undefined, 'research');
+      if (latestFailed && historyFailed) {
+        push('error', '조회 실패', latestPayload?.error || historyPayload?.error, 'research');
       } else {
-        push('success', `${symbol.trim().toUpperCase()} 조회 완료`, undefined, 'research');
+        push('success', `${normalizedSymbol} 조회 완료`, undefined, 'research');
         setQueried(true);
       }
     } catch {
@@ -154,7 +162,9 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
     } finally {
       setQueryLoading(false);
     }
-  };
+  }, [push]);
+
+  const handleQuery = useCallback(() => runQuery(symbol, market), [market, runQuery, symbol]);
 
   const topReviewCount = useMemo(
     () => recentSnapshots.filter((item) => Number(item.research_score) >= 0.8).length,
@@ -280,9 +290,11 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
                           key={`${item.market}-${item.symbol}-${item.bucket_ts || idx}`}
                           style={{ cursor: 'pointer' }}
                           onClick={() => {
-                            setSymbol(item.symbol || '');
-                            setMarket(item.market || 'KOSPI');
-                            setLatestSnapshot(item);
+                            const nextSymbol = item.symbol || '';
+                            const nextMarket = item.market || 'KOSPI';
+                            setSymbol(nextSymbol);
+                            setMarket(nextMarket);
+                            void runQuery(nextSymbol, nextMarket);
                           }}
                         >
                           <td><SymbolIdentity code={item.symbol} name={item.name} market={item.market} /></td>

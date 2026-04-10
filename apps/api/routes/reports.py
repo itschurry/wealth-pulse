@@ -214,6 +214,7 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
     if not candidate_risks:
         candidate_risks = ["리스크 가드 이상 없음"]
 
+    signal_label = _ev_to_signal_label(expected_value)
     return {
         "rank": rank,
         "name": item.get("name"),
@@ -221,11 +222,13 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
         "code": item.get("code"),
         "market": item.get("market"),
         "sector": item.get("sector"),
-        "signal": _ev_to_signal_label(expected_value),
+        "signal": signal_label,
+        "signal_label": signal_label,
         "score": round(score, 1),
         "confidence": confidence,
         "risk_level": "중간",
         "reasons": candidate_reasons[:5],
+        "recommendation_reason": candidate_reasons[0] if candidate_reasons else None,
         "risks": candidate_risks[:5],
         "horizon": "short_term",
         "gate_status": gate_status,
@@ -370,15 +373,19 @@ def _fallback_today_picks(date: str | None = None) -> dict:
             max_drawdown_pct=float(max_drawdown_pct) if max_drawdown_pct is not None else None,
         )
 
+        signal_label = str(item.get("signal_label") or item.get("signal") or "")
+        reasons = item.get("reasons", [])
         candidate = {
             "name": item.get("name"),
             "code": code,
             "market": market,
             "sector": item.get("sector"),
             "signal": item.get("signal"),
+            "signal_label": signal_label,
             "score": item.get("score"),
             "confidence": item.get("confidence", 55),
-            "reasons": item.get("reasons", []),
+            "reasons": reasons,
+            "recommendation_reason": reasons[0] if isinstance(reasons, list) and reasons else None,
             "risks": item.get("risks", []),
             "catalysts": item.get("reasons", [])[:2],
             "related_news": [],

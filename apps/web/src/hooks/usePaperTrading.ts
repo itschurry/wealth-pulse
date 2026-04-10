@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getJSON, postJSON } from '../api/client';
 import type { PaperAccountData, PaperEngineConfig, PaperEngineState, PaperSeedPositionInput, PaperSkippedItem, PaperWorkflowSummary } from '../types';
 
@@ -83,7 +83,7 @@ type PaperWorkflowResponse = {
   error?: string;
 };
 
-export function usePaperTrading() {
+export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
   const [account, setAccount] = useState<PaperAccountData>(EMPTY_ACCOUNT);
   const [engineState, setEngineState] = useState<PaperEngineState>({ running: false, engine_state: 'stopped' });
   const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
@@ -93,15 +93,27 @@ export function usePaperTrading() {
   const [accountHistory, setAccountHistory] = useState<Record<string, unknown>[]>([]);
   const [signalSnapshots, setSignalSnapshots] = useState<Record<string, unknown>[]>([]);
   const [workflowSummary, setWorkflowSummary] = useState<PaperWorkflowSummary>({ counts: {}, items: [], count: 0 });
+  const autoRefreshEnabled = options?.autoRefreshEnabled ?? true;
+  const accountRequestIdRef = useRef(0);
+  const engineRequestIdRef = useRef(0);
+  const runtimeLogsRequestIdRef = useRef(0);
 
   const refresh = useCallback(async (refreshQuotes = true) => {
+    const requestId = accountRequestIdRef.current + 1;
+    accountRequestIdRef.current = requestId;
     try {
       const payload = await getJSON<PaperAccountData>(`/api/paper/account?refresh=${refreshQuotes ? '1' : '0'}`, { noStore: true });
+      if (accountRequestIdRef.current !== requestId) {
+        return payload;
+      }
       setAccount(payload);
       setStatus(payload.error ? 'error' : 'ok');
       setLastError(payload.error || '');
       return payload;
     } catch {
+      if (accountRequestIdRef.current !== requestId) {
+        return null;
+      }
       setStatus('error');
       setLastError('모의계좌 정보를 불러오지 못했습니다.');
       return null;
@@ -115,6 +127,8 @@ export function usePaperTrading() {
     quantity: number;
     order_type: 'market' | 'limit';
     limit_price?: number | null;
+    stop_loss_pct?: number | null;
+    take_profit_pct?: number | null;
   }) => {
     try {
       const response = await postJSON<PaperOrderResponse>('/api/paper/order', params);
@@ -191,8 +205,13 @@ export function usePaperTrading() {
   }, []);
 
   const refreshEngineStatus = useCallback(async () => {
+    const requestId = engineRequestIdRef.current + 1;
+    engineRequestIdRef.current = requestId;
     try {
       const payload = await getJSON<PaperEngineResponse>('/api/paper/engine/status', { noStore: true });
+      if (engineRequestIdRef.current !== requestId) {
+        return { ok: false, error: 'stale' };
+      }
       if (!payload.ok) {
         const message = payload.error || '자동매매 상태 조회에 실패했습니다.';
         setLastError(message);
@@ -208,6 +227,9 @@ export function usePaperTrading() {
       }
       return { ok: true, payload };
     } catch {
+      if (engineRequestIdRef.current !== requestId) {
+        return { ok: false, error: 'stale' };
+      }
       const message = '자동매매 상태 조회 중 오류가 발생했습니다.';
       setLastError(message);
       return { ok: false, error: message };
@@ -215,6 +237,8 @@ export function usePaperTrading() {
   }, []);
 
   const refreshRuntimeLogs = useCallback(async () => {
+    const requestId = runtimeLogsRequestIdRef.current + 1;
+    runtimeLogsRequestIdRef.current = requestId;
     try {
       const [cyclesPayload, ordersPayload, historyPayload, snapshotsPayload, workflowPayload] = await Promise.all([
         getJSON<PaperCyclesResponse>('/api/paper/engine/cycles?limit=30', { noStore: true }),
@@ -223,6 +247,9 @@ export function usePaperTrading() {
         getJSON<SignalSnapshotsResponse>('/api/signals/snapshots?limit=120', { noStore: true }),
         getJSON<PaperWorkflowResponse>('/api/paper/workflow?limit=120', { noStore: true }),
       ]);
+      if (runtimeLogsRequestIdRef.current !== requestId) {
+        return { ok: false, error: 'stale' };
+      }
       setCycles(Array.isArray(cyclesPayload.cycles) ? cyclesPayload.cycles : []);
       setOrderEvents(Array.isArray(ordersPayload.orders) ? ordersPayload.orders : []);
       setAccountHistory(Array.isArray(historyPayload.history) ? historyPayload.history : []);
@@ -230,6 +257,9 @@ export function usePaperTrading() {
       setWorkflowSummary(workflowPayload.workflow || { counts: {}, items: [], count: 0 });
       return { ok: true };
     } catch {
+      if (runtimeLogsRequestIdRef.current !== requestId) {
+        return { ok: false, error: 'stale' };
+      }
       return { ok: false };
     }
   }, []);
@@ -370,6 +400,7 @@ export function usePaperTrading() {
   }, [refresh, refreshEngineStatus, refreshRuntimeLogs]);
 
   useEffect(() => {
+    if (!autoRefreshEnabled) return undefined;
     if (!(engineState.running || engineState.engine_state === 'paused')) return undefined;
     const timer = window.setInterval(() => {
       refreshEngineStatus();
@@ -377,7 +408,7 @@ export function usePaperTrading() {
       refreshRuntimeLogs();
     }, 8000);
     return () => window.clearInterval(timer);
-  }, [engineState.engine_state, engineState.running, refresh, refreshEngineStatus, refreshRuntimeLogs]);
+  }, [autoRefreshEnabled, engineState.engine_state, engineState.running, refresh, refreshEngineStatus, refreshRuntimeLogs]);
 
   return {
     account,

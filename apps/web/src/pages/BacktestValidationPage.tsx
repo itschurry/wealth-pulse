@@ -312,7 +312,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       setMetadataLoading(true);
       try {
         const payload = await fetchStrategyMetadata();
-        if (!cancelled) setMetadata(payload);
+        if (!cancelled) {
+          setMetadata(payload.ok === false ? null : payload);
+        }
       } catch {
         if (!cancelled) setMetadata(null);
       } finally {
@@ -371,6 +373,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     setQuantOpsLoading(true);
     try {
       const payload = await fetchQuantOpsWorkflow();
+      if (payload.ok === false) {
+        throw new Error(payload.error || '운영 워크플로우를 불러오지 못했습니다.');
+      }
       setQuantOpsWorkflow(payload);
     } catch {
       setQuantOpsWorkflow(null);

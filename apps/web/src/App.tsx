@@ -21,6 +21,7 @@ interface RouteState {
   labTab: LabTab;
   researchTab: ResearchTab;
   canonicalPath: string;
+  search: string;
 }
 
 const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; hint: string }> = [
@@ -61,28 +62,40 @@ const PAGE_COPY: Record<WorkspacePage, string> = {
   settings: 'draft, saved, displayed 설정 상태와 공유 저장 기준을 한곳에서 관리합니다.',
 };
 
-function defaultRouteState(): RouteState {
+function normalizeSearch(search = ''): string {
+  if (!search) return '';
+  return search.startsWith('?') ? search : `?${search}`;
+}
+
+function buildUrl(path: string, search = ''): string {
+  return `${path}${normalizeSearch(search)}`;
+}
+
+function defaultRouteState(search = ''): RouteState {
   return {
     page: 'operations-dashboard',
     dashboardTab: 'overview',
     labTab: 'validation',
     researchTab: 'today-report',
     canonicalPath: '/operations-dashboard',
+    search: normalizeSearch(search),
   };
 }
 
-function withDefaults(partial: Partial<RouteState> & Pick<RouteState, 'page' | 'canonicalPath'>): RouteState {
+function withDefaults(partial: Partial<RouteState> & Pick<RouteState, 'page' | 'canonicalPath'>, search = ''): RouteState {
   return {
     dashboardTab: 'overview',
     labTab: 'validation',
     researchTab: 'today-report',
+    search: normalizeSearch(search),
     ...partial,
   };
 }
 
-function toRouteState(pathname: string): RouteState {
+function toRouteState(pathname: string, search = ''): RouteState {
   const path = pathname.toLowerCase();
-  const normalize = (nextPath: string): RouteState => toRouteState(nextPath);
+  const normalizedSearch = normalizeSearch(search);
+  const normalize = (nextPath: string): RouteState => toRouteState(nextPath, normalizedSearch);
 
   const legacyRedirects: Record<string, string> = {
     '/': '/operations-dashboard',
@@ -123,25 +136,25 @@ function toRouteState(pathname: string): RouteState {
   if (legacyRedirects[path]) return normalize(legacyRedirects[path]);
 
   if (path === '/operations-dashboard' || path === '/operations-dashboard/') {
-    return withDefaults({ page: 'operations-dashboard', dashboardTab: 'overview', canonicalPath: '/operations-dashboard' });
+    return withDefaults({ page: 'operations-dashboard', dashboardTab: 'overview', canonicalPath: '/operations-dashboard' }, normalizedSearch);
   }
   if (path === '/operations-dashboard/scanner') {
-    return withDefaults({ page: 'operations-dashboard', dashboardTab: 'scanner', canonicalPath: '/operations-dashboard/scanner' });
+    return withDefaults({ page: 'operations-dashboard', dashboardTab: 'scanner', canonicalPath: '/operations-dashboard/scanner' }, normalizedSearch);
   }
   if (path === '/operations-dashboard/performance') {
-    return withDefaults({ page: 'operations-dashboard', dashboardTab: 'performance', canonicalPath: '/operations-dashboard/performance' });
+    return withDefaults({ page: 'operations-dashboard', dashboardTab: 'performance', canonicalPath: '/operations-dashboard/performance' }, normalizedSearch);
   }
   if (path === '/orders-execution') {
-    return withDefaults({ page: 'orders-execution', canonicalPath: '/orders-execution' });
+    return withDefaults({ page: 'orders-execution', canonicalPath: '/orders-execution' }, normalizedSearch);
   }
   if (path === '/strategy-operations') {
-    return withDefaults({ page: 'strategy-operations', canonicalPath: '/strategy-operations' });
+    return withDefaults({ page: 'strategy-operations', canonicalPath: '/strategy-operations' }, normalizedSearch);
   }
   if (path.startsWith('/lab/')) {
     const segment = path.replace('/lab/', '');
     const found = LAB_TABS.find((tab) => tab.id === segment);
     if (found) {
-      return withDefaults({ page: 'lab', labTab: found.id, canonicalPath: found.path });
+      return withDefaults({ page: 'lab', labTab: found.id, canonicalPath: found.path }, normalizedSearch);
     }
     return normalize('/lab/validation');
   }
@@ -154,27 +167,27 @@ function toRouteState(pathname: string): RouteState {
         : segment;
     const found = RESEARCH_TABS.find((tab) => tab.id === normalizedSegment);
     if (found) {
-      return withDefaults({ page: 'research-ai', researchTab: found.id, canonicalPath: found.path });
+      return withDefaults({ page: 'research-ai', researchTab: found.id, canonicalPath: found.path }, normalizedSearch);
     }
     return normalize('/research-ai/brief');
   }
   if (path === '/settings') {
-    return withDefaults({ page: 'settings', canonicalPath: '/settings' });
+    return withDefaults({ page: 'settings', canonicalPath: '/settings' }, normalizedSearch);
   }
 
-  return defaultRouteState();
+  return defaultRouteState(normalizedSearch);
 }
 
-function pushPath(path: string) {
-  history.pushState(null, '', path);
+function pushPath(path: string, search = '') {
+  history.pushState(null, '', buildUrl(path, search));
 }
 
-function replacePath(path: string) {
-  history.replaceState(null, '', path);
+function replacePath(path: string, search = '') {
+  history.replaceState(null, '', buildUrl(path, search));
 }
 
 export default function App() {
-  const [route, setRoute] = useState<RouteState>(() => toRouteState(location.pathname));
+  const [route, setRoute] = useState<RouteState>(() => toRouteState(location.pathname, location.search));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { snapshot, loading, hasError, errorMessage, refresh } = useConsoleData(route);
   const activePage = WORKSPACE_PAGES.find((page) => page.id === route.page) || WORKSPACE_PAGES[0];
@@ -197,18 +210,18 @@ export default function App() {
         : activePage.hint;
 
   useEffect(() => {
-    const initial = toRouteState(location.pathname);
+    const initial = toRouteState(location.pathname, location.search);
     setRoute(initial);
     if (location.pathname !== initial.canonicalPath) {
-      replacePath(initial.canonicalPath);
+      replacePath(initial.canonicalPath, initial.search);
     }
 
     const handlePopState = () => {
-      const next = toRouteState(location.pathname);
+      const next = toRouteState(location.pathname, location.search);
       setRoute(next);
       setMobileNavOpen(false);
       if (location.pathname !== next.canonicalPath) {
-        replacePath(next.canonicalPath);
+        replacePath(next.canonicalPath, next.search);
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -216,8 +229,8 @@ export default function App() {
   }, []);
 
   function navigateTo(targetPath: string) {
-    const next = toRouteState(targetPath);
-    pushPath(next.canonicalPath);
+    const next = toRouteState(targetPath, route.search);
+    pushPath(next.canonicalPath, next.search);
     setRoute(next);
     setMobileNavOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });

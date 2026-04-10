@@ -19,6 +19,12 @@ def _is_today(value: Any) -> bool:
     return str(value or "")[:10] == _today_str()
 
 
+def _is_stale_reason(reason: str) -> bool:
+    value = str(reason or "").strip().lower()
+    return value in {"stale", "quote_stale", "stale_quote", "stale_signal_data"}
+
+
+
 def _collect_warning_alerts(signal_snapshots: list[dict[str, Any]], execution_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
     stale_count = 0
@@ -26,7 +32,7 @@ def _collect_warning_alerts(signal_snapshots: list[dict[str, Any]], execution_ev
     for item in signal_snapshots:
         reasons = [str(reason or "") for reason in item.get("reason_codes", []) if reason]
         risk_reason = str(item.get("risk_reason_code") or "")
-        if "stale" in reasons or risk_reason == "stale":
+        if any(_is_stale_reason(reason) for reason in reasons) or _is_stale_reason(risk_reason):
             stale_count += 1
         if "data_missing" in reasons or risk_reason == "data_missing":
             data_missing_count += 1
@@ -76,7 +82,7 @@ def build_operations_report(*, limit: int = 500) -> dict[str, Any]:
     for item in today_signals:
         reasons = [str(reason or "") for reason in item.get("reason_codes", []) if reason]
         risk_reason = str(item.get("risk_reason_code") or "")
-        if "stale" in reasons or risk_reason == "stale":
+        if any(_is_stale_reason(reason) for reason in reasons) or _is_stale_reason(risk_reason):
             stale_count += 1
         if "data_missing" in reasons or risk_reason == "data_missing":
             data_missing_count += 1

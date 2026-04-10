@@ -83,11 +83,11 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
         fp.write(f"{_json_serialize(payload)}\n")
 
 
-def _read_latest_jsonl(path: Path, limit: int) -> list[dict[str, Any]]:
-    capped = max(1, min(500, int(limit or 50)))
+def _read_latest_jsonl(path: Path, limit: int | None) -> list[dict[str, Any]]:
+    capped = None if limit is None else max(1, int(limit or 50))
     rows: list[dict[str, Any]] = []
     for line in reversed(_read_lines(path)):
-        if len(rows) >= capped:
+        if capped is not None and len(rows) >= capped:
             break
         try:
             item = json.loads(line)
@@ -163,7 +163,7 @@ def append_order_event(payload: dict[str, Any]) -> None:
     _append_jsonl(ORDER_EVENTS_PATH, record)
 
 
-def read_order_events(limit: int = 100) -> list[dict[str, Any]]:
+def read_order_events(limit: int | None = 100) -> list[dict[str, Any]]:
     return _read_latest_jsonl(ORDER_EVENTS_PATH, limit)
 
 

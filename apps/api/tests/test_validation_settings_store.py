@@ -20,6 +20,16 @@ with patch.dict(sys.modules, {"config.settings": settings_stub}):
 
 
 class ValidationSettingsStoreTests(unittest.TestCase):
+    def test_default_validation_query_returns_deep_copy(self):
+        first = store.default_validation_query()
+        second = store.default_validation_query()
+
+        first["portfolio_constraints"]["max_positions"] = 999
+        first["strategy_params"]["rsi_min"] = 7
+
+        self.assertNotEqual(first["portfolio_constraints"]["max_positions"], second["portfolio_constraints"]["max_positions"])
+        self.assertNotEqual(first["strategy_params"]["rsi_min"], second["strategy_params"]["rsi_min"])
+
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)

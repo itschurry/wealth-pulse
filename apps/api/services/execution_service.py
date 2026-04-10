@@ -946,7 +946,7 @@ def _infer_strategy_position_counts(account: dict[str, Any], market: str) -> dic
         return {}
 
     code_to_strategy: dict[str, str] = {}
-    for item in reversed(read_order_events(limit=500)):
+    for item in reversed(read_order_events(limit=None)):
         if not isinstance(item, dict) or not bool(item.get("success")):
             continue
         if str(item.get("market") or "").upper() != normalized_market:
@@ -999,15 +999,27 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
         merged["validation_min_trades"] = max(
             0, min(200, int(settings.get("minTrades") or 0)))
     if settings.get("walkForward") is not None:
-        merged["validation_gate_enabled"] = bool(
-            merged.get("validation_gate_enabled", True))
+        merged["validation_gate_enabled"] = _coerce_bool(
+            merged.get("validation_gate_enabled"), True)
 
     if str(decision.get("status") or "") == "limited_adopt":
+        runtime_restrictions = candidate.get("runtime_restrictions") if isinstance(candidate.get("runtime_restrictions"), dict) else {}
+        if not runtime_restrictions:
+            policy = candidate.get("guardrail_policy") if isinstance(candidate.get("guardrail_policy"), dict) else {}
+            thresholds = policy.get("thresholds") if isinstance(policy.get("thresholds"), dict) else {}
+            runtime_restrictions = thresholds.get("limited_adopt_runtime") if isinstance(thresholds.get("limited_adopt_runtime"), dict) else {}
+
+        multiplier = max(0.0, _to_float(runtime_restrictions.get("risk_per_trade_pct_multiplier"), 0.5))
+        risk_cap = max(0.0, _to_float(runtime_restrictions.get("risk_per_trade_pct_cap"), 0.2))
+        positions_cap = max(1, int(_to_float(runtime_restrictions.get("max_positions_per_market_cap"), 2)))
+        symbol_weight_cap = max(0.0, _to_float(runtime_restrictions.get("max_symbol_weight_pct_cap"), 10.0))
+        market_exposure_cap = max(0.0, _to_float(runtime_restrictions.get("max_market_exposure_pct_cap"), 35.0))
+
         base_risk = float(merged.get("risk_per_trade_pct") or 0.35)
-        merged["risk_per_trade_pct"] = min(base_risk * 0.5, 0.2)
-        merged["max_positions_per_market"] = min(int(merged.get("max_positions_per_market") or 5), 2)
-        merged["max_symbol_weight_pct"] = min(float(merged.get("max_symbol_weight_pct") or 20.0), 10.0)
-        merged["max_market_exposure_pct"] = min(float(merged.get("max_market_exposure_pct") or 70.0), 35.0)
+        merged["risk_per_trade_pct"] = min(base_risk * multiplier, risk_cap)
+        merged["max_positions_per_market"] = min(int(merged.get("max_positions_per_market") or 5), positions_cap)
+        merged["max_symbol_weight_pct"] = min(float(merged.get("max_symbol_weight_pct") or 20.0), symbol_weight_cap)
+        merged["max_market_exposure_pct"] = min(float(merged.get("max_market_exposure_pct") or 70.0), market_exposure_cap)
         merged["validation_require_optimized_reliability"] = True
         merged["quant_candidate_approval_level"] = str(decision.get("approval_level") or "probationary")
     else:
@@ -1786,16 +1798,16 @@ def _start_auto_trader(config: dict) -> dict:
             0.0, float(merged.get("min_avg_notional_krw") or 50000000))
         merged["slippage_bps_base"] = max(
             1.0, min(80.0, float(merged.get("slippage_bps_base") or 8.0)))
-        merged["validation_gate_enabled"] = bool(
-            merged.get("validation_gate_enabled", True))
+        merged["validation_gate_enabled"] = _coerce_bool(
+            merged.get("validation_gate_enabled"), True)
         merged["validation_min_trades"] = max(
             0, min(200, int(merged.get("validation_min_trades") or 8)))
         merged["validation_min_sharpe"] = max(
             -5.0, min(10.0, float(merged.get("validation_min_sharpe") or 0.2)))
-        merged["validation_block_on_low_reliability"] = bool(
-            merged.get("validation_block_on_low_reliability", True))
-        merged["validation_require_optimized_reliability"] = bool(
-            merged.get("validation_require_optimized_reliability", True))
+        merged["validation_block_on_low_reliability"] = _coerce_bool(
+            merged.get("validation_block_on_low_reliability"), True)
+        merged["validation_require_optimized_reliability"] = _coerce_bool(
+            merged.get("validation_require_optimized_reliability"), True)
         merged.update(_parse_theme_gate_config(merged))
         markets = merged.get("markets") or ["KOSPI", "NASDAQ"]
         if not isinstance(markets, list):
@@ -1955,6 +1967,16 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
                 None, "") else None
         except (TypeError, ValueError):
             limit_price = None
+        stop_loss_pct_raw = payload.get("stop_loss_pct")
+        try:
+            stop_loss_pct = float(stop_loss_pct_raw) if stop_loss_pct_raw not in (None, "") else None
+        except (TypeError, ValueError):
+            stop_loss_pct = None
+        take_profit_pct_raw = payload.get("take_profit_pct")
+        try:
+            take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw not in (None, "") else None
+        except (TypeError, ValueError):
+            take_profit_pct = None
         engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
         result = engine.place_order(
             side=side,
@@ -1963,6 +1985,8 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
             quantity=quantity,
             order_type=order_type,
             limit_price=limit_price,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
         )
         if result.get("ok"):
             event = result.get("event") or {}
@@ -2088,7 +2112,7 @@ def handle_paper_auto_invest(payload: dict) -> tuple[int, dict]:
                 None, "") else min_score_raw)
         except (TypeError, ValueError):
             min_score = 50.0
-        include_neutral = bool(payload.get("include_neutral") is True)
+        include_neutral = _coerce_bool(payload.get("include_neutral"), False)
         theme_cfg = _parse_theme_gate_config(payload)
         max_positions = max(1, min(20, max_positions))
         min_score = max(0.0, min(100.0, min_score))

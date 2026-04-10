@@ -974,6 +974,11 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual("runtime_candidates", self.runtime_store["payload"]["meta"]["runtime_candidate_source_mode"])
         self.assertEqual("runtime_candidates", apply_result["workflow"]["runtime_apply"]["runtime_candidate_source_mode"])
         self.assertEqual("validated_candidate", self.runtime_store["payload"]["meta"]["validation_baseline_source"])
+        self.assertEqual(["AAA"], self.runtime_store["payload"]["meta"]["approved_symbols"])
+        self.assertEqual(1, self.runtime_store["payload"]["meta"]["approved_symbol_count"])
+        self.assertIn("AAA", self.runtime_store["payload"]["per_symbol"])
+        self.assertNotIn("BBB", self.runtime_store["payload"]["per_symbol"])
+        self.assertTrue(self.runtime_store["payload"]["per_symbol"]["AAA"]["approved_by_quant_ops"])
         self.assertEqual(18, self.runtime_store["payload"]["validation_baseline"]["validation_trades"])
         self.assertAlmostEqual(0.93, self.runtime_store["payload"]["validation_baseline"]["validation_sharpe"])
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 from pathlib import Path
@@ -98,11 +99,11 @@ def _to_nullable_float(value: Any, fallback: float | None, minimum: float | None
 
 
 def default_validation_query() -> dict[str, Any]:
-    return dict(_DEFAULT_QUERY)
+    return copy.deepcopy(_DEFAULT_QUERY)
 
 
 def default_validation_settings() -> dict[str, Any]:
-    return dict(_DEFAULT_SETTINGS)
+    return copy.deepcopy(_DEFAULT_SETTINGS)
 
 
 def _normalize_query(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -184,12 +185,28 @@ def _normalize_query(raw: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _to_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    return default
+
+
+
 def _normalize_settings(raw: dict[str, Any] | None) -> dict[str, Any]:
     raw = raw or {}
     return {
         "trainingDays": _to_int(raw.get("trainingDays"), int(_DEFAULT_SETTINGS["trainingDays"]), minimum=30),
         "validationDays": _to_int(raw.get("validationDays"), int(_DEFAULT_SETTINGS["validationDays"]), minimum=20),
-        "walkForward": bool(raw.get("walkForward")) if "walkForward" in raw else bool(_DEFAULT_SETTINGS["walkForward"]),
+        "walkForward": _to_bool(raw.get("walkForward"), bool(_DEFAULT_SETTINGS["walkForward"])),
         "minTrades": _to_int(raw.get("minTrades"), int(_DEFAULT_SETTINGS["minTrades"]), minimum=1),
         "objective": str(raw.get("objective") or _DEFAULT_SETTINGS["objective"]),
     }

@@ -245,6 +245,7 @@ export interface StrategiesResponse {
     enabled?: number;
     counts?: Record<string, number>;
   };
+  error?: string;
 }
 
 export interface StrategyMetadataField {
@@ -383,6 +384,7 @@ export interface ResearchSnapshotsResponse {
   limit?: number;
   count?: number;
   snapshots?: ResearchSnapshotItem[];
+  error?: string;
 }
 
 export interface ResearchStatusResponse {
@@ -1074,10 +1076,14 @@ export interface TodayPickItem {
   code?: string;
   name?: string;
   market?: string;
+  signal?: string;
   signal_label?: string;
   expected_value?: number;
   win_probability?: number;
   score?: number;
+  confidence?: number;
+  reasons?: string[];
+  risks?: string[];
 }
 
 export interface TodayPicksResponse {
@@ -1092,12 +1098,20 @@ export interface RecommendationItem {
   name?: string;
   market?: string;
   sector?: string;
+  ticker?: string;
+  signal?: string;
   ev_label?: string;
   signal_label?: string;
   regime?: string;
   risk_level?: string;
   recommendation_reason?: string;
-  confidence?: string;
+  confidence?: string | number;
+  reasons?: string[];
+  risks?: string[];
+  score?: number;
+  expected_value?: number;
+  win_probability?: number;
+  gate_status?: string;
 }
 
 export interface RecommendationsResponse {

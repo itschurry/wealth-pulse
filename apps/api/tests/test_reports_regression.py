@@ -18,6 +18,7 @@ if "config.settings" not in sys.modules:
     settings_stub = types.ModuleType("config.settings")
     settings_stub.API_DIR = ROOT
     settings_stub.BASE_DIR = ROOT.parent
+    settings_stub.LOGS_DIR = Path("/tmp")
     settings_stub.REPORT_OUTPUT_DIR = Path("/tmp")
     settings_stub.RECOMMENDATIONS_OUTPUT_DIR = Path("/tmp")
     settings_stub.TODAY_PICKS_OUTPUT_DIR = Path("/tmp")
@@ -69,12 +70,14 @@ class ReportsRegressionTests(unittest.TestCase):
             output_path.write_text(json.dumps(optimized_payload, ensure_ascii=False), encoding="utf-8")
             with patch("routes.reports._get_recommendations", return_value=recommendations), patch(
                 "routes.reports._OPTIMIZED_PARAMS_PATH", output_path
-            ):
+            ), patch("routes.reports.resolve_market", return_value="KOSPI"):
                 result = _fallback_today_picks()
 
         self.assertEqual(1, len(result["picks"]))
         pick = result["picks"][0]
         self.assertEqual("005930", pick["code"])
+        self.assertEqual("추천", pick["signal_label"])
+        self.assertEqual("실적 모멘텀", pick["recommendation_reason"])
         self.assertEqual("high", pick["reliability"])
         self.assertEqual("high", pick["strategy_reliability"])
         self.assertEqual(0.42, pick["validation_sharpe"])
@@ -118,6 +121,8 @@ class ReportsRegressionTests(unittest.TestCase):
         )
 
         self.assertEqual("high", row["reliability"])
+        self.assertEqual(row["signal"], row["signal_label"])
+        self.assertEqual(row["reasons"][0], row["recommendation_reason"])
         self.assertEqual("passed", row["reliability_reason"])
         self.assertEqual(11, row["validation_trades"])
         self.assertEqual(0.44, row["validation_sharpe"])

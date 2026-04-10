@@ -109,8 +109,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
     setPendingId(strategyId);
     try {
       const response = await toggleStrategyEnabled(strategyId, enabled);
-      if (!response.ok) {
-        push('error', '전략 상태를 변경하지 못했습니다.', '', 'engine');
+      if (!response.ok || response.data?.ok === false) {
+        push('error', '전략 상태를 변경하지 못했습니다.', response.data?.error || response.error?.message || '', 'engine');
         return;
       }
       push('success', `전략 ${strategyId} 상태를 ${enabled ? '활성' : '비활성'}로 변경했습니다.`, undefined, 'engine');
@@ -140,8 +140,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
     setPendingId('seed');
     try {
       const response = await seedDefaultStrategies();
-      if (!response.ok) {
-        push('error', '기본 전략 추가에 실패했습니다.', '', 'engine');
+      if (!response.ok || response.data?.ok === false) {
+        push('error', '기본 전략 추가에 실패했습니다.', response.data?.error || response.error?.message || '', 'engine');
         return;
       }
       const seeded = response.data?.seeded || [];
@@ -167,8 +167,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
     setPendingId(String(payload.strategy_id || 'create'));
     try {
       const response = await saveStrategyPreset(payload);
-      if (!response.ok) {
-        push('error', '새 프리셋을 만들지 못했습니다.', '', 'engine');
+      if (!response.ok || response.data?.ok === false) {
+        push('error', '새 프리셋을 만들지 못했습니다.', response.data?.error || response.error?.message || '', 'engine');
         return;
       }
       push('success', `프리셋 ${payload.strategy_id} 를 추가했어.`, undefined, 'engine');
@@ -190,8 +190,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
     setPendingId(String(payload.strategy_id || 'clone'));
     try {
       const response = await saveStrategyPreset(payload);
-      if (!response.ok) {
-        push('error', '프리셋 복제에 실패했습니다.', '', 'engine');
+      if (!response.ok || response.data?.ok === false) {
+        push('error', '프리셋 복제에 실패했습니다.', response.data?.error || response.error?.message || '', 'engine');
         return;
       }
       push('success', `프리셋 ${payload.strategy_id} 를 복제했어.`, undefined, 'engine');
@@ -228,8 +228,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
     setPendingId(String(selectedStrategy.strategy_id || 'scan_cycle'));
     try {
       const response = await saveStrategyPreset({ ...selectedStrategy, scan_cycle: value });
-      if (!response.ok) {
-        push('error', '스캔 주기 변경에 실패했습니다.', '', 'engine');
+      if (!response.ok || response.data?.ok === false) {
+        push('error', '스캔 주기 변경에 실패했습니다.', response.data?.error || response.error?.message || '', 'engine');
         return;
       }
       push('success', `스캔 주기를 ${value} 로 변경했어.`, undefined, 'engine');

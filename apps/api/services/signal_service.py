@@ -17,6 +17,23 @@ DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]
 _ALLOWED_THEME_FOCUS = set(DEFAULT_THEME_FOCUS)
 
 
+def _to_bool(raw: Any, default: bool) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if value in {"0", "false", "f", "no", "n", "off", ""}:
+            return False
+        return default
+    if raw is None:
+        return default
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    return default
+
+
 try:
     from analyzer.technical_snapshot import fetch_technical_snapshot as _fetch_technical_snapshot_impl
 except Exception:  # pragma: no cover - optional dependency in lightweight tests
@@ -60,7 +77,7 @@ def parse_theme_gate_config(raw: dict | None = None) -> dict:
     except (TypeError, ValueError):
         priority_bonus = 2.0
     return {
-        "theme_gate_enabled": bool(payload.get("theme_gate_enabled", True)),
+        "theme_gate_enabled": _to_bool(payload.get("theme_gate_enabled"), True),
         "theme_min_score": max(0.0, min(30.0, min_score)),
         "theme_min_news": max(0, min(10, min_news)),
         "theme_priority_bonus": max(0.0, min(10.0, priority_bonus)),
@@ -76,8 +93,8 @@ def _research_candidate_config(cfg: dict | None) -> dict[str, Any]:
     payload = cfg or {}
     return {
         "min_score": payload.get("min_score", 50.0),
-        "include_neutral": payload.get("include_neutral", True),
-        "allow_recommendation_fallback": bool(payload.get("allow_recommendation_fallback", False)),
+        "include_neutral": _to_bool(payload.get("include_neutral"), True),
+        "allow_recommendation_fallback": _to_bool(payload.get("allow_recommendation_fallback"), False),
         **parse_theme_gate_config(payload),
     }
 

@@ -10,6 +10,23 @@ from typing import Any, Mapping
 from analyzer.shared_strategy import normalize_strategy_market
 
 
+def _to_bool(raw: Any, default: bool) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if value in {"0", "false", "f", "no", "n", "off", ""}:
+            return False
+        return default
+    if raw is None:
+        return default
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    return default
+
+
 @dataclass(frozen=True)
 class CandidateSelectionConfig:
     min_score: float = 50.0
@@ -41,12 +58,12 @@ def normalize_candidate_selection_config(raw: Mapping[str, Any] | None = None) -
         theme_priority_bonus = 2.0
     return CandidateSelectionConfig(
         min_score=max(0.0, min(100.0, min_score)),
-        include_neutral=bool(payload.get("include_neutral", True)),
-        theme_gate_enabled=bool(payload.get("theme_gate_enabled", True)),
+        include_neutral=_to_bool(payload.get("include_neutral"), True),
+        theme_gate_enabled=_to_bool(payload.get("theme_gate_enabled"), True),
         theme_min_score=max(0.0, min(30.0, theme_min_score)),
         theme_min_news=max(0, min(10, theme_min_news)),
         theme_priority_bonus=max(0.0, min(10.0, theme_priority_bonus)),
-        allow_recommendation_fallback=bool(payload.get("allow_recommendation_fallback", True)),
+        allow_recommendation_fallback=_to_bool(payload.get("allow_recommendation_fallback"), True),
     )
 
 

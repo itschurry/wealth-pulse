@@ -5,9 +5,26 @@ from services.universe_builder import get_universe_snapshot, list_current_univer
 from market_utils import normalize_market
 
 
+def _to_bool(raw: object, default: bool) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if value in {"0", "false", "f", "no", "n", "off", ""}:
+            return False
+        return default
+    if raw is None:
+        return default
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    return default
+
+
 def handle_universe_list(query: dict[str, list[str]]) -> tuple[int, dict]:
     try:
-        refresh = (query.get("refresh", ["0"])[0] or "0").strip() == "1"
+        refresh = _to_bool((query.get("refresh", ["0"])[0] or "0"), False)
         rule_name = (query.get("rule_name", [""])[0] or "").strip()
         market = (query.get("market", [""])[0] or "").strip()
         if rule_name:

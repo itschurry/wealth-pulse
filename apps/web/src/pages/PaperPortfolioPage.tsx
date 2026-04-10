@@ -345,7 +345,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     pauseEngine,
     resumeEngine,
     clearHistory,
-  } = usePaperTrading();
+  } = usePaperTrading({ autoRefreshEnabled });
 
   const positions = account.positions || [];
   const riskGuardState = getRiskGuardState(snapshot);

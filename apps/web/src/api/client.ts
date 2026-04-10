@@ -92,14 +92,16 @@ export async function postJSON<T>(
   body?: unknown,
   options: RequestOptions = {},
 ): Promise<{ ok: boolean; status: number; data: T; meta?: ApiEnvelopeMeta; error?: ApiEnvelopeError }> {
+  const { signal, cleanup } = withTimeout(options.signal as AbortSignal | undefined);
   const res = await fetch(
     resolveApiUrl(url),
     withDefaults({
       ...options,
       method: 'POST',
+      signal,
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
-  );
+  ).finally(cleanup);
   const payload = (await res.json()) as T | ApiEnvelope<T>;
   if (isApiEnvelope<T>(payload)) {
     if (payload.error) {

@@ -67,6 +67,56 @@ class _FakeEngine:
 
 
 class ExecutionStrategyCapTests(unittest.TestCase):
+    def test_handle_paper_order_forwards_stop_loss_and_take_profit(self):
+        engine = _FakeEngine()
+
+        with patch.object(execution_svc, "get_execution_engine", return_value=engine), \
+             patch.object(execution_svc, "_hydrate_auto_trader_state", return_value=None), \
+             patch.object(execution_svc, "_record_execution_order", side_effect=lambda payload: payload), \
+             patch.object(execution_svc, "append_account_snapshot", side_effect=lambda payload: None), \
+             patch.object(execution_svc, "append_engine_cycle", side_effect=lambda payload: None), \
+             patch.object(execution_svc, "append_signal_snapshots", side_effect=lambda payload: None):
+            status, payload = execution_svc.handle_paper_order({
+                "side": "buy",
+                "code": "AAPL",
+                "market": "NASDAQ",
+                "quantity": 3,
+                "order_type": "market",
+                "stop_loss_pct": 4.5,
+                "take_profit_pct": 11.0,
+            })
+
+        self.assertEqual(200, status)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(1, len(engine.placed_orders))
+        self.assertEqual(4.5, engine.placed_orders[0]["stop_loss_pct"])
+        self.assertEqual(11.0, engine.placed_orders[0]["take_profit_pct"])
+
+    def test_infer_strategy_position_counts_reads_full_order_history(self):
+        account = {
+            "positions": [
+                {"code": "AAA", "market": "KOSPI"},
+                {"code": "BBB", "market": "KOSPI"},
+            ]
+        }
+        older_buy = {"success": True, "side": "buy", "market": "KOSPI", "code": "AAA", "strategy_id": "alpha"}
+        filler = [
+            {"success": True, "side": "buy", "market": "KOSPI", "code": f"ZZ{i:03d}", "strategy_id": "beta"}
+            for i in range(600)
+        ]
+        recent_buy = {"success": True, "side": "buy", "market": "KOSPI", "code": "BBB", "strategy_id": "alpha"}
+        history = [older_buy, *filler, recent_buy]
+
+        def _read_events(limit=100):
+            if limit is None:
+                return history
+            return history[-int(limit):]
+
+        with patch.object(execution_svc, "read_order_events", side_effect=_read_events):
+            counts = execution_svc._infer_strategy_position_counts(account, "KOSPI")
+
+        self.assertEqual({"alpha": 2}, counts)
+
     def test_strategy_position_cap_map_uses_more_conservative_of_params_and_risk_limits(self):
         with patch.object(execution_svc, "list_strategies", return_value=[
             {

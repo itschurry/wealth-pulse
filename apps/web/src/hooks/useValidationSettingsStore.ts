@@ -166,6 +166,8 @@ function hydrateState(): ValidationStoreState {
 }
 
 let storeState: ValidationStoreState | null = null;
+let requestSequence = 0;
+let activeRequestToken = 0;
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -207,6 +209,26 @@ function normalizeServerPayload(payload: PersistedValidationSettingsResponse | n
     version: payload?.version ?? savedSnapshot?.version ?? displayedSnapshot?.version ?? 1,
     source: payload?.source || savedSnapshot?.source || displayedSnapshot?.source || '',
   };
+}
+
+function ensureServerPayload(payload: PersistedValidationSettingsResponse | null | undefined, fallbackMessage: string) {
+  if (!payload || payload.ok === false || payload.error) {
+    throw new Error(payload?.error || fallbackMessage);
+  }
+  if (!payload.state && !payload.query && !payload.settings) {
+    throw new Error(fallbackMessage);
+  }
+  return payload;
+}
+
+function nextRequestToken() {
+  requestSequence += 1;
+  activeRequestToken = requestSequence;
+  return activeRequestToken;
+}
+
+function isStaleRequest(token: number) {
+  return token !== activeRequestToken;
 }
 
 function applyServerPayload(payload: PersistedValidationSettingsResponse | null | undefined, options?: { replaceDraft?: boolean }) {
@@ -264,6 +286,7 @@ export function useValidationSettingsStore() {
     async loadSavedFromServer(options?: { forceDraft?: boolean }) {
       const currentState = getSnapshot();
       const replaceDraft = options?.forceDraft || !hasUnsavedDraft(currentState);
+      const requestToken = nextRequestToken();
       updateStoreState({
         ...currentState,
         syncStatus: 'loading',
@@ -271,9 +294,18 @@ export function useValidationSettingsStore() {
       });
       emit();
       try {
-        const payload = await fetchValidationSettings();
+        const payload = ensureServerPayload(
+          await fetchValidationSettings(),
+          '서버 저장값을 불러오지 못했습니다.',
+        );
+        if (isStaleRequest(requestToken)) {
+          return getSnapshot();
+        }
         return applyServerPayload(payload, { replaceDraft });
       } catch (error) {
+        if (isStaleRequest(requestToken)) {
+          return getSnapshot();
+        }
         updateStoreState({
           ...getSnapshot(),
           syncStatus: 'error',
@@ -284,6 +316,7 @@ export function useValidationSettingsStore() {
       }
     },
     async saveDraftToServer() {
+      const requestToken = nextRequestToken();
       updateStoreState({
         ...getSnapshot(),
         syncStatus: 'saving',
@@ -292,10 +325,19 @@ export function useValidationSettingsStore() {
       emit();
       try {
         const currentState = getSnapshot();
-        const payload = await saveValidationSettings(currentState.draftQuery, currentState.draftSettings);
+        const payload = ensureServerPayload(
+          await saveValidationSettings(currentState.draftQuery, currentState.draftSettings),
+          '서버 저장에 실패했습니다.',
+        );
+        if (isStaleRequest(requestToken)) {
+          return getSnapshot().lastSavedAt;
+        }
         applyServerPayload(payload, { replaceDraft: true });
         return getSnapshot().lastSavedAt;
       } catch (error) {
+        if (isStaleRequest(requestToken)) {
+          return getSnapshot().lastSavedAt;
+        }
         updateStoreState({
           ...getSnapshot(),
           syncStatus: 'error',
@@ -318,6 +360,7 @@ export function useValidationSettingsStore() {
       emit();
     },
     async resetSavedToServer() {
+      const requestToken = nextRequestToken();
       updateStoreState({
         ...getSnapshot(),
         syncStatus: 'resetting',
@@ -325,10 +368,19 @@ export function useValidationSettingsStore() {
       });
       emit();
       try {
-        const payload = await resetValidationSettings();
+        const payload = ensureServerPayload(
+          await resetValidationSettings(),
+          '서버 저장값 초기화에 실패했습니다.',
+        );
+        if (isStaleRequest(requestToken)) {
+          return getSnapshot().lastSavedAt;
+        }
         applyServerPayload(payload, { replaceDraft: true });
         return getSnapshot().lastSavedAt;
       } catch (error) {
+        if (isStaleRequest(requestToken)) {
+          return getSnapshot().lastSavedAt;
+        }
         updateStoreState({
           ...getSnapshot(),
           syncStatus: 'error',

@@ -107,6 +107,16 @@ def _query_int(query: QueryParams, name: str, default: int) -> int:
         return default
 
 
+def _query_bool(query: QueryParams, name: str, default: bool) -> bool:
+    raw = _query_value(query, name, "1" if default else "0")
+    value = str(raw or "").strip().lower()
+    if value in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "f", "no", "n", "off", ""}:
+        return False
+    return default
+
+
 GET_ROUTES: tuple[Route, ...] = (
     Route("/api/engine/status", lambda _path, _query: handle_engine_status()),
     Route("/api/signals/rank", lambda _path, query: handle_signals_rank(query)),
@@ -114,7 +124,7 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/signals/", lambda path, _query: handle_signal_detail(path), prefix=True),
     Route(
         "/api/portfolio/state",
-        lambda _path, query: handle_portfolio_state(_query_value(query, "refresh", "1").strip() != "0"),
+        lambda _path, query: handle_portfolio_state(_query_bool(query, "refresh", True)),
     ),
     Route("/api/validation/backtest", lambda _path, query: handle_validation_backtest(query)),
     Route("/api/validation/walk-forward", lambda _path, query: handle_validation_walk_forward(query)),
@@ -163,7 +173,7 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/watchlist", lambda _path, _query: handle_watchlist_get()),
     Route(
         "/api/paper/account",
-        lambda _path, query: handle_paper_account(_query_value(query, "refresh", "1").strip() != "0"),
+        lambda _path, query: handle_paper_account(_query_bool(query, "refresh", True)),
     ),
     Route("/api/paper/engine/status", lambda _path, _query: handle_paper_engine_status()),
     Route("/api/paper/engine/cycles", lambda _path, query: handle_paper_engine_cycles(query)),

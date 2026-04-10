@@ -27,6 +27,12 @@ class OperationsReportServiceTests(unittest.TestCase):
                 "reason_codes": ["data_missing"],
                 "risk_reason_code": "data_missing",
             },
+            {
+                "timestamp": "2026-04-06T09:02:00+09:00",
+                "entry_allowed": False,
+                "reason_codes": ["quote_stale"],
+                "risk_reason_code": "quote_stale",
+            },
         ]
         execution_rows = [
             {
@@ -55,9 +61,10 @@ class OperationsReportServiceTests(unittest.TestCase):
              patch("services.operations_report_service.read_execution_events", return_value=execution_rows):
             result = build_operations_report(limit=50)
 
-        self.assertEqual(2, result["report"]["today_signal_count"])
-        self.assertEqual(2, result["report"]["blocked_count"])
+        self.assertEqual(3, result["report"]["today_signal_count"])
+        self.assertEqual(3, result["report"]["blocked_count"])
         self.assertEqual(1, result["report"]["blocked_reason_counts"]["risk_blocked"])
+        self.assertEqual(1, result["report"]["data_health"]["stale_count"])
         self.assertEqual(1, result["report"]["execution_counts"]["filled"])
         self.assertEqual(1, result["report"]["execution_counts"]["failed"])
         self.assertEqual("KR Momentum", result["report"]["strategy_performance"][0]["strategy_name"])
