@@ -236,7 +236,7 @@ def _build_market() -> dict:
         "kosdaq": lambda: _naver_index("KOSDAQ"),
         "usd_krw": _usd_krw,
         "sp100": lambda: _yahoo_chart("^OEX"),
-        "nasdaq": lambda: _stooq_daily("%5Endx"),
+        "nasdaq": lambda: _yahoo_chart("^IXIC"),
         "wti": lambda: _stooq_spot("cl.f"),
     }
 
