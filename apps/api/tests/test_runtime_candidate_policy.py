@@ -13,6 +13,28 @@ from services import signal_service as svc
 
 
 class RuntimeCandidatePolicyTests(unittest.TestCase):
+    def test_runtime_collection_returns_empty_when_universe_snapshot_missing(self):
+        runtime_payload = {
+            "per_symbol": {
+                "AAPL": {
+                    "market": "NASDAQ",
+                    "is_reliable": True,
+                    "strategy_reliability": "high",
+                    "reliability_reason": "validated_candidate",
+                    "trade_count": 18,
+                    "validation_trades": 18,
+                    "validation_sharpe": 0.93,
+                    "composite_score": 64.0,
+                }
+            }
+        }
+        with patch.object(svc, "load_execution_optimized_params", return_value=runtime_payload), \
+             patch.object(svc, "get_universe_snapshot", return_value={"symbols": []}), \
+             patch.object(svc, "fetch_technical_snapshot", return_value={"current_price": 201.5}):
+            candidates = svc.collect_runtime_candidates("NASDAQ", cfg={})
+
+        self.assertEqual([], candidates)
+
     def test_runtime_collection_ignores_research_candidates_without_runtime_overlay(self):
         with patch.object(svc, "load_execution_optimized_params", return_value=None), \
              patch.object(svc, "_get_today_picks", return_value={
@@ -45,6 +67,7 @@ class RuntimeCandidatePolicyTests(unittest.TestCase):
             }
         }
         with patch.object(svc, "load_execution_optimized_params", return_value=runtime_payload), \
+             patch.object(svc, "get_universe_snapshot", return_value={"symbols": [{"code": "AAPL", "market": "US"}]}), \
              patch.object(svc, "fetch_technical_snapshot", return_value={
                  "current_price": 201.5,
                  "volume_avg20": 1500000,
@@ -77,6 +100,7 @@ class RuntimeCandidatePolicyTests(unittest.TestCase):
             }
         }
         with patch.object(svc, "load_execution_optimized_params", return_value=runtime_payload), \
+             patch.object(svc, "get_universe_snapshot", return_value={"symbols": [{"code": "AAPL", "market": "US"}]}), \
              patch.object(svc, "fetch_technical_snapshot", return_value=None), \
              patch.object(svc, "_get_today_picks", return_value={
                  "auto_candidates": [
@@ -112,6 +136,7 @@ class RuntimeCandidatePolicyTests(unittest.TestCase):
             }
         }
         with patch.object(svc, "load_execution_optimized_params", return_value=runtime_payload), \
+             patch.object(svc, "get_universe_snapshot", return_value={"symbols": [{"code": "000810", "market": "KOSPI"}]}), \
              patch.object(svc, "fetch_technical_snapshot", return_value=None):
             candidates = svc.collect_runtime_candidates(
                 "KOSPI",
@@ -139,6 +164,7 @@ class RuntimeCandidatePolicyTests(unittest.TestCase):
             }
         }
         with patch.object(svc, "load_execution_optimized_params", return_value=runtime_payload), \
+             patch.object(svc, "get_universe_snapshot", return_value={"symbols": [{"code": "000810", "market": "KOSPI"}]}), \
              patch.object(svc, "fetch_technical_snapshot", return_value=None):
             candidates = svc.collect_runtime_candidates(
                 "KOSPI",
