@@ -15,7 +15,7 @@ interface SettingsPageProps {
   errorMessage: string;
   onRefresh: () => void;
   onOpenLab: () => void;
-  onOpenStrategyStatus: () => void;
+  onOpenStrategiesLab: () => void;
 }
 
 function stateTone(label: string) {
@@ -41,7 +41,7 @@ export function SettingsPage({
   errorMessage,
   onRefresh,
   onOpenLab,
-  onOpenStrategyStatus,
+  onOpenStrategiesLab,
 }: SettingsPageProps) {
   const validationStore = useValidationSettingsStore();
   const { entries, push, clear } = useConsoleLogs();
@@ -182,7 +182,7 @@ export function SettingsPage({
               </div>
             </div>
             <div className="console-error-card-actions" style={{ marginTop: 16 }}>
-              <button className="ghost-button" onClick={onOpenStrategyStatus}>전략 운영 상태 보기</button>
+              <button className="ghost-button" onClick={onOpenStrategiesLab}>전략 프리셋 열기</button>
               <button className="ghost-button" onClick={onOpenLab}>실험실에서 draft 편집</button>
             </div>
           </section>

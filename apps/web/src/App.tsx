@@ -27,7 +27,6 @@ interface RouteState {
 const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; hint: string }> = [
   { id: 'operations-dashboard', label: '운영 대시보드', path: '/operations-dashboard', hint: 'applied 전략 · 신호 · 이상 징후' },
   { id: 'orders-execution', label: '주문/체결', path: '/orders-execution', hint: '주문 상태 · 차단 사유 · 포지션' },
-  { id: 'strategy-operations', label: '전략 운영 상태', path: '/strategy-operations', hint: 'approved/applied 상태 추적' },
   { id: 'lab', label: '실험실(Lab)', path: '/lab/validation', hint: '백테스트 · 탐색 · 재검증' },
   { id: 'research-ai', label: '리서치/AI', path: '/research-ai/brief', hint: '시장 브리프 · AI 인사이트' },
   { id: 'settings', label: '설정', path: '/settings', hint: 'draft/saved/displayed 상태 관리' },
@@ -56,7 +55,6 @@ const RESEARCH_TABS: Array<{ id: ResearchTab; label: string; path: string; hint:
 const PAGE_COPY: Record<WorkspacePage, string> = {
   'operations-dashboard': '운영자가 자동거래 파이프라인 상태를 첫 화면에서 이해하도록 구성한 관제 홈입니다.',
   'orders-execution': '주문 lifecycle, blocked reason, 체결 상태를 운영 관점에서 추적합니다.',
-  'strategy-operations': '운영 반영 대상 전략의 approved/applied 상태와 런타임 반영 여부를 봅니다.',
   lab: '백테스트, 탐색, 검증, 프리셋 실험은 이 영역에서만 수행합니다.',
   'research-ai': '리서치, 시장 데이터, AI 인사이트를 실행 판단과 분리해 조회합니다.',
   settings: 'draft, saved, displayed 설정 상태와 공유 저장 기준을 한곳에서 관리합니다.',
@@ -106,8 +104,9 @@ function toRouteState(pathname: string, search = ''): RouteState {
     '/operations/scanner': '/operations-dashboard/scanner',
     '/operations/performance': '/operations-dashboard/performance',
     '/operations/orders': '/orders-execution',
-    '/operations/strategies': '/strategy-operations',
-    '/console/strategies': '/strategy-operations',
+    '/strategy-operations': '/lab/strategies',
+    '/operations/strategies': '/lab/strategies',
+    '/console/strategies': '/lab/strategies',
     '/console/scanner': '/operations-dashboard/scanner',
     '/console/orders': '/orders-execution',
     '/console/performance': '/operations-dashboard/performance',
@@ -146,9 +145,6 @@ function toRouteState(pathname: string, search = ''): RouteState {
   }
   if (path === '/orders-execution') {
     return withDefaults({ page: 'orders-execution', canonicalPath: '/orders-execution' }, normalizedSearch);
-  }
-  if (path === '/strategy-operations') {
-    return withDefaults({ page: 'strategy-operations', canonicalPath: '/strategy-operations' }, normalizedSearch);
   }
   if (path.startsWith('/lab/')) {
     const segment = path.replace('/lab/', '');
@@ -365,7 +361,6 @@ export default function App() {
           {route.page === 'operations-dashboard' && route.dashboardTab === 'performance' && <PerformancePage {...sharedProps} />}
 
           {route.page === 'orders-execution' && <PaperPortfolioPage {...sharedProps} />}
-          {route.page === 'strategy-operations' && <StrategiesPage {...sharedProps} mode="operations" />}
 
           {route.page === 'lab' && route.labTab === 'validation' && <BacktestValidationPage {...sharedProps} />}
           {route.page === 'lab' && route.labTab === 'strategies' && <StrategiesPage {...sharedProps} mode="lab" />}
@@ -384,7 +379,7 @@ export default function App() {
             <SettingsPage
               {...sharedProps}
               onOpenLab={() => navigateTo('/lab/validation')}
-              onOpenStrategyStatus={() => navigateTo('/strategy-operations')}
+              onOpenStrategiesLab={() => navigateTo('/lab/strategies')}
             />
           )}
         </div>

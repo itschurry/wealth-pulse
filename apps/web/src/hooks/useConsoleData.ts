@@ -106,16 +106,6 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.page === 'strategy-operations') {
-    return {
-      signalLimit: 0,
-      initialTargets: ['engine', 'strategies', 'research'],
-      fastTargets: ['engine'],
-      midTargets: ['strategies'],
-      slowTargets: ['research'],
-    };
-  }
-
   if (route.page === 'research-ai' && ['today-report', 'alerts', 'watch-decision'].includes(route.researchTab)) {
     return {
       signalLimit: 80,
