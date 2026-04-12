@@ -282,7 +282,7 @@ export default function App() {
               <span className="app-nav-step">{String(index + 1).padStart(2, '0')}</span>
               <span className="app-nav-label-wrap">
                 <span className="app-nav-label">{page.label}</span>
-                <span className="app-nav-help">{page.hint}</span>
+                {route.page === page.id ? <span className="app-nav-help">{page.hint}</span> : null}
               </span>
             </button>
           ))}
@@ -303,7 +303,7 @@ export default function App() {
                 <span className="app-nav-step">{String(index + 1).padStart(2, '0')}</span>
                 <span className="app-nav-label-wrap">
                   <span className="app-nav-label">{tab.label}</span>
-                  <span className="app-nav-help">{tab.hint}</span>
+                  {route.dashboardTab === tab.id ? <span className="app-nav-help">{tab.hint}</span> : null}
                 </span>
               </button>
             ))}
@@ -317,7 +317,7 @@ export default function App() {
                 <span className="app-nav-step">{String(index + 1).padStart(2, '0')}</span>
                 <span className="app-nav-label-wrap">
                   <span className="app-nav-label">{tab.label}</span>
-                  <span className="app-nav-help">{tab.hint}</span>
+                  {route.labTab === tab.id ? <span className="app-nav-help">{tab.hint}</span> : null}
                 </span>
               </button>
             ))}
@@ -331,7 +331,7 @@ export default function App() {
                 <span className="app-nav-step">{String(index + 1).padStart(2, '0')}</span>
                 <span className="app-nav-label-wrap">
                   <span className="app-nav-label">{tab.label}</span>
-                  <span className="app-nav-help">{tab.hint}</span>
+                  {route.researchTab === tab.id ? <span className="app-nav-help">{tab.hint}</span> : null}
                 </span>
               </button>
             ))}

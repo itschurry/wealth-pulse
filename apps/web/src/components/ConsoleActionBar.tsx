@@ -219,6 +219,7 @@ export function ConsoleActionBar({
     onConfirm: () => void;
   } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [extraActionsOpen, setExtraActionsOpen] = useState(false);
   const updateText = formatDateTime(lastUpdated);
 
   const logSources = useMemo(() => (
@@ -227,6 +228,8 @@ export function ConsoleActionBar({
 
   const safeActions = actions.filter((action) => action.tone !== 'danger');
   const dangerActions = actions.filter((action) => action.tone === 'danger');
+  const visibleSafeActions = safeActions.slice(0, 3);
+  const extraSafeActions = safeActions.slice(3);
 
   const filteredLogs = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -294,9 +297,20 @@ export function ConsoleActionBar({
                 </span>
               </button>
             )}
-            {safeActions.map(renderActionButton)}
+            {visibleSafeActions.map(renderActionButton)}
+            {extraSafeActions.length > 0 && (
+              <button className={`ghost-button ${extraActionsOpen ? 'is-active' : ''}`} onClick={() => setExtraActionsOpen((prev) => !prev)}>
+                {extraActionsOpen ? `추가 작업 접기` : `추가 작업 ${extraSafeActions.length}개`}
+              </button>
+            )}
           </div>
         </div>
+
+        {extraActionsOpen && extraSafeActions.length > 0 && (
+          <div className="console-actionbar-extra-row">
+            {extraSafeActions.map(renderActionButton)}
+          </div>
+        )}
 
         {dangerActions.length > 0 && (
           <div className="console-actionbar-danger-row">

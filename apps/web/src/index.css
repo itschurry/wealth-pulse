@@ -558,6 +558,12 @@ button:disabled {
   box-shadow: var(--shadow-sm);
 }
 
+.ghost-button.is-active {
+  border-color: var(--accent-border);
+  background: linear-gradient(180deg, rgba(212, 234, 255, 0.98), rgba(191, 222, 255, 0.94));
+  color: color-mix(in srgb, var(--accent) 82%, #0b1a2a 18%);
+}
+
 .button-content {
   display: inline-flex;
   align-items: center;
@@ -642,6 +648,14 @@ button:disabled {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: flex-start;
+}
+
+.console-actionbar-extra-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-start;
 }
 
 .console-actionbar-action-wrap {
@@ -3841,7 +3855,7 @@ body {
 .app-layout {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
 }
 
 .app-sidebar {
@@ -3849,12 +3863,12 @@ body {
   top: 0;
   height: 100vh;
   overflow-y: auto;
-  padding: 20px 14px 16px;
+  padding: 16px 12px 14px;
   border-right: 1px solid var(--border-light);
   background: linear-gradient(180deg, rgba(8, 15, 24, 0.96), rgba(9, 16, 27, 0.96));
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 10px;
 }
 
 .app-sidebar-brand {
@@ -3880,14 +3894,14 @@ body {
 }
 
 .app-sidebar-copy {
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-4);
 }
 
 .app-sidebar-group {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .app-sidebar-group-label {
@@ -3903,10 +3917,10 @@ body {
   border-radius: 14px;
   background: rgba(20, 33, 51, 0.82);
   color: var(--text-3);
-  padding: 10px;
+  padding: 9px;
   display: grid;
-  grid-template-columns: 30px 1fr;
-  gap: 10px;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
   align-items: start;
   text-align: left;
   cursor: pointer;
@@ -3959,8 +3973,9 @@ body {
 }
 
 .app-nav-help {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-4);
+  line-height: 1.4;
 }
 
 .tab-dirty-badge {
@@ -3988,8 +4003,8 @@ body {
 }
 
 .app-main-header {
-  margin-bottom: 10px;
-  padding: 14px 16px;
+  margin-bottom: 8px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(16, 27, 43, 0.92), rgba(12, 22, 35, 0.95));

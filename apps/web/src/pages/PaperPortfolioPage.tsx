@@ -1173,6 +1173,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       .slice(0, 6);
   }, [filteredPositions, stopLossPctDefault]);
 
+  const scrollToSection = useCallback((sectionId: string) => {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   return (
     <div className="app-shell">
       <div className="page-frame">
@@ -1279,7 +1283,13 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               <span className={`report-decision-chip ${entryAllowed ? 'is-good' : 'is-bad'}`}>신규 진입 {entryAllowed ? '가능' : '차단'}</span>
             </div>
             <div className="report-decision-title">운용 우선순위: {riskyPositions.length > 0 || todayFailCount > 0 ? '리스크 정리 먼저' : '정상 운영 지속'}</div>
-            <div className="report-hero-copy">이 화면은 실행 관제판입니다. live order path는 Layer B quant 후보 → Layer C research scorer(Hanna, 선택) → Layer D risk veto → Layer E final action 순서로만 흘러갑니다. 뉴스/테마/자유문장 파싱으로 바로 주문시키는 길은 여기서 끊었습니다.</div>
+            <div className="report-hero-copy">지금 필요한 순서만 짧게 보이도록 정리했어. 보유 포지션 확인 → 실행 워크플로우 확인 → Risk/Action 로그 확인 순서로 보면 어디서 막혔는지 훨씬 빨리 찾을 수 있어.</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('paper-positions-section')}>보유 포지션으로</button>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('paper-workflow-section')}>실행 워크플로우로</button>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('paper-risk-action-section')}>Risk / Action 로그로</button>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('paper-engine-panel-section')}>엔진 상태로</button>
+            </div>
             {repeatedCashRetries.length > 0 && (
               <div className="inline-warning-card" style={{ marginTop: 12 }}>
                 <div><strong>반복 현금 부족 실패 감지</strong></div>
@@ -1457,7 +1467,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div className="page-section" style={{ padding: 0 }}>
+          <div id="paper-positions-section" className="page-section" style={{ padding: 0 }}>
             <div style={{ padding: '14px 16px 0', display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ fontSize: 12, color: 'var(--text-4)' }}>보유 종목은 시장별로 나눠서 보는 쪽이 훨씬 덜 헷갈려. 미국장은 달러 가격 뒤에 원화 환산을 같이 붙였어.</div>
@@ -1579,7 +1589,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           </div>
 
           <div className="paper-ops-summary-grid">
-            <div className="page-section" style={{ padding: 16 }}>
+            <div id="paper-engine-panel-section" className="page-section" style={{ padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700 }}>엔진 상태 패널</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
                 <div>상태: {engineStateLabel(engineState.engine_state, engineState.running)}</div>
@@ -1693,7 +1703,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           </div>
 
 
-          <div className="page-section" style={{ padding: 16 }}>
+          <div id="paper-workflow-section" className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
               <div>
                 <div className="section-title">실행 워크플로우</div>
@@ -1832,7 +1842,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div className="page-section" style={{ padding: 16 }}>
+          <div id="paper-risk-action-section" className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
               <div>
                 <div className="section-title">Risk / Action 로그</div>
