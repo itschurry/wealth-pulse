@@ -32,6 +32,10 @@ def handle_performance_summary() -> tuple[int, dict]:
         if not account:
             account = engine_account or {}
 
+        account_status, account_payload = get_execution_service().paper_account(False)
+        if account_status == 200 and isinstance(account_payload, dict):
+            account = account_payload
+
         order_events = read_order_events(limit=1000)
         session_start = str(account.get("created_at") or "")
         if session_start:
@@ -47,16 +51,46 @@ def handle_performance_summary() -> tuple[int, dict]:
         filled_events = [e for e in all_live if bool(e.get("success"))]
 
         initial_cash = float(account.get("initial_cash_krw") or 0)
+        initial_cash_usd = float(account.get("initial_cash_usd") or 0)
+        cash_krw = float(account.get("cash_krw") or 0)
+        cash_usd = float(account.get("cash_usd") or 0)
         realized_pnl = float(account.get("realized_pnl_krw") or 0)
-        positions = account.get("positions") or engine_account.get("positions") or []
-        unrealized_pnl = sum(
-            float(p.get("unrealized_pnl_krw") or 0)
+        realized_pnl_usd = float(account.get("realized_pnl_usd") or 0)
+        starting_equity_krw = float(account.get("starting_equity_krw") or 0)
+        equity_krw = float(account.get("equity_krw") or 0)
+        fx_rate = float(account.get("fx_rate") or 0)
+        positions_raw = account.get("positions") or engine_account.get("positions") or []
+        if isinstance(positions_raw, dict):
+            positions = [item for item in positions_raw.values() if isinstance(item, dict)]
+        else:
+            positions = [item for item in positions_raw if isinstance(item, dict)]
+        unrealized_pnl = sum(float(p.get("unrealized_pnl_krw") or 0) for p in positions)
+        unrealized_pnl_usd = sum(
+            float(p.get("unrealized_pnl_local") or 0)
             for p in positions
-            if isinstance(p, dict)
+            if str(p.get("currency") or "").upper() == "USD"
+        )
+        kospi_market_value_krw = sum(
+            float(p.get("market_value_krw") or 0)
+            for p in positions
+            if str(p.get("currency") or "").upper() != "USD"
+        )
+        us_market_value_usd = sum(
+            float(p.get("market_value_usd") or 0)
+            for p in positions
+            if str(p.get("currency") or "").upper() == "USD"
+        )
+        us_market_value_krw = sum(
+            float(p.get("market_value_krw") or 0)
+            for p in positions
+            if str(p.get("currency") or "").upper() == "USD"
         )
         total_return_pct = (
-            (realized_pnl + unrealized_pnl) / initial_cash * 100
-            if initial_cash > 0 else None
+            ((equity_krw - starting_equity_krw) / starting_equity_krw) * 100
+            if starting_equity_krw > 0 and equity_krw > 0 else (
+                (realized_pnl + unrealized_pnl) / initial_cash * 100
+                if initial_cash > 0 else None
+            )
         )
 
         total_notional = sum(float(e.get("notional_krw") or 0) for e in filled_events)
@@ -93,9 +127,21 @@ def handle_performance_summary() -> tuple[int, dict]:
             "total_reject_count": sum(1 for e in all_live if not bool(e.get("success"))),
             "total_screened_count": sum(1 for e in order_events if str(e.get("order_type") or "").lower() == "screened"),
             "realized_pnl_krw": realized_pnl,
+            "realized_pnl_usd": realized_pnl_usd,
             "unrealized_pnl_krw": unrealized_pnl,
+            "unrealized_pnl_usd": unrealized_pnl_usd,
             "total_return_pct": total_return_pct,
             "initial_cash_krw": initial_cash,
+            "initial_cash_usd": initial_cash_usd,
+            "cash_krw": cash_krw,
+            "cash_usd": cash_usd,
+            "equity_krw": equity_krw,
+            "starting_equity_krw": starting_equity_krw,
+            "fx_rate": fx_rate,
+            "market_value_krw": kospi_market_value_krw + us_market_value_krw,
+            "market_value_usd": us_market_value_usd,
+            "market_value_krw_only": kospi_market_value_krw,
+            "market_value_usd_krw": us_market_value_krw,
             "avg_notional_krw": avg_notional,
             "positions": len(positions),
             "filled_history": filled_history,

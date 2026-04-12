@@ -501,9 +501,21 @@ export interface PerformanceSummaryResponse {
     total_reject_count?: number;
     total_screened_count?: number;
     realized_pnl_krw?: number;
+    realized_pnl_usd?: number;
     unrealized_pnl_krw?: number;
+    unrealized_pnl_usd?: number;
     total_return_pct?: number;
     initial_cash_krw?: number;
+    initial_cash_usd?: number;
+    cash_krw?: number;
+    cash_usd?: number;
+    equity_krw?: number;
+    starting_equity_krw?: number;
+    fx_rate?: number;
+    market_value_krw?: number;
+    market_value_usd?: number;
+    market_value_krw_only?: number;
+    market_value_usd_krw?: number;
     avg_notional_krw?: number;
     positions?: number;
     filled_history?: Array<{
