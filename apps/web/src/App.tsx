@@ -8,7 +8,6 @@ import { PerformancePage } from './pages/PerformancePage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ResearchSnapshotsPage } from './pages/ResearchSnapshotsPage';
 import { ScannerPage } from './pages/ScannerPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { StrategiesPage } from './pages/StrategiesPage';
 import { UniversePage } from './pages/UniversePage';
 import { WatchlistPage } from './pages/WatchlistPage';
@@ -29,7 +28,6 @@ const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; h
   { id: 'orders-execution', label: '주문/체결', path: '/orders-execution', hint: '주문 상태 · 차단 사유 · 포지션' },
   { id: 'lab', label: '실험실(Lab)', path: '/lab/validation', hint: '백테스트 · 탐색 · 재검증' },
   { id: 'research-ai', label: '리서치/AI', path: '/research-ai/brief', hint: '시장 브리프 · AI 인사이트' },
-  { id: 'settings', label: '설정', path: '/settings', hint: 'draft/saved/displayed 상태 관리' },
 ];
 
 const DASHBOARD_TABS: Array<{ id: DashboardTab; label: string; path: string; hint: string }> = [
@@ -57,7 +55,6 @@ const PAGE_COPY: Record<WorkspacePage, string> = {
   'orders-execution': '주문 lifecycle, blocked reason, 체결 상태를 운영 관점에서 추적합니다.',
   lab: '백테스트, 탐색, 검증, 프리셋 실험은 이 영역에서만 수행합니다.',
   'research-ai': '리서치, 시장 데이터, AI 인사이트를 실행 판단과 분리해 조회합니다.',
-  settings: 'draft, saved, displayed 설정 상태와 공유 저장 기준을 한곳에서 관리합니다.',
 };
 
 function normalizeSearch(search = ''): string {
@@ -131,6 +128,7 @@ function toRouteState(pathname: string, search = ''): RouteState {
     '/signals': '/operations-dashboard/scanner',
     '/paper': '/orders-execution',
     '/backtest': '/lab/validation',
+    '/settings': '/lab/validation',
   };
   if (legacyRedirects[path]) return normalize(legacyRedirects[path]);
 
@@ -167,10 +165,6 @@ function toRouteState(pathname: string, search = ''): RouteState {
     }
     return normalize('/research-ai/brief');
   }
-  if (path === '/settings') {
-    return withDefaults({ page: 'settings', canonicalPath: '/settings' }, normalizedSearch);
-  }
-
   return defaultRouteState(normalizedSearch);
 }
 
@@ -374,14 +368,6 @@ export default function App() {
           )}
           {route.page === 'research-ai' && route.researchTab === 'watchlist' && <WatchlistPage {...sharedProps} />}
           {route.page === 'research-ai' && route.researchTab === 'research' && <ResearchSnapshotsPage {...sharedProps} />}
-
-          {route.page === 'settings' && (
-            <SettingsPage
-              {...sharedProps}
-              onOpenLab={() => navigateTo('/lab/validation')}
-              onOpenStrategiesLab={() => navigateTo('/lab/strategies')}
-            />
-          )}
         </div>
       </main>
     </div>

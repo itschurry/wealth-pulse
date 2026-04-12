@@ -475,6 +475,15 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     }
   }, [push, validationStore]);
 
+  const handleReset = useCallback(async () => {
+    try {
+      await validationStore.resetSavedToServer();
+      push('warning', '검증 설정을 기본값으로 초기화했습니다.', undefined, 'settings');
+    } catch {
+      push('error', '설정 초기화에 실패했습니다.', undefined, 'settings');
+    }
+  }, [push, validationStore]);
+
   const handleRunWalkForward = useCallback(async () => {
     setWfStatus('loading');
     setWfLastError('');
@@ -711,7 +720,16 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       busy: quantOpsBusyAction === 'revalidate',
       busyLabel: '재검증 중...',
     },
-  ]), [handleQuantOpsRevalidate, handleRunBacktest, handleRunOptimization, handleRunWalkForward, handleSave, optimizationRunning, quantOpsBusyAction, status, validationStore.syncStatus, wfStatus]);
+    {
+      label: '설정 초기화',
+      tone: 'danger' as const,
+      onClick: handleReset,
+      busy: validationStore.syncStatus === 'resetting',
+      busyLabel: '초기화 중...',
+      confirmTitle: '검증 설정을 초기화하시겠습니까?',
+      confirmMessage: '저장된 설정과 현재 초안이 모두 기본값으로 돌아갑니다.',
+    },
+  ]), [handleQuantOpsRevalidate, handleReset, handleRunBacktest, handleRunOptimization, handleRunWalkForward, handleSave, optimizationRunning, quantOpsBusyAction, status, validationStore.syncStatus, wfStatus]);
 
   const summaryMetrics = displayedResult.performance_summary || {};
   const executionSummary = displayedResult.execution_summary || {};

@@ -2,8 +2,7 @@ export type WorkspacePage =
   | 'operations-dashboard'
   | 'orders-execution'
   | 'lab'
-  | 'research-ai'
-  | 'settings';
+  | 'research-ai';
 
 export type DashboardTab = 'overview' | 'scanner' | 'performance';
 
