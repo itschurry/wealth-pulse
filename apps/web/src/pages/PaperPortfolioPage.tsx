@@ -82,10 +82,65 @@ function toNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function parseGroupedNumberInput(raw: string): number {
-  const digits = raw.replace(/[^\d]/g, '');
-  if (!digits) return 0;
-  return Number(digits);
+interface SettingsNumberInputProps {
+  value: number;
+  onCommit: (value: number) => void;
+  min?: number;
+  grouped?: boolean;
+}
+
+function SettingsNumberInput({ value, onCommit, min, grouped = false }: SettingsNumberInputProps) {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(() => String(Math.round(value)));
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(String(Math.round(value)));
+    }
+  }, [focused, value]);
+
+  const commitDraft = useCallback(() => {
+    setFocused(false);
+    const digits = draft.replace(/[^\d]/g, '');
+    if (!digits) {
+      setDraft(String(Math.round(value)));
+      return;
+    }
+    let nextValue = Number(digits);
+    if (!Number.isFinite(nextValue)) {
+      setDraft(String(Math.round(value)));
+      return;
+    }
+    if (typeof min === 'number') {
+      nextValue = Math.max(min, nextValue);
+    }
+    onCommit(nextValue);
+    setDraft(String(Math.round(nextValue)));
+  }, [draft, min, onCommit, value]);
+
+  return (
+    <input
+      className="backtest-input-wrap"
+      style={{ padding: '0 12px' }}
+      type="text"
+      inputMode="numeric"
+      value={focused ? draft : (grouped ? formatNumber(value, 0) : String(Math.round(value)))}
+      onFocus={() => {
+        setFocused(true);
+        setDraft(String(Math.round(value)));
+      }}
+      onChange={(event) => {
+        const digits = event.target.value.replace(/[^\d]/g, '');
+        setDraft(digits);
+      }}
+      onBlur={commitDraft}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
 }
 
 function holdingDays(entryTs: unknown): number {
@@ -960,34 +1015,26 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     <div style={{ display: 'grid', gap: 12 }}>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>초기 원화 현금</span>
-        <input
-          className="backtest-input-wrap"
-          style={{ padding: '0 12px' }}
-          type="text"
-          inputMode="numeric"
-          value={formatNumber(settings.initialCashKrw, 0)}
-          onChange={(event) => setSettings((prev) => ({ ...prev, initialCashKrw: parseGroupedNumberInput(event.target.value) }))}
+        <SettingsNumberInput
+          value={settings.initialCashKrw}
+          grouped
+          onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashKrw: value }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>초기 달러 현금</span>
-        <input
-          className="backtest-input-wrap"
-          style={{ padding: '0 12px' }}
-          type="text"
-          inputMode="numeric"
-          value={formatNumber(settings.initialCashUsd, 0)}
-          onChange={(event) => setSettings((prev) => ({ ...prev, initialCashUsd: parseGroupedNumberInput(event.target.value) }))}
+        <SettingsNumberInput
+          value={settings.initialCashUsd}
+          grouped
+          onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashUsd: value }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>모의투자 기간(일)</span>
-        <input
-          className="backtest-input-wrap"
-          style={{ padding: '0 12px' }}
-          type="number"
+        <SettingsNumberInput
           value={settings.paperDays}
-          onChange={(event) => setSettings((prev) => ({ ...prev, paperDays: Math.max(1, Number(event.target.value) || 1) }))}
+          min={1}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, paperDays: value }))}
         />
       </label>
       <div style={{ display: 'grid', gap: 8, fontSize: 12 }}>
@@ -997,46 +1044,34 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       </div>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최대 포지션 수(건)</span>
-        <input
-          className="backtest-input-wrap"
-          style={{ padding: '0 12px' }}
-          type="number"
-          min={1}
+        <SettingsNumberInput
           value={settings.maxPositions}
-          onChange={(event) => setSettings((prev) => ({ ...prev, maxPositions: Math.max(1, Number(event.target.value) || 1) }))}
+          min={1}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, maxPositions: value }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매수 제한(건)</span>
-        <input
-          className="backtest-input-wrap"
-          style={{ padding: '0 12px' }}
-          type="number"
-          min={1}
+        <SettingsNumberInput
           value={settings.dailyBuyLimit}
-          onChange={(event) => setSettings((prev) => ({ ...prev, dailyBuyLimit: Math.max(1, Number(event.target.value) || 1) }))}
+          min={1}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, dailyBuyLimit: value }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매도 제한(건)</span>
-        <input
-          className="backtest-input-wrap"
-          style={{ padding: '0 12px' }}
-          type="number"
-          min={1}
+        <SettingsNumberInput
           value={settings.dailySellLimit}
-          onChange={(event) => setSettings((prev) => ({ ...prev, dailySellLimit: Math.max(1, Number(event.target.value) || 1) }))}
+          min={1}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, dailySellLimit: value }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>종목당 일일 주문 제한(건)</span>
-        <input
-          className="backtest-input-wrap"
-          style={{ padding: '0 12px' }}
-          type="number"
-          min={1}
+        <SettingsNumberInput
           value={settings.maxOrdersPerSymbol}
-          onChange={(event) => setSettings((prev) => ({ ...prev, maxOrdersPerSymbol: Math.max(1, Number(event.target.value) || 1) }))}
+          min={1}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, maxOrdersPerSymbol: value }))}
         />
       </label>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
