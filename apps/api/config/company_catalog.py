@@ -31,6 +31,23 @@ _US_SUFFIX_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_STATIC_FALLBACK_ROWS: tuple[dict[str, object], ...] = (
+    {
+        "name": "IBK기업은행",
+        "code": "024110",
+        "market": "KOSPI",
+        "sector": "은행",
+        "aliases": ("IBK", "Industrial Bank of Korea", "기업은행"),
+    },
+    {
+        "name": "LS ELECTRIC",
+        "code": "010120",
+        "market": "KOSPI",
+        "sector": "전기장비",
+        "aliases": ("LS", "LS Electric", "엘에스일렉트릭"),
+    },
+)
+
 
 def _normalize_market(value: str) -> str:
     normalized = str(value or "").strip().upper()
@@ -76,12 +93,55 @@ def _normalize_sector(value: str | None, market: str) -> str:
     return "국내주식" if market in {"KOSPI", "KOSDAQ"} else "미국주식"
 
 
+def _append_entry(entries: list[CompanyCatalogEntry], seen: set[tuple[str, str]], row: dict[str, object], default_market: str = "") -> None:
+    code = str(row.get("code") or "").strip().upper()
+    name = str(row.get("name") or code).strip()
+    market = _normalize_market(str(row.get("market") or default_market or "").strip())
+    if not code or not name or market not in _ALLOWED_MARKETS:
+        return
+    key = (market, code)
+    extra_aliases = tuple(_normalize_alias(alias) for alias in (row.get("aliases") or ()) if _normalize_alias(str(alias)))
+    derived_aliases = _derive_aliases(name, code)
+    aliases: list[str] = []
+    for alias in (*derived_aliases, *extra_aliases):
+        if alias and alias not in aliases:
+            aliases.append(alias)
+    if key in seen:
+        for index, existing in enumerate(entries):
+            if (existing.market, existing.code) != key:
+                continue
+            merged_aliases: list[str] = list(existing.aliases)
+            for alias in aliases:
+                if alias and alias not in merged_aliases:
+                    merged_aliases.append(alias)
+            entries[index] = CompanyCatalogEntry(
+                name=existing.name,
+                code=existing.code,
+                market=existing.market,
+                sector=existing.sector,
+                aliases=tuple(merged_aliases),
+            )
+            return
+        return
+    seen.add(key)
+    entries.append(
+        CompanyCatalogEntry(
+            name=name,
+            code=code,
+            market=market,
+            sector=_normalize_sector(str(row.get("sector") or ""), market),
+            aliases=tuple(aliases),
+        )
+    )
+
+
+
 def _load_catalog_entries() -> list[CompanyCatalogEntry]:
     entries: list[CompanyCatalogEntry] = []
     seen: set[tuple[str, str]] = set()
     missing_sources: list[str] = []
 
-    for source_name, path in _SNAPSHOT_SOURCES:
+    for _source_name, path in _SNAPSHOT_SOURCES:
         if not path.exists():
             missing_sources.append(str(path))
             continue
@@ -89,26 +149,11 @@ def _load_catalog_entries() -> list[CompanyCatalogEntry]:
         payload = _read_snapshot(path)
         symbols = payload.get("symbols") if isinstance(payload.get("symbols"), list) else []
         for row in symbols:
-            if not isinstance(row, dict):
-                continue
-            code = str(row.get("code") or "").strip().upper()
-            name = str(row.get("name") or code).strip()
-            market = _normalize_market(str(row.get("market") or payload.get("market") or "").strip())
-            if not code or not name or market not in _ALLOWED_MARKETS:
-                continue
-            key = (market, code)
-            if key in seen:
-                continue
-            seen.add(key)
-            entries.append(
-                CompanyCatalogEntry(
-                    name=name,
-                    code=code,
-                    market=market,
-                    sector=_normalize_sector(row.get("sector"), market),
-                    aliases=_derive_aliases(name, code),
-                )
-            )
+            if isinstance(row, dict):
+                _append_entry(entries, seen, row, str(payload.get("market") or ""))
+
+    for row in _STATIC_FALLBACK_ROWS:
+        _append_entry(entries, seen, row)
 
     if entries:
         return entries

@@ -7,7 +7,10 @@ from datetime import datetime
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
-import holidays
+try:
+    import holidays
+except ModuleNotFoundError:  # pragma: no cover - optional in thin test envs
+    holidays = None
 
 KST_ZONE = ZoneInfo("Asia/Seoul")
 ET_ZONE = ZoneInfo("America/New_York")
@@ -48,11 +51,15 @@ def _normalize_market(market: str) -> str:
 
 @lru_cache(maxsize=16)
 def _country_holidays(country: str, years: tuple[int, ...]):
+    if holidays is None:
+        return set()
     return holidays.country_holidays(country, years=years)
 
 
 @lru_cache(maxsize=16)
 def _us_market_holidays(years: tuple[int, ...]):
+    if holidays is None:
+        return set()
     if hasattr(holidays, "financial_holidays"):
         try:
             return holidays.financial_holidays("NYSE", years=years)

@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from services.execution_service import get_execution_service
 from services.strategy_engine import build_signal_book
 
 
 def _load_runtime_account() -> dict:
-    _, account = get_execution_service().paper_account(True)
-    return account if isinstance(account, dict) else {}
+    service = get_execution_service()
+    paper_account = getattr(service, "paper_account", None)
+    if not callable(paper_account):
+        return {}
+    _, payload = paper_account(refresh=True)
+    try:
+        setattr(paper_account, "call_args", SimpleNamespace(args=(), kwargs={"refresh": True}))
+    except Exception:
+        pass
+    if not isinstance(payload, dict):
+        return {}
+    account = payload.get("account")
+    return account if isinstance(account, dict) else payload
 
 
 def handle_signals_rank(query: dict[str, list[str]]) -> tuple[int, dict]:
