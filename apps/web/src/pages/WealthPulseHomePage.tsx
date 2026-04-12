@@ -63,6 +63,13 @@ function ratioPercent(value: number, total: number): string {
   return `${(ratio(value, total) * 100).toFixed(1)}%`;
 }
 
+function sessionTone(status: string | undefined): string {
+  if (status === 'open') return 'is-success';
+  if (status === 'pre_open') return 'is-warning';
+  if (status === 'after_close') return 'is-neutral';
+  return 'is-danger';
+}
+
 export function WealthPulseHomePage({
   snapshot,
   loading,
@@ -132,6 +139,8 @@ export function WealthPulseHomePage({
 
   const liveMarket = snapshot.liveMarket || {};
   const marketCtx = snapshot.marketContext || {};
+  const marketSessions = liveMarket.market_sessions || {};
+  const sessionCards = [marketSessions.KR, marketSessions.US].filter(Boolean);
 
   function formatPct(value: number | undefined): string {
     if (value == null) return '-';
@@ -163,28 +172,46 @@ export function WealthPulseHomePage({
             {!!errorMessage && <div className="wealth-home-error">{errorMessage}</div>}
           </section>
 
-          <section className="page-section" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', padding: '12px 16px' }}>
-            {[
-              { label: 'KOSPI', price: liveMarket.kospi, pct: liveMarket.kospi_pct },
-              { label: 'KOSDAQ', price: liveMarket.kosdaq, pct: liveMarket.kosdaq_pct },
-              { label: 'NASDAQ', price: liveMarket.nasdaq, pct: liveMarket.nasdaq_pct },
-              { label: 'S&P100', price: liveMarket.sp100, pct: liveMarket.sp100_pct },
-              { label: 'WTI', price: liveMarket.wti, pct: liveMarket.wti_pct },
-            ].map((item) => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{item.label}</span>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>{item.price != null ? formatNumber(item.price, 2) : '-'}</span>
-                <span className={pctTone(item.pct)} style={{ fontSize: 12 }}>{formatPct(item.pct)}</span>
+          <section className="page-section" style={{ display: 'grid', gap: 12, padding: '12px 16px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
+              {[
+                { label: 'KOSPI', price: liveMarket.kospi, pct: liveMarket.kospi_pct },
+                { label: 'KOSDAQ', price: liveMarket.kosdaq, pct: liveMarket.kosdaq_pct },
+                { label: 'NASDAQ', price: liveMarket.nasdaq, pct: liveMarket.nasdaq_pct },
+                { label: 'S&P100', price: liveMarket.sp100, pct: liveMarket.sp100_pct },
+                { label: 'WTI', price: liveMarket.wti, pct: liveMarket.wti_pct },
+              ].map((item) => (
+                <div key={item.label} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{item.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{item.price != null ? formatNumber(item.price, 2) : '-'}</span>
+                  <span className={pctTone(item.pct)} style={{ fontSize: 12 }}>{formatPct(item.pct)}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>USD/KRW</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{liveMarket.usd_krw != null ? formatNumber(liveMarket.usd_krw, 0) : '-'}</span>
               </div>
-            ))}
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>USD/KRW</span>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>{liveMarket.usd_krw != null ? formatNumber(liveMarket.usd_krw, 0) : '-'}</span>
+              {liveMarket.updated_at && (
+                <span className="wealth-home-muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
+                  시세 {liveMarket.updated_at}
+                </span>
+              )}
             </div>
-            {liveMarket.updated_at && (
-              <span className="wealth-home-muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
-                시세 {liveMarket.updated_at}
-              </span>
+            {sessionCards.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <span className="wealth-home-muted" style={{ fontSize: 11 }}>시장 상태</span>
+                {sessionCards.map((session) => (
+                  <div
+                    key={String(session.label || session.status || session.local_time || '-')}
+                    className={`inline-badge ${sessionTone(session.status)}`}
+                    style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '6px 10px' }}
+                  >
+                    <span>{session.label || '-'}</span>
+                    <strong>{session.status_label || '-'}</strong>
+                    <span style={{ opacity: 0.8 }}>{session.local_time || '-'}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </section>
 

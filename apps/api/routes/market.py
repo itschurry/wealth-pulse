@@ -9,6 +9,7 @@ import cache as _cache
 from helpers import _HEADERS, _KST, _get_kis_client, _normalize_text
 from broker.kis_client import KISConfigError
 from config.company_catalog import get_company_catalog
+from config.market_calendar import SESSION_WINDOWS, get_market_local_dt, is_market_open, is_market_trading_day
 from market_utils import lookup_company_listing, normalize_market, resolve_quote_market
 
 _ALLOWED_SEARCH_MARKETS = {"KOSPI", "KOSDAQ", "NASDAQ"}
@@ -237,6 +238,34 @@ def _resolve_stock_quote(code: str, market: str = "") -> dict:
     }
 
 
+def _session_payload(market: str, label: str) -> dict:
+    local_dt = get_market_local_dt(market)
+    window = SESSION_WINDOWS[market]
+    minutes = local_dt.hour * 60 + local_dt.minute
+    if not is_market_trading_day(market, local_dt):
+        status = "holiday"
+        status_label = "휴장"
+    elif is_market_open(market, local_dt):
+        status = "open"
+        status_label = "장중"
+    elif minutes < window.open_minutes:
+        status = "pre_open"
+        status_label = "장전"
+    else:
+        status = "after_close"
+        status_label = "장마감"
+
+    return {
+        "label": label,
+        "status": status,
+        "status_label": status_label,
+        "local_time": local_dt.strftime("%H:%M %Z"),
+        "is_open": status == "open",
+        "is_trading_day": status != "holiday",
+    }
+
+
+
 def _build_market() -> dict:
     result: dict = {}
 
@@ -268,6 +297,10 @@ def _build_market() -> dict:
                 result[f"{key}_err"] = str(e)
 
     result["updated_at"] = datetime.datetime.now(_KST).strftime("%H:%M:%S KST")
+    result["market_sessions"] = {
+        "KR": _session_payload("KR", "한국장"),
+        "US": _session_payload("US", "미국장"),
+    }
     return result
 
 

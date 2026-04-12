@@ -1187,6 +1187,14 @@ export interface LiveMarketResponse {
   wti?: number;
   wti_pct?: number;
   updated_at?: string;
+  market_sessions?: Record<string, {
+    label?: string;
+    status?: string;
+    status_label?: string;
+    local_time?: string;
+    is_open?: boolean;
+    is_trading_day?: boolean;
+  }>;
 }
 
 export interface MarketContextResponse {
