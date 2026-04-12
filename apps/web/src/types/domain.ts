@@ -510,10 +510,14 @@ export interface PerformanceSummaryResponse {
       logged_at?: string;
       code?: string;
       market?: string;
+      currency?: 'KRW' | 'USD' | string;
       side?: string;
       quantity?: number;
+      filled_price_local?: number;
       filled_price_krw?: number;
+      notional_local?: number;
       notional_krw?: number;
+      fx_rate?: number;
     }>;
     operations_report?: {
       today_signal_count?: number;

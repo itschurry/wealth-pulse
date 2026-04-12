@@ -58,6 +58,23 @@ export function formatUSD(value: number | null | undefined, withPrefix = false):
   return withPrefix ? `$${body}` : body;
 }
 
+export function formatUSDWithKRW(usdValue: number | null | undefined, krwValue: number | null | undefined): string {
+  const usdText = formatUSD(usdValue, true);
+  const krwText = formatKRW(krwValue, true);
+  if (usdText === '-') return krwText;
+  if (krwText === '-') return usdText;
+  return `${usdText} (${krwText})`;
+}
+
+export function formatLocalAmountWithKRW(
+  localValue: number | null | undefined,
+  krwValue: number | null | undefined,
+  currency: 'KRW' | 'USD',
+): string {
+  if (currency === 'USD') return formatUSDWithKRW(localValue, krwValue);
+  return formatKRW(krwValue ?? localValue, true);
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '-';
   const date = new Date(value);

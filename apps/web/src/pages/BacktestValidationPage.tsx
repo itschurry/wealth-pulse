@@ -940,12 +940,12 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
             <div style={{ fontSize: 14, fontWeight: 700 }}>성능 요약</div>
             <div className="console-metric-grid">
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>CAGR</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.cagr_pct, 2, true)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>MDD</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.max_drawdown_pct, 2, true)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>승률</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.win_rate_pct, 2, true)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>CAGR</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.cagr_pct, 2)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>MDD</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.max_drawdown_pct, 2)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>승률</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.win_rate_pct, 2)}</div></div>
               <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Profit Factor</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(summaryMetrics.profit_factor, 2)}</div></div>
               <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>거래 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(summaryMetrics.trade_count, '건')}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>총 수익</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(displayedResult.metrics?.total_return_pct, 2, true)}</div></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>총 수익</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(displayedResult.metrics?.total_return_pct, 2)}</div></div>
             </div>
             {status === 'ok' && !displayedResult.error && (
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -1082,8 +1082,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     <tr key={row.regime} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12, fontSize: 12 }}>{row.regime || '-'}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatCount(row.trade_count, '건')}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(row.win_rate_pct, 2, true)}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(row.avg_return_pct, 2, true)}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(row.win_rate_pct, 2)}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(row.avg_return_pct, 2)}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(row.profit_factor, 2)}</td>
                       <td style={{ padding: 12, fontSize: 12 }}>{(row.strategy_kinds || []).join(', ') || '-'}</td>
                     </tr>
@@ -1103,7 +1103,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 {(displayedResult.failure_modes || []).map((row) => (
                   <div key={`${row.reason}-${row.count}`}>
                     <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{row.reason || '기타'}</div>
-                    <div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(row.count, '건')} · 평균 {formatPercent(row.avg_pnl_pct, 2, true)}</div>
+                    <div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(row.count, '건')} · 평균 {formatPercent(row.avg_pnl_pct, 2)}</div>
                   </div>
                 ))}
               </div>

@@ -7,7 +7,7 @@ import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { usePaperTrading } from '../hooks/usePaperTrading';
 import { useToast } from '../hooks/useToast';
 import type { ActionBarStatusItem, ConsoleSnapshot, PaperViewModel } from '../types/consoleView';
-import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
+import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatLocalAmountWithKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
 
 interface PaperPortfolioPageProps {
   snapshot: ConsoleSnapshot;
@@ -134,6 +134,14 @@ function marketCurrency(market: unknown): 'KRW' | 'USD' {
 function formatLocalPrice(value: number | null | undefined, market: unknown): string {
   if (marketCurrency(market) === 'USD') return formatUSD(value, true);
   return formatKRW(value, true);
+}
+
+function formatLocalPriceWithKrw(localValue: number | null | undefined, krwValue: number | null | undefined, market: unknown): string {
+  return formatLocalAmountWithKRW(localValue, krwValue, marketCurrency(market));
+}
+
+function normalizePortfolioMarket(value: unknown): 'KOSPI' | 'NASDAQ' {
+  return marketCurrency(value) === 'USD' ? 'NASDAQ' : 'KOSPI';
 }
 
 function formatMarketWithCurrency(market: unknown): string {
@@ -359,6 +367,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const [workflowSearch, setWorkflowSearch] = useState('');
   const [workflowOnlyBlocked, setWorkflowOnlyBlocked] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [positionMarketView, setPositionMarketView] = useState<'ALL' | 'KOSPI' | 'NASDAQ'>('ALL');
   const {
     account,
     engineState,
@@ -382,6 +391,17 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   } = usePaperTrading({ autoRefreshEnabled });
 
   const positions = account.positions || [];
+  const positionMarketCounts = useMemo(() => {
+    const counts = { ALL: positions.length, KOSPI: 0, NASDAQ: 0 };
+    positions.forEach((position) => {
+      counts[normalizePortfolioMarket(position.market)] += 1;
+    });
+    return counts;
+  }, [positions]);
+  const filteredPositions = useMemo(() => {
+    if (positionMarketView === 'ALL') return positions;
+    return positions.filter((position) => normalizePortfolioMarket(position.market) === positionMarketView);
+  }, [positionMarketView, positions]);
   const riskGuardState = getRiskGuardState(snapshot);
   const riskGuardAllowed = isRiskEntryAllowed(snapshot);
   const deferredWorkflowSearch = useDeferredValue(workflowSearch);
@@ -1133,7 +1153,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const trustState = trustScore >= 80 ? '높음' : trustScore >= 55 ? '보통' : '낮음';
   const trustTone: 'good' | 'bad' | 'neutral' = trustState === '높음' ? 'good' : trustState === '낮음' ? 'bad' : 'neutral';
   const riskyPositions = useMemo(() => {
-    return positions
+    return filteredPositions
       .map((position) => {
         const positionRaw = position as unknown as Record<string, unknown>;
         const entryPrice = toNumber(position.avg_price_local, 0);
@@ -1151,7 +1171,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       .filter((item) => item.urgency > 0)
       .sort((a, b) => b.urgency - a.urgency)
       .slice(0, 6);
-  }, [positions, stopLossPctDefault]);
+  }, [filteredPositions, stopLossPctDefault]);
 
   return (
     <div className="app-shell">
@@ -1438,7 +1458,23 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           </div>
 
           <div className="page-section" style={{ padding: 0 }}>
-            <div style={{ padding: '14px 16px 0', fontSize: 12, color: 'var(--text-4)' }}>가격은 현지통화 기준, 평가손익은 원화 환산 기준으로 표기합니다.</div>
+            <div style={{ padding: '14px 16px 0', display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>보유 종목은 시장별로 나눠서 보는 쪽이 훨씬 덜 헷갈려. 미국장은 달러 가격 뒤에 원화 환산을 같이 붙였어.</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {(['ALL', 'KOSPI', 'NASDAQ'] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      className={positionMarketView === view ? 'ghost-button is-active' : 'ghost-button'}
+                      onClick={() => setPositionMarketView(view)}
+                    >
+                      {view === 'ALL' ? `전체 ${positionMarketCounts.ALL}건` : `${view} ${positionMarketCounts[view]}건`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
             <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1040 }}>
                 <thead>
@@ -1458,7 +1494,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   </tr>
                 </thead>
                 <tbody>
-                  {positions.map((position) => {
+                  {filteredPositions.map((position) => {
                     const positionRaw = position as unknown as Record<string, unknown>;
                     const code = String(position.code || '');
                     const name = String(position.name || '');
@@ -1476,8 +1512,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                         <td style={{ padding: 12, fontSize: 12 }}>{formatSymbol(code, name)}</td>
                         <td style={{ padding: 12, fontSize: 12 }}>{formatMarketWithCurrency(position.market)}</td>
                         <td style={{ padding: 12, fontSize: 12 }}>{formatCount(position.quantity, '주')}</td>
-                        <td style={{ padding: 12, fontSize: 12 }}>{formatLocalPrice(entryPrice, position.market)}</td>
-                        <td style={{ padding: 12, fontSize: 12 }}>{formatLocalPrice(currentPrice, position.market)}</td>
+                        <td style={{ padding: 12, fontSize: 12 }}>{formatLocalPriceWithKrw(entryPrice, toNumber(position.avg_price_krw, entryPrice), position.market)}</td>
+                        <td style={{ padding: 12, fontSize: 12 }}>{formatLocalPriceWithKrw(currentPrice, toNumber(position.last_price_krw, currentPrice), position.market)}</td>
                         <td style={{ padding: 12, fontSize: 12, color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw, true)}</td>
                         <td style={{ padding: 12, fontSize: 12, color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>
                           {formatPercent(pnlPct, 2)}
@@ -1494,16 +1530,16 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       </tr>
                     );
                   })}
-                  {positions.length === 0 && (
+                  {filteredPositions.length === 0 && (
                     <tr>
-                      <td colSpan={12} style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noPositions}</td>
+                      <td colSpan={12} style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
             <div className="responsive-card-list">
-              {positions.map((position) => {
+              {filteredPositions.map((position) => {
                 const positionRaw = position as unknown as Record<string, unknown>;
                 const code = String(position.code || '');
                 const name = String(position.name || '');
@@ -1530,7 +1566,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       <div><div className="responsive-card-label">수익률</div><div className="responsive-card-value" style={{ color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatPercent(pnlPct, 2)}</div></div>
                       <div><div className="responsive-card-label">평가손익</div><div className="responsive-card-value" style={{ color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw, true)}</div></div>
                       <div><div className="responsive-card-label">보유기간</div><div className="responsive-card-value">{formatNumber(holdingDays(position.entry_ts), 0)}일</div></div>
-                      <div><div className="responsive-card-label">진입가 / 현재가</div><div className="responsive-card-value">{formatLocalPrice(entryPrice, position.market)} / {formatLocalPrice(currentPrice, position.market)}</div></div>
+                      <div><div className="responsive-card-label">진입가 / 현재가</div><div className="responsive-card-value">{formatLocalPriceWithKrw(entryPrice, toNumber(position.avg_price_krw, entryPrice), position.market)} / {formatLocalPriceWithKrw(currentPrice, toNumber(position.last_price_krw, currentPrice), position.market)}</div></div>
                       <div><div className="responsive-card-label">손절 / 익절</div><div className="responsive-card-value">{Number.isFinite(stopLossPrice) ? formatLocalPrice(stopLossPrice, position.market) : '-'} / {Number.isFinite(takeProfitPrice) ? formatLocalPrice(takeProfitPrice, position.market) : '-'}</div></div>
                       <div><div className="responsive-card-label">전략 태그</div><div className="responsive-card-value">{strategyTag}</div></div>
                       <div><div className="responsive-card-label">손절률 / 익절률</div><div className="responsive-card-value">{formatPercent(stopLossPct, 2)} / {formatPercent(takeProfitPct, 2)}</div></div>
@@ -1538,7 +1574,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   </article>
                 );
               })}
-              {positions.length === 0 && <div style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noPositions}</div>}
+              {filteredPositions.length === 0 && <div style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</div>}
             </div>
           </div>
 

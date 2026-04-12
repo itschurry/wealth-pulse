@@ -19,6 +19,12 @@ const MARKET_OPTIONS = [
   { label: 'NASDAQ', value: 'NASDAQ' },
 ];
 
+type SnapshotMarketView = 'ALL' | 'KOSPI' | 'NASDAQ';
+
+function normalizeSnapshotMarket(value: string | undefined): Exclude<SnapshotMarketView, 'ALL'> {
+  return String(value || '').toUpperCase() === 'KOSPI' ? 'KOSPI' : 'NASDAQ';
+}
+
 function snapshotGrade(item: ResearchSnapshotItem): string {
   return String(item.validation?.grade || '').toUpperCase() || '-';
 }
@@ -128,6 +134,7 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
   const [latestSnapshot, setLatestSnapshot] = useState<ResearchSnapshotItem | null>(null);
   const [history, setHistory] = useState<ResearchSnapshotItem[]>([]);
   const [recentSnapshots, setRecentSnapshots] = useState<ResearchSnapshotItem[]>([]);
+  const [recentMarket, setRecentMarket] = useState<SnapshotMarketView>('ALL');
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [recentLoading, setRecentLoading] = useState(false);
@@ -209,17 +216,30 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
 
   const handleQuery = useCallback(() => runQuery(symbol, market), [market, runQuery, symbol]);
 
+  const recentMarketCounts = useMemo(() => {
+    const counts: Record<SnapshotMarketView, number> = { ALL: recentSnapshots.length, KOSPI: 0, NASDAQ: 0 };
+    recentSnapshots.forEach((item) => {
+      counts[normalizeSnapshotMarket(item.market)] += 1;
+    });
+    return counts;
+  }, [recentSnapshots]);
+
+  const displayedRecentSnapshots = useMemo(() => {
+    if (recentMarket === 'ALL') return recentSnapshots;
+    return recentSnapshots.filter((item) => normalizeSnapshotMarket(item.market) === recentMarket);
+  }, [recentMarket, recentSnapshots]);
+
   const topReviewCount = useMemo(
-    () => recentSnapshots.filter((item) => Number(item.research_score) >= 0.8).length,
-    [recentSnapshots],
+    () => displayedRecentSnapshots.filter((item) => Number(item.research_score) >= 0.8).length,
+    [displayedRecentSnapshots],
   );
   const lowScoreCount = useMemo(
-    () => recentSnapshots.filter((item) => Number.isFinite(Number(item.research_score)) && Number(item.research_score) < 0.6).length,
-    [recentSnapshots],
+    () => displayedRecentSnapshots.filter((item) => Number.isFinite(Number(item.research_score)) && Number(item.research_score) < 0.6).length,
+    [displayedRecentSnapshots],
   );
 
   const statusItems = [
-    { label: '최근 스냅샷', value: `${recentSnapshots.length}개`, tone: recentSnapshots.length > 0 ? 'good' as const : 'neutral' as const },
+    { label: '최근 스냅샷', value: `${displayedRecentSnapshots.length}개`, tone: displayedRecentSnapshots.length > 0 ? 'good' as const : 'neutral' as const },
     { label: '우선 검토', value: `${topReviewCount}개`, tone: topReviewCount > 0 ? 'good' as const : 'neutral' as const },
     { label: '조회 이력', value: `${history.length}개`, tone: history.length > 0 ? 'good' as const : 'neutral' as const },
   ];
@@ -304,15 +324,27 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
           </section>
 
           <section className="page-section workspace-table-section">
-            <div className="workspace-card-head">
-              <div>
-                <div className="section-title">최신 스냅샷 목록</div>
-                <div className="section-copy">점수, 상태, 요약을 먼저 보고 클릭하면 해당 종목 상세를 아래에서 봅니다.</div>
+              <div className="workspace-card-head">
+                <div>
+                  <div className="section-title">최신 스냅샷 목록</div>
+                  <div className="section-copy">한국장과 미국장을 분리해서 보면 어떤 시장의 리서치가 비는지 훨씬 빨리 읽힙니다.</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {(['ALL', 'KOSPI', 'NASDAQ'] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      className={recentMarket === view ? 'ghost-button is-active' : 'ghost-button'}
+                      onClick={() => setRecentMarket(view)}
+                    >
+                      {view === 'ALL' ? `전체 ${recentMarketCounts.ALL}개` : `${view} ${recentMarketCounts[view]}개`}
+                    </button>
+                  ))}
+                  <div className="inline-badge">{recentLoading ? '불러오는 중...' : `${displayedRecentSnapshots.length}개`}</div>
+                </div>
               </div>
-              <div className="inline-badge">{recentLoading ? '불러오는 중...' : `${recentSnapshots.length}개`}</div>
-            </div>
-            {recentSnapshots.length === 0 ? (
-              <div className="workspace-empty-state">표시할 최신 snapshot이 없다.</div>
+            {displayedRecentSnapshots.length === 0 ? (
+              <div className="workspace-empty-state">{recentSnapshots.length === 0 ? '표시할 최신 snapshot이 없다.' : `${recentMarket} 시장 최신 snapshot이 없다.`}</div>
             ) : (
               <div style={{ overflow: 'auto' }}>
                 <table className="workspace-table" style={{ minWidth: 840 }}>
@@ -327,7 +359,7 @@ export function ResearchSnapshotsPage({ loading, errorMessage, onRefresh }: Rese
                     </tr>
                   </thead>
                   <tbody>
-                    {recentSnapshots.map((item, idx) => {
+                    {displayedRecentSnapshots.map((item, idx) => {
                       const status = snapshotStatus(item);
                       return (
                         <tr

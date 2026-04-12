@@ -67,10 +67,14 @@ def handle_performance_summary() -> tuple[int, dict]:
                 "logged_at": e.get("logged_at"),
                 "code": e.get("code"),
                 "market": e.get("market"),
+                "currency": e.get("currency"),
                 "side": e.get("side"),
                 "quantity": e.get("quantity"),
+                "filled_price_local": e.get("filled_price_local"),
                 "filled_price_krw": e.get("filled_price_krw"),
+                "notional_local": e.get("notional_local"),
                 "notional_krw": e.get("notional_krw"),
+                "fx_rate": e.get("fx_rate"),
             }
             for e in sorted(filled_events, key=lambda x: str(x.get("logged_at") or ""), reverse=True)
         ]

@@ -312,8 +312,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{item.universe_rule || '-'}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{item.scan_cycle || '-'}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>
-                          <div>수익률 {formatPercent(research.backtest_return_pct, 1, true)}</div>
-                          <div className="signal-cell-copy">WF {formatPercent(research.walk_forward_return_pct, 1, true)} · Sharpe {research.sharpe ?? '-'}</div>
+                          <div>수익률 {formatPercent(research.backtest_return_pct, 1)}</div>
+                          <div className="signal-cell-copy">WF {formatPercent(research.walk_forward_return_pct, 1)} · Sharpe {research.sharpe ?? '-'}</div>
                         </td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{formatDateTime(item.enabled_at)}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>
@@ -365,7 +365,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
                       <div><div className="responsive-card-label">시장</div><div className="responsive-card-value">{item.market || '-'}</div></div>
                       <div><div className="responsive-card-label">유니버스</div><div className="responsive-card-value">{item.universe_rule || '-'}</div></div>
                       <div><div className="responsive-card-label">스캔 주기</div><div className="responsive-card-value">{item.scan_cycle || '-'}</div></div>
-                      <div><div className="responsive-card-label">연구 성과</div><div className="responsive-card-value">수익률 {formatPercent(research.backtest_return_pct, 1, true)} · WF {formatPercent(research.walk_forward_return_pct, 1, true)}</div></div>
+                      <div><div className="responsive-card-label">연구 성과</div><div className="responsive-card-value">수익률 {formatPercent(research.backtest_return_pct, 1)} · WF {formatPercent(research.walk_forward_return_pct, 1)}</div></div>
                       <div><div className="responsive-card-label">활성화 일시</div><div className="responsive-card-value">{formatDateTime(item.enabled_at)}</div></div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -448,8 +448,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
                 </div>
                 <div className="summary-metric-card">
                   <div className="summary-metric-label">연구 성과</div>
-                  <div className="summary-metric-value">{formatPercent(selectedStrategy.research_summary?.backtest_return_pct, 1, true)}</div>
-                  <div className="summary-metric-detail">WF {formatPercent(selectedStrategy.research_summary?.walk_forward_return_pct, 1, true)} · Sharpe {selectedStrategy.research_summary?.sharpe ?? '-'}</div>
+                  <div className="summary-metric-value">{formatPercent(selectedStrategy.research_summary?.backtest_return_pct, 1)}</div>
+                  <div className="summary-metric-detail">WF {formatPercent(selectedStrategy.research_summary?.walk_forward_return_pct, 1)} · Sharpe {selectedStrategy.research_summary?.sharpe ?? '-'}</div>
                 </div>
               </div>
 
