@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
+import { NumericInput } from '../components/NumericInput';
 import { SymbolIdentity } from '../components/SymbolIdentity';
 import { getRiskGuardState, isRiskEntryAllowed } from '../adapters/consoleViewAdapter';
 import { UI_TEXT, reasonCodeToKorean } from '../constants/uiText';
@@ -80,67 +81,6 @@ function toNumber(value: unknown, fallback = 0): number {
   if (value === null || value === undefined) return fallback;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
-}
-
-interface SettingsNumberInputProps {
-  value: number;
-  onCommit: (value: number) => void;
-  min?: number;
-  grouped?: boolean;
-}
-
-function SettingsNumberInput({ value, onCommit, min, grouped = false }: SettingsNumberInputProps) {
-  const [focused, setFocused] = useState(false);
-  const [draft, setDraft] = useState(() => String(Math.round(value)));
-
-  useEffect(() => {
-    if (!focused) {
-      setDraft(String(Math.round(value)));
-    }
-  }, [focused, value]);
-
-  const commitDraft = useCallback(() => {
-    setFocused(false);
-    const digits = draft.replace(/[^\d]/g, '');
-    if (!digits) {
-      setDraft(String(Math.round(value)));
-      return;
-    }
-    let nextValue = Number(digits);
-    if (!Number.isFinite(nextValue)) {
-      setDraft(String(Math.round(value)));
-      return;
-    }
-    if (typeof min === 'number') {
-      nextValue = Math.max(min, nextValue);
-    }
-    onCommit(nextValue);
-    setDraft(String(Math.round(nextValue)));
-  }, [draft, min, onCommit, value]);
-
-  return (
-    <input
-      className="backtest-input-wrap"
-      style={{ padding: '0 12px' }}
-      type="text"
-      inputMode="numeric"
-      value={focused ? draft : (grouped ? formatNumber(value, 0) : String(Math.round(value)))}
-      onFocus={() => {
-        setFocused(true);
-        setDraft(String(Math.round(value)));
-      }}
-      onChange={(event) => {
-        const digits = event.target.value.replace(/[^\d]/g, '');
-        setDraft(digits);
-      }}
-      onBlur={commitDraft}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.currentTarget.blur();
-        }
-      }}
-    />
-  );
 }
 
 function holdingDays(entryTs: unknown): number {
@@ -1015,26 +955,27 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     <div style={{ display: 'grid', gap: 12 }}>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>초기 원화 현금</span>
-        <SettingsNumberInput
+        <NumericInput
           value={settings.initialCashKrw}
-          grouped
-          onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashKrw: value }))}
+          style={{ padding: '0 12px' }}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashKrw: Number(value ?? prev.initialCashKrw) }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>초기 달러 현금</span>
-        <SettingsNumberInput
+        <NumericInput
           value={settings.initialCashUsd}
-          grouped
-          onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashUsd: value }))}
+          style={{ padding: '0 12px' }}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashUsd: Number(value ?? prev.initialCashUsd) }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>모의투자 기간(일)</span>
-        <SettingsNumberInput
+        <NumericInput
           value={settings.paperDays}
           min={1}
-          onCommit={(value) => setSettings((prev) => ({ ...prev, paperDays: value }))}
+          style={{ padding: '0 12px' }}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, paperDays: Number(value ?? prev.paperDays) }))}
         />
       </label>
       <div style={{ display: 'grid', gap: 8, fontSize: 12 }}>
@@ -1044,34 +985,38 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       </div>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최대 포지션 수(건)</span>
-        <SettingsNumberInput
+        <NumericInput
           value={settings.maxPositions}
           min={1}
-          onCommit={(value) => setSettings((prev) => ({ ...prev, maxPositions: value }))}
+          style={{ padding: '0 12px' }}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, maxPositions: Number(value ?? prev.maxPositions) }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매수 제한(건)</span>
-        <SettingsNumberInput
+        <NumericInput
           value={settings.dailyBuyLimit}
           min={1}
-          onCommit={(value) => setSettings((prev) => ({ ...prev, dailyBuyLimit: value }))}
+          style={{ padding: '0 12px' }}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, dailyBuyLimit: Number(value ?? prev.dailyBuyLimit) }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매도 제한(건)</span>
-        <SettingsNumberInput
+        <NumericInput
           value={settings.dailySellLimit}
           min={1}
-          onCommit={(value) => setSettings((prev) => ({ ...prev, dailySellLimit: value }))}
+          style={{ padding: '0 12px' }}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, dailySellLimit: Number(value ?? prev.dailySellLimit) }))}
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>종목당 일일 주문 제한(건)</span>
-        <SettingsNumberInput
+        <NumericInput
           value={settings.maxOrdersPerSymbol}
           min={1}
-          onCommit={(value) => setSettings((prev) => ({ ...prev, maxOrdersPerSymbol: value }))}
+          style={{ padding: '0 12px' }}
+          onCommit={(value) => setSettings((prev) => ({ ...prev, maxOrdersPerSymbol: Number(value ?? prev.maxOrdersPerSymbol) }))}
         />
       </label>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
