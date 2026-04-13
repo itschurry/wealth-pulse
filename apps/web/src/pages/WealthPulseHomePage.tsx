@@ -222,9 +222,9 @@ export function WealthPulseHomePage({
               <div className="wealth-kpi-copy">현금 KRW {formatKRW(cashKrw, true)} · USD {formatUSD(cashUsd, true)}</div>
             </article>
             <article className="page-section wealth-kpi-card">
-              <div className="wealth-kpi-label">실현 손익</div>
+              <div className="wealth-kpi-label">오늘 실현 손익</div>
               <div className={`wealth-kpi-value ${todayRealizedPnlKrw >= 0 ? 'is-up' : 'is-down'}`}>{formatKRW(todayRealizedPnlKrw, true)}</div>
-              <div className="wealth-kpi-copy">미실현 손익 {formatKRW(totalUnrealizedPnlKrw, true)}</div>
+              <div className="wealth-kpi-copy">현재 보유분 미실현 손익 {formatKRW(totalUnrealizedPnlKrw, true)}</div>
             </article>
             <article className="page-section wealth-kpi-card">
               <div className="wealth-kpi-label">보유 포지션</div>
