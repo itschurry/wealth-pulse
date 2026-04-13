@@ -404,13 +404,25 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     () => [...(account.orders || [])].sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || ''))),
     [account.orders],
   );
-  const mergedOrderHistory = useMemo(
-    () => orderEvents
+  const mergedOrderHistory = useMemo(() => {
+    const merged = new Map<string, Record<string, unknown>>();
+    for (const raw of orderEvents) {
+      const item = raw as Record<string, unknown>;
+      const key = String(item.order_id || item.trace_id || item.timestamp || item.ts || `${item.market || ''}:${item.code || ''}:${item.side || ''}`);
+      merged.set(key, item);
+    }
+    for (const raw of orders) {
+      const item = raw as unknown as Record<string, unknown>;
+      const key = String(item.order_id || item.trace_id || item.timestamp || item.ts || `${item.market || ''}:${item.code || ''}:${item.side || ''}`);
+      if (!merged.has(key)) {
+        merged.set(key, item);
+      }
+    }
+    return [...merged.values()]
       .slice(0, 80)
       .sort((a, b) => String((b as { timestamp?: string; ts?: string }).timestamp || (b as { ts?: string }).ts || '')
-        .localeCompare(String((a as { timestamp?: string; ts?: string }).timestamp || (a as { ts?: string }).ts || ''))),
-    [orderEvents],
-  );
+        .localeCompare(String((a as { timestamp?: string; ts?: string }).timestamp || (a as { ts?: string }).ts || '')));
+  }, [orderEvents, orders]);
   const currentHannaState = useMemo<HannaState>(() => {
     const states = (snapshot.signals.signals || []).map((signal) => resolveHannaStateWithProvider(
       signal.research_status,

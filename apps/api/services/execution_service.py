@@ -644,6 +644,31 @@ def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple
 
 
 def _notification_order_hook(event: dict[str, Any], _account: dict[str, Any]) -> None:
+    order_id = str(event.get("order_id") or "")
+    if order_id.startswith("paper-liq-"):
+        _record_execution_order({
+            "order_id": order_id,
+            "timestamp": event.get("ts") or _now_iso(),
+            "success": True,
+            "side": event.get("side"),
+            "code": event.get("code"),
+            "name": event.get("name"),
+            "market": event.get("market"),
+            "quantity": event.get("quantity"),
+            "order_type": event.get("order_type") or "market",
+            "submitted_at": event.get("ts") or _now_iso(),
+            "filled_at": event.get("ts") or _now_iso(),
+            "filled_price_local": event.get("filled_price_local"),
+            "filled_price_krw": event.get("filled_price_krw"),
+            "notional_local": event.get("notional_local"),
+            "notional_krw": event.get("notional_krw"),
+            "fx_rate": event.get("fx_rate"),
+            "realized_pnl_local": event.get("realized_pnl_local"),
+            "realized_pnl_krw": event.get("realized_pnl_krw"),
+            "failure_reason": "",
+            "reason_code": str(event.get("note") or "auto_liquidation"),
+            "message": str(event.get("note") or ""),
+        })
     get_notification_service().notify_order_filled(event)
 
 
