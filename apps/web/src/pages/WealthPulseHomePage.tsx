@@ -167,7 +167,7 @@ export function WealthPulseHomePage({
             <div className="wealth-home-hero-actions">
               <button className="ghost-button" onClick={onRefresh}>데이터 새로고침</button>
               <button className="ghost-button" onClick={onGoLab}>실험 모드 열기</button>
-              <button className="ghost-button" onClick={onGoAnalysis}>분석 모드 열기</button>
+              <button className="ghost-button" onClick={onGoAnalysis}>리서치 스냅샷 열기</button>
             </div>
             {!!errorMessage && <div className="wealth-home-error">{errorMessage}</div>}
           </section>

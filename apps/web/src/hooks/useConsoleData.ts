@@ -96,6 +96,16 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
+  if (route.page === 'operations-dashboard' && ['brief', 'alerts', 'watch-decision'].includes(route.dashboardTab)) {
+    return {
+      signalLimit: 80,
+      initialTargets: ['engine', 'signals', 'validation', 'reports', 'research', 'todayPicks', 'hannaBrief'],
+      fastTargets: ['engine'],
+      midTargets: ['signals'],
+      slowTargets: ['reports', 'research', 'todayPicks', 'recommendations', 'macro', 'hannaBrief'],
+    };
+  }
+
   if (route.page === 'orders-execution') {
     return {
       signalLimit: 0,
@@ -106,17 +116,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.page === 'research-ai' && ['today-report', 'alerts', 'watch-decision'].includes(route.researchTab)) {
-    return {
-      signalLimit: 80,
-      initialTargets: ['engine', 'signals', 'validation', 'reports', 'research', 'todayPicks', 'hannaBrief'],
-      fastTargets: ['engine'],
-      midTargets: ['signals'],
-      slowTargets: ['reports', 'research', 'todayPicks', 'recommendations', 'macro', 'hannaBrief'],
-    };
-  }
-
-  if (route.page === 'research-ai' && (route.researchTab === 'watchlist' || route.researchTab === 'research')) {
+  if (route.page === 'watchlist' || (route.page === 'research-ai' && route.researchTab === 'research')) {
     return {
       signalLimit: 0,
       initialTargets: ['engine'],
