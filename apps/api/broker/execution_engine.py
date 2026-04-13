@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from config.market_calendar import is_market_open
 from market_utils import lookup_company_listing
 
 
@@ -626,6 +627,10 @@ class PaperExecutionEngine:
                 liquidation_reason = "take_profit"
 
             if liquidation_reason:
+                if not is_market_open(market):
+                    position["pending_liquidation_reason"] = liquidation_reason
+                    continue
+                position.pop("pending_liquidation_reason", None)
                 self._auto_liquidate(
                     state=state,
                     key=key,

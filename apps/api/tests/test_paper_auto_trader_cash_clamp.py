@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -87,6 +88,36 @@ class PaperExecutionCashClampTests(unittest.TestCase):
         account = self.engine.get_account(refresh_quotes=False)
         self.assertEqual([], account.get("positions", []))
         self.assertEqual(50.0, account.get("cash_krw"))
+
+    def test_refresh_positions_does_not_auto_liquidate_when_market_closed(self):
+        self.engine.reset(initial_cash_krw=10_000.0, initial_cash_usd=0.0, paper_days=7)
+        buy = self.engine.place_order(
+            side="buy",
+            code="AAA",
+            market="KOSPI",
+            quantity=10,
+            order_type="market",
+            stop_loss_pct=1.0,
+        )
+        self.assertTrue(buy.get("ok"))
+
+        self.engine.quote_provider = lambda code, market: {
+            "price": 90.0,
+            "name": code,
+            "market": market,
+            "volume": 1_000_000,
+            "volume_avg20": 1_000_000,
+            "source": "test",
+            "fetched_at": "2026-04-01T00:00:00+00:00",
+            "is_stale": False,
+        }
+
+        with patch("broker.execution_engine.is_market_open", return_value=False):
+            account = self.engine.get_account(refresh_quotes=True)
+
+        self.assertEqual(1, len(account.get("positions", [])))
+        self.assertEqual("stop_loss", account["positions"][0].get("pending_liquidation_reason"))
+        self.assertFalse(any(order.get("side") == "sell" for order in account.get("orders", [])))
 
 
 if __name__ == "__main__":
