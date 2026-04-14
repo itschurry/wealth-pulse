@@ -12,9 +12,11 @@ import type {
   QuantOpsGuardrailPolicyResponse,
   QuantOpsWorkflowResponse,
   RecommendationsResponse,
+  CandidateMonitorPromotionsResponse,
+  CandidateMonitorStatusResponse,
+  CandidateMonitorWatchlistResponse,
   CandidateResearchHistoryResponse,
   CandidateResearchLatestResponse,
-  CandidateResearchTargetsResponse,
   ResearchStatusResponse,
   ReportsExplainResponse,
   ScannerStatusResponse,
@@ -133,21 +135,22 @@ export function fetchResearchStatus(provider = 'default') {
   return getJSON<ResearchStatusResponse>(`/api/research/status?provider=${encodeURIComponent(provider)}`, { noStore: true });
 }
 
-export function fetchCandidateResearchTargets(params?: {
+export function fetchCandidateMonitorStatus(params?: {
   market?: string[];
-  limit?: number;
+  refresh?: boolean;
 }) {
   const query = new URLSearchParams();
   params?.market?.forEach((item) => {
     if (item) query.append('market', item);
   });
-  if (typeof params?.limit === 'number') query.set('limit', String(params.limit));
+  if (typeof params?.refresh === 'boolean') query.set('refresh', params.refresh ? '1' : '0');
   const queryString = query.toString();
-  return getJSON<CandidateResearchTargetsResponse>(`/api/research/scanner-targets${queryString ? `?${queryString}` : ''}`, { noStore: true });
+  return getJSON<CandidateMonitorStatusResponse>(`/api/monitor/status${queryString ? `?${queryString}` : ''}`, { noStore: true });
 }
 
-export function fetchCandidateResearchPendingTargets(params?: {
+export function fetchCandidateMonitorWatchlist(params?: {
   market?: string[];
+  refresh?: boolean;
   limit?: number;
   mode?: 'missing_or_stale' | 'missing_only' | 'stale_only';
 }) {
@@ -155,10 +158,26 @@ export function fetchCandidateResearchPendingTargets(params?: {
   params?.market?.forEach((item) => {
     if (item) query.append('market', item);
   });
+  if (typeof params?.refresh === 'boolean') query.set('refresh', params.refresh ? '1' : '0');
   if (typeof params?.limit === 'number') query.set('limit', String(params.limit));
   if (params?.mode) query.set('mode', params.mode);
   const queryString = query.toString();
-  return getJSON<CandidateResearchTargetsResponse>(`/api/research/scanner-enrich-targets${queryString ? `?${queryString}` : ''}`, { noStore: true });
+  return getJSON<CandidateMonitorWatchlistResponse>(`/api/monitor/watchlist${queryString ? `?${queryString}` : ''}`, { noStore: true });
+}
+
+export function fetchCandidateMonitorPromotions(params?: {
+  market?: string[];
+  refresh?: boolean;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  params?.market?.forEach((item) => {
+    if (item) query.append('market', item);
+  });
+  if (typeof params?.refresh === 'boolean') query.set('refresh', params.refresh ? '1' : '0');
+  if (typeof params?.limit === 'number') query.set('limit', String(params.limit));
+  const queryString = query.toString();
+  return getJSON<CandidateMonitorPromotionsResponse>(`/api/monitor/promotions${queryString ? `?${queryString}` : ''}`, { noStore: true });
 }
 
 export function fetchCandidateResearchHistory(params?: {

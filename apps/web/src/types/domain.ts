@@ -476,12 +476,13 @@ export interface CandidateResearchHistoryResponse {
   error?: string;
 }
 
-export interface CandidateResearchTarget {
+export interface CandidateMonitorSlot {
+  market?: string;
+  symbol?: string;
+  code?: string;
+  name?: string;
   strategy_id?: string;
   strategy_name?: string;
-  symbol?: string;
-  market?: string;
-  name?: string;
   candidate_rank?: number | null;
   last_scanned_at?: string;
   research_status?: string;
@@ -490,24 +491,99 @@ export interface CandidateResearchTarget {
   snapshot_fresh?: boolean;
   snapshot_generated_at?: string;
   snapshot_research_score?: number | null;
+  validation_grade?: string;
   final_action?: string;
+  signal_state?: string;
+  slot_type?: 'held' | 'core' | 'promotion' | string;
+  priority?: number;
+  reason?: string;
 }
 
-export interface CandidateResearchTargetsResponse {
+export interface CandidateMonitorPromotionEvent {
+  id?: number;
+  market?: string;
+  symbol?: string;
+  event_type?: string;
+  reason?: string;
+  created_at?: string;
+  slot_type?: string;
+  strategy_id?: string;
+}
+
+export interface CandidateMonitorMarketWatchlist {
   ok?: boolean;
-  provider?: string;
-  mode?: 'missing_or_stale' | 'missing_only' | 'stale_only' | string;
+  market?: string;
+  state?: {
+    generated_at?: string;
+    source?: string;
+    session_date?: string;
+    core_limit?: number;
+    promotion_limit?: number;
+    candidate_pool_count?: number;
+    active_count?: number;
+    held_count?: number;
+    metadata?: {
+      pool_limit?: number;
+      core_selected?: number;
+      promotion_selected?: number;
+      held_symbols?: string[];
+    };
+  };
+  candidate_pool?: CandidateMonitorSlot[];
+  active_slots?: CandidateMonitorSlot[];
+  core_slots?: CandidateMonitorSlot[];
+  promotion_slots?: CandidateMonitorSlot[];
+  held_slots?: CandidateMonitorSlot[];
+  events?: CandidateMonitorPromotionEvent[];
+}
+
+export interface CandidateMonitorStatusItem {
+  market?: string;
+  candidate_pool_count?: number;
+  active_count?: number;
+  core_count?: number;
+  promotion_count?: number;
+  held_count?: number;
+  generated_at?: string;
+  session_date?: string;
+  source?: string;
+  metadata?: {
+    pool_limit?: number;
+    core_selected?: number;
+    promotion_selected?: number;
+    held_symbols?: string[];
+  };
+}
+
+export interface CandidateMonitorStatusResponse {
+  ok?: boolean;
+  markets?: string[];
   count?: number;
-  items?: CandidateResearchTarget[];
-  targets?: Array<{
-    symbol?: string;
-    market?: string;
-    name?: string;
-  }>;
-  missing_count?: number;
-  stale_count?: number;
-  fresh_count?: number;
-  deduped?: boolean;
+  items?: CandidateMonitorStatusItem[];
+  source?: string;
+  refresh?: boolean;
+  error?: string;
+}
+
+export interface CandidateMonitorWatchlistResponse {
+  ok?: boolean;
+  markets?: string[];
+  count?: number;
+  items?: CandidateMonitorMarketWatchlist[];
+  pending_count?: number;
+  pending_items?: CandidateMonitorSlot[];
+  source?: string;
+  refresh?: boolean;
+  error?: string;
+}
+
+export interface CandidateMonitorPromotionsResponse {
+  ok?: boolean;
+  markets?: string[];
+  count?: number;
+  items?: CandidateMonitorPromotionEvent[];
+  source?: string;
+  refresh?: boolean;
   error?: string;
 }
 

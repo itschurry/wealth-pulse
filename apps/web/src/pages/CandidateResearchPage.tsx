@@ -1,9 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  fetchCandidateResearchLatest,
+  fetchCandidateMonitorPromotions,
+  fetchCandidateMonitorStatus,
+  fetchCandidateMonitorWatchlist,
   fetchCandidateResearchHistory,
-  fetchCandidateResearchPendingTargets,
-  fetchCandidateResearchTargets,
+  fetchCandidateResearchLatest,
   fetchResearchStatus,
 } from '../api/domain';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
@@ -11,7 +12,13 @@ import { SymbolIdentity } from '../components/SymbolIdentity';
 import { freshnessToKorean, gradeToKorean, providerStatusToKorean, reasonCodeToKorean } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import type { ConsoleSnapshot } from '../types/consoleView';
-import type { CandidateResearchSnapshot, CandidateResearchTarget } from '../types/domain';
+import type {
+  CandidateMonitorMarketWatchlist,
+  CandidateMonitorPromotionEvent,
+  CandidateMonitorSlot,
+  CandidateMonitorStatusItem,
+  CandidateResearchSnapshot,
+} from '../types/domain';
 import { formatDateTime, formatDateTimeWithAge, formatNumber } from '../utils/format';
 
 interface CandidateResearchPageProps {
@@ -83,24 +90,56 @@ function snapshotStatus(item: CandidateResearchSnapshot): { label: string; tone:
   return { label: '관찰 유지', tone: 'inline-badge is-danger' };
 }
 
-function candidateStatusBadge(item: CandidateResearchTarget): { label: string; tone: string } {
+function candidateStatusBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
   if (!item.snapshot_exists) return { label: '리서치 없음', tone: 'inline-badge' };
-  if (item.snapshot_fresh) return { label: '후보 기준 최신', tone: 'inline-badge is-success' };
-  return { label: '재리서치 필요', tone: 'inline-badge is-danger' };
+  if (item.snapshot_fresh) return { label: '최신', tone: 'inline-badge is-success' };
+  return { label: '지연', tone: 'inline-badge is-danger' };
 }
 
-function pendingCandidateBadge(item: CandidateResearchTarget): { label: string; tone: string } {
+function pendingCandidateBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
   if (!item.snapshot_exists) return { label: '신규 리서치', tone: 'inline-badge' };
   return { label: '지연 리서치', tone: 'inline-badge is-danger' };
 }
 
-function candidateActionBadge(item: CandidateResearchTarget): { label: string; tone: string } {
+function candidateActionBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
   const action = String(item.final_action || '').trim().toLowerCase();
   if (action === 'review_for_entry') return { label: '진입 검토', tone: 'inline-badge is-success' };
   if (action === 'watch_only') return { label: '관찰', tone: 'inline-badge' };
   if (action === 'blocked') return { label: '차단', tone: 'inline-badge is-danger' };
   if (action === 'do_not_touch') return { label: '보류', tone: 'inline-badge' };
   return { label: action || '-', tone: 'inline-badge' };
+}
+
+function slotTypeBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
+  const slotType = String(item.slot_type || '').toLowerCase();
+  if (slotType === 'held') return { label: '보유 추적', tone: 'inline-badge is-success' };
+  if (slotType === 'core') return { label: '핵심 감시', tone: 'inline-badge' };
+  if (slotType === 'promotion') return { label: '승격 슬롯', tone: 'inline-badge is-danger' };
+  return { label: slotType || '-', tone: 'inline-badge' };
+}
+
+function validationBadge(item: CandidateMonitorSlot): { label: string; tone: string } | null {
+  const grade = String(item.validation_grade || '').toUpperCase();
+  if (!grade) return null;
+  if (grade === 'A') return { label: gradeToKorean(grade), tone: 'inline-badge is-success' };
+  if (grade === 'B') return { label: gradeToKorean(grade), tone: 'inline-badge' };
+  return { label: gradeToKorean(grade), tone: 'inline-badge is-danger' };
+}
+
+function promotionEventBadge(item: CandidateMonitorPromotionEvent): { label: string; tone: string } {
+  const eventType = String(item.event_type || '').toLowerCase();
+  if (eventType === 'entered_watch') return { label: '감시 편입', tone: 'inline-badge is-success' };
+  if (eventType === 'left_watch') return { label: '감시 제외', tone: 'inline-badge is-danger' };
+  return { label: eventType || '-', tone: 'inline-badge' };
+}
+
+function promotionReasonLabel(item: CandidateMonitorPromotionEvent): string {
+  const reason = String(item.reason || '').toLowerCase();
+  if (reason === 'held') return '보유 추적';
+  if (reason === 'core') return '핵심 감시';
+  if (reason === 'promotion') return '승격 슬롯';
+  if (reason === 'watch') return '감시 슬롯';
+  return reason || '-';
 }
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
@@ -166,10 +205,10 @@ function CandidateResearchCard({ item }: { item: CandidateResearchSnapshot }) {
   );
 }
 
-interface CandidateSectionProps {
+interface MonitorSlotSectionProps {
   title: string;
   copy: string;
-  items: CandidateResearchTarget[];
+  items: CandidateMonitorSlot[];
   loading: boolean;
   marketView: SnapshotMarketView;
   onChangeMarketView: (view: SnapshotMarketView) => void;
@@ -178,7 +217,7 @@ interface CandidateSectionProps {
   highlightPending?: boolean;
 }
 
-function CandidateSection({
+function MonitorSlotSection({
   title,
   copy,
   items,
@@ -188,7 +227,7 @@ function CandidateSection({
   onSelect,
   emptyText,
   highlightPending = false,
-}: CandidateSectionProps) {
+}: MonitorSlotSectionProps) {
   const marketCounts = useMemo(() => buildMarketCounts(items), [items]);
   const displayedItems = useMemo(() => filterByMarket(items, marketView), [items, marketView]);
 
@@ -221,10 +260,11 @@ function CandidateSection({
       ) : (
         <>
           <div style={{ overflow: 'auto' }}>
-            <table className="workspace-table" style={{ minWidth: 920 }}>
+            <table className="workspace-table" style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
                   <th>종목</th>
+                  <th>슬롯</th>
                   <th>전략</th>
                   <th>순위</th>
                   <th>리서치 상태</th>
@@ -237,20 +277,28 @@ function CandidateSection({
                   const status = candidateStatusBadge(item);
                   const pending = pendingCandidateBadge(item);
                   const action = candidateActionBadge(item);
+                  const slot = slotTypeBadge(item);
+                  const grade = validationBadge(item);
                   const market = item.market || 'KOSPI';
-                  const symbol = item.symbol || '';
+                  const symbol = item.symbol || item.code || '';
                   return (
                     <tr
                       key={`${market}-${symbol}-${item.strategy_id || idx}`}
                       style={{ cursor: 'pointer' }}
                       onClick={() => symbol && onSelect(symbol, market)}
                     >
-                      <td><SymbolIdentity code={item.symbol} name={item.name} market={item.market} /></td>
+                      <td><SymbolIdentity code={symbol} name={item.name} market={item.market} /></td>
+                      <td>
+                        <div className="workspace-chip-row">
+                          <span className={slot.tone}>{slot.label}</span>
+                        </div>
+                      </td>
                       <td>{item.strategy_name || item.strategy_id || '-'}</td>
                       <td>{item.candidate_rank ?? '-'}</td>
                       <td>
                         <div className="workspace-chip-row">
                           <span className={status.tone}>{status.label}</span>
+                          {grade ? <span className={grade.tone}>{grade.label}</span> : null}
                           {highlightPending ? <span className={pending.tone}>{pending.label}</span> : null}
                         </div>
                       </td>
@@ -268,8 +316,10 @@ function CandidateSection({
               const status = candidateStatusBadge(item);
               const pending = pendingCandidateBadge(item);
               const action = candidateActionBadge(item);
+              const slot = slotTypeBadge(item);
+              const grade = validationBadge(item);
               const market = item.market || 'KOSPI';
-              const symbol = item.symbol || '';
+              const symbol = item.symbol || item.code || '';
               return (
                 <article
                   key={`${market}-${symbol}-${item.strategy_id || idx}-card`}
@@ -278,10 +328,16 @@ function CandidateSection({
                 >
                   <div className="responsive-card-head">
                     <div>
-                      <div className="responsive-card-title">{item.name || item.symbol || '-'}</div>
+                      <div className="responsive-card-title">{item.name || symbol || '-'}</div>
                       <div className="signal-cell-copy">{item.strategy_name || item.strategy_id || '-'} · 순위 {item.candidate_rank ?? '-'}</div>
                     </div>
                     <span className={action.tone}>{action.label}</span>
+                  </div>
+                  <div className="workspace-chip-row" style={{ marginBottom: 12 }}>
+                    <span className={slot.tone}>{slot.label}</span>
+                    <span className={status.tone}>{status.label}</span>
+                    {grade ? <span className={grade.tone}>{grade.label}</span> : null}
+                    {highlightPending ? <span className={pending.tone}>{pending.label}</span> : null}
                   </div>
                   <div className="responsive-card-grid">
                     <div>
@@ -292,12 +348,132 @@ function CandidateSection({
                       <div className="responsive-card-label">최근 리서치</div>
                       <div className="responsive-card-value">{item.snapshot_generated_at ? formatDateTime(item.snapshot_generated_at) : '없음'}</div>
                     </div>
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <div className="responsive-card-label">상태</div>
-                      <div className="workspace-chip-row">
-                        <span className={status.tone}>{status.label}</span>
-                        {highlightPending ? <span className={pending.tone}>{pending.label}</span> : null}
-                      </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function MarketSummarySection({ items }: { items: CandidateMonitorStatusItem[] }) {
+  if (!items.length) {
+    return <div className="page-section workspace-empty-state">시장별 감시 상태가 아직 없어.</div>;
+  }
+
+  return (
+    <section className="page-section workspace-table-section">
+      <div className="workspace-card-head section-head-row">
+        <div>
+          <div className="section-title">시장별 감시 상태</div>
+          <div className="section-copy">KOSPI/NASDAQ 후보 풀과 핵심 감시, 승격 슬롯, 보유 추적 수를 따로 본다.</div>
+        </div>
+      </div>
+      <div className="responsive-card-list">
+        {items.map((item) => (
+          <article key={item.market || 'market'} className="responsive-card" style={{ cursor: 'default' }}>
+            <div className="responsive-card-head">
+              <div>
+                <div className="responsive-card-title">{item.market || '-'}</div>
+                <div className="signal-cell-copy">생성 {item.generated_at ? formatDateTimeWithAge(item.generated_at) : '대기'}</div>
+              </div>
+              <span className="inline-badge">세션 {item.session_date || '-'}</span>
+            </div>
+            <div className="responsive-card-grid">
+              <div>
+                <div className="responsive-card-label">후보 풀</div>
+                <div className="responsive-card-value">{item.candidate_pool_count ?? 0}개</div>
+              </div>
+              <div>
+                <div className="responsive-card-label">감시 슬롯</div>
+                <div className="responsive-card-value">{item.active_count ?? 0}개</div>
+              </div>
+              <div>
+                <div className="responsive-card-label">핵심 감시</div>
+                <div className="responsive-card-value">{item.core_count ?? 0}개</div>
+              </div>
+              <div>
+                <div className="responsive-card-label">승격 슬롯</div>
+                <div className="responsive-card-value">{item.promotion_count ?? 0}개</div>
+              </div>
+              <div>
+                <div className="responsive-card-label">보유 추적</div>
+                <div className="responsive-card-value">{item.held_count ?? 0}개</div>
+              </div>
+              <div>
+                <div className="responsive-card-label">소스</div>
+                <div className="responsive-card-value">{item.source || '-'}</div>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }) {
+  return (
+    <section className="page-section workspace-table-section">
+      <div className="workspace-card-head section-head-row">
+        <div>
+          <div className="section-title">최근 승격/탈락 로그</div>
+          <div className="section-copy">새 구조가 실제로 종목을 감시 슬롯에 넣고 빼는지 바로 확인하는 용도야.</div>
+        </div>
+        <div className="section-toolbar">
+          <div className="inline-badge">{items.length}개</div>
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <div className="workspace-empty-state">최근 승격/탈락 로그가 아직 없어.</div>
+      ) : (
+        <>
+          <div style={{ overflow: 'auto' }}>
+            <table className="workspace-table" style={{ minWidth: 760 }}>
+              <thead>
+                <tr>
+                  <th>시각</th>
+                  <th>시장</th>
+                  <th>종목</th>
+                  <th>이벤트</th>
+                  <th>슬롯</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, idx) => {
+                  const event = promotionEventBadge(item);
+                  return (
+                    <tr key={`${item.market}-${item.symbol}-${item.created_at}-${idx}`}>
+                      <td>{item.created_at ? formatDateTime(item.created_at) : '-'}</td>
+                      <td>{item.market || '-'}</td>
+                      <td><SymbolIdentity code={item.symbol} market={item.market} /></td>
+                      <td><span className={event.tone}>{event.label}</span></td>
+                      <td>{promotionReasonLabel(item)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="responsive-card-list">
+            {items.map((item, idx) => {
+              const event = promotionEventBadge(item);
+              return (
+                <article key={`${item.market}-${item.symbol}-${item.created_at}-${idx}-card`} className="responsive-card" style={{ cursor: 'default' }}>
+                  <div className="responsive-card-head">
+                    <div>
+                      <div className="responsive-card-title">{item.symbol || '-'}</div>
+                      <div className="signal-cell-copy">{item.market || '-'} · {item.created_at ? formatDateTime(item.created_at) : '-'}</div>
+                    </div>
+                    <span className={event.tone}>{event.label}</span>
+                  </div>
+                  <div className="responsive-card-grid">
+                    <div>
+                      <div className="responsive-card-label">슬롯</div>
+                      <div className="responsive-card-value">{promotionReasonLabel(item)}</div>
                     </div>
                   </div>
                 </article>
@@ -318,49 +494,89 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
   const [latestSnapshot, setLatestSnapshot] = useState<CandidateResearchSnapshot | null>(null);
   const [history, setHistory] = useState<CandidateResearchSnapshot[]>([]);
   const [localResearchStatus, setLocalResearchStatus] = useState(snapshot.research || {});
-  const [scannerTargets, setScannerTargets] = useState<CandidateResearchTarget[]>([]);
-  const [enrichTargets, setEnrichTargets] = useState<CandidateResearchTarget[]>([]);
-  const [targetsMarketView, setTargetsMarketView] = useState<SnapshotMarketView>('ALL');
+  const [monitorStatus, setMonitorStatus] = useState<CandidateMonitorStatusItem[]>([]);
+  const [watchlists, setWatchlists] = useState<CandidateMonitorMarketWatchlist[]>([]);
+  const [pendingTargets, setPendingTargets] = useState<CandidateMonitorSlot[]>([]);
+  const [promotionEvents, setPromotionEvents] = useState<CandidateMonitorPromotionEvent[]>([]);
+  const [pendingMarketView, setPendingMarketView] = useState<SnapshotMarketView>('ALL');
+  const [activeMarketView, setActiveMarketView] = useState<SnapshotMarketView>('ALL');
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const [queryLoading, setQueryLoading] = useState(false);
   const [targetsLoading, setTargetsLoading] = useState(false);
+  const [queryLoading, setQueryLoading] = useState(false);
   const [queried, setQueried] = useState(false);
   const queryRequestIdRef = useRef(0);
 
-  const loadCandidateBoards = useCallback(async (silent = false) => {
+  const activeSlots = useMemo(
+    () => watchlists.flatMap((item) => (Array.isArray(item.active_slots) ? item.active_slots : [])),
+    [watchlists],
+  );
+
+  const totalCandidatePoolCount = useMemo(
+    () => monitorStatus.reduce((sum, item) => sum + Number(item.candidate_pool_count || 0), 0),
+    [monitorStatus],
+  );
+  const totalActiveCount = useMemo(
+    () => monitorStatus.reduce((sum, item) => sum + Number(item.active_count || 0), 0),
+    [monitorStatus],
+  );
+  const totalCoreCount = useMemo(
+    () => monitorStatus.reduce((sum, item) => sum + Number(item.core_count || 0), 0),
+    [monitorStatus],
+  );
+  const totalPromotionCount = useMemo(
+    () => monitorStatus.reduce((sum, item) => sum + Number(item.promotion_count || 0), 0),
+    [monitorStatus],
+  );
+  const totalHeldCount = useMemo(
+    () => monitorStatus.reduce((sum, item) => sum + Number(item.held_count || 0), 0),
+    [monitorStatus],
+  );
+
+  const loadCandidateBoards = useCallback(async (forceRefresh = false, silent = false) => {
     setTargetsLoading(true);
     try {
-      const [statusPayload, scannerPayload, enrichPayload] = await Promise.all([
+      const monitorQuery = { market: ['KOSPI', 'NASDAQ'], refresh: forceRefresh };
+      const [researchStatusPayload, monitorStatusPayload, monitorWatchlistPayload, monitorPromotionsPayload] = await Promise.all([
         fetchResearchStatus(),
-        fetchCandidateResearchTargets({ market: ['KOSPI', 'NASDAQ'], limit: 200 }),
-        fetchCandidateResearchPendingTargets({ market: ['KOSPI', 'NASDAQ'], limit: 30, mode: 'missing_or_stale' }),
+        fetchCandidateMonitorStatus(monitorQuery),
+        fetchCandidateMonitorWatchlist({ ...monitorQuery, limit: 60, mode: 'missing_or_stale' }),
+        fetchCandidateMonitorPromotions({ ...monitorQuery, limit: 20 }),
       ]);
 
-      setLocalResearchStatus(statusPayload?.ok !== false ? statusPayload : {});
-      setScannerTargets(scannerPayload?.ok !== false && Array.isArray(scannerPayload?.items) ? scannerPayload.items : []);
-      setEnrichTargets(enrichPayload?.ok !== false && Array.isArray(enrichPayload?.items) ? enrichPayload.items : []);
+      setLocalResearchStatus(researchStatusPayload?.ok !== false ? researchStatusPayload : {});
+      setMonitorStatus(monitorStatusPayload?.ok !== false && Array.isArray(monitorStatusPayload?.items) ? monitorStatusPayload.items : []);
+      setWatchlists(monitorWatchlistPayload?.ok !== false && Array.isArray(monitorWatchlistPayload?.items) ? monitorWatchlistPayload.items : []);
+      setPendingTargets(monitorWatchlistPayload?.ok !== false && Array.isArray(monitorWatchlistPayload?.pending_items) ? monitorWatchlistPayload.pending_items : []);
+      setPromotionEvents(monitorPromotionsPayload?.ok !== false && Array.isArray(monitorPromotionsPayload?.items) ? monitorPromotionsPayload.items : []);
 
-      if (!silent && (statusPayload?.ok === false || scannerPayload?.ok === false || enrichPayload?.ok === false)) {
-        push('warning', '후보 리서치 상태 일부만 불러왔어', statusPayload?.error || scannerPayload?.error || enrichPayload?.error, 'research');
+      if (!silent && (researchStatusPayload?.ok === false || monitorStatusPayload?.ok === false || monitorWatchlistPayload?.ok === false || monitorPromotionsPayload?.ok === false)) {
+        push(
+          'warning',
+          '감시 상태 일부만 불러왔어',
+          researchStatusPayload?.error || monitorStatusPayload?.error || monitorWatchlistPayload?.error || monitorPromotionsPayload?.error,
+          'research',
+        );
       }
     } catch {
       setLocalResearchStatus({});
-      setScannerTargets([]);
-      setEnrichTargets([]);
-      if (!silent) push('error', '후보 리서치 상태를 불러오지 못했어', undefined, 'research');
+      setMonitorStatus([]);
+      setWatchlists([]);
+      setPendingTargets([]);
+      setPromotionEvents([]);
+      if (!silent) push('error', '감시 상태를 불러오지 못했어', undefined, 'research');
     } finally {
       setTargetsLoading(false);
     }
   }, [push]);
 
   useEffect(() => {
-    void loadCandidateBoards(true);
+    void loadCandidateBoards(false, true);
   }, [loadCandidateBoards]);
 
   const runQuery = useCallback(async (targetSymbol: string, targetMarket: string) => {
     const normalizedSymbol = targetSymbol.trim().toUpperCase();
     if (!normalizedSymbol) {
-      push('warning', '종목 코드를 입력하세요', undefined, 'research');
+      push('warning', '종목 코드를 입력해줘', undefined, 'research');
       return;
     }
     const requestId = queryRequestIdRef.current + 1;
@@ -386,7 +602,6 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
       if (!latestFailed && latestPayload?.snapshot) {
         setLatestSnapshot(latestPayload.snapshot);
       }
-
       if (!historyFailed && Array.isArray(historyPayload?.snapshots)) {
         setHistory(historyPayload.snapshots);
       }
@@ -417,7 +632,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
 
   const handleRefresh = useCallback(() => {
     onRefresh();
-    void loadCandidateBoards();
+    void loadCandidateBoards(true);
   }, [loadCandidateBoards, onRefresh]);
 
   const researchStatus = localResearchStatus;
@@ -428,9 +643,9 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
       ? 'neutral'
       : 'bad';
 
-  const statusItems = [
-    { label: '현재 후보', value: `${scannerTargets.length}개`, tone: scannerTargets.length > 0 ? 'good' as const : 'neutral' as const },
-    { label: '지금 리서치 필요', value: `${enrichTargets.length}개`, tone: enrichTargets.length > 0 ? 'bad' as const : 'good' as const },
+  const topStatusItems = [
+    { label: '감시 슬롯', value: `${totalActiveCount || activeSlots.length}개`, tone: (totalActiveCount || activeSlots.length) > 0 ? 'good' as const : 'neutral' as const },
+    { label: '지금 리서치 필요', value: `${pendingTargets.length}개`, tone: pendingTargets.length > 0 ? 'bad' as const : 'good' as const },
     { label: '저장소 상태', value: storageStatusLabel, tone: storageStatusTone as 'good' | 'neutral' | 'bad' },
   ];
 
@@ -440,11 +655,11 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
         <div className="content-shell workspace-grid">
           <ConsoleActionBar
             title="후보 리서치"
-            subtitle="저장된 캐시 전체가 아니라 현재 스캐너 후보와 지금 돌려야 할 리서치 대상을 먼저 보여줍니다."
-            lastUpdated={researchStatus.last_generated_at || latestSnapshot?.generated_at || latestSnapshot?.bucket_ts || ''}
+            subtitle="전체 캐시 목록보다 지금 감시 중인 핵심 슬롯과 승격 슬롯을 먼저 본다. 애매한 중복 없이 이 화면을 truth source로 쓴다."
+            lastUpdated={researchStatus.last_generated_at || monitorStatus[0]?.generated_at || latestSnapshot?.generated_at || latestSnapshot?.bucket_ts || ''}
             loading={loading}
             errorMessage={errorMessage}
-            statusItems={statusItems}
+            statusItems={topStatusItems}
             onRefresh={handleRefresh}
             logs={entries}
             onClearLogs={clear}
@@ -456,7 +671,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
               <div className="workspace-card-head">
                 <div>
                   <div className="section-title">종목 조회</div>
-                  <div className="section-copy">후보를 눌러도 되고, 직접 코드와 시장을 넣어서 리서치 latest/history를 볼 수도 있어.</div>
+                  <div className="section-copy">감시 슬롯에서 바로 눌러도 되고, 직접 코드와 시장을 넣어서 latest/history를 확인해도 돼.</div>
                 </div>
               </div>
               <div className="workspace-query-grid">
@@ -500,47 +715,55 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
             <div className="workspace-card-block">
               <div className="workspace-card-head">
                 <div>
-                  <div className="section-title">리서치 운영 요약</div>
-                  <div className="section-copy">현재 후보와 저장소 상태를 분리해서 본다. 전체 캐시 개수보다 지금 돌릴 대상이 먼저 중요해.</div>
+                  <div className="section-title">감시 운영 요약</div>
+                  <div className="section-copy">핵심 감시와 승격 슬롯이 실제 리서치 우선순위를 결정해. 예전 scanner 후보 전체 목록은 여기서 끊었어.</div>
                 </div>
               </div>
               <div className="workspace-mini-metrics">
-                <div className="workspace-mini-metric"><span>현재 후보</span><strong>{scannerTargets.length}개</strong></div>
-                <div className="workspace-mini-metric"><span>즉시 리서치 대상</span><strong>{enrichTargets.length}개</strong></div>
+                <div className="workspace-mini-metric"><span>후보 풀</span><strong>{totalCandidatePoolCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>감시 슬롯</span><strong>{totalActiveCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>핵심 감시</span><strong>{totalCoreCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>승격 슬롯</span><strong>{totalPromotionCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>보유 추적</span><strong>{totalHeldCount}개</strong></div>
                 <div className="workspace-mini-metric"><span>저장소 fresh</span><strong>{researchStatus.fresh_symbol_count ?? 0}개</strong></div>
+                <div className="workspace-mini-metric"><span>즉시 리서치 대상</span><strong>{pendingTargets.length}개</strong></div>
                 <div className="workspace-mini-metric"><span>마지막 적재</span><strong>{researchStatus.last_generated_at ? formatDateTime(researchStatus.last_generated_at) : '대기'}</strong></div>
               </div>
             </div>
           </section>
 
-          <CandidateSection
-            title="지금 리서치 돌릴 후보"
-            copy="라즈베리파이 부담을 줄이려고 전체 유니버스가 아니라 현재 스캐너 후보 중 missing/stale 대상만 먼저 돌린다. 기본 배치는 30개다."
-            items={enrichTargets}
+          <MarketSummarySection items={monitorStatus} />
+
+          <MonitorSlotSection
+            title="지금 리서치 돌릴 감시 슬롯"
+            copy="감시 슬롯 중에서 snapshot이 없거나 stale인 대상만 먼저 돌린다. 핵심 감시와 승격 슬롯 위주라서 더 이상 전체 후보 목록에 끌려가지 않아."
+            items={pendingTargets}
             loading={targetsLoading}
-            marketView={targetsMarketView}
-            onChangeMarketView={setTargetsMarketView}
+            marketView={pendingMarketView}
+            onChangeMarketView={setPendingMarketView}
             onSelect={handleSelectTarget}
-            emptyText={targetsLoading ? '불러오는 중...' : `${targetsMarketView} 시장에서 지금 돌릴 리서치 후보가 없어.`}
+            emptyText={targetsLoading ? '불러오는 중...' : `${pendingMarketView} 시장에서 지금 돌릴 리서치 대상이 없어.`}
             highlightPending
           />
 
-          <CandidateSection
-            title="현재 스캐너 후보 리서치 상태"
-            copy="여기가 truth source다. 저장된 snapshot 전체 목록이 아니라 지금 전략이 보고 있는 후보에 리서치가 붙었는지 먼저 본다."
-            items={scannerTargets}
+          <MonitorSlotSection
+            title="현재 핵심 감시 / 승격 슬롯"
+            copy="여기가 후보 리서치의 기준 목록이야. 보유 추적, 핵심 감시, 승격 슬롯만 남기고 애매한 중간 후보는 걷어냈어."
+            items={activeSlots}
             loading={targetsLoading}
-            marketView={targetsMarketView}
-            onChangeMarketView={setTargetsMarketView}
+            marketView={activeMarketView}
+            onChangeMarketView={setActiveMarketView}
             onSelect={handleSelectTarget}
-            emptyText={targetsLoading ? '불러오는 중...' : `${targetsMarketView} 시장 현재 후보가 없어.`}
+            emptyText={targetsLoading ? '불러오는 중...' : `${activeMarketView} 시장 감시 슬롯이 없어.`}
           />
+
+          <PromotionSection items={promotionEvents} />
 
           {latestSnapshot && <CandidateResearchCard item={latestSnapshot} />}
 
           {queried && !latestSnapshot && !queryLoading && (
             <div className="page-section workspace-empty-state">
-              {symbol.trim().toUpperCase()} ({market}) 에 대한 후보 리서치 이력이 없다.
+              {symbol.trim().toUpperCase()} ({market}) 에 대한 후보 리서치 이력이 없어.
             </div>
           )}
 
@@ -549,7 +772,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
               <div className="workspace-card-head section-head-row">
                 <div>
                   <div className="section-title">스냅샷 이력</div>
-                  <div className="section-copy">현재 후보를 클릭하거나 직접 종목 조회한 뒤, 저장된 리서치 이력을 상세로 확인한다.</div>
+                  <div className="section-copy">감시 슬롯에서 선택한 종목이나 직접 조회한 종목의 저장된 리서치 이력을 본다.</div>
                 </div>
                 <div className="section-toolbar">
                   <div className="section-table-meta">선택 종목 {symbol.trim().toUpperCase() || '-'} · 시장 {market}</div>
@@ -587,7 +810,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                               </div>
                             </td>
                             <td>{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '검증 제외') : (item.summary ? (item.summary.length > 88 ? `${item.summary.slice(0, 88)}…` : item.summary) : '요약 없음')}</td>
-                            <td>{warnings.length > 0 ? warnings.join(', ') : '경고 없음'}</td>
+                            <td>{warnings.length > 0 ? warnings.map((warning) => reasonCodeToKorean(String(warning))).join(', ') : '경고 없음'}</td>
                           </tr>
                           {isExpanded && (
                             <tr>

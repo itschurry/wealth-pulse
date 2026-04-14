@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from routes.backtest import handle_backtest_run, handle_kospi_backtest
+from routes.candidate_monitor import handle_candidate_monitor_promotions, handle_candidate_monitor_status, handle_candidate_monitor_watchlist
 from routes.engine import handle_engine_status
 from routes.hanna import handle_hanna_brief
 from routes.market import handle_live_market, handle_stock_price, handle_stock_search
@@ -24,7 +25,7 @@ from routes.quant_ops import (
     handle_quant_ops_save_candidate,
     handle_quant_ops_save_policy,
 )
-from routes.research import handle_research_ingest_bulk, handle_research_latest_snapshot, handle_research_scanner_enrich_targets, handle_research_scanner_targets, handle_research_status
+from routes.research import handle_research_ingest_bulk, handle_research_latest_snapshot, handle_research_status
 from routes.research import handle_research_snapshots
 from routes.reports import (
     handle_analysis,
@@ -119,6 +120,9 @@ def _query_bool(query: QueryParams, name: str, default: bool) -> bool:
 
 GET_ROUTES: tuple[Route, ...] = (
     Route("/api/engine/status", lambda _path, _query: handle_engine_status()),
+    Route("/api/monitor/status", lambda _path, query: handle_candidate_monitor_status(query)),
+    Route("/api/monitor/watchlist", lambda _path, query: handle_candidate_monitor_watchlist(query)),
+    Route("/api/monitor/promotions", lambda _path, query: handle_candidate_monitor_promotions(query)),
     Route("/api/signals/rank", lambda _path, query: handle_signals_rank(query)),
     Route("/api/signals/snapshots", lambda _path, query: handle_signal_snapshots(query)),
     Route("/api/signals/", lambda path, _query: handle_signal_detail(path), prefix=True),
@@ -137,8 +141,6 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/reports/operations", lambda _path, query: handle_reports_operations(_query_int(query, "limit", 500))),
     Route("/api/hanna/brief", lambda _path, query: handle_hanna_brief(_query_value(query, "date") or None)),
     Route("/api/research/status", lambda _path, query: handle_research_status(query)),
-    Route("/api/research/scanner-targets", lambda _path, query: handle_research_scanner_targets(query)),
-    Route("/api/research/scanner-enrich-targets", lambda _path, query: handle_research_scanner_enrich_targets(query)),
     Route("/api/research/snapshots/latest", lambda _path, query: handle_research_latest_snapshot(query)),
     Route("/api/research/snapshots", lambda _path, query: handle_research_snapshots(query)),
     Route("/api/strategies", lambda _path, query: handle_strategies_list(query)),

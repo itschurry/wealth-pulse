@@ -50,8 +50,9 @@ Layer C에서 하지 않는 일:
 
 ### 상태/타겟/스냅샷
 - `GET /api/research/status`
-- `GET /api/research/scanner-targets`
-- `GET /api/research/scanner-enrich-targets`
+- `GET /api/monitor/status`
+- `GET /api/monitor/watchlist`
+- `GET /api/monitor/promotions`
 - `GET /api/research/snapshots/latest`
 - `GET /api/research/snapshots`
 - `POST /api/research/ingest/bulk`
@@ -150,8 +151,8 @@ Layer C에서 하지 않는 일:
 4. ScannerPage와 ReportsPage의 상태 비교
 
 ### 브리프는 나오는데 candidate research_score가 비어 있음
-- 스캐너 enrich path 문제일 수 있음
-- `scanner-targets`, `scanner-enrich-targets`, snapshots latest 확인
+- 감시 슬롯 기준 pending target 계산 문제일 수 있음
+- `monitor/status`, `monitor/watchlist`, snapshots latest 확인
 
 ### research unavailable가 많음
 - ingest가 안 돌았거나

@@ -12,11 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from routes.research import (  # noqa: E402
-    handle_research_ingest_bulk,
-    handle_research_scanner_enrich_targets,
-    handle_research_status,
-)
+from routes.candidate_monitor import handle_candidate_monitor_watchlist  # noqa: E402
+from routes.research import handle_research_ingest_bulk, handle_research_status  # noqa: E402
 from services.research_store import DEFAULT_RESEARCH_PROVIDER  # noqa: E402
 
 
@@ -128,7 +125,7 @@ def run(markets: list[str], limit: int, mode: str) -> tuple[int, dict[str, Any]]
     if markets:
         query["market"] = markets
 
-    status_code, target_payload = handle_research_scanner_enrich_targets(query)
+    status_code, target_payload = handle_candidate_monitor_watchlist(query)
     if status_code != 200:
         return status_code, {
             "ok": False,
@@ -137,7 +134,7 @@ def run(markets: list[str], limit: int, mode: str) -> tuple[int, dict[str, Any]]
             "details": target_payload,
         }
 
-    target_items = target_payload.get("items") if isinstance(target_payload, dict) else []
+    target_items = target_payload.get("pending_items") if isinstance(target_payload, dict) else []
     if not isinstance(target_items, list):
         target_items = []
 
@@ -150,7 +147,7 @@ def run(markets: list[str], limit: int, mode: str) -> tuple[int, dict[str, Any]]
             "markets": markets,
             "mode": mode,
             "selected_count": 0,
-            "message": "No missing/stale research targets.",
+            "message": "No pending monitor-slot research targets.",
             "provider_status": provider_status,
         }
 

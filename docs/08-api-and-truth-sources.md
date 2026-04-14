@@ -78,8 +78,9 @@
 | API | 용도 | 주의 |
 |---|---|---|
 | `GET /api/research/status` | provider 상태 | healthy/degraded/missing 확인 |
-| `GET /api/research/scanner-targets` | scanner 기반 대상 조회 | enrich 전 대상 |
-| `GET /api/research/scanner-enrich-targets` | enrich 대상 조회 | Layer C 준비 상태 |
+| `GET /api/monitor/status` | 시장별 후보풀/감시 슬롯 요약 | core/promotion/held 집계 |
+| `GET /api/monitor/watchlist` | 감시 슬롯 + pending research 조회 | 후보 리서치 truth source |
+| `GET /api/monitor/promotions` | 감시 편입/제외 로그 | 슬롯 이동 추적 |
 | `GET /api/research/snapshots/latest` | 최신 snapshot | freshness 확인 |
 | `GET /api/research/snapshots` | snapshot 목록 | symbol/market/provider 필터 |
 | `POST /api/research/ingest/bulk` | 일괄 ingest | 외부 ingest 경로 |

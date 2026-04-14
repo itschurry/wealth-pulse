@@ -17,6 +17,11 @@ def _install_server_route_stubs() -> list[str]:
             "handle_backtest_run": lambda query: (200, {"ok": True, "query": query}),
             "handle_kospi_backtest": lambda: (200, {"ok": True}),
         },
+        "routes.candidate_monitor": {
+            "handle_candidate_monitor_promotions": lambda query: (200, {"query": query, "kind": "promotions"}),
+            "handle_candidate_monitor_status": lambda query: (200, {"query": query, "kind": "status"}),
+            "handle_candidate_monitor_watchlist": lambda query: (200, {"query": query, "kind": "watchlist"}),
+        },
         "routes.engine": {"handle_engine_status": lambda: (200, {"ok": True})},
         "routes.hanna": {"handle_hanna_brief": lambda date=None: (200, {"date": date, "owner": "hanna"})},
         "routes.market": {
@@ -44,8 +49,6 @@ def _install_server_route_stubs() -> list[str]:
         "routes.research": {
             "handle_research_ingest_bulk": lambda payload: (200, {"payload": payload}),
             "handle_research_latest_snapshot": lambda query: (200, {"query": query}),
-            "handle_research_scanner_enrich_targets": lambda query: (200, {"query": query}),
-            "handle_research_scanner_targets": lambda query: (200, {"query": query}),
             "handle_research_status": lambda query: (200, {"query": query}),
             "handle_research_snapshots": lambda query: (200, {"query": query}),
         },
@@ -149,6 +152,20 @@ class ApiServerDispatchTests(unittest.TestCase):
 
         self.assertEqual((200, {"owner": "hanna"}), result)
         mock_handler.assert_called_once_with("2026-04-02")
+
+    def test_dispatch_get_routes_candidate_monitor_watchlist(self):
+        with patch("server.handle_candidate_monitor_watchlist", return_value=(200, {"ok": True, "count": 2})) as mock_handler:
+            result = dispatch_get("/api/monitor/watchlist", {"market": ["KOSPI"], "refresh": ["1"]})
+
+        self.assertEqual((200, {"ok": True, "count": 2}), result)
+        mock_handler.assert_called_once_with({"market": ["KOSPI"], "refresh": ["1"]})
+
+    def test_dispatch_get_routes_candidate_monitor_promotions(self):
+        with patch("server.handle_candidate_monitor_promotions", return_value=(200, {"ok": True, "count": 1})) as mock_handler:
+            result = dispatch_get("/api/monitor/promotions", {"limit": ["20"]})
+
+        self.assertEqual((200, {"ok": True, "count": 1}), result)
+        mock_handler.assert_called_once_with({"limit": ["20"]})
 
     def test_dispatch_get_routes_research_status(self):
         with patch("server.handle_research_status", return_value=(200, {"status": "healthy"})) as mock_handler:

@@ -9,11 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from routes.candidate_monitor import (  # noqa: E402
+    handle_candidate_monitor_promotions,
+    handle_candidate_monitor_status,
+    handle_candidate_monitor_watchlist,
+)
 from routes.research import (  # noqa: E402
     handle_research_ingest_bulk,
     handle_research_latest_snapshot,
-    handle_research_scanner_enrich_targets,
-    handle_research_scanner_targets,
     handle_research_snapshots,
     handle_research_status,
 )
@@ -24,27 +27,48 @@ def _print_payload(status_code: int, payload: dict) -> int:
     return 0 if 200 <= status_code < 300 else 1
 
 
+def _market_query(markets: list[str], *, limit: int | None = None, refresh: bool | None = None, mode: str | None = None) -> dict[str, list[str]]:
+    query: dict[str, list[str]] = {}
+    if markets:
+        query["market"] = list(markets)
+    if limit is not None:
+        query["limit"] = [str(limit)]
+    if refresh is not None:
+        query["refresh"] = ["1" if refresh else "0"]
+    if mode:
+        query["mode"] = [mode]
+    return query
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     return _print_payload(*handle_research_status({}))
 
 
-def cmd_scanner_targets(args: argparse.Namespace) -> int:
-    query: dict[str, list[str]] = {
-        "limit": [str(args.limit)],
-    }
-    if args.market:
-        query["market"] = list(args.market)
-    return _print_payload(*handle_research_scanner_targets(query))
+def cmd_monitor_status(args: argparse.Namespace) -> int:
+    return _print_payload(*handle_candidate_monitor_status(_market_query(args.market, refresh=args.refresh)))
 
 
-def cmd_enrich_targets(args: argparse.Namespace) -> int:
-    query: dict[str, list[str]] = {
-        "limit": [str(args.limit)],
-        "mode": [args.mode],
-    }
-    if args.market:
-        query["market"] = list(args.market)
-    return _print_payload(*handle_research_scanner_enrich_targets(query))
+def cmd_watchlist(args: argparse.Namespace) -> int:
+    return _print_payload(*handle_candidate_monitor_watchlist(_market_query(args.market, limit=args.limit, refresh=args.refresh, mode=args.mode)))
+
+
+def cmd_pending(args: argparse.Namespace) -> int:
+    status_code, payload = handle_candidate_monitor_watchlist(_market_query(args.market, limit=args.limit, refresh=args.refresh, mode=args.mode))
+    if status_code != 200:
+        return _print_payload(status_code, payload)
+    return _print_payload(status_code, {
+        "ok": payload.get("ok", True),
+        "markets": payload.get("markets") or list(args.market),
+        "mode": args.mode,
+        "count": payload.get("pending_count") or 0,
+        "items": payload.get("pending_items") or [],
+        "source": payload.get("source") or "candidate_monitor_sqlite",
+        "refresh": payload.get("refresh"),
+    })
+
+
+def cmd_promotions(args: argparse.Namespace) -> int:
+    return _print_payload(*handle_candidate_monitor_promotions(_market_query(args.market, limit=args.limit, refresh=args.refresh)))
 
 
 def cmd_latest(args: argparse.Namespace) -> int:
@@ -83,26 +107,44 @@ def cmd_ingest_bulk(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Research ops helper for WealthPulse research flows")
+    parser = argparse.ArgumentParser(description="Research ops helper for WealthPulse candidate-monitor research flows")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    status = sub.add_parser("status", help="Show research status")
+    status = sub.add_parser("status", help="Show research ingest/storage status")
     status.set_defaults(func=cmd_status)
 
-    scanner_targets = sub.add_parser("scanner-targets", help="List scanner-linked research targets")
-    scanner_targets.add_argument("--market", action="append", default=[])
-    scanner_targets.add_argument("--limit", type=int, default=100)
-    scanner_targets.set_defaults(func=cmd_scanner_targets)
+    monitor_status = sub.add_parser("monitor-status", help="Show market-level candidate-monitor summary")
+    monitor_status.add_argument("--market", action="append", default=[])
+    monitor_status.add_argument("--refresh", action="store_true")
+    monitor_status.set_defaults(func=cmd_monitor_status)
 
-    enrich_targets = sub.add_parser("enrich-targets", help="List missing/stale scanner research targets")
-    enrich_targets.add_argument("--market", action="append", default=[])
-    enrich_targets.add_argument("--limit", type=int, default=30)
-    enrich_targets.add_argument(
+    watchlist = sub.add_parser("watchlist", help="Show candidate-monitor watchlists with pending research subset")
+    watchlist.add_argument("--market", action="append", default=[])
+    watchlist.add_argument("--limit", type=int, default=30)
+    watchlist.add_argument("--refresh", action="store_true")
+    watchlist.add_argument(
         "--mode",
         choices=["missing_or_stale", "missing_only", "stale_only"],
         default="missing_or_stale",
     )
-    enrich_targets.set_defaults(func=cmd_enrich_targets)
+    watchlist.set_defaults(func=cmd_watchlist)
+
+    pending = sub.add_parser("pending", help="Show only pending monitor-slot research targets")
+    pending.add_argument("--market", action="append", default=[])
+    pending.add_argument("--limit", type=int, default=30)
+    pending.add_argument("--refresh", action="store_true")
+    pending.add_argument(
+        "--mode",
+        choices=["missing_or_stale", "missing_only", "stale_only"],
+        default="missing_or_stale",
+    )
+    pending.set_defaults(func=cmd_pending)
+
+    promotions = sub.add_parser("promotions", help="Show recent watchlist enter/leave events")
+    promotions.add_argument("--market", action="append", default=[])
+    promotions.add_argument("--limit", type=int, default=50)
+    promotions.add_argument("--refresh", action="store_true")
+    promotions.set_defaults(func=cmd_promotions)
 
     latest = sub.add_parser("latest", help="Show latest snapshot for one symbol")
     latest.add_argument("symbol")
