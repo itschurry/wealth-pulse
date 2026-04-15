@@ -140,6 +140,81 @@ class ResearchStoreTests(unittest.TestCase):
         self.assertEqual("missing", payload["status"])
         self.assertEqual("missing", payload["freshness"])
 
+    def test_status_route_prefers_active_monitor_slot_freshness_over_storage_backlog(self):
+        now = datetime.datetime.now(datetime.timezone.utc).astimezone().replace(second=0, microsecond=0)
+        stale_generated = (now - datetime.timedelta(hours=6)).isoformat()
+        fresh_generated = (now - datetime.timedelta(minutes=10)).isoformat()
+        fresh_bucket = now.isoformat()
+        stale_bucket = (now - datetime.timedelta(hours=6)).isoformat()
+
+        handle_research_ingest_bulk({
+            "provider": "openclaw",
+            "schema_version": "v1",
+            "run_id": "cron-stale",
+            "generated_at": stale_generated,
+            "items": [
+                {
+                    "symbol": "000660",
+                    "market": "KR",
+                    "bucket_ts": stale_bucket,
+                    "generated_at": stale_generated,
+                    "research_score": 0.42,
+                    "components": {"freshness_score": 0.4},
+                    "warnings": ["already_extended_intraday"],
+                    "tags": [],
+                    "summary": "stale backlog",
+                    "ttl_minutes": 60,
+                },
+            ],
+        })
+        handle_research_ingest_bulk({
+            "provider": "openclaw",
+            "schema_version": "v1",
+            "run_id": "cron-fresh",
+            "generated_at": fresh_generated,
+            "items": [
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": fresh_bucket,
+                    "generated_at": fresh_generated,
+                    "research_score": 0.78,
+                    "components": {"freshness_score": 0.9},
+                    "warnings": ["already_extended_intraday"],
+                    "tags": [],
+                    "summary": "active fresh",
+                    "ttl_minutes": 180,
+                },
+            ],
+        })
+
+        fake_watchlist = (200, {
+            "ok": True,
+            "items": [
+                {
+                    "market": "KOSPI",
+                    "state": {"generated_at": now.isoformat()},
+                    "active_slots": [
+                        {"symbol": "005930", "market": "KOSPI"},
+                    ],
+                },
+            ],
+        })
+        with patch.dict(handle_research_status.__globals__, {
+            "handle_candidate_monitor_watchlist": lambda _query: fake_watchlist,
+        }):
+            status_code, payload = handle_research_status({"provider": ["openclaw"]})
+
+        self.assertEqual(200, status_code)
+        self.assertEqual("healthy", payload["status"])
+        self.assertEqual("fresh", payload["freshness"])
+        self.assertEqual("candidate_monitor_active_slots", payload["source_of_truth"])
+        self.assertEqual("candidate_monitor_active_slots", payload["source"])
+        self.assertEqual(1, payload["active_slot_count"])
+        self.assertEqual(1, payload["active_fresh_symbol_count"])
+        self.assertEqual(0, payload["active_stale_symbol_count"])
+        self.assertEqual(0, payload["active_missing_symbol_count"])
+
     def test_load_research_snapshots_returns_bucket_filtered_descending(self):
         status_code, payload = handle_research_ingest_bulk({
             "provider": "openclaw",

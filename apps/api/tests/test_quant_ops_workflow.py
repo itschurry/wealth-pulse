@@ -527,6 +527,35 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual("applied", workflow["stage_status"]["runtime_apply"])
         self.assertEqual("cand-runtime-001", persisted["runtime_apply"]["candidate_id"])
 
+    def test_workflow_does_not_reconstruct_empty_runtime_apply_from_runtime_artifact(self):
+        runtime_payload = {
+            "optimized_at": _NOW,
+            "applied_at": _NOW,
+            "version": "runtime-cand-runtime-empty",
+            "global_params": {
+                "stop_loss_pct": 6.0,
+                "take_profit_pct": 18.0,
+            },
+            "per_symbol": {},
+            "meta": {
+                "applied_candidate_id": "cand-runtime-empty",
+                "approved_symbol_count": 0,
+                "approved_symbols": [],
+                "search_version": self.search_payload["version"],
+                "search_optimized_at": self.search_payload["optimized_at"],
+            },
+        }
+
+        with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
+             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_runtime_optimized_params", return_value=runtime_payload):
+            workflow = svc.get_quant_ops_workflow()
+
+        self.assertFalse(workflow["runtime_apply"]["available"])
+        self.assertFalse(workflow["runtime_apply"]["active"])
+        self.assertEqual("missing", workflow["runtime_apply"]["status"])
+        self.assertEqual("missing", workflow["stage_status"]["runtime_apply"])
+
     def test_workflow_hides_orphan_candidates_when_search_file_is_missing(self):
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
              patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
@@ -982,7 +1011,7 @@ class QuantOpsWorkflowTests(unittest.TestCase):
         self.assertEqual(18, self.runtime_store["payload"]["validation_baseline"]["validation_trades"])
         self.assertAlmostEqual(0.93, self.runtime_store["payload"]["validation_baseline"]["validation_sharpe"])
 
-    def test_apply_quant_only_runtime_without_symbol_candidates(self):
+    def test_apply_blocks_when_runtime_overlay_has_no_approved_symbols(self):
         execution_stub = types.ModuleType("services.execution_service")
         execution_stub.apply_quant_candidate_runtime_config = lambda candidate: {
             "ok": True,
@@ -993,8 +1022,13 @@ class QuantOpsWorkflowTests(unittest.TestCase):
             },
         }
 
+        empty_symbol_search_payload = {
+            **self.search_payload,
+            "per_symbol": {},
+        }
+
         with patch.object(svc, "_QUANT_OPS_STATE_PATH", self.state_path), \
-             patch.object(svc, "load_search_optimized_params", return_value=self.search_payload), \
+             patch.object(svc, "load_search_optimized_params", return_value=empty_symbol_search_payload), \
              patch.object(svc, "load_runtime_optimized_params", side_effect=lambda: self.runtime_store.get("payload") or None), \
              patch.object(svc, "write_runtime_optimized_params", side_effect=self._runtime_writer), \
              patch.object(svc, "run_validation_diagnostics", return_value=_adopt_diagnostics()), \
@@ -1007,9 +1041,11 @@ class QuantOpsWorkflowTests(unittest.TestCase):
             apply_result = svc.apply_saved_candidate_to_runtime({})
 
         self.assertTrue(save_result["ok"])
-        self.assertTrue(apply_result["ok"])
-        self.assertEqual("runtime", apply_result["workflow"]["runtime_apply"]["effective_source"])
-        self.assertTrue(self.runtime_store["payload"])
+        self.assertFalse(apply_result["ok"])
+        self.assertEqual("runtime_candidate_pool_empty", apply_result["error"])
+        self.assertFalse(self.runtime_store.get("payload"))
+        self.assertEqual("missing", apply_result["workflow"]["runtime_apply"]["status"])
+        self.assertFalse(apply_result["workflow"]["runtime_apply"]["available"])
 
     def test_apply_runtime_returns_failure_when_engine_apply_fails(self):
         execution_stub = types.ModuleType("services.execution_service")

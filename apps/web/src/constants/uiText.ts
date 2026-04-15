@@ -182,6 +182,8 @@ const PROVIDER_SOURCE_KR: Record<string, string> = {
   healthy: '정상',
   degraded: '불안정',
   research_unavailable: '리서치 미사용/불가',
+  latest_snapshot_directory: '저장 스냅샷 기준',
+  candidate_monitor_active_slots: '활성 후보 기준',
 };
 
 const STRATEGY_LIFECYCLE_KR: Record<string, string> = {

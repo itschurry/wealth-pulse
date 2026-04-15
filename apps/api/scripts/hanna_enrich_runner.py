@@ -119,6 +119,7 @@ def _build_ingest_payload(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 def run(markets: list[str], limit: int, mode: str) -> tuple[int, dict[str, Any]]:
     query: dict[str, list[str]] = {
+        "refresh": ["1"],
         "limit": [str(limit)],
         "mode": [mode],
     }

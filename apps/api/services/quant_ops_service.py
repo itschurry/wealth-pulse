@@ -433,8 +433,23 @@ def _search_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _runtime_payload_has_approved_symbols(runtime_payload: dict[str, Any] | None) -> bool:
+    if not isinstance(runtime_payload, dict) or not runtime_payload:
+        return False
+    meta = runtime_payload.get("meta") if isinstance(runtime_payload.get("meta"), dict) else {}
+    approved_symbols = meta.get("approved_symbols") if isinstance(meta.get("approved_symbols"), list) else []
+    approved_symbol_count = _to_int(meta.get("approved_symbol_count"), len(approved_symbols))
+    if approved_symbol_count > 0:
+        return True
+    per_symbol = runtime_payload.get("per_symbol") if isinstance(runtime_payload.get("per_symbol"), dict) else {}
+    return len(per_symbol) > 0
+
+
+
 def _reconstructed_runtime_apply_state(runtime_payload: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(runtime_payload, dict) or not runtime_payload:
+        return None
+    if not _runtime_payload_has_approved_symbols(runtime_payload):
         return None
     meta = runtime_payload.get("meta") if isinstance(runtime_payload.get("meta"), dict) else {}
     candidate_id = str(meta.get("applied_candidate_id") or "")
@@ -973,7 +988,7 @@ def _history_push(items: list[dict[str, Any]], candidate: dict[str, Any], limit:
 
 
 def _runtime_summary(runtime_payload: dict[str, Any] | None, state_runtime: dict[str, Any] | None) -> dict[str, Any]:
-    runtime_payload = runtime_payload or {}
+    runtime_payload = runtime_payload if _runtime_payload_has_approved_symbols(runtime_payload) else {}
     state_runtime = state_runtime if isinstance(state_runtime, dict) else {}
     meta = runtime_payload.get("meta") if isinstance(runtime_payload.get("meta"), dict) else {}
     failed_without_payload = (not runtime_payload) and str(state_runtime.get("status") or "") == "failed"
@@ -1572,6 +1587,13 @@ def apply_saved_candidate_to_runtime(payload: dict[str, Any]) -> dict[str, Any]:
     previous_runtime_payload = load_runtime_optimized_params()
     search_payload = load_search_optimized_params()
     runtime_payload = _build_runtime_payload(saved_candidate, search_payload)
+    if not _runtime_payload_has_approved_symbols(runtime_payload):
+        return {
+            "ok": False,
+            "error": "runtime_candidate_pool_empty",
+            "candidate": saved_candidate,
+            "workflow": get_quant_ops_workflow(),
+        }
     write_runtime_optimized_params(runtime_payload)
 
     engine_state_payload: dict[str, Any] = {}
