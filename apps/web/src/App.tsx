@@ -371,7 +371,6 @@ export default function App() {
           {route.page === 'operations-dashboard' && route.dashboardTab === 'watch-decision' && (
             <ReportsPage
               {...sharedProps}
-              reportTab="watch-decision"
             />
           )}
 
@@ -379,7 +378,7 @@ export default function App() {
           {route.page === 'watchlist' && <WatchlistPage {...sharedProps} />}
 
           {route.page === 'lab' && route.labTab === 'validation' && <BacktestValidationPage {...sharedProps} />}
-          {route.page === 'lab' && route.labTab === 'strategies' && <StrategiesPage {...sharedProps} mode="lab" />}
+          {route.page === 'lab' && route.labTab === 'strategies' && <StrategiesPage {...sharedProps} />}
           {route.page === 'lab' && route.labTab === 'universe' && <UniversePage {...sharedProps} />}
 
           {route.page === 'research-ai' && route.researchTab === 'research' && <CandidateResearchPage {...sharedProps} />}

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
+import { FreshnessBadge, GradeBadge } from '../components/QualityBadge';
 import { reasonCodeToKorean, freshnessToKorean, gradeToKorean } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import type { ScannerCandidate, ScannerStatusItem } from '../types/domain';
@@ -96,24 +97,6 @@ function researchScoreDisplay(candidate: ScannerCandidate | undefined): string {
   if (researchGrade(candidate) === 'D') return '—';
   const score = candidate?.research_score ?? candidate?.layer_c?.research_score;
   return score == null ? '-' : formatNumber(score, 2);
-}
-
-function researchGradeBadge(candidate: ScannerCandidate | undefined): { label: string; className: string } {
-  const grade = researchGrade(candidate);
-  if (grade === 'A') return { label: gradeToKorean(grade), className: 'inline-badge is-success' };
-  if (grade === 'B') return { label: gradeToKorean(grade), className: 'inline-badge' };
-  if (grade === 'C') return { label: gradeToKorean(grade), className: 'inline-badge is-danger' };
-  if (grade === 'D') return { label: gradeToKorean(grade), className: 'inline-badge is-danger' };
-  return { label: gradeToKorean(grade), className: 'inline-badge' };
-}
-
-function researchFreshnessBadge(candidate: ScannerCandidate | undefined): { label: string; className: string } {
-  const freshness = researchFreshness(candidate);
-  if (freshness === 'fresh') return { label: freshnessToKorean(freshness), className: 'inline-badge is-success' };
-  if (freshness === 'stale') return { label: freshnessToKorean(freshness), className: 'inline-badge is-danger' };
-  if (freshness === 'invalid') return { label: freshnessToKorean(freshness), className: 'inline-badge is-danger' };
-  if (freshness === 'missing') return { label: freshnessToKorean(freshness), className: 'inline-badge' };
-  return { label: freshnessToKorean(freshness), className: 'inline-badge' };
 }
 
 function translatedCodes(items: string[] | undefined) {
@@ -261,8 +244,8 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                             <td style={{ padding: 12, fontSize: 12 }}>
                               <div className={classNameForHanna(hannaState)}>{HANNA_STATE_LABEL[hannaState]}</div>
                               <div className="workspace-chip-row" style={{ marginTop: 6 }}>
-                                <span className={researchFreshnessBadge(candidate).className}>{researchFreshnessBadge(candidate).label}</span>
-                                <span className={researchGradeBadge(candidate).className}>{researchGradeBadge(candidate).label}</span>
+                                <FreshnessBadge value={researchFreshness(candidate)} />
+                                <GradeBadge value={researchGrade(candidate)} />
                               </div>
                               <div className="signal-cell-copy" style={{ marginTop: 6 }}>
                                 점수 {researchScoreDisplay(candidate)}
@@ -324,8 +307,8 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                       <div className="operator-note-card" style={{ display: 'grid', gap: 6 }}>
                         <div className="operator-note-label">3단계 · Hanna</div>
                         <div className="workspace-chip-row">
-                          <span className={researchFreshnessBadge(selectedCandidate).className}>{researchFreshnessBadge(selectedCandidate).label}</span>
-                          <span className={researchGradeBadge(selectedCandidate).className}>{researchGradeBadge(selectedCandidate).label}</span>
+                          <FreshnessBadge value={researchFreshness(selectedCandidate)} />
+                          <GradeBadge value={researchGrade(selectedCandidate)} />
                           {selectedCandidate.layer_c?.validation?.reason ? <span className="inline-badge">{reasonCodeToKorean(String(selectedCandidate.layer_c.validation.reason))}</span> : null}
                         </div>
                         <div className="operator-note-copy">리서치 점수 {researchScoreDisplay(selectedCandidate)}</div>

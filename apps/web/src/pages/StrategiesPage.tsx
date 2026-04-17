@@ -14,7 +14,6 @@ interface StrategiesPageProps {
   loading: boolean;
   errorMessage: string;
   onRefresh: () => void;
-  mode?: 'operations' | 'lab';
 }
 
 function lifecycleBadge(item: StrategyRegistryItem): { className: string; label: string } {
@@ -86,13 +85,12 @@ function buildPresetPayload(
   };
 }
 
-export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mode = 'lab' }: StrategiesPageProps) {
+export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: StrategiesPageProps) {
   const { entries, push, clear } = useConsoleLogs();
   const [pendingId, setPendingId] = useState('');
   const [selectedStrategyId, setSelectedStrategyId] = useState('');
   const items = snapshot.strategies.items || [];
   const summary = snapshot.strategies.summary || {};
-  const readOnly = mode === 'operations';
 
   const statusItems = useMemo(() => ([
     { label: '전체 전략', value: `${summary.total || items.length}개`, tone: 'neutral' as const },
@@ -245,10 +243,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
       <div className="page-frame">
         <div className="content-shell console-page-shell strategies-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
-            title={readOnly ? '전략 상태' : '전략 프리셋'}
-            subtitle={readOnly
-              ? '운영 모드에서는 승인/적용된 전략 상태와 활성화 현황만 확인합니다. 프리셋 생성, 삭제, 검증 이관은 실험 모드에서만 허용합니다.'
-              : '실시간 엔진은 승인된 전략 레지스트리만 읽습니다. 승인 상태, 활성화 상태, 유니버스 규칙, 스캔 주기를 여기서 분리해서 관리합니다.'}
+            title="전략 프리셋"
+            subtitle="실시간 엔진은 승인된 전략 레지스트리만 읽습니다. 승인 상태, 활성화 상태, 유니버스 규칙, 스캔 주기를 여기서 분리해서 관리합니다."
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
@@ -256,7 +252,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
             onRefresh={handleRefresh}
             logs={entries}
             onClearLogs={clear}
-            actions={readOnly ? [] : [
+            actions={[
               {
                 label: '기본 전략 추가',
                 onClick: () => { void handleSeedDefaults(); },
@@ -329,9 +325,9 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
                             <button
                               className="ghost-button"
                               onClick={() => handleToggle(strategyId, !enabled)}
-                              disabled={readOnly || !strategyId || pendingId === strategyId}
+                              disabled={!strategyId || pendingId === strategyId}
                             >
-                              {readOnly ? '운영 전용' : pendingId === strategyId ? '처리 중...' : enabled ? '비활성화' : '활성화'}
+                              {pendingId === strategyId ? '처리 중...' : enabled ? '비활성화' : '활성화'}
                             </button>
                           </div>
                         </td>
@@ -380,9 +376,9 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
                       <button
                         className="ghost-button"
                         onClick={() => handleToggle(strategyId, !enabled)}
-                        disabled={readOnly || !strategyId || pendingId === strategyId}
-                      >
-                        {readOnly ? '운영 전용' : pendingId === strategyId ? '처리 중...' : enabled ? '비활성화' : '활성화'}
+                        disabled={!strategyId || pendingId === strategyId}
+>
+                        {pendingId === strategyId ? '처리 중...' : enabled ? '비활성화' : '활성화'}
                       </button>
                     </div>
                   </article>
@@ -401,22 +397,20 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <span className={lifecycleBadge(selectedStrategy).className}>{lifecycleBadge(selectedStrategy).label}</span>
-                  {!readOnly && (
-                    <>
-                      <button className="ghost-button" onClick={() => { void handleClonePreset(); }} disabled={!selectedStrategy.strategy_id}>
-                        현재 전략 복제
-                      </button>
-                      <button className="ghost-button" onClick={() => {
-                        localStorage.setItem(VALIDATION_TRANSFER_STORAGE_KEY, JSON.stringify(selectedStrategy));
-                        window.location.href = '/lab/validation';
-                      }}>
-                        전략 검증 랩 열기
-                      </button>
-                      <button className="ghost-button" onClick={() => { void handleDeletePreset(); }} disabled={!selectedStrategy.strategy_id || pendingId === String(selectedStrategy.strategy_id)}>
-                        프리셋 삭제
-                      </button>
-                    </>
-                  )}
+                  <>
+                    <button className="ghost-button" onClick={() => { void handleClonePreset(); }} disabled={!selectedStrategy.strategy_id}>
+                      현재 전략 복제
+                    </button>
+                    <button className="ghost-button" onClick={() => {
+                      localStorage.setItem(VALIDATION_TRANSFER_STORAGE_KEY, JSON.stringify(selectedStrategy));
+                      window.location.href = '/lab/validation';
+                    }}>
+                      전략 검증 랩 열기
+                    </button>
+                    <button className="ghost-button" onClick={() => { void handleDeletePreset(); }} disabled={!selectedStrategy.strategy_id || pendingId === String(selectedStrategy.strategy_id)}>
+                      프리셋 삭제
+                    </button>
+                  </>
                 </div>
               </div>
 
@@ -431,20 +425,16 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
                   <div className="summary-metric-value">{selectedStrategy.market || '-'} / {selectedStrategy.universe_rule || '-'}</div>
                   <div className="summary-metric-detail" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     스캔 주기
-                    {!readOnly ? (
-                      <select
-                        value={selectedStrategy.scan_cycle || '5m'}
-                        disabled={!!pendingId}
-                        onChange={(e) => { void handleEditScanCycle(e.target.value); }}
-                        style={{ fontSize: 11, padding: '1px 4px', marginLeft: 2 }}
-                      >
-                        {SCAN_CYCLE_OPTIONS.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span>{selectedStrategy.scan_cycle || '-'}</span>
-                    )}
+                    <select
+                      value={selectedStrategy.scan_cycle || '5m'}
+                      disabled={!!pendingId}
+                      onChange={(e) => { void handleEditScanCycle(e.target.value); }}
+                      style={{ fontSize: 11, padding: '1px 4px', marginLeft: 2 }}
+                    >
+                      {SCAN_CYCLE_OPTIONS.map(opt => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div className="summary-metric-card">
@@ -480,9 +470,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh, mod
                   <div>
                     <div className="section-title">현재 저장된 파라미터 프리셋</div>
                     <div className="section-copy">
-                      {readOnly
-                        ? '운영 모드에서는 적용 후보를 읽기 전용으로 확인합니다. 값 변경과 검증은 실험 모드에서만 수행합니다.'
-                        : '여기 값은 현재 전략 레지스트리에 저장된 프리셋이야. 실험용으로 값을 바꿔보는 건 검증 랩에서 하는 게 맞아.'}
+                      여기 값은 현재 전략 레지스트리에 저장된 프리셋이야. 실험용으로 값을 바꿔보는 건 검증 랩에서 하는 게 맞아.
                     </div>
                   </div>
                 </div>

@@ -193,6 +193,45 @@ export function WealthPulseHomePage({
   const marketCtx = snapshot.marketContext || {};
   const marketSessions = liveMarket.market_sessions || {};
   const sessionCards = [marketSessions.KR, marketSessions.US].filter(Boolean);
+  const summaryItems = [
+    {
+      label: '포트폴리오 총액',
+      value: formatKRW(totalEquityKrw, true),
+      detail: `현금 KRW ${formatKRW(cashKrw, true)} · USD ${formatUSD(cashUsd, true)}`,
+    },
+    {
+      label: '오늘 실현 손익',
+      value: formatKRW(todayRealizedPnlKrw, true),
+      detail: `현재 보유분 미실현 손익 ${formatKRW(totalUnrealizedPnlKrw, true)}`,
+      tone: todayRealizedPnlKrw >= 0 ? 'is-up' : 'is-down',
+    },
+    {
+      label: '보유 포지션',
+      value: `${formatNumber(positions.length, 0)}개`,
+      detail: `허용 ${formatNumber(totalAllowedSignals, 0)}건 · 차단 ${formatNumber(totalBlockedSignals, 0)}건 · 관찰 ${formatNumber(totalObserveSignals, 0)}건`,
+    },
+  ];
+  const exposureRows = [
+    { label: 'KOSPI', width: ratioPercent(kospiExposureKrw, totalMarketValueKrw), value: ratioPercent(kospiExposureKrw, totalMarketValueKrw), tone: 'is-kospi' },
+    { label: 'NASDAQ', width: ratioPercent(nasdaqExposureKrw, totalMarketValueKrw), value: ratioPercent(nasdaqExposureKrw, totalMarketValueKrw), tone: 'is-nasdaq' },
+  ];
+  const signalRows = [
+    { label: '허용', width: ratioPercent(totalAllowedSignals, totalSignalCount || 1), value: `${formatNumber(totalAllowedSignals, 0)}건`, tone: 'is-allowed' },
+    { label: '차단', width: ratioPercent(totalBlockedSignals, totalSignalCount || 1), value: `${formatNumber(totalBlockedSignals, 0)}건`, tone: 'is-blocked' },
+    { label: '관찰', width: ratioPercent(totalObserveSignals, totalSignalCount || 1), value: `${formatNumber(totalObserveSignals, 0)}건`, tone: '' },
+  ];
+  const noteItems = [
+    { label: '상세 포지션 확인', detail: '포지션 상세 목록은 운영 개요에서 빼고 주문/체결 화면에서 보는 편이 더 정확해.' },
+    { label: '리서치 입력 상태', detail: `${freshnessToKorean(String(snapshot.research.freshness || 'missing'))} · ${providerSourceToKorean(String(snapshot.research.source || snapshot.research.status || '-')) || providerStatusToKorean(String(snapshot.research.status || '-'))}` },
+    { label: '최근 성공 시각', detail: formatDateTime(engineState.last_success_at || '') },
+  ];
+  const marketContextRows = [
+    marketCtx.regime ? { label: '장세', value: marketCtx.regime } : null,
+    marketCtx.risk_level ? { label: '위험도', value: marketCtx.risk_level } : null,
+    marketCtx.inflation_signal ? { label: '인플레이션', value: marketCtx.inflation_signal } : null,
+    marketCtx.policy_signal ? { label: '정책', value: marketCtx.policy_signal } : null,
+    marketCtx.dollar_signal ? { label: '달러', value: marketCtx.dollar_signal } : null,
+  ].filter(Boolean) as Array<{ label: string; value: string }>;
 
   function formatPct(value: number | undefined): string {
     if (value == null) return '-';
@@ -267,188 +306,174 @@ export function WealthPulseHomePage({
             )}
           </section>
 
-          <section className="wealth-kpi-grid">
-            <article className="page-section wealth-kpi-card">
-              <div className="wealth-kpi-label">포트폴리오 총액</div>
-              <div className="wealth-kpi-value">{formatKRW(totalEquityKrw, true)}</div>
-              <div className="wealth-kpi-copy">현금 KRW {formatKRW(cashKrw, true)} · USD {formatUSD(cashUsd, true)}</div>
-            </article>
-            <article className="page-section wealth-kpi-card">
-              <div className="wealth-kpi-label">오늘 실현 손익</div>
-              <div className={`wealth-kpi-value ${todayRealizedPnlKrw >= 0 ? 'is-up' : 'is-down'}`}>{formatKRW(todayRealizedPnlKrw, true)}</div>
-              <div className="wealth-kpi-copy">현재 보유분 미실현 손익 {formatKRW(totalUnrealizedPnlKrw, true)}</div>
-            </article>
-            <article className="page-section wealth-kpi-card">
-              <div className="wealth-kpi-label">보유 포지션</div>
-              <div className="wealth-kpi-value">{formatNumber(positions.length, 0)}개</div>
-              <div className="wealth-kpi-copy">허용 {formatNumber(totalAllowedSignals, 0)}건 · 차단 {formatNumber(totalBlockedSignals, 0)}건 · 관찰 {formatNumber(totalObserveSignals, 0)}건</div>
-            </article>
+          <section className="page-section wealth-summary-strip">
+            {summaryItems.map((item) => (
+              <div key={item.label} className="wealth-summary-cell">
+                <div className="wealth-kpi-label">{item.label}</div>
+                <div className={`wealth-kpi-value ${item.tone || ''}`.trim()}>{item.value}</div>
+                <div className="wealth-kpi-copy">{item.detail}</div>
+              </div>
+            ))}
           </section>
 
-          <section className="wealth-grid-2">
-            <article className="page-section">
-              <div className="section-head-row">
-                <div>
-                  <div className="section-title">시장별 노출 비중</div>
-                  <div className="section-copy">보유 포지션의 현재 평가금액(KRW 기준)으로 계산했습니다.</div>
-                </div>
+          <section className="page-section">
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">시장·신호 개요</div>
+                <div className="section-copy">노출 비중과 오늘 신호 상태를 카드 없이 한 흐름으로 정리했어.</div>
               </div>
-              <div className="wealth-bars">
-                <div className="wealth-bar-row">
-                  <div className="wealth-bar-label">KOSPI</div>
-                  <div className="wealth-bar-track"><div className="wealth-bar-fill is-kospi" style={{ width: ratioPercent(kospiExposureKrw, totalMarketValueKrw) }} /></div>
-                  <div className="wealth-bar-value">{ratioPercent(kospiExposureKrw, totalMarketValueKrw)}</div>
-                </div>
-                <div className="wealth-bar-row">
-                  <div className="wealth-bar-label">NASDAQ</div>
-                  <div className="wealth-bar-track"><div className="wealth-bar-fill is-nasdaq" style={{ width: ratioPercent(nasdaqExposureKrw, totalMarketValueKrw) }} /></div>
-                  <div className="wealth-bar-value">{ratioPercent(nasdaqExposureKrw, totalMarketValueKrw)}</div>
-                </div>
-              </div>
-            </article>
-
-            <article className="page-section">
-              <div className="section-title">오늘 신호 요약</div>
-              <div className="section-copy">진입 허용/차단과 아직 비진입인 관찰 후보를 함께 봅니다.</div>
-              <div className="wealth-bars">
-                <div className="wealth-bar-row">
-                  <div className="wealth-bar-label">허용</div>
-                  <div className="wealth-bar-track"><div className="wealth-bar-fill is-allowed" style={{ width: ratioPercent(totalAllowedSignals, totalSignalCount || 1) }} /></div>
-                  <div className="wealth-bar-value">{formatNumber(totalAllowedSignals, 0)}건</div>
-                </div>
-                <div className="wealth-bar-row">
-                  <div className="wealth-bar-label">차단</div>
-                  <div className="wealth-bar-track"><div className="wealth-bar-fill is-blocked" style={{ width: ratioPercent(totalBlockedSignals, totalSignalCount || 1) }} /></div>
-                  <div className="wealth-bar-value">{formatNumber(totalBlockedSignals, 0)}건</div>
-                </div>
-                <div className="wealth-bar-row">
-                  <div className="wealth-bar-label">관찰</div>
-                  <div className="wealth-bar-track"><div className="wealth-bar-fill" style={{ width: ratioPercent(totalObserveSignals, totalSignalCount || 1) }} /></div>
-                  <div className="wealth-bar-value">{formatNumber(totalObserveSignals, 0)}건</div>
-                </div>
-              </div>
-              <div className="wealth-home-muted" style={{ marginTop: 12 }}>장세 {allocator.regime || snapshot.signals.regime || '-'} · 위험도 {allocator.risk_level || snapshot.signals.risk_level || '-'}</div>
-            </article>
-          </section>
-
-          <section className="wealth-grid-2">
-            <article className="page-section">
-              <div className="section-head-row">
-                <div>
-                  <div className="section-title">운영 브리프</div>
-                  <div className="section-copy">기존 투자 브리프 핵심만 운영 개요로 합쳤어.</div>
-                </div>
-                <div className="inline-badge">{reportGeneratedAt ? formatDateTimeWithAge(reportGeneratedAt) : '브리프 대기'}</div>
-              </div>
-              <div className="wealth-list">
-                <div className="wealth-list-item">
-                  <div className="wealth-list-title">오늘 결론</div>
-                  <div className="wealth-list-copy">{riskGuardAllowed ? (todayView.judgmentTitle || '선별') : '방어'} · 장세 {allocator.regime || snapshot.signals.regime || '-'} · 위험도 {allocator.risk_level || snapshot.signals.risk_level || '-'}</div>
-                </div>
-                {todayActions.map((item, index) => (
-                  <div key={`action-${index}`} className="wealth-list-item">
-                    <div className="wealth-list-title">{item.label}</div>
-                    <div className="wealth-list-copy">{item.detail}</div>
-                  </div>
-                ))}
-                {avoidActions.map((line, index) => (
-                  <div key={`avoid-${index}`} className="wealth-list-item">
-                    <div className="wealth-list-title">회피 {index + 1}</div>
-                    <div className="wealth-list-copy">{line}</div>
-                  </div>
-                ))}
-                {insightLines.map((line, index) => (
-                  <div key={`insight-${index}`} className="wealth-list-item">
-                    <div className="wealth-list-title">근거 {index + 1}</div>
-                    <div className="wealth-list-copy">{line}</div>
-                  </div>
-                ))}
-              </div>
-            </article>
-
-            <article className="page-section">
-              <div className="section-head-row">
-                <div>
-                  <div className="section-title">운영 리스크</div>
-                  <div className="section-copy">기존 리스크 알림 핵심만 운영 개요로 합쳤어.</div>
-                </div>
-                <div className="inline-badge">실시간</div>
-              </div>
-              <div className="operator-note-grid" style={{ marginTop: 12 }}>
-                {riskAlertItems.map((item) => (
-                  <div key={item.key} className={`operator-note-card ${item.tone === 'bad' ? 'is-bad' : 'is-good'}`}>
-                    <div className="operator-note-label">{item.label}</div>
-                    <div className="wealth-position-symbol" style={{ marginTop: 6 }}>{item.value}</div>
-                    <div className="operator-note-copy" style={{ marginTop: 6 }}>{item.detail}</div>
-                  </div>
-                ))}
-              </div>
-            </article>
-          </section>
-
-          <section className="wealth-grid-2">
-            <article className="page-section">
-              <div className="section-title">오늘 시그널 후보</div>
-              <div className="wealth-position-list">
-                {topSignals.map((signal, index) => (
-                  <div key={`signal-${signal.market || ''}-${signal.code || ''}-${index}`} className="wealth-position-row">
-                    <div>
-                      <div className="wealth-position-symbol">{formatSymbol(signal.code, signal.name)}</div>
-                      <div className="wealth-position-copy">{signal.market || '-'} · {signal.strategy_type || '-'}</div>
+            </div>
+            <div className="wealth-inline-grid">
+              <div className="wealth-inline-block">
+                <div className="wealth-inline-label">시장별 노출 비중</div>
+                <div className="wealth-bars">
+                  {exposureRows.map((item) => (
+                    <div key={item.label} className="wealth-bar-row">
+                      <div className="wealth-bar-label">{item.label}</div>
+                      <div className="wealth-bar-track"><div className={`wealth-bar-fill ${item.tone}`.trim()} style={{ width: item.width }} /></div>
+                      <div className="wealth-bar-value">{item.value}</div>
                     </div>
-                    <div className="wealth-position-right">
-                      <div className="wealth-position-symbol">EV {formatNumber(signal.ev_metrics?.expected_value, 2)}</div>
-                      <div className="wealth-position-copy">{explainSizeRecommendation(signal.size_recommendation)}</div>
+                  ))}
+                </div>
+              </div>
+              <div className="wealth-inline-block">
+                <div className="wealth-inline-label">오늘 신호 요약</div>
+                <div className="wealth-bars">
+                  {signalRows.map((item) => (
+                    <div key={item.label} className="wealth-bar-row">
+                      <div className="wealth-bar-label">{item.label}</div>
+                      <div className="wealth-bar-track"><div className={`wealth-bar-fill ${item.tone}`.trim()} style={{ width: item.width }} /></div>
+                      <div className="wealth-bar-value">{item.value}</div>
                     </div>
-                  </div>
-                ))}
-                {topSignals.length === 0 && <div className="wealth-home-muted">{UI_TEXT.empty.signalsNoMatches}</div>}
+                  ))}
+                </div>
+                <div className="wealth-home-muted" style={{ marginTop: 12 }}>장세 {allocator.regime || snapshot.signals.regime || '-'} · 위험도 {allocator.risk_level || snapshot.signals.risk_level || '-'}</div>
               </div>
-            </article>
+            </div>
+          </section>
 
-            <article className="page-section">
-              <div className="section-title">운영 메모</div>
-              <div className="wealth-list">
-                <div className="wealth-list-item">
-                  <div className="wealth-list-title">상세 포지션 확인</div>
-                  <div className="wealth-list-copy">포지션 상세 목록은 운영 개요에서 빼고 주문/체결 화면에서 보는 편이 더 정확해.</div>
-                </div>
-                <div className="wealth-list-item">
-                  <div className="wealth-list-title">리서치 입력 상태</div>
-                  <div className="wealth-list-copy">{freshnessToKorean(String(snapshot.research.freshness || 'missing'))} · {providerSourceToKorean(String(snapshot.research.source || snapshot.research.status || '-')) || providerStatusToKorean(String(snapshot.research.status || '-'))}</div>
-                </div>
-                <div className="wealth-list-item">
-                  <div className="wealth-list-title">최근 성공 시각</div>
-                  <div className="wealth-list-copy">{formatDateTime(engineState.last_success_at || '')}</div>
-                </div>
+          <section className="page-section">
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">운영 브리프</div>
+                <div className="section-copy">기존 투자 브리프 핵심만 운영 개요로 합쳤어.</div>
               </div>
-            </article>
+              <div className="inline-badge">{reportGeneratedAt ? formatDateTimeWithAge(reportGeneratedAt) : '브리프 대기'}</div>
+            </div>
+            <div className="wealth-list">
+              <div className="wealth-list-item">
+                <div className="wealth-list-title">오늘 결론</div>
+                <div className="wealth-list-copy">{riskGuardAllowed ? (todayView.judgmentTitle || '선별') : '방어'} · 장세 {allocator.regime || snapshot.signals.regime || '-'} · 위험도 {allocator.risk_level || snapshot.signals.risk_level || '-'}</div>
+              </div>
+              {todayActions.map((item, index) => (
+                <div key={`action-${index}`} className="wealth-list-item">
+                  <div className="wealth-list-title">{item.label}</div>
+                  <div className="wealth-list-copy">{item.detail}</div>
+                </div>
+              ))}
+              {avoidActions.map((line, index) => (
+                <div key={`avoid-${index}`} className="wealth-list-item">
+                  <div className="wealth-list-title">회피 {index + 1}</div>
+                  <div className="wealth-list-copy">{line}</div>
+                </div>
+              ))}
+              {insightLines.map((line, index) => (
+                <div key={`insight-${index}`} className="wealth-list-item">
+                  <div className="wealth-list-title">근거 {index + 1}</div>
+                  <div className="wealth-list-copy">{line}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="page-section">
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">운영 리스크</div>
+                <div className="section-copy">상태 타일 대신 줄형 상태 목록으로 정리했어.</div>
+              </div>
+              <div className="inline-badge">실시간</div>
+            </div>
+            <div className="wealth-data-list">
+              {riskAlertItems.map((item) => (
+                <div key={item.key} className={`wealth-data-row ${item.tone === 'bad' ? 'is-bad' : 'is-good'}`.trim()}>
+                  <div className="wealth-data-label">{item.label}</div>
+                  <div className="wealth-data-main">{item.value}</div>
+                  <div className="wealth-data-meta">{item.detail}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="page-section">
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">오늘 시그널 후보</div>
+                <div className="section-copy">지금 바로 확인할 종목만 줄형으로 노출해.</div>
+              </div>
+            </div>
+            <div className="wealth-position-list">
+              {topSignals.map((signal, index) => (
+                <div key={`signal-${signal.market || ''}-${signal.code || ''}-${index}`} className="wealth-position-row">
+                  <div>
+                    <div className="wealth-position-symbol">{formatSymbol(signal.code, signal.name)}</div>
+                    <div className="wealth-position-copy">{signal.market || '-'} · {signal.strategy_type || '-'}</div>
+                  </div>
+                  <div className="wealth-position-right">
+                    <div className="wealth-position-symbol">EV {formatNumber(signal.ev_metrics?.expected_value, 2)}</div>
+                    <div className="wealth-position-copy">{explainSizeRecommendation(signal.size_recommendation)}</div>
+                  </div>
+                </div>
+              ))}
+              {topSignals.length === 0 && <div className="wealth-home-muted">{UI_TEXT.empty.signalsNoMatches}</div>}
+            </div>
+          </section>
+
+          <section className="page-section">
+            <div className="section-head-row">
+              <div>
+                <div className="section-title">운영 메모</div>
+                <div className="section-copy">운영 개요에서 필요한 메모만 짧게 남겼어.</div>
+              </div>
+            </div>
+            <div className="wealth-list">
+              {noteItems.map((item) => (
+                <div key={item.label} className="wealth-list-item">
+                  <div className="wealth-list-title">{item.label}</div>
+                  <div className="wealth-list-copy">{item.detail}</div>
+                </div>
+              ))}
+            </div>
           </section>
 
           {(marketCtx.regime || marketCtx.summary) && (
-            <section className="wealth-grid-2">
-              <article className="page-section">
-                <div className="section-title">시장 컨텍스트</div>
-                <div className="detail-list" style={{ marginTop: 8 }}>
-                  {marketCtx.regime && <div className="detail-row"><span className="detail-label">장세</span><span className="detail-value">{marketCtx.regime}</span></div>}
-                  {marketCtx.risk_level && <div className="detail-row"><span className="detail-label">위험도</span><span className="detail-value">{marketCtx.risk_level}</span></div>}
-                  {marketCtx.inflation_signal && <div className="detail-row"><span className="detail-label">인플레이션</span><span className="detail-value">{marketCtx.inflation_signal}</span></div>}
-                  {marketCtx.policy_signal && <div className="detail-row"><span className="detail-label">정책</span><span className="detail-value">{marketCtx.policy_signal}</span></div>}
-                  {marketCtx.dollar_signal && <div className="detail-row"><span className="detail-label">달러</span><span className="detail-value">{marketCtx.dollar_signal}</span></div>}
+            <section className="page-section">
+              <div className="section-head-row">
+                <div>
+                  <div className="section-title">시장 컨텍스트</div>
+                  <div className="section-copy">시장 환경과 요약 코멘트를 같은 섹션에 붙였어.</div>
                 </div>
-              </article>
+              </div>
+              {marketContextRows.length > 0 && (
+                <div className="detail-list" style={{ marginTop: 10 }}>
+                  {marketContextRows.map((item) => (
+                    <div key={item.label} className="detail-row"><span className="detail-label">{item.label}</span><span className="detail-value">{item.value}</span></div>
+                  ))}
+                </div>
+              )}
               {marketCtx.summary && (
-                <article className="page-section">
-                  <div className="section-title">시장 요약</div>
-                  <div className="section-copy" style={{ marginTop: 8, lineHeight: 1.6 }}>{marketCtx.summary}</div>
-                  {(marketCtx.risks || []).length > 0 && (
-                    <div style={{ marginTop: 10 }}>
-                      {(marketCtx.risks || []).map((risk, i) => (
-                        <div key={i} className="wealth-list-copy" style={{ marginTop: 4 }}>· {risk}</div>
-                      ))}
+                <div className="wealth-list" style={{ marginTop: 14 }}>
+                  <div className="wealth-list-item">
+                    <div className="wealth-list-title">시장 요약</div>
+                    <div className="wealth-list-copy">{marketCtx.summary}</div>
+                  </div>
+                  {(marketCtx.risks || []).map((risk, i) => (
+                    <div key={i} className="wealth-list-item">
+                      <div className="wealth-list-title">주의 {i + 1}</div>
+                      <div className="wealth-list-copy">{risk}</div>
                     </div>
-                  )}
-                </article>
+                  ))}
+                </div>
               )}
             </section>
           )}
