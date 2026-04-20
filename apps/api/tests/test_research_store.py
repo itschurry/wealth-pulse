@@ -78,7 +78,10 @@ class ResearchStoreTests(unittest.TestCase):
         self.assertEqual("C", latest["validation"]["grade"])
         self.assertEqual("warning_codes_present", latest["validation"]["reason"])
 
-        status_code, status_payload = handle_research_status({"provider": ["openclaw"]})
+        with patch.dict(handle_research_status.__globals__, {
+            "handle_candidate_monitor_watchlist": lambda _query: (200, {"ok": True, "items": []}),
+        }):
+            status_code, status_payload = handle_research_status({"provider": ["openclaw"]})
         self.assertEqual(200, status_code)
         self.assertEqual("healthy", status_payload["status"])
         self.assertEqual("fresh", status_payload["freshness"])
@@ -214,6 +217,23 @@ class ResearchStoreTests(unittest.TestCase):
         self.assertEqual(1, payload["active_fresh_symbol_count"])
         self.assertEqual(0, payload["active_stale_symbol_count"])
         self.assertEqual(0, payload["active_missing_symbol_count"])
+
+    def test_status_route_reads_current_watchlist_without_forcing_refresh(self):
+        captured_query = {}
+
+        def _fake_watchlist(query):
+            captured_query.update(query)
+            return 200, {"ok": True, "items": []}
+
+        with patch.dict(handle_research_status.__globals__, {
+            "handle_candidate_monitor_watchlist": _fake_watchlist,
+        }):
+            status_code, payload = handle_research_status({"provider": ["openclaw"]})
+
+        self.assertEqual(200, status_code)
+        self.assertEqual(["0"], captured_query["refresh"])
+        self.assertEqual(["200"], captured_query["limit"])
+        self.assertEqual(["missing_or_stale"], captured_query["mode"])
 
     def test_load_research_snapshots_returns_bucket_filtered_descending(self):
         status_code, payload = handle_research_ingest_bulk({
@@ -564,7 +584,10 @@ class ResearchStoreTests(unittest.TestCase):
             ],
         })
 
-        status_code, status_payload = handle_research_status({"provider": ["openclaw"]})
+        with patch.dict(handle_research_status.__globals__, {
+            "handle_candidate_monitor_watchlist": lambda _query: (200, {"ok": True, "items": []}),
+        }):
+            status_code, status_payload = handle_research_status({"provider": ["openclaw"]})
         self.assertEqual(200, status_code)
         self.assertEqual("stale_ingest", status_payload["status"])
         self.assertEqual("stale", status_payload["freshness"])

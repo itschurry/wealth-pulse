@@ -275,6 +275,7 @@ class ExecutionStrategyCapTests(unittest.TestCase):
         with patch.dict(execution_svc.os.environ, {"EXECUTION_MODE": "live"}, clear=False), \
              patch.object(execution_svc, "get_execution_engine", return_value=engine), \
              patch.object(execution_svc, "get_notification_service", return_value=notifier), \
+             patch.object(execution_svc, "_auto_refresh_research_snapshots", return_value={"ok": True, "stage": "noop", "selected_count": 0}), \
              patch.object(execution_svc, "is_market_open", return_value=False), \
              patch.object(execution_svc, "append_signal_snapshots", side_effect=lambda payload: None), \
              patch.object(execution_svc, "append_engine_cycle", side_effect=lambda payload: None), \
@@ -286,6 +287,39 @@ class ExecutionStrategyCapTests(unittest.TestCase):
         self.assertEqual([], engine.placed_orders)
         self.assertEqual([False], engine.get_account_calls)
         self.assertEqual([], notifier.market_open_briefs)
+
+    def test_run_auto_trader_cycle_triggers_live_research_auto_refresh(self):
+        engine = _FakeEngine()
+        engine.account = {
+            "mode": "real",
+            "positions": [],
+            "orders": [],
+            "equity_krw": 1000000.0,
+        }
+        notifier = _FakeNotifier()
+        cfg = execution_svc._default_auto_trader_config()
+        cfg["markets"] = ["KOSPI"]
+        cfg = execution_svc._sync_primary_strategy_fields(cfg)
+        refresh_result = {
+            "ok": True,
+            "stage": "ingested",
+            "selected_count": 3,
+        }
+
+        with patch.dict(execution_svc.os.environ, {"EXECUTION_MODE": "live"}, clear=False), \
+             patch.object(execution_svc, "get_execution_engine", return_value=engine), \
+             patch.object(execution_svc, "get_notification_service", return_value=notifier), \
+             patch.object(execution_svc, "_auto_refresh_research_snapshots", return_value=refresh_result) as mock_refresh, \
+             patch.object(execution_svc, "is_market_open", return_value=False), \
+             patch.object(execution_svc, "append_signal_snapshots", side_effect=lambda payload: None), \
+             patch.object(execution_svc, "append_engine_cycle", side_effect=lambda payload: None), \
+             patch.object(execution_svc, "append_account_snapshot", side_effect=lambda payload: None), \
+             patch.object(execution_svc, "_should_send_market_open_brief", return_value=(False, "2026-04-19")):
+            summary = execution_svc._run_auto_trader_cycle(cfg)
+
+        mock_refresh.assert_called_once_with(markets=["KOSPI"], limit=30, mode="missing_or_stale")
+        self.assertEqual(refresh_result, summary["research_refresh"])
+        self.assertEqual({"market_closed": 1}, summary["skip_reason_counts"])
 
     def test_run_auto_trader_cycle_builds_market_open_brief_candidates(self):
         engine = _FakeEngine()

@@ -564,6 +564,46 @@ def _runtime_account_snapshot(*, refresh_quotes: bool = False) -> dict[str, Any]
     return engine.get_account(refresh_quotes=refresh_quotes)
 
 
+def _auto_refresh_research_snapshots(*, markets: list[str], limit: int = 30, mode: str = "missing_or_stale") -> dict[str, Any]:
+    normalized_markets = [
+        str(market or "").strip().upper()
+        for market in markets
+        if str(market or "").strip().upper() in {"KOSPI", "NASDAQ"}
+    ]
+    if not normalized_markets:
+        return {
+            "ok": True,
+            "stage": "skipped",
+            "reason": "no_supported_markets",
+            "markets": [],
+            "selected_count": 0,
+        }
+
+    try:
+        from scripts import hanna_enrich_runner
+
+        status_code, payload = hanna_enrich_runner.run(
+            markets=normalized_markets,
+            limit=max(1, min(200, int(limit or 30))),
+            mode=str(mode or "missing_or_stale").strip() or "missing_or_stale",
+        )
+        result = dict(payload) if isinstance(payload, dict) else {"ok": False, "error": "invalid_enrich_payload"}
+        result.setdefault("markets", normalized_markets)
+        result["status_code"] = status_code
+        if not (200 <= status_code < 300):
+            logger.warning("research auto refresh 실패: {}", result)
+        return result
+    except Exception as exc:
+        logger.warning("research auto refresh 예외: {}", exc)
+        return {
+            "ok": False,
+            "stage": "error",
+            "markets": normalized_markets,
+            "selected_count": 0,
+            "error": str(exc),
+        }
+
+
 def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
     normalized_account = _normalize_runtime_account(account)
     today_counts = _today_order_counts(normalized_account)
@@ -1694,6 +1734,19 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         market: 0 for market in markets}
     risk_guard_state: dict[str, Any] = {}
     any_market_open = False
+    research_refresh = {
+        "ok": True,
+        "stage": "skipped",
+        "reason": "paper_mode",
+        "markets": markets,
+        "selected_count": 0,
+    }
+    if account_mode == "real":
+        research_refresh = _auto_refresh_research_snapshots(
+            markets=markets,
+            limit=int(cfg.get("research_refresh_limit") or 30),
+            mode="missing_or_stale",
+        )
 
     for market in markets:
         calendar_market = _MARKET_TO_CALENDAR.get(market, market)
@@ -2301,6 +2354,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         "market_stats": market_stats,
         "closed_markets": closed_markets,
         "risk_guard_state": risk_guard_state,
+        "research_refresh": research_refresh,
         "validation_gate_summary": {
             "enabled": False,
             "min_trades": 0,

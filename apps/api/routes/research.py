@@ -27,7 +27,7 @@ def _iso_or_empty(value: object) -> str:
 def _active_monitor_research_status(provider: str) -> dict | None:
     try:
         status_code, payload = handle_candidate_monitor_watchlist({
-            "refresh": ["1"],
+            "refresh": ["0"],
             "limit": ["200"],
             "mode": ["missing_or_stale"],
         })
