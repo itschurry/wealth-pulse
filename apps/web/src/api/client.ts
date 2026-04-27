@@ -99,7 +99,7 @@ export async function postJSON<T>(
       ...options,
       method: 'POST',
       signal,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: JSON.stringify(body === undefined ? {} : body),
     }),
   ).finally(cleanup);
   const payload = (await res.json()) as T | ApiEnvelope<T>;

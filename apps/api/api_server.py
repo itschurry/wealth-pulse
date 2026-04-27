@@ -54,7 +54,8 @@ async def legacy_get(full_path: str, request: Request) -> JSONResponse:
 async def legacy_post(full_path: str, request: Request) -> JSONResponse:
     path = f"/api/{full_path}"
     try:
-        body = await request.json()
+        raw_body = await request.body()
+        body = {} if not raw_body.strip() else await request.json()
     except Exception:
         return JSONResponse(
             status_code=400,

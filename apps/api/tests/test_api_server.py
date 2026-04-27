@@ -137,11 +137,30 @@ def _remove_server_route_stubs(module_names: list[str]) -> None:
 _INSTALLED_ROUTE_STUBS = _install_server_route_stubs()
 
 from server import dispatch_get, dispatch_post
+from api_server import app
 
 _remove_server_route_stubs(_INSTALLED_ROUTE_STUBS)
 
 
 class ApiServerDispatchTests(unittest.TestCase):
+    def test_legacy_post_treats_empty_body_as_empty_object(self):
+        from fastapi.testclient import TestClient
+
+        with patch("api_server.dispatch_post", return_value=(200, {"ok": True, "stopped": True})) as mock_handler:
+            response = TestClient(app).post("/api/paper/engine/stop")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"ok": True, "stopped": True}, response.json()["data"])
+        mock_handler.assert_called_once_with("/api/paper/engine/stop", {})
+
+    def test_legacy_post_rejects_non_object_json(self):
+        from fastapi.testclient import TestClient
+
+        response = TestClient(app).post("/api/paper/engine/stop", json=[])
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual("json_object_required", response.json()["error"]["message"])
+
     def test_dispatch_get_passes_date_query_to_analysis_handler(self):
         with patch("server.handle_analysis", return_value=(200, {"ok": True})) as mock_handler:
             result = dispatch_get("/api/analysis", {"date": ["2026-03-20"]})
