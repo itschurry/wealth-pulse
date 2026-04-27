@@ -4742,3 +4742,244 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* WealthPulse mobile browser ergonomics: larger touch targets, single-column critical grids. */
+@media (max-width: 720px) {
+  .app-mobile-nav-toggle {
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    left: calc(8px + env(safe-area-inset-left, 0px));
+    width: 46px;
+    height: 46px;
+    padding: 11px 10px;
+    background: color-mix(in srgb, var(--bg) 88%, var(--surface-alt) 12%);
+    touch-action: manipulation;
+  }
+
+  .app-main {
+    padding: calc(58px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-left, 0px)) calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-main-header {
+    margin-bottom: 12px;
+    padding: 12px 0 10px;
+  }
+
+  .app-main-kicker {
+    font-size: 11px;
+  }
+
+  .app-main-title {
+    margin-top: 6px;
+    font-size: clamp(25px, 8vw, 31px);
+    line-height: 1.08;
+  }
+
+  .app-main-copy {
+    margin-top: 6px;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .console-actionbar-head,
+  .paper-ops-shell .console-actionbar-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px;
+  }
+
+  .console-actionbar-shell {
+    gap: 12px;
+    padding-top: 14px;
+  }
+
+  .console-actionbar-title {
+    font-size: 22px;
+    line-height: 1.15;
+  }
+
+  .console-actionbar-meta,
+  .console-actionbar-subtitle,
+  .console-actionbar-danger-copy {
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .console-actionbar-buttons,
+  .console-actionbar-extra-row,
+  .console-error-card-actions,
+  .console-confirm-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .console-actionbar-buttons > *,
+  .console-actionbar-extra-row > *,
+  .console-actionbar-action-wrap,
+  .console-error-card-actions > *,
+  .console-confirm-actions > * {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .console-actionbar-danger-buttons {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .ghost-button,
+  .console-action-button,
+  .action-button,
+  .filter-chip,
+  .tab-launch-button,
+  .checklist-toggle,
+  .backtest-pill {
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    touch-action: manipulation;
+  }
+
+  .console-action-button.is-danger,
+  .console-actionbar-danger-buttons .console-action-button {
+    min-height: 48px;
+    border-color: var(--down-border);
+    color: var(--down);
+  }
+
+  .console-actionbar-action-reason {
+    max-width: none;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .console-status-grid,
+  .validation-decision-grid,
+  .paper-ops-shell .validation-decision-grid,
+  .summary-metric-grid,
+  .paper-ops-overview-grid,
+  .paper-ops-summary-grid,
+  .paper-ops-log-grid,
+  .operator-note-grid,
+  .validation-history-grid,
+  .process-grid,
+  .backtest-grid,
+  .report-decision-strip,
+  .validation-report-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .summary-metric-card,
+  .console-status-chip,
+  .process-card,
+  .operator-note-card {
+    min-width: 0;
+  }
+
+  .section-head-row,
+  .workspace-card-head,
+  .section-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .section-filter-row,
+  .workspace-help-row,
+  .workspace-chip-row,
+  .filter-chip-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+
+  .section-filter-row > *,
+  .workspace-help-row > *,
+  .workspace-chip-row > *,
+  .filter-chip-row > * {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workspace-two-column,
+  .workspace-query-grid,
+  .workspace-mini-metrics,
+  .workspace-score-row,
+  .responsive-card-grid,
+  .signal-kpi-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .workspace-query-grid .action-button,
+  .workspace-query-grid button {
+    width: 100%;
+  }
+
+  .input-field,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .workspace-table-section {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .workspace-table {
+    min-width: 720px !important;
+  }
+
+  .console-drawer.open {
+    inset: 0 0 0 auto;
+    width: min(100vw, 420px);
+    max-width: 100vw;
+  }
+
+  .console-drawer-head,
+  .console-drawer-toolbar {
+    gap: 10px;
+  }
+
+  .console-drawer-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 430px) {
+  .console-actionbar-buttons,
+  .console-actionbar-extra-row,
+  .console-error-card-actions,
+  .console-confirm-actions,
+  .section-filter-row,
+  .workspace-help-row,
+  .workspace-chip-row,
+  .filter-chip-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inline-badge,
+  .signal-meta-chip,
+  .signal-reason-list span {
+    max-width: 100%;
+    justify-content: center;
+  }
+}
