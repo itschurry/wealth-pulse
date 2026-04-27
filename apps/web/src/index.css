@@ -150,13 +150,50 @@ a {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
+}
+
+.input-field,
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+select,
+textarea {
+  color-scheme: dark;
+  background: color-mix(in srgb, var(--bg-surface) 92%, var(--silver) 8%);
+  color: var(--text-1);
+  border: 1px solid var(--border-md);
+  border-radius: 0;
+  box-shadow: none;
+  caret-color: var(--gold);
+}
+
+.input-field::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-3);
+  opacity: 1;
+}
+
+select,
+option {
+  background-color: var(--bg-surface);
+  color: var(--text-1);
+}
+
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--text-1);
+  box-shadow: 0 0 0 1000px var(--bg-surface) inset;
+  transition: background-color 9999s ease-out 0s;
 }
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 1px solid rgba(200,169,110,0.32);
   outline-offset: 2px;
 }
