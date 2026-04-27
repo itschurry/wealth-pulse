@@ -4885,9 +4885,24 @@ body {
     touch-action: manipulation;
   }
 
+  .console-actionbar-buttons .ghost-button,
+  .console-actionbar-buttons .console-action-button,
+  .console-actionbar-extra-row .ghost-button,
+  .console-actionbar-extra-row .console-action-button {
+    min-height: 40px;
+    padding: 7px 10px;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+
+  .console-actionbar-danger-buttons .console-action-button,
+  .console-actionbar-danger-buttons .ghost-button {
+    min-height: 44px;
+    padding: 9px 12px;
+  }
+
   .console-action-button.is-danger,
   .console-actionbar-danger-buttons .console-action-button {
-    min-height: 48px;
     border-color: var(--down-border);
     color: var(--down);
   }
@@ -5004,8 +5019,6 @@ body {
 }
 
 @media (max-width: 430px) {
-  .console-actionbar-buttons,
-  .console-actionbar-extra-row,
   .console-error-card-actions,
   .console-confirm-actions,
   .section-filter-row,
@@ -5013,6 +5026,11 @@ body {
   .workspace-chip-row,
   .filter-chip-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .console-actionbar-buttons,
+  .console-actionbar-extra-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .inline-badge,
