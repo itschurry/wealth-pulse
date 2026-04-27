@@ -624,23 +624,33 @@ export interface PaperPosition {
 
 export interface PaperOrderEvent {
   order_id: string;
+  trace_id?: string;
   ts: string;
+  timestamp?: string;
+  submitted_at?: string;
+  filled_at?: string;
   side: 'buy' | 'sell';
   order_type: 'market' | 'limit';
   code: string;
   name: string;
   market: 'KOSPI' | 'NASDAQ';
-  quantity: number;
-  filled_price_local: number;
-  filled_price_krw: number;
-  fx_rate: number;
-  notional_local?: number;
-  notional_krw: number;
-  fee_local?: number;
-  fee_krw: number;
-  realized_pnl_local?: number;
-  realized_pnl_krw: number;
-  status: 'filled';
+  quantity: number | null;
+  filled_quantity?: number | null;
+  filled_price_local: number | null;
+  filled_price_krw: number | null;
+  fx_rate: number | null;
+  notional_local?: number | null;
+  notional_krw: number | null;
+  fee_local?: number | null;
+  fee_krw?: number | null;
+  realized_pnl_local?: number | null;
+  realized_pnl_krw?: number | null;
+  status: 'intent' | 'submitted' | 'accepted' | 'partial_fill' | 'filled' | 'failed' | 'canceled';
+  execution_status?: string;
+  lifecycle_state?: string;
+  success?: boolean;
+  reason_code?: string;
+  failure_reason?: string;
 }
 
 export interface PaperAccountData {

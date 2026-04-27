@@ -275,14 +275,14 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 920 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                    <th style={{ padding: 12, fontSize: 12 }}>전략</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>상태</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>시장</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>유니버스</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>스캔 주기</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>연구 성과</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>활성화 일시</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>액션</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>전략</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>상태</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>시장</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>유니버스</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>스캔 주기</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>연구 성과</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>활성화 일시</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>액션</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -336,7 +336,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                   })}
                   {items.length === 0 && (
                     <tr>
-                      <td colSpan={8} style={{ padding: 14, fontSize: 12, color: 'var(--text-4)' }}>표시할 전략이 없습니다.</td>
+                      <td colSpan={8} style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>표시할 전략이 없습니다.</td>
                     </tr>
                   )}
                 </tbody>
@@ -384,7 +384,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                   </article>
                 );
               })}
-              {items.length === 0 && <div style={{ padding: 14, fontSize: 12, color: 'var(--text-4)' }}>표시할 전략이 없습니다.</div>}
+              {items.length === 0 && <div style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>표시할 전략이 없습니다.</div>}
             </div>
           </div>
 
@@ -429,7 +429,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                       value={selectedStrategy.scan_cycle || '5m'}
                       disabled={!!pendingId}
                       onChange={(e) => { void handleEditScanCycle(e.target.value); }}
-                      style={{ fontSize: 11, padding: '1px 4px', marginLeft: 2 }}
+                      style={{ fontSize: 14, padding: '1px 4px', marginLeft: 2 }}
                     >
                       {SCAN_CYCLE_OPTIONS.map(opt => (
                         <option key={opt} value={opt}>{opt}</option>
@@ -481,7 +481,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                       <div className="summary-metric-value">{formatParamValue(value)}</div>
                     </div>
                   ))}
-                  {selectedParams.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>표시할 파라미터가 없습니다.</div>}
+                  {selectedParams.length === 0 && <div style={{ fontSize: 15, color: 'var(--text-4)' }}>표시할 파라미터가 없습니다.</div>}
                 </div>
               </div>
             </section>

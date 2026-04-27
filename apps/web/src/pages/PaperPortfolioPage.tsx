@@ -99,16 +99,6 @@ function holdingDays(entryTs: unknown): number {
   return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
 }
 
-function isToday(ts: unknown): boolean {
-  if (!ts) return false;
-  const value = new Date(String(ts));
-  if (Number.isNaN(value.getTime())) return false;
-  const now = new Date();
-  return value.getFullYear() === now.getFullYear()
-    && value.getMonth() === now.getMonth()
-    && value.getDate() === now.getDate();
-}
-
 function engineStateLabel(raw: string | undefined, running: boolean): string {
   const state = String(raw || (running ? 'running' : 'stopped'));
   if (state === 'running') return UI_TEXT.status.running;
@@ -296,6 +286,12 @@ function orderHasExecutedAction(order: Record<string, unknown>, symbolCode: stri
   const maxGapMs = 12 * 60 * 60 * 1000;
   if (eventTime - sinceMs > maxGapMs) return false;
   return true;
+}
+
+function isFilledOrderRecord(order: Record<string, unknown>): boolean {
+  const lifecycle = String(order.lifecycle_state || order.execution_status || order.status || '').toLowerCase();
+  if (lifecycle === 'filled' || lifecycle === 'partial_fill') return true;
+  return Boolean(order.success) && Boolean(order.filled_at || order.ts || order.timestamp);
 }
 
 function workflowStageBucket(stage: unknown): 'discover' | 'signal' | 'decision' | 'order' {
@@ -676,7 +672,21 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   }, [account.cash_krw, account.cash_usd, account.equity_krw, account.realized_pnl_krw, positions]);
 
   const todayOrderStats = useMemo(() => {
-    const todayOrders = orders.filter((order) => isToday(order.ts));
+    const todayOrders = orders.filter((order) => {
+      const eventTime = Math.max(
+        parseRecordTime(order.filled_at),
+        parseRecordTime(order.ts),
+        parseRecordTime(order.timestamp),
+        parseRecordTime(order.submitted_at),
+      );
+      if (!eventTime) return false;
+      const eventDate = new Date(eventTime);
+      const now = new Date();
+      return isFilledOrderRecord(order as unknown as Record<string, unknown>)
+        && eventDate.getFullYear() === now.getFullYear()
+        && eventDate.getMonth() === now.getMonth()
+        && eventDate.getDate() === now.getDate();
+    });
     let todayBuyCount = 0;
     let todaySellCount = 0;
     for (const order of todayOrders) {
@@ -987,7 +997,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   const settingsPanel = (
     <div style={{ display: 'grid', gap: 12 }}>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>초기 원화 현금</span>
+        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>초기 원화 현금</span>
         <NumericInput
           value={settings.initialCashKrw}
           style={{ padding: '0 12px' }}
@@ -995,7 +1005,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>초기 달러 현금</span>
+        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>초기 달러 현금</span>
         <NumericInput
           value={settings.initialCashUsd}
           style={{ padding: '0 12px' }}
@@ -1003,7 +1013,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>모의투자 기간(일)</span>
+        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>모의투자 기간(일)</span>
         <NumericInput
           value={settings.paperDays}
           min={1}
@@ -1011,13 +1021,13 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           onCommit={(value) => setSettings((prev) => ({ ...prev, paperDays: Number(value ?? prev.paperDays) }))}
         />
       </label>
-      <div style={{ display: 'grid', gap: 8, fontSize: 12 }}>
+      <div style={{ display: 'grid', gap: 8, fontSize: 15 }}>
         <span style={{ color: 'var(--text-3)' }}>시장 선택</span>
         <label><input type="checkbox" checked={settings.runKospi} onChange={(event) => setSettings((prev) => ({ ...prev, runKospi: event.target.checked }))} /> KOSPI</label>
         <label><input type="checkbox" checked={settings.runNasdaq} onChange={(event) => setSettings((prev) => ({ ...prev, runNasdaq: event.target.checked }))} /> NASDAQ</label>
       </div>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최대 포지션 수(건)</span>
+        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>최대 포지션 수(건)</span>
         <NumericInput
           value={settings.maxPositions}
           min={1}
@@ -1026,7 +1036,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매수 제한(건)</span>
+        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>일일 매수 제한(건)</span>
         <NumericInput
           value={settings.dailyBuyLimit}
           min={1}
@@ -1035,7 +1045,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 매도 제한(건)</span>
+        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>일일 매도 제한(건)</span>
         <NumericInput
           value={settings.dailySellLimit}
           min={1}
@@ -1044,7 +1054,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         />
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>종목당 일일 주문 제한(건)</span>
+        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>종목당 일일 주문 제한(건)</span>
         <NumericInput
           value={settings.maxOrdersPerSymbol}
           min={1}
@@ -1053,7 +1063,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         />
       </label>
       <div style={{ display: 'grid', gap: 8, padding: 12, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-soft)' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, fontWeight: 600 }}>
           <input
             type="checkbox"
             checked={settings.rotationEnabled}
@@ -1061,12 +1071,12 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           />
           포지션 로테이션 켜기
         </label>
-        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+        <div style={{ fontSize: 15, color: 'var(--text-3)' }}>
           포지션이 꽉 차면 기존 최약체 1개와 신규 최강 후보 1개를 비교해서, 점수 차가 충분할 때만 갈아타.
         </div>
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최소 점수 차</span>
+            <span style={{ fontSize: 15, color: 'var(--text-3)' }}>최소 점수 차</span>
             <NumericInput
               value={settings.rotationMinScoreGap}
               min={0}
@@ -1075,7 +1085,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             />
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>일일 교체 한도(건)</span>
+            <span style={{ fontSize: 15, color: 'var(--text-3)' }}>일일 교체 한도(건)</span>
             <NumericInput
               value={settings.rotationDailyLimit}
               min={0}
@@ -1084,7 +1094,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             />
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>최소 보유일</span>
+            <span style={{ fontSize: 15, color: 'var(--text-3)' }}>최소 보유일</span>
             <NumericInput
               value={settings.rotationMinHoldingDays}
               min={0}
@@ -1465,7 +1475,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 <div
                   className="detail-list"
                   style={{
-                    fontSize: 12,
+                    fontSize: 15,
                     color: 'var(--text-3)',
                     display: 'flex',
                     flexDirection: 'row',
@@ -1526,7 +1536,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           <div id="paper-positions-section" className="page-section" style={{ padding: 0 }}>
             <div style={{ padding: '14px 16px 0', display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>보유 종목은 시장별로 나눠서 보는 쪽이 훨씬 덜 헷갈려. 미국장은 달러 가격 뒤에 원화 환산을 같이 붙였어.</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 종목은 시장별로 나눠서 보는 쪽이 훨씬 덜 헷갈려. 미국장은 달러 가격 뒤에 원화 환산을 같이 붙였어.</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {(['ALL', 'KOSPI', 'NASDAQ'] as const).map((view) => (
                     <button
@@ -1545,18 +1555,18 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1040 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                    <th style={{ padding: 12, fontSize: 12 }}>종목</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>시장 / 통화</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>수량</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>진입가(현지)</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>현재가(현지)</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>평가손익(KRW)</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>수익률</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>보유기간</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>손절가 / 손절률</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>익절가 / 익절률</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>전략 태그</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>상태</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>종목</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>시장 / 통화</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>수량</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>진입가(현지)</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>현재가(현지)</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>평가손익(KRW)</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>수익률</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>보유기간</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>손절가 / 손절률</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>익절가 / 익절률</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>전략 태그</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>상태</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1575,30 +1585,30 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     const strategyTag = String(positionRaw.strategy_type || positionRaw.strategy || '-');
                     return (
                       <tr key={`${position.market}:${code}`} style={{ borderTop: '1px solid var(--border)' }}>
-                        <td style={{ padding: 12, fontSize: 12 }}>{formatSymbol(code, name)}</td>
-                        <td style={{ padding: 12, fontSize: 12 }}>{formatMarketWithCurrency(position.market)}</td>
-                        <td style={{ padding: 12, fontSize: 12 }}>{formatCount(position.quantity, '주')}</td>
-                        <td style={{ padding: 12, fontSize: 12 }}>{formatLocalPriceWithKrw(entryPrice, toNumber(position.avg_price_krw, entryPrice), position.market)}</td>
-                        <td style={{ padding: 12, fontSize: 12 }}>{formatLocalPriceWithKrw(currentPrice, toNumber(position.last_price_krw, currentPrice), position.market)}</td>
-                        <td style={{ padding: 12, fontSize: 12, color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw, true)}</td>
-                        <td style={{ padding: 12, fontSize: 12, color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatSymbol(code, name)}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatMarketWithCurrency(position.market)}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatCount(position.quantity, '주')}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatLocalPriceWithKrw(entryPrice, toNumber(position.avg_price_krw, entryPrice), position.market)}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatLocalPriceWithKrw(currentPrice, toNumber(position.last_price_krw, currentPrice), position.market)}</td>
+                        <td style={{ padding: 12, fontSize: 15, color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw, true)}</td>
+                        <td style={{ padding: 12, fontSize: 15, color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>
                           {formatPercent(pnlPct, 2)}
                         </td>
-                        <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(holdingDays(position.entry_ts), 0)}일</td>
-                        <td style={{ padding: 12, fontSize: 12 }}>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatNumber(holdingDays(position.entry_ts), 0)}일</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>
                           {Number.isFinite(stopLossPrice) ? formatLocalPrice(stopLossPrice, position.market) : '-'} / {formatPercent(stopLossPct, 2)}
                         </td>
-                        <td style={{ padding: 12, fontSize: 12 }}>
+                        <td style={{ padding: 12, fontSize: 15 }}>
                           {Number.isFinite(takeProfitPrice) ? formatLocalPrice(takeProfitPrice, position.market) : '-'} / {formatPercent(takeProfitPct, 2)}
                         </td>
-                        <td style={{ padding: 12, fontSize: 12 }}>{strategyTag}</td>
-                        <td style={{ padding: 12, fontSize: 12, fontWeight: 700 }}>보유</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{strategyTag}</td>
+                        <td style={{ padding: 12, fontSize: 15, fontWeight: 700 }}>보유</td>
                       </tr>
                     );
                   })}
                   {filteredPositions.length === 0 && (
                     <tr>
-                      <td colSpan={12} style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</td>
+                      <td colSpan={12} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</td>
                     </tr>
                   )}
                 </tbody>
@@ -1640,14 +1650,14 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   </article>
                 );
               })}
-              {filteredPositions.length === 0 && <div style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</div>}
+              {filteredPositions.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</div>}
             </div>
           </div>
 
           <div className="paper-ops-summary-grid">
             <div id="paper-engine-panel-section" className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>엔진 상태 패널</div>
-              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>엔진 상태 패널</div>
+              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
                 <div>상태: {engineStateLabel(engineState.engine_state, engineState.running)}</div>
                 <div>상태 사유: {engineState.last_error ? '최근 오류 발생' : (engineState.running ? '정상 실행 중' : engineState.engine_state === 'paused' ? '일시정지' : '대기 중')}</div>
                 <div>최근 실행 시각: {formatDateTime(engineState.last_run_at)}</div>
@@ -1664,8 +1674,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
 
             <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>오늘 포지션 변화 요약</div>
-              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>오늘 포지션 변화 요약</div>
+              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
                 <div>오늘 체결 합계: {formatNumber(todayOrders.length, 0)}건</div>
                 <div>매수 체결: {formatCount(todayBuyCount, '건')}</div>
                 <div>매도 체결: {formatCount(todaySellCount, '건')}</div>
@@ -1677,7 +1687,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
 
           <div className="paper-ops-log-grid">
             <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>최근 체결 내역</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 체결 내역</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                 {mergedOrderHistory.slice(0, 12).map((order, index) => {
                   const item = order as {
@@ -1698,7 +1708,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   };
                   const isSuccess = item.success !== false;
                   return (
-                    <div key={item.order_id || `${item.code || 'order'}-${index}`} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px', fontSize: 12 }}>
+                    <div key={item.order_id || `${item.code || 'order'}-${index}`} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px', fontSize: 15 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <div>
                         <SymbolIdentity code={item.code} name={item.name} market={item.market} compact />
@@ -1722,15 +1732,15 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     </div>
                   );
                 })}
-                {mergedOrderHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noTrades}</div>}
+                {mergedOrderHistory.length === 0 && <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{UI_TEXT.empty.noTrades}</div>}
               </div>
             </div>
 
             <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>최근 엔진 이벤트 로그</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 엔진 이벤트 로그</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                 {Object.entries(skipReasonCounts).slice(0, 6).map(([reason, count]) => (
-                  <div key={reason} style={{ fontSize: 12, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
+                  <div key={reason} style={{ fontSize: 15, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
                     {paperSkipReasonLabel(reason)}: {formatCount(count, '건')}
                   </div>
                 ))}
@@ -1744,7 +1754,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     error?: string;
                   };
                   return (
-                    <div key={item.cycle_id || `cycle-${idx}`} style={{ fontSize: 12, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
+                    <div key={item.cycle_id || `cycle-${idx}`} style={{ fontSize: 15, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
                       <div>cycle: {item.cycle_id || '-'}</div>
                       <div>시각: {formatDateTime(item.finished_at || item.started_at)}</div>
                       <div>매수 {formatNumber(item.executed_buy_count, 0)} / 매도 {formatNumber(item.executed_sell_count, 0)}</div>
@@ -1753,7 +1763,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   );
                 })}
                 {Object.keys(skipReasonCounts).length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{UI_TEXT.empty.noSkipReasons}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{UI_TEXT.empty.noSkipReasons}</div>
                 )}
               </div>
             </div>
@@ -1895,7 +1905,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   </article>
                 );
               })}
-              {visibleWorkflowItems.length === 0 && <div style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>아직 워크플로우 이벤트가 없다. 엔진을 한 번 돌리면 탐색부터 주문까지 누적된다.</div>}
+              {visibleWorkflowItems.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>아직 워크플로우 이벤트가 없다. 엔진을 한 번 돌리면 탐색부터 주문까지 누적된다.</div>}
             </div>
           </div>
 
@@ -1912,7 +1922,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
             <div style={{ marginTop: 12 }}>
               <div className={`inline-badge ${riskActionCheck.tone === 'good' ? 'is-success' : riskActionCheck.tone === 'bad' ? 'is-danger' : ''}`}>{riskActionCheck.title}</div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-3)' }}>{riskActionCheck.detail}</div>
+              <div style={{ marginTop: 8, fontSize: 15, color: 'var(--text-3)' }}>{riskActionCheck.detail}</div>
               <div className="detail-list" style={{ marginTop: 8, gap: 4 }}>
                 {riskActionCheck.steps.map((step) => (
                   <div key={step} style={{ color: 'var(--text-3)' }}>{step}</div>
@@ -1923,47 +1933,47 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                    <th style={{ padding: 12, fontSize: 12 }}>시각</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>종목</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>전략</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>Hanna</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>3단계</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>4단계</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>5단계</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>사유 코드</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>시각</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>종목</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>전략</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>Hanna</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>3단계</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>4단계</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>5단계</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>사유 코드</th>
                   </tr>
                 </thead>
                 <tbody>
                   {signalRiskActionLogs.map((item) => (
                     <tr key={item.key} style={{ borderTop: '1px solid var(--border)' }}>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatDateTime(item.timestamp)}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>
+                      <td style={{ padding: 12, fontSize: 15 }}>{formatDateTime(item.timestamp)}</td>
+                      <td style={{ padding: 12, fontSize: 15 }}>
                         <SymbolIdentity code={item.symbolCode} name={item.symbolName} compact />
                       </td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{item.strategy}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>
+                      <td style={{ padding: 12, fontSize: 15 }}>{item.strategy}</td>
+                      <td style={{ padding: 12, fontSize: 15 }}>
                         <div className={hannaBadgeClass(item.hannaState)}>{hannaStateLabel(item.hannaState)}</div>
                       </td>
-                      <td style={{ padding: 12, fontSize: 12 }}>
+                      <td style={{ padding: 12, fontSize: 15 }}>
                         <div className="workspace-chip-row">
                           <span className={layerCResearchBadgeClass('freshness', String(item.researchFreshness || 'missing'))}>{freshnessToKorean(String(item.researchFreshness || 'missing'))}</span>
                           <span className={layerCResearchBadgeClass('grade', String(item.researchGrade || '-'))}>{gradeToKorean(String(item.researchGrade || '-'))}</span>
                         </div>
                         <div className="signal-cell-copy" style={{ marginTop: 6 }}>점수 {String(item.researchScore || '-')}</div>
                       </td>
-                      <td style={{ padding: 12, fontSize: 12 }}>
+                      <td style={{ padding: 12, fontSize: 15 }}>
                         <div className={item.riskDecision === 'allowed' ? 'inline-badge is-success' : 'inline-badge is-danger'}>
                           {riskDecisionLabel(item.riskDecision)}
                         </div>
                       </td>
 
-                      <td style={{ padding: 12, fontSize: 12 }}>
+                      <td style={{ padding: 12, fontSize: 15 }}>
                         <div className={item.finalAction === 'review_for_entry' ? 'inline-badge is-success' : item.finalAction === 'blocked' ? 'inline-badge is-danger' : 'inline-badge'}>
                           {reasonCodeToKorean(item.finalAction)}
                         </div>
                         <div className="signal-cell-copy" style={{ marginTop: 6 }}>{riskMessageLabel(item.riskMessage)}</div>
                       </td>
-                      <td style={{ padding: 12, fontSize: 12 }}>
+                      <td style={{ padding: 12, fontSize: 15 }}>
                         <div>{item.translatedReasons.join(', ') || '-'}</div>
                         <div className="signal-cell-copy" style={{ marginTop: 6 }}>{item.translatedReasons.join(', ') || '-'}</div>
                       </td>
@@ -1971,7 +1981,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   ))}
                   {signalRiskActionLogs.length === 0 && (
                     <tr>
-                      <td colSpan={8} style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>
+                      <td colSpan={8} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>
                         아직 기록된 신호 스냅샷이 없습니다. 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.
                       </td>
                     </tr>
@@ -2001,13 +2011,13 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                   </div>
                 </article>
               ))}
-              {signalRiskActionLogs.length === 0 && <div style={{ padding: 16, fontSize: 12, color: 'var(--text-4)' }}>아직 기록된 신호 스냅샷이 없습니다. 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.</div>}
+              {signalRiskActionLogs.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>아직 기록된 신호 스냅샷이 없습니다. 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.</div>}
             </div>
           </div>
 
           <div className="page-section" style={{ padding: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>운영 로그 스냅샷</div>
-            <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>운영 로그 스냅샷</div>
+            <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
               <div>cycle 로그: {formatCount(cycles.length, '건')}</div>
               <div>주문 이벤트 로그: {formatCount(orderEvents.length, '건')}</div>
               <div>계좌 스냅샷: {formatCount(accountHistory.length, '건')}</div>
@@ -2015,7 +2025,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          {loading && <div style={{ color: 'var(--text-3)', fontSize: 12 }}>{UI_TEXT.common.loading}</div>}
+          {loading && <div style={{ color: 'var(--text-3)', fontSize: 15 }}>{UI_TEXT.common.loading}</div>}
         </div>
       </div>
     </div>

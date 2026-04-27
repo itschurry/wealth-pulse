@@ -273,24 +273,24 @@ export function WealthPulseHomePage({
                 { label: 'WTI', price: liveMarket.wti, pct: liveMarket.wti_pct },
               ].map((item) => (
                 <div key={item.label} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{item.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>{item.price != null ? formatNumber(item.price, 2) : '-'}</span>
-                  <span className={pctTone(item.pct)} style={{ fontSize: 12 }}>{formatPct(item.pct)}</span>
+                  <span style={{ fontSize: 14, color: 'var(--text-3)', fontWeight: 600 }}>{item.label}</span>
+                  <span style={{ fontSize: 16, fontWeight: 700 }}>{item.price != null ? formatNumber(item.price, 2) : '-'}</span>
+                  <span className={pctTone(item.pct)} style={{ fontSize: 15 }}>{formatPct(item.pct)}</span>
                 </div>
               ))}
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>USD/KRW</span>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>{liveMarket.usd_krw != null ? formatNumber(liveMarket.usd_krw, 0) : '-'}</span>
+                <span style={{ fontSize: 14, color: 'var(--text-3)', fontWeight: 600 }}>USD/KRW</span>
+                <span style={{ fontSize: 16, fontWeight: 700 }}>{liveMarket.usd_krw != null ? formatNumber(liveMarket.usd_krw, 0) : '-'}</span>
               </div>
               {liveMarket.updated_at && (
-                <span className="wealth-home-muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
+                <span className="wealth-home-muted" style={{ marginLeft: 'auto', fontSize: 14 }}>
                   시세 {liveMarket.updated_at}
                 </span>
               )}
             </div>
             {sessionCards.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                <span className="wealth-home-muted" style={{ fontSize: 11 }}>시장 상태</span>
+                <span className="wealth-home-muted" style={{ fontSize: 14 }}>시장 상태</span>
                 {sessionCards.map((session) => (
                   <div
                     key={String(session.label || session.status || session.local_time || '-')}

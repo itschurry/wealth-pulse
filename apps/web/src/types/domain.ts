@@ -614,8 +614,10 @@ export interface PerformanceSummaryResponse {
   live?: {
     today_signal_count?: number;
     today_order_count?: number;
+    today_filled_count?: number;
     today_reject_count?: number;
     today_screened_block_count?: number;
+    total_order_count?: number;
     total_filled_count?: number;
     total_reject_count?: number;
     total_screened_count?: number;
@@ -637,6 +639,25 @@ export interface PerformanceSummaryResponse {
     market_value_usd_krw?: number;
     avg_notional_krw?: number;
     positions?: number;
+    order_history?: Array<{
+      logged_at?: string;
+      code?: string;
+      name?: string;
+      market?: string;
+      currency?: 'KRW' | 'USD' | string;
+      side?: string;
+      quantity?: number | null;
+      filled_price_local?: number | null;
+      filled_price_krw?: number | null;
+      notional_local?: number | null;
+      notional_krw?: number | null;
+      fx_rate?: number | null;
+      status?: string;
+      status_label?: string;
+      is_filled?: boolean;
+      order_id?: string;
+      trace_id?: string;
+    }>;
     filled_history?: Array<{
       logged_at?: string;
       code?: string;
@@ -644,12 +665,17 @@ export interface PerformanceSummaryResponse {
       market?: string;
       currency?: 'KRW' | 'USD' | string;
       side?: string;
-      quantity?: number;
-      filled_price_local?: number;
-      filled_price_krw?: number;
-      notional_local?: number;
-      notional_krw?: number;
-      fx_rate?: number;
+      quantity?: number | null;
+      filled_price_local?: number | null;
+      filled_price_krw?: number | null;
+      notional_local?: number | null;
+      notional_krw?: number | null;
+      fx_rate?: number | null;
+      status?: string;
+      status_label?: string;
+      is_filled?: boolean;
+      order_id?: string;
+      trace_id?: string;
     }>;
     operations_report?: {
       today_signal_count?: number;

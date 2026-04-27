@@ -165,7 +165,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
             logs={entries}
             onClearLogs={clear}
             settingsPanel={(
-              <div style={{ display: 'grid', gap: 8, fontSize: 12, color: 'var(--text-3)' }}>
+              <div style={{ display: 'grid', gap: 8, fontSize: 15, color: 'var(--text-3)' }}>
                 <div>1단계는 유니버스 포함 이유만 기록하고 주문 판단을 하지 않아.</div>
                 <div>3단계 Hanna는 구조화된 데이터와 경고 코드만 제공하며, 매수/매도/주문 명령을 내리지 못해.</div>
                 <div>최종 실행 의미는 마지막 액션 기준이야: 진입 검토 / 관찰 전용 / 차단 / 관망.</div>
@@ -183,14 +183,14 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>{item.strategy_name || item.strategy_id}</div>
+                      <div style={{ fontSize: 17, fontWeight: 700 }}>{item.strategy_name || item.strategy_id}</div>
                       <span className={classNameForHanna(strategyHannaState)}>Hanna {HANNA_STATE_LABEL[strategyHannaState]}</span>
                     </div>
                     <div className="signal-cell-copy" style={{ marginTop: 4 }}>
                       {item.market || '-'} · {item.universe_rule || '-'} · {item.scan_cycle || '-'}
                     </div>
                   </div>
-                  <div style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--text-3)', textAlign: 'right' }}>
+                  <div style={{ display: 'grid', gap: 4, fontSize: 15, color: 'var(--text-3)', textAlign: 'right' }}>
                     <div>마지막 스캔 {formatDateTime(item.last_scan_at)}</div>
                     <div>다음 예정 {formatDateTime(item.next_scan_at)}</div>
                     <div>스캔 {formatNumber(item.scanned_symbol_count, 0)} / 유니버스 {formatNumber(item.universe_symbol_count, 0)}</div>
@@ -201,12 +201,12 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                     <thead>
                       <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                        <th style={{ padding: 12, fontSize: 12 }}>순위</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>종목</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>2단계 퀀트</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>3단계 리서치</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>4·5단계 판단</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>사유</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>순위</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>종목</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>2단계 퀀트</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>3단계 리서치</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>4·5단계 판단</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>사유</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -222,8 +222,8 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                               background: isSelected ? 'var(--bg-soft)' : 'transparent',
                             }}
                           >
-                            <td style={{ padding: 12, fontSize: 12 }}>{candidate.candidate_rank || '-'}</td>
-                            <td style={{ padding: 12, fontSize: 12 }}>
+                            <td style={{ padding: 12, fontSize: 15 }}>{candidate.candidate_rank || '-'}</td>
+                            <td style={{ padding: 12, fontSize: 15 }}>
                               <div style={{ display: 'grid', gap: 6 }}>
                                 <div style={{ fontWeight: 700 }}>{formatSymbol(candidate.code, candidate.name)}</div>
                                 <div className="signal-cell-copy">{candidate.sector || '-'}</div>
@@ -237,11 +237,11 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                                 </button>
                               </div>
                             </td>
-                            <td style={{ padding: 12, fontSize: 12 }}>
+                            <td style={{ padding: 12, fontSize: 15 }}>
                               <div>퀀트 {candidate.quant_score == null ? '-' : formatNumber(candidate.quant_score, 2)}</div>
                               <div className="signal-cell-copy">{reasonCodeToKorean(String(candidate.signal_state || '-'))} · 원점수 {formatNumber(candidate.score, 2)}</div>
                             </td>
-                            <td style={{ padding: 12, fontSize: 12 }}>
+                            <td style={{ padding: 12, fontSize: 15 }}>
                               <div className={classNameForHanna(hannaState)}>{HANNA_STATE_LABEL[hannaState]}</div>
                               <div className="workspace-chip-row" style={{ marginTop: 6 }}>
                                 <FreshnessBadge value={researchFreshness(candidate)} />
@@ -251,13 +251,13 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                                 점수 {researchScoreDisplay(candidate)}
                               </div>
                             </td>
-                            <td style={{ padding: 12, fontSize: 12 }}>
+                            <td style={{ padding: 12, fontSize: 15 }}>
                               <div>{reasonCodeToKorean(String(candidate.risk_check?.reason_code || 'OK'))}</div>
                               <div className={classNameForFinalAction(candidate.final_action)} style={{ marginTop: 6 }}>
                                 {reasonCodeToKorean(String(candidate.final_action || '-'))}
                               </div>
                             </td>
-                            <td style={{ padding: 12, fontSize: 12 }}>
+                            <td style={{ padding: 12, fontSize: 15 }}>
                               {translatedCodes(candidate.reason_codes || candidate.reasons)}
                             </td>
                           </tr>
@@ -265,7 +265,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                       })}
                       {(item.top_candidates || []).length === 0 && (
                         <tr>
-                          <td colSpan={6} style={{ padding: 14, fontSize: 12, color: 'var(--text-4)' }}>현재 후보가 없습니다.</td>
+                          <td colSpan={6} style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>현재 후보가 없습니다.</td>
                         </tr>
                       )}
                     </tbody>
@@ -276,7 +276,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                   <div className="page-section" style={{ display: 'grid', gap: 12, padding: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                       <div>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>{formatSymbol(selectedCandidate.code, selectedCandidate.name)}</div>
+                        <div style={{ fontSize: 17, fontWeight: 700 }}>{formatSymbol(selectedCandidate.code, selectedCandidate.name)}</div>
                         <div className="signal-cell-copy" style={{ marginTop: 4 }}>
                           {selectedCandidate.strategy_name || selectedCandidate.strategy_id} · {selectedCandidate.market || '-'} · {reasonCodeToKorean(String(selectedCandidate.signal_state || '-'))}
                         </div>

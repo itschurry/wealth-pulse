@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from services.execution_lifecycle import build_execution_events
 from services.execution_service import _build_status_payload, _start_auto_trader, handle_paper_account
 from services.system_mode_service import get_mode_status
 
@@ -92,6 +93,58 @@ class _FakeMixedLiveEngine:
         }
 
 
+class _FakeLiveEngineWithRawDomesticFill:
+    def get_account(self, *, refresh_quotes: bool = True) -> dict:
+        return {
+            "mode": "real",
+            "account_product_code": "01",
+            "positions": [
+                {
+                    "code": "002700",
+                    "name": "신일전자",
+                    "market": "KOSPI",
+                    "currency": "KRW",
+                    "quantity": 128,
+                    "orderable_quantity": 128,
+                    "avg_price": 1478.0,
+                    "current_price": 1472.0,
+                    "eval_amount": 188416.0,
+                    "profit_loss": -768.0,
+                    "profit_loss_rate": -0.4,
+                    "fx_rate": 1.0,
+                }
+            ],
+            "summary": {
+                "cash_krw": 1546565.0,
+                "cash_usd": 0.0,
+                "eval_amount_krw": 188416.0,
+                "eval_profit_loss_krw": -768.0,
+                "total_amount_krw": 1734981.0,
+                "fx_rate": 1.0,
+            },
+            "raw": {
+                "positions": [
+                    {
+                        "pdno": "002700",
+                        "prdt_name": "신일전자",
+                        "hldg_qty": "128",
+                        "ord_psbl_qty": "128",
+                        "thdt_buyqty": "128",
+                        "thdt_sll_qty": "0",
+                        "pchs_avg_pric": "1478.0000",
+                        "prpr": "1472",
+                        "evlu_amt": "188416",
+                        "evlu_pfls_amt": "-768",
+                        "evlu_pfls_rt": "-0.40"
+                    }
+                ],
+                "summary": [{}],
+                "overseas_positions": [],
+                "overseas_summaries": {},
+            },
+        }
+
+
 class _FakePaperEngine:
     def get_account(self, *, refresh_quotes: bool = True) -> dict:
         return {
@@ -170,6 +223,53 @@ class LiveModeContractTests(unittest.TestCase):
         self.assertEqual(2507620.0, payload["account"]["cash_krw"])
         self.assertEqual(213000.0, payload["account"]["market_value_krw"])
         self.assertEqual("KOSPI", payload["account"]["positions"][0]["market"])
+
+    def test_live_account_backfills_entry_ts_and_today_fill_counts_from_logs(self):
+        order_event = {
+            "logged_at": "2026-04-27T03:48:23+00:00",
+            "timestamp": "2026-04-27T03:48:23+00:00",
+            "submitted_at": "2026-04-27T03:48:21+00:00",
+            "success": True,
+            "side": "buy",
+            "code": "002700",
+            "name": "신일전자",
+            "market": "KOSPI",
+            "currency": "KRW",
+            "quantity": 128,
+            "order_type": "market",
+            "filled_at": "",
+            "filled_price_local": None,
+            "filled_price_krw": None,
+            "notional_local": None,
+            "notional_krw": None,
+            "order_id": "ord-live-002700",
+            "trace_id": "ord-live-002700",
+        }
+        execution_events = build_execution_events(order_event)
+
+        with (
+            patch.dict(os.environ, {"EXECUTION_MODE": "live"}, clear=True),
+            patch("services.execution_service.get_execution_engine", return_value=_FakeLiveEngineWithRawDomesticFill()),
+            patch("services.execution_service.read_order_events", return_value=[order_event]),
+            patch("services.execution_service.read_execution_events", return_value=execution_events),
+        ):
+            status, payload = handle_paper_account(False)
+            status_payload = _build_status_payload(
+                {
+                    "engine_state": "running",
+                    "current_config": {},
+                },
+                _FakeLiveEngineWithRawDomesticFill().get_account(refresh_quotes=False),
+            )
+
+        self.assertEqual(200, status)
+        self.assertEqual("2026-04-27T03:48:21+00:00", payload["positions"][0]["entry_ts"])
+        self.assertEqual(1, len(payload["orders"]))
+        self.assertEqual(128, payload["orders"][0]["quantity"])
+        self.assertTrue(str(payload["orders"][0]["filled_at"] or "").strip())
+        self.assertEqual(1, status_payload["state"]["today_order_counts"]["buy"])
+        self.assertEqual(0, status_payload["state"]["today_order_counts"]["sell"])
+        self.assertEqual(0, status_payload["state"]["today_order_counts"]["failed"])
 
     def test_handle_paper_account_preserves_nasdaq_positions_for_ui_table(self):
         with (

@@ -57,7 +57,7 @@ from services.paper_runtime_store import (
     read_signal_snapshots,
     save_engine_state,
 )
-from services.execution_lifecycle import build_execution_events, normalize_execution_reason, summarize_execution_events
+from services.execution_lifecycle import build_execution_events, coerce_order_id, normalize_execution_reason, summarize_execution_events
 from services.order_decision_service import summarize_order_decision
 from services.trade_workflow import (
     build_workflow_summary,
@@ -88,6 +88,7 @@ _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
 
 _OPTIMIZED_PARAMS_PATH = STORE_SEARCH_OPTIMIZED_PARAMS_PATH
 _RUNTIME_OPTIMIZED_PARAMS_PATH = STORE_RUNTIME_OPTIMIZED_PARAMS_PATH
+_LIVE_POSITION_ENTRY_PATH = LOGS_DIR / "live_position_entries.json"
 _OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
 _OPTIMIZABLE_KEYS = {
     "stop_loss_pct",
@@ -267,6 +268,338 @@ def _build_market_open_brief_payload(*, calendar_market: str, finished_at: str, 
     }
 
 
+def _load_live_position_entries() -> dict[str, dict[str, str]]:
+    try:
+        payload = json.loads(_LIVE_POSITION_ENTRY_PATH.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return {
+                str(account_key): {
+                    str(symbol_key): str(entry_ts)
+                    for symbol_key, entry_ts in positions.items()
+                    if str(entry_ts or "").strip()
+                }
+                for account_key, positions in payload.items()
+                if isinstance(positions, dict)
+            }
+    except Exception:
+        return {}
+    return {}
+
+
+
+def _save_live_position_entries(payload: dict[str, dict[str, str]]) -> None:
+    try:
+        _LIVE_POSITION_ENTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _LIVE_POSITION_ENTRY_PATH.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        return None
+
+
+
+def _normalize_lifecycle_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"order_sent", "submitted", "intent", "accepted", "partial_fill", "filled", "failed", "canceled"}:
+        return normalized
+    return ""
+
+
+
+def _latest_execution_state_by_order(execution_events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    priority = {
+        "intent": 0,
+        "submitted": 1,
+        "accepted": 2,
+        "partial_fill": 3,
+        "filled": 4,
+        "failed": 4,
+        "canceled": 4,
+    }
+    latest: dict[str, dict[str, Any]] = {}
+    for item in execution_events:
+        if not isinstance(item, dict):
+            continue
+        order_id = coerce_order_id(item)
+        if not order_id:
+            continue
+        current = latest.get(order_id)
+        timestamp = str(item.get("timestamp") or item.get("logged_at") or "")
+        event_type = _normalize_lifecycle_status(item.get("event_type"))
+        current_type = _normalize_lifecycle_status((current or {}).get("event_type"))
+        if current is None:
+            latest[order_id] = item
+            continue
+        if priority.get(event_type, -1) > priority.get(current_type, -1):
+            latest[order_id] = item
+            continue
+        current_ts = str(current.get("timestamp") or current.get("logged_at") or "")
+        if priority.get(event_type, -1) == priority.get(current_type, -1) and timestamp >= current_ts:
+            latest[order_id] = item
+    return latest
+
+
+
+def _live_position_activity_map(account: dict[str, Any], positions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    activity: dict[str, dict[str, Any]] = {}
+    for position in positions:
+        key = f"{str(position.get('market') or '').upper()}:{str(position.get('code') or '').upper()}"
+        if not key.strip(":"):
+            continue
+        activity[key] = dict(position)
+
+    raw = account.get("raw") if isinstance(account.get("raw"), dict) else {}
+    for item in raw.get("positions") or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("pdno") or item.get("prdt_no") or "").strip().upper()
+        if not code:
+            continue
+        key = f"KOSPI:{code}"
+        bucket = activity.get(key) or {"market": "KOSPI", "code": code}
+        bucket["today_buy_quantity"] = int(_to_float(item.get("thdt_buyqty"), 0.0) or 0)
+        bucket["today_sell_quantity"] = int(_to_float(item.get("thdt_sll_qty"), 0.0) or 0)
+        activity[key] = bucket
+
+    return activity
+
+
+
+def _hydrate_live_runtime_account(
+    account: dict[str, Any],
+    *,
+    persist_reconciled_fills: bool = False,
+    notify_reconciled_fills: bool = False,
+) -> dict[str, Any]:
+    if str(account.get("mode") or "").strip().lower() != "real":
+        return account
+
+    normalized = dict(account)
+    positions = [dict(item) for item in (account.get("positions") if isinstance(account.get("positions"), list) else []) if isinstance(item, dict)]
+    order_events = [
+        dict(item)
+        for item in read_order_events(limit=1000)
+        if isinstance(item, dict) and str(item.get("order_type") or "").lower() != "screened"
+    ]
+    execution_events = [dict(item) for item in read_execution_events(limit=3000) if isinstance(item, dict)]
+    latest_execution = _latest_execution_state_by_order(execution_events)
+    position_activity = _live_position_activity_map(account, positions)
+
+    account_key = f"real:{str(account.get('account_product_code') or '').strip()}"
+    stored_entries = _load_live_position_entries()
+    existing_registry = dict(stored_entries.get(account_key) or {})
+
+    latest_buy_by_symbol: dict[str, dict[str, Any]] = {}
+    latest_sell_by_symbol: dict[str, dict[str, Any]] = {}
+    for order in order_events:
+        if not bool(order.get("success")):
+            continue
+        code = str(order.get("code") or "").strip().upper()
+        market = str(order.get("market") or "").strip().upper()
+        side = str(order.get("side") or "").strip().lower()
+        if not code or not market or side not in {"buy", "sell"}:
+            continue
+        symbol_key = f"{market}:{code}"
+        bucket = latest_buy_by_symbol if side == "buy" else latest_sell_by_symbol
+        current = bucket.get(symbol_key)
+        timestamp = str(order.get("submitted_at") or order.get("timestamp") or order.get("logged_at") or "")
+        if current is None or timestamp >= str(current.get("submitted_at") or current.get("timestamp") or current.get("logged_at") or ""):
+            bucket[symbol_key] = order
+
+    next_registry: dict[str, str] = {}
+    for position in positions:
+        symbol_key = f"{str(position.get('market') or '').strip().upper()}:{str(position.get('code') or '').strip().upper()}"
+        if not symbol_key.strip(":"):
+            continue
+        latest_buy = latest_buy_by_symbol.get(symbol_key) or {}
+        resolved_entry_ts = str(
+            position.get("entry_ts")
+            or existing_registry.get(symbol_key)
+            or latest_buy.get("submitted_at")
+            or latest_buy.get("timestamp")
+            or position.get("updated_at")
+            or ""
+        ).strip()
+        if resolved_entry_ts:
+            position["entry_ts"] = resolved_entry_ts
+            next_registry[symbol_key] = resolved_entry_ts
+            position_activity.setdefault(symbol_key, {}).update({"entry_ts": resolved_entry_ts})
+
+    if stored_entries.get(account_key) != next_registry:
+        stored_entries[account_key] = next_registry
+        _save_live_position_entries(stored_entries)
+
+    reconciled_orders: list[dict[str, Any]] = []
+    reconciled_fill_order_ids: set[str] = set()
+    for order in order_events:
+        item = dict(order)
+        order_id = coerce_order_id(item)
+        latest = latest_execution.get(order_id, {})
+        status = _normalize_lifecycle_status(
+            latest.get("event_type")
+            or item.get("lifecycle_state")
+            or item.get("execution_status")
+        )
+        if not status:
+            if bool(item.get("success")) and str(item.get("filled_at") or "").strip():
+                status = "filled"
+            elif bool(item.get("success")):
+                status = "accepted"
+            else:
+                status = "failed"
+
+        symbol_key = f"{str(item.get('market') or '').strip().upper()}:{str(item.get('code') or '').strip().upper()}"
+        position = position_activity.get(symbol_key, {})
+        requested_quantity = int(_to_float(item.get("quantity"), 0.0) or 0)
+        if requested_quantity <= 0:
+            requested_quantity = int(_to_float(latest.get("quantity"), 0.0) or 0)
+        if requested_quantity <= 0:
+            requested_quantity = int(_to_float(position.get("today_buy_quantity"), 0.0) or 0)
+        if requested_quantity <= 0 and str(item.get("side") or "").strip().lower() == "buy":
+            requested_quantity = int(_to_float(position.get("quantity"), 0.0) or 0)
+        if requested_quantity > 0:
+            item["quantity"] = requested_quantity
+
+        should_reconcile_fill = False
+        reconciled_quantity = requested_quantity
+        side = str(item.get("side") or "").strip().lower()
+        if bool(item.get("success")) and status not in {"filled", "partial_fill", "failed", "canceled"}:
+            if side == "buy":
+                today_buy_quantity = int(_to_float(position.get("today_buy_quantity"), 0.0) or 0)
+                if today_buy_quantity > 0:
+                    reconciled_quantity = today_buy_quantity or requested_quantity
+                    should_reconcile_fill = True
+                elif position and str(position.get("entry_ts") or "").strip():
+                    latest_buy = latest_buy_by_symbol.get(symbol_key) or {}
+                    latest_buy_order_id = coerce_order_id(latest_buy) if latest_buy else ""
+                    if latest_buy_order_id == order_id:
+                        reconciled_quantity = requested_quantity or int(_to_float(position.get("quantity"), 0.0) or 0)
+                        should_reconcile_fill = reconciled_quantity > 0
+            elif side == "sell":
+                today_sell_quantity = int(_to_float(position.get("today_sell_quantity"), 0.0) or 0)
+                if today_sell_quantity > 0:
+                    reconciled_quantity = today_sell_quantity or requested_quantity
+                    should_reconcile_fill = True
+                elif not position:
+                    latest_sell = latest_sell_by_symbol.get(symbol_key) or {}
+                    latest_sell_order_id = coerce_order_id(latest_sell) if latest_sell else ""
+                    if latest_sell_order_id == order_id:
+                        should_reconcile_fill = requested_quantity > 0
+
+        if should_reconcile_fill:
+            filled_at = str(
+                position.get("entry_ts")
+                or position.get("updated_at")
+                or item.get("submitted_at")
+                or item.get("timestamp")
+                or _now_iso()
+            )
+            price_local = item.get("filled_price_local")
+            if price_local in (None, ""):
+                price_local = position.get("avg_price_local") if side == "buy" else position.get("last_price_local")
+            price_krw = item.get("filled_price_krw")
+            if price_krw in (None, ""):
+                price_krw = position.get("avg_price_krw") if side == "buy" else position.get("last_price_krw")
+            fx_rate = _to_float(position.get("fx_rate"), _to_float(item.get("fx_rate"), 1.0 if str(item.get("currency") or "KRW").upper() != "USD" else _paper_fx_rate()))
+            notional_local = item.get("notional_local")
+            if notional_local in (None, "") and price_local not in (None, ""):
+                notional_local = round(_to_float(price_local) * reconciled_quantity, 4)
+            notional_krw = item.get("notional_krw")
+            if notional_krw in (None, "") and price_krw not in (None, ""):
+                notional_krw = round(_to_float(price_krw) * reconciled_quantity, 2)
+            item.update({
+                "quantity": reconciled_quantity,
+                "filled_quantity": reconciled_quantity,
+                "filled_at": filled_at,
+                "filled_price_local": price_local,
+                "filled_price_krw": price_krw,
+                "notional_local": notional_local,
+                "notional_krw": notional_krw,
+                "fx_rate": fx_rate,
+                "lifecycle_state": "filled",
+                "execution_status": "filled",
+                "message": str(item.get("message") or "live_balance_reconciled"),
+            })
+            reconciled_fill_order_ids.add(order_id)
+            if persist_reconciled_fills:
+                fill_payload = {
+                    "order_id": order_id,
+                    "trace_id": item.get("trace_id") or order_id,
+                    "timestamp": str(item.get("submitted_at") or item.get("timestamp") or filled_at),
+                    "submitted_at": str(item.get("submitted_at") or item.get("timestamp") or filled_at),
+                    "filled_at": filled_at,
+                    "success": True,
+                    "side": side,
+                    "code": item.get("code"),
+                    "name": item.get("name"),
+                    "market": item.get("market"),
+                    "currency": item.get("currency"),
+                    "quantity": reconciled_quantity,
+                    "filled_quantity": reconciled_quantity,
+                    "order_type": item.get("order_type") or "market",
+                    "filled_price_local": price_local,
+                    "filled_price_krw": price_krw,
+                    "notional_local": notional_local,
+                    "notional_krw": notional_krw,
+                    "fx_rate": fx_rate,
+                    "failure_reason": "",
+                    "reason_code": str(item.get("reason_code") or "live_balance_reconciled"),
+                    "message": str(item.get("message") or "live_balance_reconciled"),
+                    "originating_cycle_id": item.get("originating_cycle_id") or "",
+                    "originating_signal_key": item.get("originating_signal_key") or f"{item.get('market')}:{item.get('code')}",
+                    "strategy_id": item.get("strategy_id") or "",
+                    "strategy_name": item.get("strategy_name") or "",
+                    "quote_source": item.get("quote_source"),
+                    "quote_fetched_at": item.get("quote_fetched_at"),
+                    "quote_is_stale": item.get("quote_is_stale"),
+                }
+                _record_execution_order(fill_payload)
+                notification_day = _order_day(str(item.get("submitted_at") or item.get("timestamp") or filled_at))
+                if notify_reconciled_fills and notification_day == _today_kst_str():
+                    get_notification_service().notify_order_filled({
+                        "order_id": order_id,
+                        "trace_id": item.get("trace_id") or order_id,
+                        "ts": filled_at,
+                        "side": side,
+                        "code": item.get("code"),
+                        "name": item.get("name"),
+                        "market": item.get("market"),
+                        "currency": item.get("currency"),
+                        "quantity": reconciled_quantity,
+                        "filled_price_local": price_local,
+                        "filled_price_krw": price_krw,
+                        "notional_local": notional_local,
+                        "notional_krw": notional_krw,
+                        "fx_rate": fx_rate,
+                        "quote_source": item.get("quote_source"),
+                    })
+
+        item["order_id"] = order_id
+        item["trace_id"] = item.get("trace_id") or order_id
+        reconciled_orders.append(item)
+
+    if persist_reconciled_fills and reconciled_fill_order_ids:
+        refreshed_execution = _latest_execution_state_by_order(read_execution_events(limit=3000))
+        for item in reconciled_orders:
+            order_id = str(item.get("order_id") or "")
+            if order_id not in reconciled_fill_order_ids:
+                continue
+            latest = refreshed_execution.get(order_id, {})
+            if _normalize_lifecycle_status(latest.get("event_type")) in {"filled", "partial_fill"}:
+                item["lifecycle_state"] = _normalize_lifecycle_status(latest.get("event_type"))
+                item["execution_status"] = item["lifecycle_state"]
+
+    normalized["positions"] = positions
+    normalized["orders"] = sorted(
+        reconciled_orders,
+        key=lambda row: str(row.get("filled_at") or row.get("submitted_at") or row.get("timestamp") or row.get("logged_at") or ""),
+        reverse=True,
+    )
+    return normalized
+
+
+
 def _today_order_counts(account: dict) -> dict[str, int]:
     today = _today_kst_str()
     orders = account.get("orders", [])
@@ -276,10 +609,14 @@ def _today_order_counts(account: dict) -> dict[str, int]:
         "failed": 0,
     }
     for order in orders:
-        if _order_day(str(order.get("ts") or "")) != today:
+        order_day = _order_day(str(order.get("filled_at") or order.get("ts") or order.get("submitted_at") or order.get("timestamp") or ""))
+        if order_day != today:
             continue
         side = str(order.get("side") or "").lower()
-        if side in {"buy", "sell"}:
+        lifecycle_state = _normalize_lifecycle_status(order.get("lifecycle_state") or order.get("execution_status") or order.get("status"))
+        if not lifecycle_state and bool(order.get("success")) and str(order.get("filled_at") or order.get("ts") or order.get("timestamp") or "").strip():
+            lifecycle_state = "filled"
+        if side in {"buy", "sell"} and lifecycle_state in {"filled", "partial_fill"}:
             counts[side] += 1
     recent_failures = read_order_events(limit=300)
     for item in recent_failures:
@@ -361,7 +698,12 @@ def _today_realized_pnl(account: dict) -> float:
     today = _today_kst_str()
     realized = 0.0
     for order in account.get("orders", []):
-        if _order_day(str(order.get("ts") or "")) != today:
+        if _order_day(str(order.get("filled_at") or order.get("ts") or order.get("submitted_at") or order.get("timestamp") or "")) != today:
+            continue
+        lifecycle_state = _normalize_lifecycle_status(order.get("lifecycle_state") or order.get("execution_status") or order.get("status"))
+        if not lifecycle_state and bool(order.get("success")) and str(order.get("filled_at") or order.get("ts") or order.get("timestamp") or "").strip():
+            lifecycle_state = "filled"
+        if lifecycle_state not in {"filled", "partial_fill"}:
             continue
         if str(order.get("side") or "").lower() != "sell":
             continue
@@ -449,7 +791,12 @@ def _hydrate_auto_trader_state() -> None:
     _persist_auto_trader_state_locked()
 
 
-def _normalize_runtime_account(account: dict[str, Any]) -> dict[str, Any]:
+def _normalize_runtime_account(
+    account: dict[str, Any],
+    *,
+    persist_live_reconciled_fills: bool = False,
+    notify_live_fills: bool = False,
+) -> dict[str, Any]:
     if not isinstance(account, dict):
         return {}
 
@@ -556,7 +903,11 @@ def _normalize_runtime_account(account: dict[str, Any]) -> dict[str, Any]:
         "positions": normalized_positions,
         "orders": account.get("orders") if isinstance(account.get("orders"), list) else [],
     })
-    return normalized
+    return _hydrate_live_runtime_account(
+        normalized,
+        persist_reconciled_fills=persist_live_reconciled_fills,
+        notify_reconciled_fills=notify_live_fills,
+    )
 
 
 def _runtime_account_snapshot(*, refresh_quotes: bool = False) -> dict[str, Any]:
@@ -1617,7 +1968,11 @@ def _auto_invest_picks(
         held_codes.add(code)
         remaining_slots -= 1
 
-    final_account = engine.get_account(refresh_quotes=True)
+    final_account = _normalize_runtime_account(
+        engine.get_account(refresh_quotes=True),
+        persist_live_reconciled_fills=True,
+        notify_live_fills=True,
+    )
     message = ""
     if not entry_candidates:
         message = "EV 및 리스크 가드를 통과한 자동매수 후보가 없습니다."
@@ -1647,7 +2002,11 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     notifier = get_notification_service()
     cycle_id = f"cycle-{datetime.datetime.now(_KST).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     started_at = _now_iso()
-    account = engine.get_account(refresh_quotes=False)
+    account = _normalize_runtime_account(
+        engine.get_account(refresh_quotes=False),
+        persist_live_reconciled_fills=True,
+        notify_live_fills=True,
+    )
     account_mode = str(account.get("mode") or "paper").strip().lower()
     if account_mode == "paper" and int(account.get("days_left") or 0) <= 0:
         raise RuntimeError("모의투자 기간이 종료되어 자동매매를 중지합니다.")
@@ -1663,7 +2022,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             1 for order in orders
             if str(order.get("market") or "").upper() == market
             and str(order.get("side") or "").lower() == side
-            and _order_day(str(order.get("ts") or "")) == today
+            and _order_day(str(order.get("filled_at") or order.get("submitted_at") or order.get("ts") or order.get("timestamp") or "")) == today
         )
 
     def _symbol_order_count(market: str, side: str, code: str) -> int:
@@ -1672,7 +2031,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             if str(order.get("market") or "").upper() == market
             and str(order.get("side") or "").lower() == side
             and str(order.get("code") or "").upper() == code
-            and _order_day(str(order.get("ts") or "")) == today
+            and _order_day(str(order.get("filled_at") or order.get("submitted_at") or order.get("ts") or order.get("timestamp") or "")) == today
         )
 
     def _load_technicals(code: str, market: str) -> tuple[dict | None, str | None]:
@@ -1855,7 +2214,11 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "originating_cycle_id": cycle_id,
                 })
 
-        account = engine.get_account(refresh_quotes=True)
+        account = _normalize_runtime_account(
+            engine.get_account(refresh_quotes=True),
+            persist_live_reconciled_fills=True,
+            notify_live_fills=True,
+        )
         held_codes = {
             str(position.get("code") or "").upper()
             for position in account.get("positions", [])
@@ -2329,7 +2692,14 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             ),
         }
 
-    final_account = engine.get_account(refresh_quotes=True) if any_market_open else account
+    final_account = (
+        _normalize_runtime_account(
+            engine.get_account(refresh_quotes=True),
+            persist_live_reconciled_fills=True,
+            notify_live_fills=True,
+        )
+        if any_market_open else account
+    )
     unrealized_pnl = sum(
         _to_float(position.get("unrealized_pnl_krw"), 0.0)
         for position in final_account.get("positions", [])
@@ -2711,15 +3081,28 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
         )
         if result.get("ok"):
             event = result.get("event") or {}
+            submitted_at = str(
+                event.get("ts")
+                or result.get("order_time")
+                or _now_iso()
+            )
+            order_id = str(
+                event.get("order_id")
+                or result.get("order_no")
+                or result.get("order_id")
+                or ""
+            ).strip()
             _record_execution_order({
-                "timestamp": event.get("ts") or _now_iso(),
+                "order_id": order_id,
+                "trace_id": order_id,
+                "timestamp": event.get("ts") or submitted_at,
                 "success": True,
                 "side": side,
                 "code": code,
                 "market": market,
-                "quantity": event.get("quantity"),
+                "quantity": event.get("quantity") or quantity,
                 "order_type": order_type,
-                "submitted_at": _now_iso(),
+                "submitted_at": submitted_at,
                 "filled_at": event.get("ts"),
                 "filled_price_local": event.get("filled_price_local"),
                 "filled_price_krw": event.get("filled_price_krw"),
@@ -2733,8 +3116,13 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
                 "quote_fetched_at": event.get("quote_fetched_at"),
                 "quote_is_stale": event.get("quote_is_stale"),
             })
-            account = result.get("account") if isinstance(result.get(
+            raw_account = result.get("account") if isinstance(result.get(
                 "account"), dict) else engine.get_account(refresh_quotes=False)
+            account = _normalize_runtime_account(
+                raw_account,
+                persist_live_reconciled_fills=True,
+                notify_live_fills=True,
+            )
             unrealized = sum(
                 _to_float(item.get("unrealized_pnl_krw"), 0.0)
                 for item in account.get("positions", [])

@@ -49,7 +49,7 @@ export function UniversePage({ snapshot, loading, errorMessage, onRefresh }: Uni
             <section key={`${item.rule_name}:${item.market}`} className="page-section" style={{ display: 'grid', gap: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{item.rule_name}</div>
+                  <div style={{ fontSize: 17, fontWeight: 700 }}>{item.rule_name}</div>
                   <div className="signal-cell-copy" style={{ marginTop: 4 }}>{item.market || '-'} · 종목 {item.symbol_count || 0}개 · 제외 {item.excluded_count || 0}개</div>
                   <div className="workspace-chip-row" style={{ marginTop: 8 }}>
                     <FreshnessBadge value={String(item.freshness || item.freshness_detail?.status || 'missing')} />
@@ -57,7 +57,7 @@ export function UniversePage({ snapshot, loading, errorMessage, onRefresh }: Uni
                     {item.validation?.reason ? <span className="inline-badge">{reasonCodeToKorean(String(item.validation.reason))}</span> : null}
                   </div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', textAlign: 'right' }}>
+                <div style={{ fontSize: 15, color: 'var(--text-3)', textAlign: 'right' }}>
                   <div>생성 {formatDateTime(item.created_at)}</div>
                   <div>갱신 {formatDateTime(item.updated_at)}</div>
                 </div>
@@ -65,17 +65,17 @@ export function UniversePage({ snapshot, loading, errorMessage, onRefresh }: Uni
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-4)', marginBottom: 8 }}>최근 변경</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)', marginBottom: 8 }}>최근 변경</div>
                   <div className="signal-cell-copy">추가 {item.recent_changes?.added_count || 0} · 제외 {item.recent_changes?.removed_count || 0}</div>
-                  <div style={{ marginTop: 8, fontSize: 12 }}>{(item.recent_changes?.added || []).slice(0, 8).join(', ') || '추가 없음'}</div>
+                  <div style={{ marginTop: 8, fontSize: 15 }}>{(item.recent_changes?.added || []).slice(0, 8).join(', ') || '추가 없음'}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-4)', marginBottom: 8 }}>포함 종목 예시</div>
-                  <div style={{ fontSize: 12 }}>{(item.symbols || []).slice(0, 10).map((symbol) => symbol.code).join(', ') || '데이터 없음'}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)', marginBottom: 8 }}>포함 종목 예시</div>
+                  <div style={{ fontSize: 15 }}>{(item.symbols || []).slice(0, 10).map((symbol) => symbol.code).join(', ') || '데이터 없음'}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-4)', marginBottom: 8 }}>주요 제외 사유</div>
-                  <div style={{ fontSize: 12 }}>{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '유니버스 스냅샷 없음') : ((item.excluded || []).slice(0, 6).map((symbol) => `${symbol.code}(${symbol.reason})`).join(', ') || '제외 없음')}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)', marginBottom: 8 }}>주요 제외 사유</div>
+                  <div style={{ fontSize: 15 }}>{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '유니버스 스냅샷 없음') : ((item.excluded || []).slice(0, 6).map((symbol) => `${symbol.code}(${symbol.reason})`).join(', ') || '제외 없음')}</div>
                 </div>
               </div>
             </section>

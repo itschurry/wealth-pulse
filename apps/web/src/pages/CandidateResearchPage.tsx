@@ -188,7 +188,7 @@ function CandidateResearchCard({ item }: { item: CandidateResearchSnapshot }) {
           <div className="section-copy">생성 {formatDateTimeWithAge(item.generated_at || item.bucket_ts)}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: 27, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
             {scoreDisplay(item)}
           </div>
           <div className="workspace-chip-row" style={{ marginTop: 6, justifyContent: 'flex-end' }}>
@@ -721,7 +721,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                     value={symbol}
                     onChange={(e) => setSymbol(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && void handleQuery()}
-                    style={{ width: '100%', padding: '10px 12px', fontSize: 13 }}
+                    style={{ width: '100%', padding: '10px 12px', fontSize: 16 }}
                   />
                 </div>
                 <div>
@@ -730,7 +730,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                     className="input-field"
                     value={market}
                     onChange={(e) => setMarket(e.target.value)}
-                    style={{ width: '100%', padding: '10px 12px', fontSize: 13 }}
+                    style={{ width: '100%', padding: '10px 12px', fontSize: 16 }}
                   >
                     {MARKET_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -742,7 +742,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                   className="action-button is-primary"
                   onClick={() => void handleQuery()}
                   disabled={queryLoading}
-                  style={{ alignSelf: 'end', padding: '10px 18px', fontSize: 13 }}
+                  style={{ alignSelf: 'end', padding: '10px 18px', fontSize: 16 }}
                 >
                   {queryLoading ? '조회 중...' : '조회'}
                 </button>

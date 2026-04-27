@@ -194,7 +194,7 @@ export function ReportsPage({ snapshot, loading, errorMessage, onRefresh }: Repo
               <div className="section-copy">이 화면은 오늘 다시 볼 허용 후보와 관찰 후보를 우선순위대로 정리하는 research queue야.</div>
             </div>
             <div className="reports-toolbar-actions">
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
+              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>
                 콘솔 기준 {formatDateTimeWithAge(snapshot.fetchedAt)}
               </div>
               <button className="ghost-button" onClick={onRefresh}>{UI_TEXT.common.refresh}</button>
@@ -203,7 +203,7 @@ export function ReportsPage({ snapshot, loading, errorMessage, onRefresh }: Repo
 
           {errorMessage && reportCauseCard(onRefresh, errorMessage)}
           {renderWatchDecision(snapshot)}
-          {loading && <div style={{ color: 'var(--text-3)', fontSize: 12 }}>{UI_TEXT.common.loading}</div>}
+          {loading && <div style={{ color: 'var(--text-3)', fontSize: 15 }}>{UI_TEXT.common.loading}</div>}
         </div>
       </div>
     </div>

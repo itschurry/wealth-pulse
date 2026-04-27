@@ -259,7 +259,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
                   value={searchQuery}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
-                  style={{ width: '100%', padding: '10px 12px', fontSize: 13 }}
+                  style={{ width: '100%', padding: '10px 12px', fontSize: 16 }}
                 />
                 {searchOpen && searchResults.length > 0 && (
                   <div className="workspace-search-dropdown">
@@ -348,7 +348,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
                             <button
                               type="button"
                               className="ghost-button"
-                              style={{ color: 'var(--text-3)', fontSize: 12 }}
+                              style={{ color: 'var(--text-3)', fontSize: 15 }}
                               onClick={() => handleRemove(item.code, item.market)}
                             >
                               삭제

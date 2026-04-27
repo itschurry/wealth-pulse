@@ -674,7 +674,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           />
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>설정</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>설정</div>
             <div className="backtest-grid">
               <label style={{ display: 'grid', gap: 6 }}>
                 <span>전략</span>
@@ -753,7 +753,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             </div>
 
             <div style={{ display: 'grid', gap: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>전략별 파라미터</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>전략별 파라미터</div>
               <div className="backtest-grid">
                 {editableFields.length > 0 ? editableFields.map((field) => (
                   <label key={field.name} style={{ display: 'grid', gap: 6 }}>
@@ -789,7 +789,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             </div>
 
             <div style={{ display: 'grid', gap: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>검증 설정</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>검증 설정</div>
               <div className="backtest-grid">
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span>학습 구간 (일)</span>
@@ -849,30 +849,30 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>실행 요약</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>실행 요약</div>
             <div className="console-metric-grid">
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>선택 전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(displayedResult.strategy_kind || validationStore.draftQuery.strategy_kind)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>확정 전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(String(executionSummary.resolved_strategy_kind || displayedResult.resolved_strategy_kind || validationStore.draftQuery.strategy_kind))}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>확정 장세</div><div style={{ marginTop: 6, fontWeight: 700 }}>{String(executionSummary.resolved_regime || displayedResult.resolved_regime || validationStore.draftQuery.regime_mode)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>리스크 프로필</div><div style={{ marginTop: 6, fontWeight: 700 }}>{riskProfileToKorean(displayedResult.risk_profile || validationStore.draftQuery.risk_profile)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>시장</div><div style={{ marginTop: 6, fontWeight: 700 }}>{marketLabel(validationStore.draftQuery.market_scope)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>최근 실행</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatDateTime(displayedResult.generated_at || '') || '-'}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>선택 전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(displayedResult.strategy_kind || validationStore.draftQuery.strategy_kind)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>확정 전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(String(executionSummary.resolved_strategy_kind || displayedResult.resolved_strategy_kind || validationStore.draftQuery.strategy_kind))}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>확정 장세</div><div style={{ marginTop: 6, fontWeight: 700 }}>{String(executionSummary.resolved_regime || displayedResult.resolved_regime || validationStore.draftQuery.regime_mode)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>리스크 프로필</div><div style={{ marginTop: 6, fontWeight: 700 }}>{riskProfileToKorean(displayedResult.risk_profile || validationStore.draftQuery.risk_profile)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>시장</div><div style={{ marginTop: 6, fontWeight: 700 }}>{marketLabel(validationStore.draftQuery.market_scope)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>최근 실행</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatDateTime(displayedResult.generated_at || '') || '-'}</div></div>
             </div>
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>성능 요약</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>성능 요약</div>
             <div className="console-metric-grid">
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>연환산 수익률</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.cagr_pct, 2)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>MDD</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.max_drawdown_pct, 2)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>승률</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.win_rate_pct, 2)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>손익비</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(summaryMetrics.profit_factor, 2)}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>거래 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(summaryMetrics.trade_count, '건')}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>총 수익</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(displayedResult.metrics?.total_return_pct, 2)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>연환산 수익률</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.cagr_pct, 2)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>MDD</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.max_drawdown_pct, 2)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>승률</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(summaryMetrics.win_rate_pct, 2)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>손익비</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(summaryMetrics.profit_factor, 2)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>거래 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(summaryMetrics.trade_count, '건')}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>총 수익</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(displayedResult.metrics?.total_return_pct, 2)}</div></div>
             </div>
             {status === 'ok' && !displayedResult.error && (
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 12, color: 'var(--text-4)', flex: 1, minWidth: 180 }}>
+                <div style={{ fontSize: 15, color: 'var(--text-4)', flex: 1, minWidth: 180 }}>
                   백테스트 완료 · 이 파라미터를 전략 레지스트리에 저장하면 전략 관리에서 활성화할 수 있습니다.
                 </div>
                 <button
@@ -893,12 +893,12 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>워크포워드 검증 결과</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>워크포워드 검증 결과</div>
             {wfStatus === 'error' && (
-              <div style={{ fontSize: 12, color: 'var(--tone-bad)' }}>{wfLastError}</div>
+              <div style={{ fontSize: 15, color: 'var(--tone-bad)' }}>{wfLastError}</div>
             )}
             {wfStatus === 'idle' && (
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>워크포워드 검증 버튼을 눌러 결과를 확인하세요. 학습·검증 구간을 슬라이딩하며 OOS 신뢰도를 측정합니다.</div>
+              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>워크포워드 검증 버튼을 눌러 결과를 확인하세요. 학습·검증 구간을 슬라이딩하며 OOS 신뢰도를 측정합니다.</div>
             )}
             {(wfStatus === 'ok' || wfStatus === 'loading') && (
               <>
@@ -909,17 +909,17 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   {wfData.source ? <span className="inline-badge">출처 {providerSourceToKorean(String(wfData.source))}</span> : null}
                 </div>
                 {wfData.validation?.exclusion_reason ? (
-                  <div style={{ fontSize: 12, color: 'var(--tone-bad)' }}>검증 숫자는 신뢰도 부족 상태야: {String(wfData.validation.exclusion_reason)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--tone-bad)' }}>검증 숫자는 신뢰도 부족 상태야: {String(wfData.validation.exclusion_reason)}</div>
                 ) : null}
                 <div className="console-metric-grid">
-                  <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>윈도우 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(wfData.summary?.windows, '개')}</div></div>
-                  <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>양호 비율</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(wfData.summary?.positive_window_ratio, 1, true)}</div></div>
-                  <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>OOS 신뢰도</div><div style={{ marginTop: 6, fontWeight: 700 }}>{wfData.summary?.oos_reliability || '-'}</div></div>
-                  <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>Composite Score</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(wfData.summary?.composite_score, 2)}</div></div>
+                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>윈도우 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(wfData.summary?.windows, '개')}</div></div>
+                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>양호 비율</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(wfData.summary?.positive_window_ratio, 1, true)}</div></div>
+                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>OOS 신뢰도</div><div style={{ marginTop: 6, fontWeight: 700 }}>{wfData.summary?.oos_reliability || '-'}</div></div>
+                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>Composite Score</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(wfData.summary?.composite_score, 2)}</div></div>
                 </div>
                 {wfData.segments && (
                   <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>구간별 지표</div>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>구간별 지표</div>
                     <div className="console-metric-grid">
                       {(['train', 'validation', 'oos'] as const).map((seg) => {
                         const s = wfData.segments?.[seg];
@@ -930,22 +930,22 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                         return (
                           <div key={seg} style={{ display: 'grid', gap: 4, padding: 10, background: 'var(--bg-soft)', borderRadius: 6 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                              <div style={{ fontSize: 11, color: 'var(--text-4)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{seg}</div>
+                              <div style={{ fontSize: 14, color: 'var(--text-4)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{seg}</div>
                               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                 <FreshnessBadge value={String(s.freshness || 'missing')} />
                                 <GradeBadge value={String(s.validation?.grade || '-')} />
                               </div>
                             </div>
-                            {s.validation?.reason ? <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{reasonCodeToKorean(String(s.validation.reason))}</div> : null}
+                            {s.validation?.reason ? <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{reasonCodeToKorean(String(s.validation.reason))}</div> : null}
                             {scorecard ? (
                               <>
-                                <div style={{ fontSize: 12 }}>Score {formatNumber(score, 2)}</div>
+                                <div style={{ fontSize: 15 }}>Score {formatNumber(score, 2)}</div>
                                 {Object.entries(components).slice(0, 3).map(([k, v]) => (
-                                  <div key={k} style={{ fontSize: 11, color: 'var(--text-3)' }}>{k}: {formatNumber(v, 2)}</div>
+                                  <div key={k} style={{ fontSize: 14, color: 'var(--text-3)' }}>{k}: {formatNumber(v, 2)}</div>
                                 ))}
                               </>
                             ) : (
-                              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>데이터 없음</div>
+                              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>데이터 없음</div>
                             )}
                           </div>
                         );
@@ -958,61 +958,61 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           </section>
 
           <section className="page-section console-data-section" style={{ padding: 0 }}>
-            <div style={{ padding: 16, fontSize: 14, fontWeight: 700 }}>입력 파라미터 구간</div>
+            <div style={{ padding: 16, fontSize: 17, fontWeight: 700 }}>입력 파라미터 구간</div>
             <div style={{ padding: '0 16px 16px', display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{displayedResult.parameter_band?.summary || '현재 입력 파라미터가 전략 허용 범위 안에서 어디에 있는지 보여줍니다.'}</div>
+              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{displayedResult.parameter_band?.summary || '현재 입력 파라미터가 전략 허용 범위 안에서 어디에 있는지 보여줍니다.'}</div>
               {Object.entries(displayedResult.parameter_band?.parameter_bands || {}).length > 0 ? (
                 <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                        <th style={{ padding: 12, fontSize: 12 }}>파라미터</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>선택값</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>허용 밴드</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>파라미터</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>선택값</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>허용 밴드</th>
                       </tr>
                     </thead>
                     <tbody>
                       {Object.entries(displayedResult.parameter_band?.parameter_bands || {}).map(([key, band]) => (
                         <tr key={key} style={{ borderTop: '1px solid var(--border)' }}>
-                          <td style={{ padding: 12, fontSize: 12 }}>{band.label || key}</td>
-                          <td style={{ padding: 12, fontSize: 12 }}>{String(band.selected ?? '-')}</td>
-                          <td style={{ padding: 12, fontSize: 12 }}>{`${String(band.min ?? '-')} ~ ${String(band.max ?? '-')}`}</td>
+                          <td style={{ padding: 12, fontSize: 15 }}>{band.label || key}</td>
+                          <td style={{ padding: 12, fontSize: 15 }}>{String(band.selected ?? '-')}</td>
+                          <td style={{ padding: 12, fontSize: 15 }}>{`${String(band.min ?? '-')} ~ ${String(band.max ?? '-')}`}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              ) : <div style={{ padding: 12, fontSize: 12, color: 'var(--text-4)' }}>표시할 밴드가 없습니다.</div>}
+              ) : <div style={{ padding: 12, fontSize: 15, color: 'var(--text-4)' }}>표시할 밴드가 없습니다.</div>}
             </div>
           </section>
 
           <section className="page-section console-data-section" style={{ padding: 0 }}>
-            <div style={{ padding: 16, fontSize: 14, fontWeight: 700 }}>장세별 분해</div>
+            <div style={{ padding: 16, fontSize: 17, fontWeight: 700 }}>장세별 분해</div>
             <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                    <th style={{ padding: 12, fontSize: 12 }}>장세</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>거래 수</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>승률</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>평균 수익</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>손익비</th>
-                    <th style={{ padding: 12, fontSize: 12 }}>전략</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>장세</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>거래 수</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>승률</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>평균 수익</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>손익비</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>전략</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(displayedResult.regime_breakdown || []).map((row) => (
                     <tr key={row.regime} style={{ borderTop: '1px solid var(--border)' }}>
-                      <td style={{ padding: 12, fontSize: 12 }}>{row.regime || '-'}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatCount(row.trade_count, '건')}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(row.win_rate_pct, 2)}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatPercent(row.avg_return_pct, 2)}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{formatNumber(row.profit_factor, 2)}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{(row.strategy_kinds || []).join(', ') || '-'}</td>
+                      <td style={{ padding: 12, fontSize: 15 }}>{row.regime || '-'}</td>
+                      <td style={{ padding: 12, fontSize: 15 }}>{formatCount(row.trade_count, '건')}</td>
+                      <td style={{ padding: 12, fontSize: 15 }}>{formatPercent(row.win_rate_pct, 2)}</td>
+                      <td style={{ padding: 12, fontSize: 15 }}>{formatPercent(row.avg_return_pct, 2)}</td>
+                      <td style={{ padding: 12, fontSize: 15 }}>{formatNumber(row.profit_factor, 2)}</td>
+                      <td style={{ padding: 12, fontSize: 15 }}>{(row.strategy_kinds || []).join(', ') || '-'}</td>
                     </tr>
                   ))}
                   {(!displayedResult.regime_breakdown || displayedResult.regime_breakdown.length === 0) && (
-                    <tr><td colSpan={6} style={{ padding: 14, fontSize: 12, color: 'var(--text-4)' }}>아직 장세별 결과가 없습니다.</td></tr>
+                    <tr><td colSpan={6} style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>아직 장세별 결과가 없습니다.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1020,33 +1020,33 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>취약 구간 / 실패 원인</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>취약 구간 / 실패 원인</div>
             {(displayedResult.failure_modes || []).length > 0 ? (
               <div className="console-metric-grid">
                 {(displayedResult.failure_modes || []).map((row) => (
                   <div key={`${row.reason}-${row.count}`}>
-                    <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{row.reason || '기타'}</div>
+                    <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{row.reason || '기타'}</div>
                     <div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(row.count, '건')} · 평균 {formatPercent(row.avg_pnl_pct, 2)}</div>
                   </div>
                 ))}
               </div>
-            ) : <div style={{ fontSize: 12, color: 'var(--text-4)' }}>아직 표시할 실패 원인이 없습니다.</div>}
+            ) : <div style={{ fontSize: 15, color: 'var(--text-4)' }}>아직 표시할 실패 원인이 없습니다.</div>}
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>몬테카를로 강건성 검증</div>
-            <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>몬테카를로 강건성 검증</div>
+            <div style={{ fontSize: 15, color: 'var(--text-4)' }}>
               {optimizationMessage || '전략별 파라미터 격자를 분리해서 안정 구간 중심으로 결과를 확인합니다.'}
             </div>
             <div className="console-metric-grid">
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(String(searchContext?.strategy_kind || validationStore.draftQuery.strategy_kind))}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>상태</div><div style={{ marginTop: 6, fontWeight: 700 }}>{optimizationRunning ? '실행 중' : optimizationPayload?.status === 'ok' ? '결과 있음' : '대기'}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>최적화 종목 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_symbols_optimized || 0), '개')}</div></div>
-              <div><div style={{ fontSize: 12, color: 'var(--text-4)' }}>신뢰 통과</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_reliable || 0), '개')}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(String(searchContext?.strategy_kind || validationStore.draftQuery.strategy_kind))}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>상태</div><div style={{ marginTop: 6, fontWeight: 700 }}>{optimizationRunning ? '실행 중' : optimizationPayload?.status === 'ok' ? '결과 있음' : '대기'}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>최적화 종목 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_symbols_optimized || 0), '개')}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>신뢰 통과</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_reliable || 0), '개')}</div></div>
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>공통 안정 구간</div>
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>공통 안정 구간</div>
+              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>
                 {optimizerAggregateRobustZone?.summary || '최적화 결과가 있으면 종목별 안정 구간의 공통 영역을 보여줍니다.'}
               </div>
               {Object.entries(optimizerAggregateRobustZone?.parameter_bands || {}).length > 0 ? (
@@ -1054,32 +1054,32 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
-                        <th style={{ padding: 12, fontSize: 12 }}>파라미터</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>대표값</th>
-                        <th style={{ padding: 12, fontSize: 12 }}>안정 구간</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>파라미터</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>대표값</th>
+                        <th style={{ padding: 12, fontSize: 15 }}>안정 구간</th>
                       </tr>
                     </thead>
                     <tbody>
                       {Object.entries(optimizerAggregateRobustZone?.parameter_bands || {}).map(([key, band]) => (
                         <tr key={key} style={{ borderTop: '1px solid var(--border)' }}>
-                          <td style={{ padding: 12, fontSize: 12 }}>{band.label || key}</td>
-                          <td style={{ padding: 12, fontSize: 12 }}>{String(band.selected ?? '-')}</td>
-                          <td style={{ padding: 12, fontSize: 12 }}>{`${String(band.min ?? '-')} ~ ${String(band.max ?? '-')}`}</td>
+                          <td style={{ padding: 12, fontSize: 15 }}>{band.label || key}</td>
+                          <td style={{ padding: 12, fontSize: 15 }}>{String(band.selected ?? '-')}</td>
+                          <td style={{ padding: 12, fontSize: 15 }}>{`${String(band.min ?? '-')} ~ ${String(band.max ?? '-')}`}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              ) : <div style={{ fontSize: 12, color: 'var(--text-4)' }}>표시할 안정 구간이 없습니다.</div>}
+              ) : <div style={{ fontSize: 15, color: 'var(--text-4)' }}>표시할 안정 구간이 없습니다.</div>}
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>전역 파라미터 패치</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>전역 파라미터 패치</div>
               <div style={{ display: 'grid', gap: 6 }}>
                 {Object.entries((optimizationPayload?.global_params || {}) as Record<string, unknown>).slice(0, 8).map(([key, value]) => (
-                  <div key={key} style={{ fontSize: 12 }}>{key}: {String(value)}</div>
+                  <div key={key} style={{ fontSize: 15 }}>{key}: {String(value)}</div>
                 ))}
                 {Object.keys((optimizationPayload?.global_params || {}) as Record<string, unknown>).length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--text-4)' }}>아직 최적화 전역 파라미터가 없습니다.</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>아직 최적화 전역 파라미터가 없습니다.</div>
                 )}
               </div>
             </div>
@@ -1088,8 +1088,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>운영 반영 워크플로우</div>
-                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-4)' }}>
+                <div style={{ fontSize: 17, fontWeight: 700 }}>운영 반영 워크플로우</div>
+                <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>
                   검증 랩 결과를 최신 후보 → 저장 후보 → 런타임 반영 순서로 넘겨야 실제 엔진에 반영됩니다.
                 </div>
               </div>
@@ -1118,42 +1118,42 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
             <div className="console-metric-grid">
               <div>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>탐색 결과</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>탐색 결과</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{quantOpsWorkflow?.search_result?.available ? '있음' : '없음'}</div>
-                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-4)' }}>{quantOpsWorkflow?.search_result?.version || '-'}</div>
+                <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>{quantOpsWorkflow?.search_result?.version || '-'}</div>
               </div>
               <div>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>최신 후보</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>최신 후보</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{latestCandidate?.id || '-'}</div>
-                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-4)' }}>{quantOpsStateLabel(latestCandidateState)}</div>
+                <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>{quantOpsStateLabel(latestCandidateState)}</div>
               </div>
               <div>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>저장 후보</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>저장 후보</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{savedCandidate?.id || '-'}</div>
-                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-4)' }}>{quantOpsStateLabel(savedCandidateState)}</div>
+                <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>{quantOpsStateLabel(savedCandidateState)}</div>
               </div>
               <div>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>Runtime 반영</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>Runtime 반영</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{runtimeApply?.candidate_id || '-'}</div>
-                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-4)' }}>{quantOpsRuntimeSummary(runtimeApply)}</div>
+                <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>{quantOpsRuntimeSummary(runtimeApply)}</div>
               </div>
             </div>
 
             <div style={{ display: 'grid', gap: 10 }}>
               <div style={{ padding: 12, background: 'var(--bg-soft)', borderRadius: 8, display: 'grid', gap: 6 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>최신 후보</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>최신 후보</div>
                 <div style={{ fontWeight: 700 }}>{quantOpsCandidateSummary(latestCandidate)}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{latestCandidate?.decision?.summary || (latestCandidateState?.reasons || []).join(', ') || '-'}</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{latestCandidate?.decision?.summary || (latestCandidateState?.reasons || []).join(', ') || '-'}</div>
               </div>
               <div style={{ padding: 12, background: 'var(--bg-soft)', borderRadius: 8, display: 'grid', gap: 6 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>저장 후보</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>저장 후보</div>
                 <div style={{ fontWeight: 700 }}>{quantOpsCandidateSummary(savedCandidate)}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>{savedCandidateState?.reasons?.length ? savedCandidateState.reasons.join(', ') : savedCandidate?.save_note || '-'}</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{savedCandidateState?.reasons?.length ? savedCandidateState.reasons.join(', ') : savedCandidate?.save_note || '-'}</div>
               </div>
               <div style={{ padding: 12, background: 'var(--bg-soft)', borderRadius: 8, display: 'grid', gap: 6 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>런타임 반영</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>런타임 반영</div>
                 <div style={{ fontWeight: 700 }}>{quantOpsRuntimeSummary(runtimeApply)}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-4)' }}>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>
                   반영 시각 {formatDateTime(runtimeApply?.applied_at || '') || '-'} · 다음 실행 {formatDateTime(runtimeApply?.next_run_at || '') || '-'}
                 </div>
               </div>
@@ -1162,11 +1162,11 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             {quantOpsWorkflow?.notes?.length ? (
               <div style={{ display: 'grid', gap: 4 }}>
                 {quantOpsWorkflow.notes.map((note) => (
-                  <div key={note} style={{ fontSize: 12, color: 'var(--text-4)' }}>- {note}</div>
+                  <div key={note} style={{ fontSize: 15, color: 'var(--text-4)' }}>- {note}</div>
                 ))}
               </div>
             ) : quantOpsLoading ? (
-              <div style={{ fontSize: 12, color: 'var(--text-4)' }}>quant-ops workflow 로딩 중...</div>
+              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>quant-ops workflow 로딩 중...</div>
             ) : null}
           </section>
         </div>
