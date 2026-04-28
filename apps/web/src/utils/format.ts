@@ -114,6 +114,7 @@ export function formatDateTimeWithAge(value: string | null | undefined): string 
 }
 
 export function formatCount(value: number | string | null | undefined, unit: string): string {
+  if (value === null || value === undefined || value === '') return `- ${unit}`;
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return `- ${unit}`;
   return `${formatNumber(numeric, 0)}${unit}`;

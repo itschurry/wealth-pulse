@@ -142,6 +142,77 @@ function formatMarketWithCurrency(market: unknown): string {
   return `${normalized} · ${marketCurrency(market)}`;
 }
 
+const ORDER_STATE_RANK: Record<string, number> = {
+  intent: 1,
+  submitted: 2,
+  accepted: 3,
+  partial_fill: 4,
+  filled: 5,
+  failed: 6,
+  canceled: 6,
+};
+
+function firstKnown<T>(...values: Array<T | null | undefined | ''>): T | undefined {
+  return values.find((value) => value !== null && value !== undefined && value !== '') as T | undefined;
+}
+
+function orderLifecycleState(item: Record<string, unknown>): string {
+  if (item.success === false) return 'failed';
+  return String(item.lifecycle_state || item.execution_status || item.status || '').toLowerCase();
+}
+
+function orderStateRank(item: Record<string, unknown>): number {
+  return ORDER_STATE_RANK[orderLifecycleState(item)] || 0;
+}
+
+function orderEventTime(item: Record<string, unknown>): string {
+  return String(firstKnown(item.filled_at, item.timestamp, item.submitted_at, item.ts, item.logged_at) || '');
+}
+
+function orderSideStatusLabel(item: Record<string, unknown>): string {
+  if (item.success === false) return '실패';
+  const side = item.side === 'sell' ? '매도' : '매수';
+  const state = orderLifecycleState(item);
+  if (state === 'filled') return `${side} 체결`;
+  if (state === 'partial_fill') return `${side} 부분체결`;
+  if (state === 'submitted' || state === 'accepted') return `${side} 접수`;
+  return side;
+}
+
+function orderStatusCopy(item: Record<string, unknown>): string {
+  const state = orderLifecycleState(item);
+  if (state === 'filled') return '체결 완료';
+  if (state === 'partial_fill') return '부분 체결';
+  if (state === 'submitted' || state === 'accepted') return '체결 대기';
+  if (state === 'failed') return '주문 실패';
+  if (state === 'canceled') return '주문 취소';
+  return '주문 상태 확인 중';
+}
+
+function mergeOrderHistoryItem(current: Record<string, unknown> | undefined, incoming: Record<string, unknown>): Record<string, unknown> {
+  if (!current) return incoming;
+  const currentRank = orderStateRank(current);
+  const incomingRank = orderStateRank(incoming);
+  const primary = incomingRank >= currentRank ? incoming : current;
+  const secondary = primary === incoming ? current : incoming;
+  const quantity = firstKnown(
+    primary.quantity,
+    primary.filled_quantity,
+    secondary.quantity,
+    secondary.filled_quantity,
+  );
+  return {
+    ...secondary,
+    ...primary,
+    quantity,
+    filled_quantity: firstKnown(primary.filled_quantity, secondary.filled_quantity),
+    filled_price_local: firstKnown(primary.filled_price_local, secondary.filled_price_local),
+    filled_price_krw: firstKnown(primary.filled_price_krw, secondary.filled_price_krw),
+    notional_krw: firstKnown(primary.notional_krw, secondary.notional_krw),
+    timestamp: firstKnown(primary.filled_at, primary.timestamp, primary.submitted_at, primary.ts, secondary.filled_at, secondary.timestamp, secondary.submitted_at, secondary.ts),
+  };
+}
+
 type HannaState = 'healthy' | 'degraded' | 'timeout' | 'research_unavailable';
 
 function resolveHannaState(status: unknown, researchUnavailable: unknown): HannaState {
@@ -417,22 +488,16 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   );
   const mergedOrderHistory = useMemo(() => {
     const merged = new Map<string, Record<string, unknown>>();
-    for (const raw of orderEvents) {
+    const addOrder = (raw: unknown) => {
       const item = raw as Record<string, unknown>;
-      const key = String(item.order_id || item.trace_id || item.timestamp || item.ts || `${item.market || ''}:${item.code || ''}:${item.side || ''}`);
-      merged.set(key, item);
-    }
-    for (const raw of orders) {
-      const item = raw as unknown as Record<string, unknown>;
-      const key = String(item.order_id || item.trace_id || item.timestamp || item.ts || `${item.market || ''}:${item.code || ''}:${item.side || ''}`);
-      if (!merged.has(key)) {
-        merged.set(key, item);
-      }
-    }
+      const key = String(item.order_id || item.trace_id || `${item.market || ''}:${item.code || ''}:${item.side || ''}:${orderEventTime(item)}`);
+      merged.set(key, mergeOrderHistoryItem(merged.get(key), item));
+    };
+    orderEvents.forEach(addOrder);
+    orders.forEach(addOrder);
     return [...merged.values()]
       .slice(0, 80)
-      .sort((a, b) => String((b as { timestamp?: string; ts?: string }).timestamp || (b as { ts?: string }).ts || '')
-        .localeCompare(String((a as { timestamp?: string; ts?: string }).timestamp || (a as { ts?: string }).ts || '')));
+      .sort((a, b) => orderEventTime(b).localeCompare(orderEventTime(a)));
   }, [orderEvents, orders]);
   const currentHannaState = useMemo<HannaState>(() => {
     const states = (snapshot.signals.signals || []).map((signal) => resolveHannaStateWithProvider(
@@ -1687,7 +1752,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
 
           <div className="paper-ops-log-grid">
             <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 체결 내역</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 주문 / 체결 내역</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                 {mergedOrderHistory.slice(0, 12).map((order, index) => {
                   const item = order as {
@@ -1699,14 +1764,22 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     market?: string;
                     side?: string;
                     strategy_name?: string;
-                    quantity?: number;
-                    filled_price_local?: number;
+                    quantity?: number | null;
+                    filled_price_local?: number | null;
+                    status?: string;
+                    execution_status?: string;
+                    lifecycle_state?: string;
                     success?: boolean;
                     failure_reason?: string;
                     reason_code?: string;
                     message?: string;
                   };
                   const isSuccess = item.success !== false;
+                  const stateLabel = orderSideStatusLabel(item);
+                  const statusCopy = orderStatusCopy(item);
+                  const filledPriceCopy = orderLifecycleState(item) === 'filled'
+                    ? formatLocalPrice(item.filled_price_local, item.market)
+                    : statusCopy;
                   return (
                     <div key={item.order_id || `${item.code || 'order'}-${index}`} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px', fontSize: 15 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
@@ -1714,11 +1787,11 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                         <SymbolIdentity code={item.code} name={item.name} market={item.market} compact />
                       </div>
                       <span style={{ color: isSuccess ? (item.side === 'buy' ? 'var(--up)' : 'var(--down)') : 'var(--down)', fontWeight: 700 }}>
-                        {isSuccess ? (item.side === 'buy' ? '매수' : '매도') : '실패'}
+                        {stateLabel}
                       </span>
                     </div>
                     <div style={{ marginTop: 4, color: 'var(--text-3)' }}>
-                      {item.market ? `${formatMarketWithCurrency(item.market)} · ` : ''}수량 {formatCount(item.quantity, '주')} · 체결가 {formatLocalPrice(item.filled_price_local, item.market)} · {formatDateTime(item.timestamp || item.ts)}
+                      {item.market ? `${formatMarketWithCurrency(item.market)} · ` : ''}수량 {formatCount(item.quantity, '주')} · 체결가 {filledPriceCopy} · {formatDateTime(orderEventTime(item))}
                     </div>
                     {!!item.strategy_name && (
                       <div className="signal-cell-copy" style={{ marginTop: 4 }}>전략: {item.strategy_name}</div>
