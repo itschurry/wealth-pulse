@@ -93,6 +93,52 @@ class KISClientRetryTests(unittest.TestCase):
         self.assertEqual("fresh-token", client._access_token)
         self.assertEqual(4, mock_request.call_count)
 
+    def test_rate_limit_error_retries_same_request_before_failing_history(self):
+        client = KISClient(
+            KISCredentials(
+                app_key="app-key",
+                app_secret="app-secret",
+                base_url="https://example.com",
+            )
+        )
+        client._access_token = "fresh-token"
+        client._token_expires_at = time.time() + 3600
+        client._rate_limit_wait = Mock()
+
+        responses = [
+            _response({"rt_cd": "1", "msg_cd": "EGW00201", "msg1": "초당 거래건수를 초과하였습니다."}),
+            _response(
+                {
+                    "rt_cd": "0",
+                    "output2": [
+                        {
+                            "stck_bsop_date": "20260330",
+                            "stck_clpr": "176300",
+                            "stck_hgpr": "176650",
+                            "stck_lwpr": "170600",
+                            "acml_vol": "22269147",
+                        }
+                    ],
+                }
+            ),
+            _response({"rt_cd": "0", "output2": []}),
+        ]
+
+        with (
+            patch("broker.kis_client.requests.request", side_effect=responses) as mock_request,
+            patch("broker.kis_client.time.sleep") as mock_sleep,
+        ):
+            rows = client.get_domestic_daily_history(
+                "005930",
+                start_date="20260330",
+                end_date="20260330",
+            )
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("20260330", rows[0]["date"])
+        self.assertEqual(2, mock_request.call_count)
+        mock_sleep.assert_called_once_with(1.1)
+
     def test_domestic_daily_history_paginates_backward_to_cover_long_ranges(self):
         client = KISClient(
             KISCredentials(

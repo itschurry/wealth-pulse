@@ -33,8 +33,11 @@ from config.settings import (
 # 상수
 # ────────────────────────────────────────────────────────────────────────────
 
-# KIS REST API 공식 제한: 초당 20건 → 여유를 두고 16건으로 제한
-_KIS_RATE_LIMIT_INTERVAL: float = 1.0 / 16  # ≈ 0.0625초
+# KIS REST API 공식 제한은 앱 단위로 적용된다. 화면 여러 곳에서 잔고/시세/히스토리를
+# 동시에 조회하므로 클라이언트 인스턴스별 16rps는 실제로 초과를 자주 만든다.
+# 전역 8rps로 낮추고 EGW00201 응답은 짧게 재시도해 live/paper 공통 기능을 안정화한다.
+_KIS_RATE_LIMIT_INTERVAL: float = 1.0 / 8  # ≈ 0.125초
+_KIS_RATE_LIMIT_RETRY_DELAYS: tuple[float, ...] = (1.1, 2.2)
 
 # 국내주식 매도 시 증권거래세 (2025년 기준, 코스피/코스닥 공통)
 # execution_engine.py의 sell_fee_rate와 별도로 적용해야 함
@@ -88,6 +91,8 @@ class KISClient:
         "NYSE": ("NYS", "NYSE"),
         "AMEX": ("AMS", "AMEX"),
     }
+    _GLOBAL_RATE_LOCK = threading.Lock()
+    _GLOBAL_LAST_REQUEST_AT = 0.0
 
     def __init__(
         self,
@@ -123,13 +128,13 @@ class KISClient:
     # ── Rate Limit ───────────────────────────────────────────────────────────
 
     def _rate_limit_wait(self) -> None:
-        """초당 최대 ~16건으로 요청 간격을 강제한다 (thread-safe)."""
-        with self._rate_lock:
-            elapsed = time.monotonic() - self._last_request_at
+        """KIS 앱 단위 전역 rate limit을 강제한다 (thread-safe)."""
+        with KISClient._GLOBAL_RATE_LOCK:
+            elapsed = time.monotonic() - KISClient._GLOBAL_LAST_REQUEST_AT
             wait = _KIS_RATE_LIMIT_INTERVAL - elapsed
             if wait > 0:
                 time.sleep(wait)
-            self._last_request_at = time.monotonic()
+            KISClient._GLOBAL_LAST_REQUEST_AT = time.monotonic()
 
     # ── HTTP 요청 ────────────────────────────────────────────────────────────
 
@@ -159,6 +164,7 @@ class KISClient:
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
         _retry_with_fresh_token: bool = True,
+        _rate_limit_retries: int = 0,
     ) -> tuple[dict[str, Any], requests.Response]:
         # 토큰 발급 경로는 Rate Limit 제외 (재귀 방지)
         if path != "/oauth2/tokenP":
@@ -188,6 +194,7 @@ class KISClient:
                     params=params,
                     json_body=json_body,
                     _retry_with_fresh_token=False,
+                    _rate_limit_retries=_rate_limit_retries,
                 )
             raise KISAPIError(message) from exc
 
@@ -206,6 +213,19 @@ class KISClient:
                     params=params,
                     json_body=json_body,
                     _retry_with_fresh_token=False,
+                    _rate_limit_retries=_rate_limit_retries,
+                )
+            if self._is_rate_limit_error(payload) and _rate_limit_retries < len(_KIS_RATE_LIMIT_RETRY_DELAYS):
+                delay = _KIS_RATE_LIMIT_RETRY_DELAYS[_rate_limit_retries]
+                time.sleep(delay)
+                return self._request_full(
+                    method,
+                    path,
+                    headers=headers,
+                    params=params,
+                    json_body=json_body,
+                    _retry_with_fresh_token=_retry_with_fresh_token,
+                    _rate_limit_retries=_rate_limit_retries + 1,
                 )
             raise KISAPIError(payload.get("msg1") or f"KIS API 오류: {rt_cd}")
         return payload, response
@@ -290,6 +310,18 @@ class KISClient:
             message = str(payload or "")
         normalized = message.lower()
         return "egw00123" in normalized or "기간이 만료된 token" in message
+
+    @staticmethod
+    def _is_rate_limit_error(payload: dict[str, Any] | str) -> bool:
+        if isinstance(payload, dict):
+            message = " ".join(
+                str(payload.get(key) or "")
+                for key in ("msg_cd", "msg1", "message", "error_code", "error_description")
+            )
+        else:
+            message = str(payload or "")
+        normalized = message.lower()
+        return "egw00201" in normalized or "초당 거래건수를 초과" in message
 
     # ── 헤더 빌더 ────────────────────────────────────────────────────────────
 

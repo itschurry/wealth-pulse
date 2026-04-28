@@ -259,22 +259,35 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     const requestId = runtimeLogsRequestIdRef.current + 1;
     runtimeLogsRequestIdRef.current = requestId;
     try {
-      const [cyclesPayload, ordersPayload, historyPayload, snapshotsPayload, workflowPayload] = await Promise.all([
+      const settled = await Promise.allSettled([
         getJSON<PaperCyclesResponse>('/api/paper/engine/cycles?limit=30', { noStore: true }),
         getJSON<PaperOrderEventsResponse>('/api/paper/orders?limit=60', { noStore: true }),
         getJSON<PaperAccountHistoryResponse>('/api/paper/account/history?limit=60', { noStore: true }),
         getJSON<SignalSnapshotsResponse>('/api/signals/snapshots?limit=120', { noStore: true }),
         getJSON<PaperWorkflowResponse>('/api/paper/workflow?limit=120', { noStore: true }),
-      ]);
+      ]) as [
+        PromiseSettledResult<PaperCyclesResponse>,
+        PromiseSettledResult<PaperOrderEventsResponse>,
+        PromiseSettledResult<PaperAccountHistoryResponse>,
+        PromiseSettledResult<SignalSnapshotsResponse>,
+        PromiseSettledResult<PaperWorkflowResponse>,
+      ];
       if (runtimeLogsRequestIdRef.current !== requestId) {
         return { ok: false, error: 'stale' };
       }
-      setCycles(Array.isArray(cyclesPayload.cycles) ? cyclesPayload.cycles : []);
-      setOrderEvents(Array.isArray(ordersPayload.orders) ? ordersPayload.orders : []);
-      setAccountHistory(Array.isArray(historyPayload.history) ? historyPayload.history : []);
-      setSignalSnapshots(Array.isArray(snapshotsPayload.snapshots) ? snapshotsPayload.snapshots : []);
-      setWorkflowSummary(workflowPayload.workflow || { counts: {}, items: [], count: 0 });
-      return { ok: true };
+      const [cyclesResult, ordersResult, historyResult, snapshotsResult, workflowResult] = settled;
+      const cyclesPayload = cyclesResult.status === 'fulfilled' && cyclesResult.value.ok !== false ? cyclesResult.value : null;
+      const ordersPayload = ordersResult.status === 'fulfilled' && ordersResult.value.ok !== false ? ordersResult.value : null;
+      const historyPayload = historyResult.status === 'fulfilled' && historyResult.value.ok !== false ? historyResult.value : null;
+      const snapshotsPayload = snapshotsResult.status === 'fulfilled' && snapshotsResult.value.ok !== false ? snapshotsResult.value : null;
+      const workflowPayload = workflowResult.status === 'fulfilled' && workflowResult.value.ok !== false ? workflowResult.value : null;
+      setCycles(Array.isArray(cyclesPayload?.cycles) ? cyclesPayload.cycles : []);
+      setOrderEvents(Array.isArray(ordersPayload?.orders) ? ordersPayload.orders : []);
+      setAccountHistory(Array.isArray(historyPayload?.history) ? historyPayload.history : []);
+      setSignalSnapshots(Array.isArray(snapshotsPayload?.snapshots) ? snapshotsPayload.snapshots : []);
+      setWorkflowSummary(workflowPayload?.workflow || { counts: {}, items: [], count: 0 });
+      const failedCount = settled.filter((item) => item.status === 'rejected').length + [cyclesPayload, ordersPayload, historyPayload, snapshotsPayload, workflowPayload].filter((item) => !item).length;
+      return failedCount > 0 ? { ok: false, error: 'partial_runtime_log_failure' } : { ok: true };
     } catch {
       if (runtimeLogsRequestIdRef.current !== requestId) {
         return { ok: false, error: 'stale' };
@@ -340,6 +353,9 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         setLastError(message);
         return { ok: false, error: message };
       }
+      if (payload.account) {
+        setAccount(payload.account as PaperAccountData);
+      }
       if (payload.state) {
         setEngineState(payload.state as PaperEngineState);
       }
@@ -362,6 +378,9 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         const message = payload.error || '자동매매 중지에 실패했습니다.';
         setLastError(message);
         return { ok: false, error: message };
+      }
+      if (payload.account) {
+        setAccount(payload.account as PaperAccountData);
       }
       if (payload.state) {
         setEngineState(payload.state as PaperEngineState);
@@ -388,6 +407,9 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         setLastError(message);
         return { ok: false, error: message };
       }
+      if (payload.account) {
+        setAccount(payload.account as PaperAccountData);
+      }
       if (payload.state) {
         setEngineState(payload.state as PaperEngineState);
       }
@@ -410,6 +432,9 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         const message = payload.error || '자동매매 재개에 실패했습니다.';
         setLastError(message);
         return { ok: false, error: message };
+      }
+      if (payload.account) {
+        setAccount(payload.account as PaperAccountData);
       }
       if (payload.state) {
         setEngineState(payload.state as PaperEngineState);

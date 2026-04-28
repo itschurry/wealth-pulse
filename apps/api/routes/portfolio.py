@@ -7,9 +7,15 @@ from services.strategy_engine import _context_snapshot
 
 def handle_portfolio_state(refresh_quotes: bool) -> tuple[int, dict]:
     try:
-        _, account = get_execution_service().paper_account(refresh_quotes)
+        status, account = get_execution_service().paper_account(refresh_quotes)
         if not isinstance(account, dict):
             return 500, {"ok": False, "error": "account payload invalid"}
+        if status >= 400 or account.get("ok") is False or account.get("error"):
+            return status if status >= 400 else 500, {
+                "ok": False,
+                "error": account.get("error") or "account_unavailable",
+                "account": account,
+            }
 
         # Use cached context snapshot instead of running a full signal scan.
         regime, risk_level = _context_snapshot()

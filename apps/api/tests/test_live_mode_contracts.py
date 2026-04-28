@@ -11,7 +11,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from services.execution_lifecycle import build_execution_events
-from services.execution_service import _build_status_payload, _start_auto_trader, handle_paper_account
+from services.execution_service import (
+    _build_status_payload,
+    _start_auto_trader,
+    handle_paper_account,
+    handle_paper_history_clear,
+    handle_paper_reset,
+)
 from services.system_mode_service import get_mode_status
 
 
@@ -40,6 +46,13 @@ class _FakeLiveEngine:
                 "eval_profit_loss": 3000.0,
                 "total_amount": 2720620.0,
             },
+        }
+
+    def reset(self, **_kwargs) -> dict:
+        return {
+            "ok": False,
+            "mode": "live",
+            "error": "실거래 엔진은 reset을 지원하지 않습니다.",
         }
 
 
@@ -157,6 +170,18 @@ class _FakePaperEngine:
             "days_left": 30,
         }
 
+    def reset(self, **_kwargs) -> dict:
+        return {
+            "ok": True,
+            "mode": "paper",
+            "cash_krw": 111.0,
+            "equity_krw": 222.0,
+            "market_value_krw": 0.0,
+            "positions": [],
+            "orders": [],
+            "days_left": 30,
+        }
+
 
 class _FakeNotifier:
     def notify_engine_started(self, payload):
@@ -252,6 +277,7 @@ class LiveModeContractTests(unittest.TestCase):
             patch("services.execution_service.get_execution_engine", return_value=_FakeLiveEngineWithRawDomesticFill()),
             patch("services.execution_service.read_order_events", return_value=[order_event]),
             patch("services.execution_service.read_execution_events", return_value=execution_events),
+            patch("services.execution_service._today_kst_str", return_value="2026-04-27"),
         ):
             status, payload = handle_paper_account(False)
             status_payload = _build_status_payload(
@@ -330,6 +356,41 @@ class LiveModeContractTests(unittest.TestCase):
         self.assertEqual("real", payload["account"]["mode"])
         self.assertEqual(2000000.0, payload["account"]["cash_krw"])
         self.assertEqual(4147000.0, payload["account"]["equity_krw"])
+
+    def test_live_reset_does_not_report_success_or_append_paper_snapshot(self):
+        with (
+            patch.dict(os.environ, {"EXECUTION_MODE": "live"}, clear=True),
+            patch("services.execution_service.get_execution_engine", return_value=_FakeLiveEngine()),
+            patch("services.execution_service._hydrate_auto_trader_state", return_value=None),
+            patch("services.execution_service._append_paper_reset_snapshot") as append_snapshot,
+        ):
+            status, payload = handle_paper_reset({"initial_cash_krw": 1000000})
+
+        self.assertEqual(409, status)
+        self.assertFalse(payload["ok"])
+        self.assertIn("reset", payload["error"])
+        append_snapshot.assert_not_called()
+
+    def test_live_history_clear_skips_account_reset_but_keeps_log_cleanup_successful(self):
+        with (
+            patch.dict(os.environ, {"EXECUTION_MODE": "live"}, clear=True),
+            patch("services.execution_service.get_execution_engine", return_value=_FakeLiveEngine()),
+            patch("services.execution_service._hydrate_auto_trader_state", return_value=None),
+            patch("services.execution_service.clear_order_events", return_value=2),
+            patch("services.execution_service.clear_execution_events", return_value=3),
+            patch("services.execution_service.clear_signal_snapshots", return_value=4),
+            patch("services.execution_service.clear_account_snapshots", return_value=5),
+            patch("services.execution_service.clear_engine_cycles", return_value=6),
+            patch("services.execution_service._append_paper_reset_snapshot") as append_snapshot,
+        ):
+            status, payload = handle_paper_history_clear({"clear_all": True, "reset_account": True})
+
+        self.assertEqual(200, status)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["account_reset"])
+        self.assertTrue(payload["account_reset_skipped"])
+        self.assertEqual(2, payload["clear_count"]["order_events"])
+        append_snapshot.assert_not_called()
 
 
 if __name__ == "__main__":

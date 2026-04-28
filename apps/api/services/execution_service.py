@@ -3195,6 +3195,12 @@ def handle_paper_reset(payload: dict) -> tuple[int, dict]:
             paper_days=paper_days,
             seed_positions=seed_positions,
         )
+        if not account.get("ok", True):
+            return 409, {
+                "ok": False,
+                "error": account.get("error") or "account_reset_not_supported",
+                "account": account,
+            }
         _append_paper_reset_snapshot(account)
         return 200, {
             "ok": True,
@@ -3381,19 +3387,42 @@ def handle_paper_history_clear(payload: dict) -> tuple[int, dict]:
         removed_accounts = clear_account_snapshots() if clear_accounts else 0
         removed_cycles = clear_engine_cycles() if clear_cycles else 0
         reset_account_data: dict[str, Any] | None = None
+        reset_account_skipped = False
+        reset_account_error = ""
         if reset_account:
-            account = engine.reset(
-                initial_cash_krw=_coerce_optional_float(payload.get("initial_cash_krw")),
-                initial_cash_usd=_coerce_optional_float(payload.get("initial_cash_usd")),
-                paper_days=_coerce_optional_int(payload.get("paper_days")),
-                seed_positions=_parse_seed_positions(payload.get("seed_positions")),
-            )
-            _append_paper_reset_snapshot(account)
-            reset_account_data = account
+            mode = str(os.getenv("EXECUTION_MODE", "paper") or "paper").strip().lower()
+            if mode == "live":
+                reset_account_skipped = True
+                reset_account_error = "실거래 계좌는 초기화하지 않고 로컬 히스토리만 정리했습니다."
+                reset_account = False
+            else:
+                account = engine.reset(
+                    initial_cash_krw=_coerce_optional_float(payload.get("initial_cash_krw")),
+                    initial_cash_usd=_coerce_optional_float(payload.get("initial_cash_usd")),
+                    paper_days=_coerce_optional_int(payload.get("paper_days")),
+                    seed_positions=_parse_seed_positions(payload.get("seed_positions")),
+                )
+                if not account.get("ok", True):
+                    return 409, {
+                        "ok": False,
+                        "error": account.get("error") or "account_reset_not_supported",
+                        "clear_count": {
+                            "order_events": removed_orders,
+                            "execution_events": removed_execution_events,
+                            "signal_snapshots": removed_signals,
+                            "account_snapshots": removed_accounts,
+                            "engine_cycles": removed_cycles,
+                        },
+                        "account": account,
+                    }
+                _append_paper_reset_snapshot(account)
+                reset_account_data = account
 
         return 200, {
             "ok": True,
             "account_reset": reset_account,
+            "account_reset_skipped": reset_account_skipped,
+            **({"account_reset_error": reset_account_error} if reset_account_error else {}),
             "clear_count": {
                 "order_events": removed_orders,
                 "execution_events": removed_execution_events,
