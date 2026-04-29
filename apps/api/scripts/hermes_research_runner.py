@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-DEFAULT_AGENT_COMMAND = "hermes chat -q"
+DEFAULT_AGENT_COMMAND = "hermes chat -Q -q"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
 DEFAULT_RESEARCH_PROVIDER = "default"
 DEFAULT_AGENT_TTL_MINUTES = 180

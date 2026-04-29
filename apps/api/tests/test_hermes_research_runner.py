@@ -115,6 +115,9 @@ class HermesResearchRunnerTests(unittest.TestCase):
         self.assertEqual("strong_buy", item["rating"])
         self.assertEqual("agent_research", item["data_quality"]["analysis_mode"])
         self.assertEqual(5.0, item["trade_plan"]["size_intent_pct"])
+    def test_default_agent_command_uses_quiet_programmatic_output(self):
+        self.assertEqual(["hermes", "chat", "-Q", "-q"], runner._command_list(None))
+
     def test_host_side_handlers_prefer_http_surface_by_default(self):
         with patch.object(runner, "_http_json", return_value=(200, {"ok": True, "pending_items": []})) as mock_http:
             status, payload = runner.handle_candidate_monitor_watchlist({"limit": ["1"]}, base_url="http://127.0.0.1:8001")
