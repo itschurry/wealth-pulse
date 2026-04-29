@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import random
 from typing import Any
 
 from analyzer.shared_strategy import profile_from_mapping
@@ -116,17 +117,6 @@ def _scan_limit(strategy: dict[str, Any]) -> int:
     return max(5, min(80, int(params.get("scan_limit") or 30)))
 
 
-def _symbol_sort_key(symbol: dict[str, Any]) -> tuple[float, float, str]:
-    liquidity = max(
-        _to_float(symbol.get("trading_value"), 0.0),
-        _to_float(symbol.get("market_cap"), 0.0),
-        _to_float(symbol.get("volume_avg20"), 0.0),
-        _to_float(symbol.get("volume"), 0.0),
-    )
-    priority = _to_float(symbol.get("priority") or symbol.get("rank"), 999999.0)
-    return (-liquidity, priority, str(symbol.get("code") or ""))
-
-
 def scan_strategy(
     strategy: dict[str, Any],
     *,
@@ -187,10 +177,8 @@ def scan_strategy(
     }
     candidates: list[dict[str, Any]] = []
 
-    symbols_pool = sorted(
-        [item for item in list(universe.get("symbols") or []) if isinstance(item, dict)],
-        key=_symbol_sort_key,
-    )
+    symbols_pool = [item for item in list(universe.get("symbols") or []) if isinstance(item, dict)]
+    random.shuffle(symbols_pool)
     scanned_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for symbol in symbols_pool[:_scan_limit(strategy)]:
         if not isinstance(symbol, dict):

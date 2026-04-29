@@ -469,6 +469,16 @@ export interface BacktestQuery {
   stoch_k_min?: number | null;
   stoch_k_max?: number | null;
 }
+export interface PositionSizingMeta {
+  mode?: string;
+  label?: string;
+  risk_per_trade_pct?: number;
+  previous_default?: string;
+  current_default?: string;
+  changes_comparison_baseline?: boolean;
+  comparison_note?: string;
+}
+
 export interface BacktestData {
   generated_at?: string;
   universe?: string;
@@ -480,12 +490,18 @@ export interface BacktestData {
   risk_profile?: RiskProfile | string;
   portfolio_constraints?: PortfolioConstraints;
   strategy_params?: Record<string, unknown>;
+  position_sizing?: string;
+  risk_per_trade_pct?: number;
+  position_sizing_meta?: PositionSizingMeta;
   execution_summary?: {
     strategy_kind?: StrategyKind | string;
     regime_mode?: RegimeMode | string;
     resolved_strategy_kind?: StrategyKind | string;
     resolved_regime?: string;
     risk_profile?: RiskProfile | string;
+    position_sizing?: string;
+    risk_per_trade_pct?: number;
+    position_sizing_meta?: PositionSizingMeta;
     test_period_days?: number;
     markets?: string[];
     strategy_mix?: Array<{ value?: string; count?: number; share_pct?: number }>;
@@ -548,6 +564,9 @@ export interface BacktestData {
     risk_profile?: RiskProfile | string;
     portfolio_constraints?: PortfolioConstraints;
     strategy_params?: Record<string, unknown>;
+    position_sizing?: string;
+    risk_per_trade_pct?: number;
+    position_sizing_meta?: PositionSizingMeta;
     rsi_min?: number;
     rsi_max?: number;
     volume_ratio_min?: number;

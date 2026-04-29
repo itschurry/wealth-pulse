@@ -638,6 +638,10 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
   const summaryMetrics = displayedResult.performance_summary || {};
   const executionSummary = displayedResult.execution_summary || {};
+  const positionSizingMeta = executionSummary.position_sizing_meta || displayedResult.position_sizing_meta || displayedResult.config?.position_sizing_meta;
+  const positionSizingMode = String(positionSizingMeta?.label || positionSizingMeta?.mode || executionSummary.position_sizing || displayedResult.position_sizing || displayedResult.config?.position_sizing || '-');
+  const positionSizingRisk = positionSizingMeta?.risk_per_trade_pct ?? executionSummary.risk_per_trade_pct ?? displayedResult.risk_per_trade_pct ?? displayedResult.config?.risk_per_trade_pct;
+  const positionSizingNote = positionSizingMeta?.comparison_note || '';
   const searchContext = optimizationPayload?.meta && typeof optimizationPayload.meta === 'object'
     ? (optimizationPayload.meta as Record<string, unknown>).search_context as Record<string, unknown> | undefined
     : undefined;
@@ -855,9 +859,16 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
               <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>확정 전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(String(executionSummary.resolved_strategy_kind || displayedResult.resolved_strategy_kind || validationStore.draftQuery.strategy_kind))}</div></div>
               <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>확정 장세</div><div style={{ marginTop: 6, fontWeight: 700 }}>{String(executionSummary.resolved_regime || displayedResult.resolved_regime || validationStore.draftQuery.regime_mode)}</div></div>
               <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>리스크 프로필</div><div style={{ marginTop: 6, fontWeight: 700 }}>{riskProfileToKorean(displayedResult.risk_profile || validationStore.draftQuery.risk_profile)}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>포지션 사이징</div><div style={{ marginTop: 6, fontWeight: 700 }}>{positionSizingMode}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>거래당 위험예산</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(positionSizingRisk, 2)}</div></div>
               <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>시장</div><div style={{ marginTop: 6, fontWeight: 700 }}>{marketLabel(validationStore.draftQuery.market_scope)}</div></div>
               <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>최근 실행</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatDateTime(displayedResult.generated_at || '') || '-'}</div></div>
             </div>
+            {positionSizingNote && (
+              <div style={{ fontSize: 14, color: 'var(--text-4)', borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                {positionSizingNote}
+              </div>
+            )}
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>

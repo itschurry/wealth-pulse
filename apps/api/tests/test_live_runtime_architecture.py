@@ -173,6 +173,63 @@ class LiveRuntimeArchitectureTests(unittest.TestCase):
         self.assertEqual("entry", signal["signal_state"])
         self.assertTrue(signal["entry_allowed"])
 
+    def test_scan_strategy_randomizes_metadata_only_universe_before_scan_limit(self):
+        strategy = {
+            "strategy_id": "kr_random_scan_v1",
+            "name": "KR Random Scan v1",
+            "enabled": True,
+            "approval_status": "approved",
+            "market": "KOSPI",
+            "universe_rule": "kospi",
+            "scan_cycle": "5m",
+            "params": {
+                "market": "KOSPI",
+                "strategy_kind": "trend_following",
+                "regime_mode": "manual",
+                "signal_interval": "1d",
+                "signal_range": "6mo",
+                "scan_limit": 3,
+                "candidate_top_n": 3,
+            },
+            "risk_limits": {},
+        }
+        universe_symbols = [
+            {"code": f"00000{idx}", "name": f"종목{idx}", "market": "KOSPI"}
+            for idx in range(1, 7)
+        ]
+        scanned_codes = []
+
+        def reverse_shuffle(items):
+            items.reverse()
+
+        def technical_snapshot(code, market, *, range_, interval):
+            scanned_codes.append(code)
+            return {
+                "current_price": 1000.0,
+                "close": 1000.0,
+                "sma20": 980.0,
+                "sma60": 950.0,
+                "volume_ratio": 1.1,
+                "rsi14": 55.0,
+                "macd_hist": 1.0,
+                "atr14_pct": 1.0,
+                "spread_pct": 0.1,
+            }
+
+        with patch.object(live_svc, "load_strategy_scan", return_value=None), \
+             patch.object(live_svc, "save_strategy_scan"), \
+             patch.object(live_svc, "get_universe_snapshot", return_value={
+                 "rule_name": "kospi",
+                 "market": "KOSPI",
+                 "symbol_count": len(universe_symbols),
+                 "symbols": universe_symbols,
+             }), \
+             patch.object(live_svc.random, "shuffle", side_effect=reverse_shuffle), \
+             patch.object(live_svc, "_compute_technical_snapshot", side_effect=technical_snapshot):
+            live_svc.scan_strategy(strategy, refresh=True)
+
+        self.assertEqual(["000006", "000005", "000004", "000003", "000002"], scanned_codes)
+
 
 if __name__ == "__main__":
     unittest.main()

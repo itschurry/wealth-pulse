@@ -290,6 +290,7 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
     }
     if cfg.candidate_selection_enabled:
         candidate_selection_config.update(serialize_candidate_selection_config(cfg.candidate_selection))
+    position_sizing_meta = _position_sizing_meta(cfg)
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "universe": universe_label,
@@ -303,6 +304,7 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
         "strategy_params": cfg.strategy_params,
         "position_sizing": cfg.position_sizing,
         "risk_per_trade_pct": cfg.risk_per_trade_pct,
+        "position_sizing_meta": position_sizing_meta,
         "config": {
             "initial_cash": cfg.initial_cash,
             "base_currency": base_currency,
@@ -317,6 +319,7 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             "strategy_params": cfg.strategy_params,
             "position_sizing": cfg.position_sizing,
             "risk_per_trade_pct": cfg.risk_per_trade_pct,
+            "position_sizing_meta": position_sizing_meta,
             "market_profiles": serialize_strategy_profiles(market_profiles),
             "candidate_selection": candidate_selection_config,
             **_single_market_profile_config(market_profiles),
@@ -327,6 +330,9 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             "regime_mode": cfg.regime_mode,
             "resolved_regime": resolved_regime,
             "risk_profile": cfg.risk_profile,
+            "position_sizing": cfg.position_sizing,
+            "risk_per_trade_pct": cfg.risk_per_trade_pct,
+            "position_sizing_meta": position_sizing_meta,
             "test_period_days": cfg.lookback_days,
             "markets": list(cfg.markets),
             "strategy_mix": strategy_mix,
@@ -357,6 +363,34 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
         "failure_modes": _failure_modes(trades),
         "trades": trades,
         "equity_curve": equity_curve,
+    }
+
+
+def _position_sizing_meta(cfg: BacktestConfig) -> dict[str, Any]:
+    mode = str(cfg.position_sizing or "risk_based").strip().lower() or "risk_based"
+    risk_per_trade_pct = round(float(cfg.risk_per_trade_pct or 0.0), 4)
+    if mode == "risk_based":
+        comparison_note = (
+            "position_sizing=risk_based 기준입니다. 거래당 위험예산(risk_per_trade_pct)으로 수량을 정하므로, "
+            "이전 equal_weight 기본 백테스트와 수익률을 직접 비교하지 말고 사이징 기준 변경을 함께 봐야 합니다."
+        )
+        label = "위험예산 기반"
+        changes_baseline = True
+    else:
+        comparison_note = (
+            "position_sizing=equal_weight 기준입니다. 남은 현금을 슬롯 수로 균등 배분하므로, "
+            "이전 기본 사이징 기준과 직접 비교 가능한 결과입니다."
+        )
+        label = "균등 배분"
+        changes_baseline = False
+    return {
+        "mode": mode,
+        "label": label,
+        "risk_per_trade_pct": risk_per_trade_pct,
+        "previous_default": "equal_weight",
+        "current_default": "risk_based",
+        "changes_comparison_baseline": changes_baseline,
+        "comparison_note": comparison_note,
     }
 
 
