@@ -1,5 +1,11 @@
 import { getJSON, postJSON } from './client';
 import type {
+  AgentBrokerStatusResponse,
+  AgentDecisionsResponse,
+  AgentOrdersResponse,
+  AgentRiskConfigResponse,
+  AgentRunResponse,
+  AgentRunsResponse,
   EngineStatusResponse,
   HannaBriefResponse,
   LiveMarketResponse,
@@ -86,6 +92,40 @@ export function fetchEngineSummary() {
 
 export function fetchEngineStatus() {
   return getJSON<EngineStatusResponse>('/api/engine/status', { noStore: true });
+}
+
+export function fetchAgentRuns(limit = 20) {
+  return getJSON<AgentRunsResponse>(`/api/agent/runs?limit=${encodeURIComponent(String(limit))}`, { noStore: true });
+}
+
+export function fetchAgentDecisions(limit = 50) {
+  return getJSON<AgentDecisionsResponse>(`/api/agent/decisions?limit=${encodeURIComponent(String(limit))}`, { noStore: true });
+}
+
+export function fetchAgentOrders(limit = 50) {
+  return getJSON<AgentOrdersResponse>(`/api/agent/orders?limit=${encodeURIComponent(String(limit))}`, { noStore: true });
+}
+
+export function fetchAgentRiskConfig() {
+  return getJSON<AgentRiskConfigResponse>('/api/risk/config', { noStore: true });
+}
+
+export function fetchAgentBrokerStatus() {
+  return getJSON<AgentBrokerStatusResponse>('/api/broker/kis/status', { noStore: true });
+}
+
+export async function runAgentPaper(payload: Record<string, unknown> = {}) {
+  const response = await postJSON<AgentRunResponse>('/api/agent/run', {
+    trading_mode: 'paper',
+    candidate_source: 'monitor_watchlist',
+    decision_source: 'research_snapshot',
+    limit: 5,
+    mode: 'missing_or_stale',
+    include_research_snapshot: true,
+    trigger: 'ui_agent_dashboard',
+    ...payload,
+  });
+  return response.data;
 }
 
 export function fetchSignals(limit = 100) {

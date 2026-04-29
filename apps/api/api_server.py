@@ -16,6 +16,10 @@ from api_contract import normalize_legacy_response
 from server import dispatch_get, dispatch_post
 
 
+def dispatch_put(path: str, payload: dict) -> tuple[int, dict] | None:
+    return dispatch_post(path, payload)
+
+
 app = FastAPI(title="WealthPulse API", version="2.0.0")
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
@@ -52,6 +56,15 @@ async def legacy_get(full_path: str, request: Request) -> JSONResponse:
 
 @app.post("/api/{full_path:path}")
 async def legacy_post(full_path: str, request: Request) -> JSONResponse:
+    return await _legacy_body_dispatch(full_path, request, dispatch_post)
+
+
+@app.put("/api/{full_path:path}")
+async def legacy_put(full_path: str, request: Request) -> JSONResponse:
+    return await _legacy_body_dispatch(full_path, request, dispatch_put)
+
+
+async def _legacy_body_dispatch(full_path: str, request: Request, dispatcher) -> JSONResponse:
     path = f"/api/{full_path}"
     try:
         raw_body = await request.body()
@@ -66,7 +79,7 @@ async def legacy_post(full_path: str, request: Request) -> JSONResponse:
             status_code=400,
             content=normalize_legacy_response(path, 400, {"ok": False, "error": "json_object_required"}),
         )
-    result = await asyncio.to_thread(dispatch_post, path, body)
+    result = await asyncio.to_thread(dispatcher, path, body)
     if result is None:
         return JSONResponse(status_code=404, content={})
     status, response = result

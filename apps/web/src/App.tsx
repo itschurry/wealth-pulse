@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { UI_TEXT } from './constants/uiText';
 import { useConsoleData } from './hooks/useConsoleData';
 import { FEATURE_FLAGS } from './lib/featureFlags';
+import { AgentDashboardPage } from './pages/AgentDashboardPage';
 import { BacktestValidationPage } from './pages/BacktestValidationPage';
 import { PaperPortfolioPage } from './pages/PaperPortfolioPage';
 import { PerformancePage } from './pages/PerformancePage';
@@ -36,6 +37,7 @@ interface RouteState {
 const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; hint: string }> = [
   { id: 'operations-dashboard', label: '운영 대시보드', path: '/operations-dashboard', hint: '운영 개요 · 스캐너 · 시나리오 · 성과' },
   { id: 'research-ai', label: '리서치/AI', path: '/research-ai', hint: '현재 후보 리서치 조회' },
+  { id: 'agent-dashboard', label: 'Agent 관제', path: '/agent-dashboard', hint: 'Agent Run · Risk Gate · Paper 주문 감사' },
   { id: 'orders-execution', label: '주문/체결', path: '/orders-execution', hint: '주문 상태 · 차단 사유 · 포지션' },
   { id: 'lab', label: '실험실(Lab)', path: '/lab/validation', hint: '백테스트 · 탐색 · 재검증' },
   { id: 'watchlist', label: UI_TEXT.analysisTabs.watchlist, path: '/watchlist', hint: '관심 종목 저장과 분석' },
@@ -61,6 +63,7 @@ const RESEARCH_TABS: Array<{ id: ResearchTab; label: string; path: string; hint:
 const PAGE_COPY: Record<WorkspacePage, string> = {
   'operations-dashboard': '운영자가 자동거래 파이프라인, 브리프, 리스크를 한 화면에서 판단하는 관제 홈입니다.',
   'orders-execution': '주문 흐름, 차단 사유, 체결 상태를 운영 관점에서 추적합니다.',
+  'agent-dashboard': 'Hermes 판단, Risk Gate, Paper 주문 감사를 한 곳에서 확인하는 자동거래 관제 화면입니다.',
   lab: '백테스트, 탐색, 검증, 프리셋 실험은 이 영역에서만 수행합니다.',
   watchlist: '관심 종목 저장, 편집, 분석을 실행 화면과 분리해 관리합니다.',
   'research-ai': '현재 스캐너 후보에 붙은 리서치 상태와 생성 이력을 따로 추적합니다.',
@@ -118,6 +121,9 @@ function toRouteState(pathname: string, search = ''): RouteState {
     '/console/strategies': '/lab/strategies',
     '/console/scanner': '/operations-dashboard/scanner',
     '/console/orders': '/orders-execution',
+    '/console/agent': '/agent-dashboard',
+    '/agent': '/agent-dashboard',
+    '/agent-runs': '/agent-dashboard',
     '/console/performance': '/operations-dashboard/performance',
     '/console/watchlist': '/watchlist',
     '/console/research': '/research-ai',
@@ -163,6 +169,9 @@ function toRouteState(pathname: string, search = ''): RouteState {
   }
   if (path === '/orders-execution') {
     return withDefaults({ page: 'orders-execution', canonicalPath: '/orders-execution' }, normalizedSearch);
+  }
+  if (path === '/agent-dashboard') {
+    return withDefaults({ page: 'agent-dashboard', canonicalPath: '/agent-dashboard' }, normalizedSearch);
   }
   if (path === '/watchlist') {
     return withDefaults({ page: 'watchlist', canonicalPath: '/watchlist' }, normalizedSearch);
@@ -375,6 +384,7 @@ export default function App() {
           )}
 
           {route.page === 'orders-execution' && <PaperPortfolioPage {...sharedProps} />}
+          {route.page === 'agent-dashboard' && <AgentDashboardPage {...sharedProps} />}
           {route.page === 'watchlist' && <WatchlistPage {...sharedProps} />}
 
           {route.page === 'lab' && route.labTab === 'validation' && <BacktestValidationPage {...sharedProps} />}

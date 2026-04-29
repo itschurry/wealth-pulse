@@ -13,10 +13,19 @@ if str(ROOT) not in sys.path:
 
 def _install_server_route_stubs() -> list[str]:
     modules: dict[str, dict[str, object]] = {
+        "routes.agent": {
+            "handle_agent_decisions": lambda query: (200, {"query": query, "kind": "agent_decisions"}),
+            "handle_agent_evidence": lambda path, query: (200, {"path": path, "query": query, "kind": "agent_evidence"}),
+            "handle_agent_orders": lambda query: (200, {"query": query, "kind": "agent_orders"}),
+            "handle_agent_run": lambda payload: (200, {"payload": payload, "kind": "agent_run"}),
+            "handle_agent_run_detail": lambda path: (200, {"path": path, "kind": "agent_run_detail"}),
+            "handle_agent_runs": lambda query: (200, {"query": query, "kind": "agent_runs"}),
+        },
         "routes.backtest": {
             "handle_backtest_run": lambda query: (200, {"ok": True, "query": query}),
             "handle_kospi_backtest": lambda: (200, {"ok": True}),
         },
+        "routes.broker": {"handle_kis_status": lambda: (200, {"kind": "kis_status"})},
         "routes.candidate_monitor": {
             "handle_candidate_monitor_promotions": lambda query: (200, {"query": query, "kind": "promotions"}),
             "handle_candidate_monitor_status": lambda query: (200, {"query": query, "kind": "status"}),
@@ -54,6 +63,10 @@ def _install_server_route_stubs() -> list[str]:
             "handle_research_latest_snapshot": lambda query: (200, {"query": query}),
             "handle_research_status": lambda query: (200, {"query": query}),
             "handle_research_snapshots": lambda query: (200, {"query": query}),
+        },
+        "routes.risk": {
+            "handle_risk_config_get": lambda: (200, {"kind": "risk_config"}),
+            "handle_risk_config_save": lambda payload: (200, {"kind": "risk_config_save", "payload": payload}),
         },
         "routes.reports": {
             "handle_analysis": lambda date=None: (200, {"date": date}),
@@ -161,6 +174,16 @@ class ApiServerDispatchTests(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertEqual("json_object_required", response.json()["error"]["message"])
 
+    def test_legacy_put_routes_to_dispatch_put(self):
+        from fastapi.testclient import TestClient
+
+        with patch("api_server.dispatch_put", return_value=(200, {"ok": True, "config": {"trading_mode": "paper"}})) as mock_handler:
+            response = TestClient(app).put("/api/risk/config", json={"min_confidence": 0.8})
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"ok": True, "config": {"trading_mode": "paper"}}, response.json())
+        mock_handler.assert_called_once_with("/api/risk/config", {"min_confidence": 0.8})
+
     def test_dispatch_get_passes_date_query_to_analysis_handler(self):
         with patch("server.handle_analysis", return_value=(200, {"ok": True})) as mock_handler:
             result = dispatch_get("/api/analysis", {"date": ["2026-03-20"]})
@@ -193,6 +216,47 @@ class ApiServerDispatchTests(unittest.TestCase):
 
         self.assertEqual((200, {"ok": True, "count": 1}), result)
         mock_handler.assert_called_once_with({"limit": ["20"]})
+
+    def test_dispatch_get_routes_agent_runs(self):
+        with patch("server.handle_agent_runs", return_value=(200, {"kind": "agent_runs"})) as mock_handler:
+            result = dispatch_get("/api/agent/runs", {"limit": ["10"]})
+
+        self.assertEqual((200, {"kind": "agent_runs"}), result)
+        mock_handler.assert_called_once_with({"limit": ["10"]})
+
+    def test_dispatch_get_routes_agent_run_detail(self):
+        with patch("server.handle_agent_run_detail", return_value=(200, {"kind": "agent_run_detail"})) as mock_handler:
+            result = dispatch_get("/api/agent/runs/123", {})
+
+        self.assertEqual((200, {"kind": "agent_run_detail"}), result)
+        mock_handler.assert_called_once_with("/api/agent/runs/123")
+
+    def test_dispatch_post_routes_agent_run(self):
+        with patch("server.handle_agent_run", return_value=(200, {"kind": "agent_run"})) as mock_handler:
+            payload = {"candidates": []}
+            result = dispatch_post("/api/agent/run", payload)
+
+        self.assertEqual((200, {"kind": "agent_run"}), result)
+        mock_handler.assert_called_once_with(payload)
+
+    def test_dispatch_get_routes_risk_and_broker_status(self):
+        with patch("server.handle_risk_config_get", return_value=(200, {"kind": "risk_config"})) as mock_risk, \
+             patch("server.handle_kis_status", return_value=(200, {"kind": "kis_status"})) as mock_broker:
+            risk_result = dispatch_get("/api/risk/config", {})
+            broker_result = dispatch_get("/api/broker/kis/status", {})
+
+        self.assertEqual((200, {"kind": "risk_config"}), risk_result)
+        self.assertEqual((200, {"kind": "kis_status"}), broker_result)
+        mock_risk.assert_called_once_with()
+        mock_broker.assert_called_once_with()
+
+    def test_dispatch_post_routes_risk_config_save(self):
+        with patch("server.handle_risk_config_save", return_value=(200, {"kind": "risk_config_save"})) as mock_handler:
+            payload = {"min_confidence": 0.8}
+            result = dispatch_post("/api/risk/config", payload)
+
+        self.assertEqual((200, {"kind": "risk_config_save"}), result)
+        mock_handler.assert_called_once_with(payload)
 
     def test_dispatch_get_routes_research_status(self):
         with patch("server.handle_research_status", return_value=(200, {"status": "healthy"})) as mock_handler:

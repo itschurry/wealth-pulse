@@ -3,7 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from routes.agent import (
+    handle_agent_decisions,
+    handle_agent_evidence,
+    handle_agent_orders,
+    handle_agent_run,
+    handle_agent_run_detail,
+    handle_agent_runs,
+)
 from routes.backtest import handle_backtest_run, handle_kospi_backtest
+from routes.broker import handle_kis_status
 from routes.candidate_monitor import handle_candidate_monitor_promotions, handle_candidate_monitor_status, handle_candidate_monitor_watchlist
 from routes.engine import handle_engine_status, handle_engine_summary
 from routes.hanna import handle_hanna_brief
@@ -27,6 +36,7 @@ from routes.quant_ops import (
 )
 from routes.research import handle_research_ingest_bulk, handle_research_latest_snapshot, handle_research_status
 from routes.research import handle_research_snapshots
+from routes.risk import handle_risk_config_get, handle_risk_config_save
 from routes.reports import (
     handle_analysis,
     handle_compare,
@@ -119,6 +129,14 @@ def _query_bool(query: QueryParams, name: str, default: bool) -> bool:
 
 
 GET_ROUTES: tuple[Route, ...] = (
+    Route("/api/agent/runs/", lambda path, _query: handle_agent_run_detail(path), prefix=True),
+    Route("/api/agent/runs", lambda _path, query: handle_agent_runs(query)),
+    Route("/api/agent/decisions", lambda _path, query: handle_agent_decisions(query)),
+    Route("/api/agent/orders", lambda _path, query: handle_agent_orders(query)),
+    Route("/api/agent/evidence/", lambda path, query: handle_agent_evidence(path, query), prefix=True),
+    Route("/api/risk/config", lambda _path, _query: handle_risk_config_get()),
+    Route("/api/broker/kis/status", lambda _path, _query: handle_kis_status()),
+    Route("/api/portfolio", lambda _path, query: handle_portfolio_state(_query_bool(query, "refresh", True))),
     Route("/api/engine/summary", lambda _path, _query: handle_engine_summary()),
     Route("/api/engine/status", lambda _path, _query: handle_engine_status()),
     Route("/api/monitor/status", lambda _path, query: handle_candidate_monitor_status(query)),
@@ -189,6 +207,8 @@ GET_ROUTES: tuple[Route, ...] = (
 )
 
 POST_ROUTES: tuple[Route, ...] = (
+    Route("/api/agent/run", lambda _path, payload: handle_agent_run(payload)),
+    Route("/api/risk/config", lambda _path, payload: handle_risk_config_save(payload)),
     Route("/api/watchlist-actions", lambda _path, payload: handle_watchlist_actions(payload)),
     Route("/api/watchlist/save", lambda _path, payload: handle_watchlist_save(payload)),
     Route("/api/paper/order", lambda _path, payload: handle_paper_order(payload)),

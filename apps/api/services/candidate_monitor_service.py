@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import datetime
+import json
+from pathlib import Path
 from typing import Any
 
+from config.settings import LOGS_DIR
 from services import candidate_monitor_store as store
 from services.paper_runtime_store import list_strategy_scans
 
@@ -68,6 +71,136 @@ def _held_symbols(account: dict[str, Any] | None, market: str) -> set[str]:
     return result
 
 
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _read_json(path: Path) -> Any:
+    try:
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _load_interest_watchlist(market: str) -> dict[str, dict[str, Any]]:
+    normalized_market = _normalize_market(market)
+    raw = _read_json(LOGS_DIR / "watchlist.json")
+    if not isinstance(raw, list):
+        return {}
+    rows: dict[str, dict[str, Any]] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        if _normalize_market(item.get("market")) != normalized_market:
+            continue
+        symbol = _normalize_symbol(item.get("code") or item.get("symbol"))
+        if not symbol:
+            continue
+        rows[symbol] = {
+            "code": symbol,
+            "symbol": symbol,
+            "market": normalized_market,
+            "name": str(item.get("name") or "").strip(),
+            "current_price": item.get("price"),
+            "change_pct": item.get("change_pct"),
+            "candidate_source": "user_watchlist",
+            "final_action": "watch_only",
+            "signal_state": "watch",
+            "score": 0,
+        }
+    return rows
+
+
+def _load_latest_research_snapshot(symbol: str, market: str) -> dict[str, Any]:
+    path = LOGS_DIR / "research_snapshots" / "latest" / f"default__{_normalize_market(market)}__{_normalize_symbol(symbol)}.json"
+    data = _read_json(path)
+    return data if isinstance(data, dict) else {}
+
+
+def _technical_payload(candidate: dict[str, Any]) -> dict[str, Any]:
+    for key in ("technical_snapshot", "technicals", "technical_features"):
+        value = candidate.get(key)
+        if isinstance(value, dict):
+            return value
+    layer_c = candidate.get("layer_c") if isinstance(candidate.get("layer_c"), dict) else {}
+    value = layer_c.get("technical_features")
+    return value if isinstance(value, dict) else {}
+
+
+def _first_number(candidate: dict[str, Any], technical: dict[str, Any], *names: str) -> float:
+    for name in names:
+        if candidate.get(name) not in (None, ""):
+            value = _to_float(candidate.get(name), 0.0)
+            if value != 0.0:
+                return value
+        if technical.get(name) not in (None, ""):
+            value = _to_float(technical.get(name), 0.0)
+            if value != 0.0:
+                return value
+    return 0.0
+
+
+def _news_surge_score(candidate: dict[str, Any], snapshot: dict[str, Any]) -> float:
+    explicit = _first_number(
+        candidate,
+        {},
+        "news_surge_score",
+        "news_momentum_score",
+        "news_count_delta",
+        "mention_count_delta",
+        "buzz_score",
+    )
+    news_inputs = snapshot.get("news_inputs") if isinstance(snapshot.get("news_inputs"), list) else []
+    evidence = snapshot.get("evidence") if isinstance(snapshot.get("evidence"), list) else []
+    source = str(candidate.get("candidate_source") or snapshot.get("candidate_source") or "").lower()
+    text_blob = json.dumps(candidate, ensure_ascii=False).lower()[:4000]
+    score = explicit
+    score += min(len(news_inputs), 10) * 12.0
+    score += min(len(evidence), 10) * 5.0
+    if "news" in source or "뉴스" in source or "news" in text_blob or "뉴스" in text_blob:
+        score += 60.0
+    return score
+
+
+def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], interest_symbols: set[str]) -> dict[str, Any]:
+    symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
+    market = _normalize_market(candidate.get("market"))
+    technical = _technical_payload(candidate)
+    price = _first_number(candidate, technical, "current_price", "price", "close")
+    volume = _first_number(candidate, technical, "volume", "accumulated_volume", "acml_vol")
+    trading_value = _first_number(candidate, technical, "trading_value", "trade_value", "accumulated_trade_value", "acml_tr_pbmn")
+    if trading_value <= 0 and price > 0 and volume > 0:
+        trading_value = price * volume
+    change_pct = _first_number(candidate, technical, "change_pct", "change_rate", "fluctuation_rate")
+    snapshot = _load_latest_research_snapshot(symbol, market) if symbol and market else {}
+    news_score = _news_surge_score(candidate, snapshot)
+    sources: list[str] = []
+    if trading_value > 0:
+        sources.append("trading_value_top")
+    if change_pct > 0:
+        sources.append("change_rate_top")
+    if news_score > 0:
+        sources.append("news_surge")
+    if symbol in held_symbols:
+        sources.append("held_position")
+    if symbol in interest_symbols:
+        sources.append("user_watchlist")
+    return {
+        "symbol": symbol,
+        "market": market,
+        "trading_value": trading_value,
+        "change_pct": change_pct,
+        "news_surge_score": news_score,
+        "candidate_sources": sources,
+        "technical_snapshot": technical or candidate.get("technical_snapshot"),
+    }
+
+
 def _extract_candidate_freshness(candidate: dict[str, Any]) -> tuple[bool, str]:
     layer_c = candidate.get("layer_c") if isinstance(candidate.get("layer_c"), dict) else {}
     freshness = str(layer_c.get("freshness") or candidate.get("research_status") or "").strip().lower()
@@ -96,7 +229,8 @@ def _snapshot_meta(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _candidate_priority(candidate: dict[str, Any], *, held_symbols: set[str]) -> float:
+def _candidate_priority(candidate: dict[str, Any], *, held_symbols: set[str], interest_symbols: set[str] | None = None) -> float:
+    interest_symbols = interest_symbols or set()
     symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
     action = str(candidate.get("final_action") or "").strip().lower()
     signal_state = str(candidate.get("signal_state") or "watch").strip().lower()
@@ -105,20 +239,26 @@ def _candidate_priority(candidate: dict[str, Any], *, held_symbols: set[str]) ->
         rank = int(rank_raw) if rank_raw is not None else 999999
     except (TypeError, ValueError):
         rank = 999999
-    try:
-        score = float(candidate.get("score") or 0.0)
-    except (TypeError, ValueError):
-        score = 0.0
+    score = _to_float(candidate.get("score"), 0.0)
     fresh, freshness = _extract_candidate_freshness(candidate)
     bonus = 0.0
     if symbol in held_symbols:
         bonus += 1500.0
+    if symbol in interest_symbols:
+        bonus += 520.0
     if fresh:
         bonus += 120.0
     elif freshness == "stale_ingest":
         bonus -= 40.0
     elif freshness in {"missing", "research_unavailable"}:
         bonus -= 80.0
+    sources = candidate.get("candidate_sources") if isinstance(candidate.get("candidate_sources"), list) else []
+    if "news_surge" in sources:
+        bonus += 1150.0 + min(_to_float(candidate.get("news_surge_score"), 0.0), 300.0)
+    if "trading_value_top" in sources:
+        bonus += 420.0
+    if "change_rate_top" in sources:
+        bonus += 260.0 + max(0.0, min(_to_float(candidate.get("change_pct"), 0.0), 30.0)) * 6.0
     return (
         _ACTION_WEIGHT.get(action, 200.0)
         + _SIGNAL_STATE_WEIGHT.get(signal_state, 50.0)
@@ -128,9 +268,76 @@ def _candidate_priority(candidate: dict[str, Any], *, held_symbols: set[str]) ->
     )
 
 
+def _merge_candidate(existing: dict[str, Any] | None, incoming: dict[str, Any]) -> dict[str, Any]:
+    if existing is None:
+        return dict(incoming)
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if key == "candidate_sources":
+            current = [str(item) for item in merged.get("candidate_sources", []) if item]
+            for item in value if isinstance(value, list) else []:
+                label = str(item)
+                if label and label not in current:
+                    current.append(label)
+            merged[key] = current
+            continue
+        if merged.get(key) in (None, "", [], {}) and value not in (None, "", [], {}):
+            merged[key] = value
+    if _to_float(incoming.get("monitor_priority"), 0.0) > _to_float(merged.get("monitor_priority"), 0.0):
+        for key in ("strategy_id", "strategy_name", "candidate_rank", "final_action", "signal_state", "score", "monitor_priority"):
+            if incoming.get(key) not in (None, ""):
+                merged[key] = incoming[key]
+    return merged
+
+
+def _annotate_standard_sources(rows: list[dict[str, Any]], *, held_symbols: set[str], interest_symbols: set[str]) -> list[dict[str, Any]]:
+    for row in rows:
+        meta = _selection_meta(row, held_symbols=held_symbols, interest_symbols=interest_symbols)
+        for key, value in meta.items():
+            if key == "candidate_sources":
+                row[key] = value
+            elif value not in (None, "", [], {}):
+                row[key] = value
+    def _ranked(items: list[dict[str, Any]], key: str, limit: int, *, positive_only: bool = True) -> list[dict[str, Any]]:
+        filtered = [item for item in items if (not positive_only or _to_float(item.get(key), 0.0) > 0)]
+        filtered.sort(key=lambda item: (_to_float(item.get(key), 0.0), _to_float(item.get("score"), 0.0)), reverse=True)
+        return filtered[:limit]
+    source_rankings = {
+        "news_surge": _ranked(rows, "news_surge_score", 14),
+        "trading_value_top": _ranked(rows, "trading_value", 14),
+        "change_rate_top": _ranked(rows, "change_pct", 12),
+    }
+    for source, ranked_rows in source_rankings.items():
+        for idx, item in enumerate(ranked_rows, start=1):
+            sources = item.get("candidate_sources") if isinstance(item.get("candidate_sources"), list) else []
+            if source not in sources:
+                sources.append(source)
+            item["candidate_sources"] = sources
+            ranks = item.get("source_ranks") if isinstance(item.get("source_ranks"), dict) else {}
+            ranks[source] = idx
+            item["source_ranks"] = ranks
+    for item in rows:
+        sources = item.get("candidate_sources") if isinstance(item.get("candidate_sources"), list) else []
+        if not sources:
+            sources = ["strategy_scan_fallback"]
+        item["candidate_sources"] = sources
+        item["candidate_source"] = "news_surge" if "news_surge" in sources else sources[0]
+        item["selection_reason"] = ",".join(sources)
+        item["selection_criteria"] = {
+            "trading_value": item.get("trading_value"),
+            "change_pct": item.get("change_pct"),
+            "news_surge_score": item.get("news_surge_score"),
+            "source_ranks": item.get("source_ranks") if isinstance(item.get("source_ranks"), dict) else {},
+        }
+        item["monitor_priority"] = _candidate_priority(item, held_symbols=held_symbols, interest_symbols=interest_symbols)
+    return rows
+
+
 def _dedupe_market_candidates(market: str, *, account: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     normalized_market = _normalize_market(market)
     held_symbols = _held_symbols(account, normalized_market)
+    interest_rows = _load_interest_watchlist(normalized_market)
+    interest_symbols = set(interest_rows)
     best_by_symbol: dict[str, dict[str, Any]] = {}
     for scan in list_strategy_scans():
         if not isinstance(scan, dict):
@@ -144,15 +351,30 @@ def _dedupe_market_candidates(market: str, *, account: dict[str, Any] | None = N
             if not symbol:
                 continue
             merged = dict(candidate)
+            merged.setdefault("code", symbol)
+            merged.setdefault("symbol", symbol)
+            merged.setdefault("market", normalized_market)
             merged.setdefault("strategy_id", scan.get("strategy_id"))
             merged.setdefault("strategy_name", scan.get("strategy_name"))
             merged.setdefault("last_scanned_at", candidate.get("fetched_at") or scan.get("last_scan_at"))
             merged.update(_snapshot_meta(merged))
-            merged["monitor_priority"] = _candidate_priority(merged, held_symbols=held_symbols)
-            existing = best_by_symbol.get(symbol)
-            if existing is None or float(merged.get("monitor_priority") or 0.0) > float(existing.get("monitor_priority") or 0.0):
-                best_by_symbol[symbol] = merged
-    rows = list(best_by_symbol.values())
+            best_by_symbol[symbol] = _merge_candidate(best_by_symbol.get(symbol), merged)
+    for symbol in sorted(held_symbols):
+        if symbol not in best_by_symbol:
+            best_by_symbol[symbol] = {
+                "code": symbol,
+                "symbol": symbol,
+                "market": normalized_market,
+                "candidate_source": "held_position",
+                "final_action": "watch_only",
+                "signal_state": "watch",
+                "score": 0,
+                "candidate_rank": 999999,
+                "last_scanned_at": _now_local().isoformat(timespec="seconds"),
+            }
+    for symbol, row in interest_rows.items():
+        best_by_symbol[symbol] = _merge_candidate(best_by_symbol.get(symbol), row)
+    rows = _annotate_standard_sources(list(best_by_symbol.values()), held_symbols=held_symbols, interest_symbols=interest_symbols)
     rows.sort(
         key=lambda item: (
             float(item.get("monitor_priority") or 0.0),
@@ -191,7 +413,7 @@ def build_market_watchlist(
     for candidate in pool:
         symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
         if symbol in held_symbols and symbol not in used_symbols:
-            active_rows.append({**candidate, "symbol": symbol, "slot_type": "held", "priority": int(candidate.get("monitor_priority") or 0), "reason": "open_position"})
+            active_rows.append({**candidate, "symbol": symbol, "slot_type": "held", "priority": int(candidate.get("monitor_priority") or 0), "reason": "held_position"})
             used_symbols.add(symbol)
             held_count += 1
 
@@ -202,7 +424,8 @@ def build_market_watchlist(
         symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
         if symbol in used_symbols:
             continue
-        active_rows.append({**candidate, "symbol": symbol, "slot_type": "core", "priority": int(candidate.get("monitor_priority") or 0), "reason": "core_watch"})
+        reason = str(candidate.get("candidate_source") or candidate.get("selection_reason") or "core_watch")
+        active_rows.append({**candidate, "symbol": symbol, "slot_type": "core", "priority": int(candidate.get("monitor_priority") or 0), "reason": reason})
         used_symbols.add(symbol)
         core_selected += 1
 
@@ -213,11 +436,16 @@ def build_market_watchlist(
         symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
         if symbol in used_symbols:
             continue
-        active_rows.append({**candidate, "symbol": symbol, "slot_type": "promotion", "priority": int(candidate.get("monitor_priority") or 0), "reason": "promotion_slot"})
+        reason = str(candidate.get("candidate_source") or candidate.get("selection_reason") or "promotion_slot")
+        active_rows.append({**candidate, "symbol": symbol, "slot_type": "promotion", "priority": int(candidate.get("monitor_priority") or 0), "reason": reason})
         used_symbols.add(symbol)
         promotion_selected += 1
 
     store.replace_active_slots(normalized_market, active_rows, selected_at=now_iso)
+    source_counts: dict[str, int] = {}
+    for row in pool:
+        for source_name in row.get("candidate_sources") if isinstance(row.get("candidate_sources"), list) else []:
+            source_counts[str(source_name)] = source_counts.get(str(source_name), 0) + 1
     store.save_market_state(
         normalized_market,
         source=source,
@@ -233,6 +461,15 @@ def build_market_watchlist(
             "core_selected": core_selected,
             "promotion_selected": promotion_selected,
             "held_symbols": sorted(held_symbols),
+            "standard_candidate_sources": [
+                "trading_value_top",
+                "change_rate_top",
+                "news_surge",
+                "held_position",
+                "user_watchlist",
+            ],
+            "source_counts": source_counts,
+            "news_surge_priority": "highest",
         },
     )
 

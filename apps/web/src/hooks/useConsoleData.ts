@@ -108,7 +108,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.page === 'orders-execution') {
+  if (route.page === 'orders-execution' || route.page === 'agent-dashboard') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'research', 'portfolio'],

@@ -1433,6 +1433,110 @@ export interface WatchlistItem {
   change_pct?: number;
 }
 
+export interface AgentRunSummary {
+  candidate_count?: number;
+  decisions?: number;
+  risk_approved?: number;
+  risk_rejected?: number;
+  orders_submitted?: number;
+  orders_skipped?: number;
+  error?: string;
+}
+
+export interface AgentRunItem {
+  id?: number;
+  run_id?: number;
+  trigger?: string;
+  trading_mode?: string;
+  status?: string;
+  started_at?: string;
+  finished_at?: string;
+  created_at?: string;
+  summary?: AgentRunSummary;
+  [key: string]: unknown;
+}
+
+export interface AgentDecisionItem {
+  id?: number;
+  run_id?: number;
+  symbol?: string;
+  action?: 'BUY' | 'SELL' | 'HOLD' | string;
+  confidence?: number;
+  schema_valid?: boolean;
+  created_at?: string;
+  payload?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface AgentOrderItem {
+  id?: number;
+  run_id?: number;
+  symbol?: string;
+  action?: string;
+  trading_mode?: string;
+  status?: string;
+  created_at?: string;
+  submitted_at?: string;
+  payload?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface AgentRunsResponse {
+  ok?: boolean;
+  items?: AgentRunItem[];
+  error?: string;
+}
+
+export interface AgentDecisionsResponse {
+  ok?: boolean;
+  items?: AgentDecisionItem[];
+  error?: string;
+}
+
+export interface AgentOrdersResponse {
+  ok?: boolean;
+  items?: AgentOrderItem[];
+  error?: string;
+}
+
+export interface AgentRunResponse {
+  ok?: boolean;
+  run_id?: number;
+  summary?: AgentRunSummary;
+  candidate_source?: string;
+  decision_source?: string;
+  error?: string;
+}
+
+export interface AgentRiskConfigResponse {
+  ok?: boolean;
+  config?: {
+    trading_mode?: string;
+    enable_live_trading?: boolean;
+    min_confidence?: number;
+    min_reward_risk_ratio?: number;
+    max_symbol_position_ratio?: number;
+    allow_additional_buy?: boolean;
+    cooldown_minutes?: number;
+    daily_loss_limit_pct?: number;
+    max_daily_orders?: number;
+    [key: string]: unknown;
+  };
+  error?: string;
+}
+
+export interface AgentBrokerStatusResponse {
+  ok?: boolean;
+  broker?: string;
+  configured?: boolean;
+  account_configured?: boolean;
+  base_url?: string;
+  credentials?: Record<string, string>;
+  connectivity_checked?: boolean;
+  live_order_enabled?: boolean;
+  error?: string;
+}
+
 export interface WatchlistResponse {
   items?: WatchlistItem[];
   ok?: boolean;
