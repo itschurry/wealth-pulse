@@ -114,6 +114,43 @@ class ExecutionStrategyCapTests(unittest.TestCase):
         self.assertEqual(4.5, engine.placed_orders[0]["stop_loss_pct"])
         self.assertEqual(11.0, engine.placed_orders[0]["take_profit_pct"])
 
+    def test_normalize_runtime_account_is_idempotent_for_live_positions(self):
+        normalized_account = {
+            "mode": "real",
+            "cash_krw": 1530000.0,
+            "market_value_krw": 965000.0,
+            "equity_krw": 2495000.0,
+            "unrealized_pnl_krw": 5000.0,
+            "positions": [
+                {
+                    "code": "005930",
+                    "name": "삼성전자",
+                    "market": "KOSPI",
+                    "currency": "KRW",
+                    "quantity": 10,
+                    "avg_price_local": 96000.0,
+                    "avg_price_krw": 96000.0,
+                    "last_price_local": 96500.0,
+                    "last_price_krw": 96500.0,
+                    "market_value_krw": 965000.0,
+                    "unrealized_pnl_local": 5000.0,
+                    "unrealized_pnl_krw": 5000.0,
+                    "unrealized_pnl_pct": 0.5208,
+                }
+            ],
+            "orders": [],
+        }
+
+        with patch.object(execution_svc, "_paper_fx_rate", return_value=1400.0), \
+             patch.object(execution_svc, "_hydrate_live_runtime_account", side_effect=lambda account, **kwargs: account):
+            result = execution_svc._normalize_runtime_account(normalized_account)
+
+        self.assertEqual(965000.0, result["market_value_krw"])
+        self.assertEqual(2495000.0, result["equity_krw"])
+        self.assertEqual(5000.0, result["unrealized_pnl_krw"])
+        self.assertEqual(965000.0, result["positions"][0]["market_value_krw"])
+        self.assertEqual(5000.0, result["positions"][0]["unrealized_pnl_krw"])
+
     def test_infer_strategy_position_counts_reads_full_order_history(self):
         account = {
             "positions": [
@@ -148,6 +185,8 @@ class ExecutionStrategyCapTests(unittest.TestCase):
             "daily_limit": 1,
             "min_holding_days": 2,
         }, cfg["rotation"])
+        self.assertEqual(8.0, cfg["take_profit_pct"])
+        self.assertEqual(8.0, cfg["market_profiles"]["KOSPI"]["take_profit_pct"])
 
     def test_strategy_position_cap_map_uses_more_conservative_of_params_and_risk_limits(self):
         with patch.object(execution_svc, "list_strategies", return_value=[
@@ -408,7 +447,7 @@ class ExecutionStrategyCapTests(unittest.TestCase):
         self.assertEqual(["BLOCK1"], [item["code"] for item in summary["brief_candidates"]["blocked"]])
         self.assertEqual(1, len(notifier.market_open_briefs))
 
-    def test_run_auto_trader_cycle_rotates_when_full_and_better_candidate_exists(self):
+    def test_run_auto_trader_cycle_rotates_when_full_and_better_candidate_is_position_blocked(self):
         engine = _FakeEngine()
         engine.account["positions"] = [
             {"code": "AAA", "name": "Weak Hold", "market": "KOSPI", "quantity": 1, "avg_price_local": 1000, "avg_price_krw": 1000, "entry_ts": "2026-04-01T09:00:00+09:00"},
@@ -470,8 +509,8 @@ class ExecutionStrategyCapTests(unittest.TestCase):
                 "size_recommendation": {"quantity": 1, "reason": "ok"},
                 "risk_inputs": {"stop_loss_pct": 5.0, "take_profit_pct": 10.0},
                 "ev_metrics": {},
-                "risk_check": {"reason_code": "ok", "message": ""},
-                "reason_codes": [],
+                "risk_check": {"reason_code": "max_positions_reached", "message": "market position slot is full"},
+                "reason_codes": ["max_positions_reached"],
                 "layer_events": [],
             },
         ]
@@ -485,7 +524,7 @@ class ExecutionStrategyCapTests(unittest.TestCase):
              patch.object(execution_svc, "summarize_order_decision", side_effect=[
                  {"orderable": False, "reason_code": "held", "action": "hold", "order_quantity": 0},
                  {"orderable": False, "reason_code": "held", "action": "hold", "order_quantity": 0},
-                 {"orderable": True, "reason_code": "ok", "action": "allow", "order_quantity": 1},
+                 {"orderable": False, "reason_code": "max_positions_reached", "action": "block", "order_quantity": 1},
              ]), \
              patch.object(execution_svc, "list_strategies", return_value=[
                  {"strategy_id": "alpha", "market": "KOSPI", "enabled": True, "params": {"max_positions": 2}, "risk_limits": {"max_positions": 2}},

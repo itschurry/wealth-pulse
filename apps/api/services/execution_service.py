@@ -90,6 +90,11 @@ _OPTIMIZED_PARAMS_PATH = STORE_SEARCH_OPTIMIZED_PARAMS_PATH
 _RUNTIME_OPTIMIZED_PARAMS_PATH = STORE_RUNTIME_OPTIMIZED_PARAMS_PATH
 _LIVE_POSITION_ENTRY_PATH = LOGS_DIR / "live_position_entries.json"
 _OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
+_DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
+    "KOSPI": 8.0,
+    "NASDAQ": 10.0,
+}
+_ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
 _OPTIMIZABLE_KEYS = {
     "stop_loss_pct",
     "take_profit_pct",
@@ -823,20 +828,24 @@ def _normalize_runtime_account(
         quantity = int(_to_float(item.get("quantity"), 0.0) or 0)
         market = str(item.get("market") or "KOSPI").strip().upper() or "KOSPI"
         currency = str(item.get("currency") or ("USD" if market in {"NASDAQ", "NYSE", "AMEX", "US"} else "KRW")).strip().upper() or "KRW"
-        avg_price = _to_float(item.get("avg_price"), 0.0)
-        current_price = _to_float(item.get("current_price"), 0.0)
-        eval_amount = _to_float(item.get("eval_amount"), 0.0)
-        profit_loss = _to_float(item.get("profit_loss"), 0.0)
-        profit_loss_rate = _to_float(item.get("profit_loss_rate"), 0.0)
         fx_rate = _to_float(item.get("fx_rate"), default_fx_rate if currency == "USD" else 1.0)
         if currency != "USD":
             fx_rate = 1.0
 
-        avg_price_krw = avg_price * fx_rate if currency == "USD" else avg_price
-        current_price_krw = current_price * fx_rate if currency == "USD" else current_price
-        market_value_krw = eval_amount * fx_rate if currency == "USD" else eval_amount
-        market_value_usd = eval_amount if currency == "USD" else 0.0
-        unrealized_pnl_krw = profit_loss * fx_rate if currency == "USD" else profit_loss
+        # KIS raw positions use avg_price/current_price/eval_amount/profit_loss,
+        # while hydrated live positions already use the UI contract fields below.
+        # Preserve the latter when performance/status routes normalize an account twice.
+        avg_price = _to_float(item.get("avg_price"), _to_float(item.get("avg_price_local"), _to_float(item.get("avg_price_krw"), 0.0) / (fx_rate if currency == "USD" and fx_rate else 1.0)))
+        current_price = _to_float(item.get("current_price"), _to_float(item.get("last_price_local"), _to_float(item.get("last_price_krw"), 0.0) / (fx_rate if currency == "USD" and fx_rate else 1.0)))
+        eval_amount = _to_float(item.get("eval_amount"), _to_float(item.get("market_value_usd"), 0.0) if currency == "USD" else _to_float(item.get("market_value_krw"), 0.0))
+        profit_loss = _to_float(item.get("profit_loss"), _to_float(item.get("unrealized_pnl_local"), _to_float(item.get("unrealized_pnl_krw"), 0.0) / (fx_rate if currency == "USD" and fx_rate else 1.0)))
+        profit_loss_rate = _to_float(item.get("profit_loss_rate"), _to_float(item.get("unrealized_pnl_pct"), 0.0))
+
+        avg_price_krw = _to_float(item.get("avg_price_krw"), avg_price * fx_rate if currency == "USD" else avg_price)
+        current_price_krw = _to_float(item.get("last_price_krw"), current_price * fx_rate if currency == "USD" else current_price)
+        market_value_krw = _to_float(item.get("market_value_krw"), eval_amount * fx_rate if currency == "USD" else eval_amount)
+        market_value_usd = _to_float(item.get("market_value_usd"), eval_amount if currency == "USD" else 0.0)
+        unrealized_pnl_krw = _to_float(item.get("unrealized_pnl_krw"), profit_loss * fx_rate if currency == "USD" else profit_loss)
 
         aggregated_market_value_krw += market_value_krw
         aggregated_market_value_usd += market_value_usd
@@ -865,16 +874,23 @@ def _normalize_runtime_account(
             "orderable_quantity": int(_to_float(item.get("orderable_quantity"), 0.0) or 0),
         })
 
-    cash_krw = _to_float(summary.get("cash_krw"), _to_float(summary.get("deposit"), 0.0))
+    cash_krw = _to_float(summary.get("cash_krw"), _to_float(account.get("cash_krw"), _to_float(summary.get("deposit"), 0.0)))
     cash_usd = _to_float(summary.get("cash_usd"), _to_float(account.get("cash_usd"), 0.0))
-    market_value_krw_native = _to_float(summary.get("eval_amount_krw"), aggregated_market_value_krw - (aggregated_market_value_usd * default_fx_rate))
-    market_value_usd = _to_float(summary.get("eval_amount_usd"), aggregated_market_value_usd)
+    account_market_value_krw = _to_float(account.get("market_value_krw"), 0.0)
+    account_market_value_usd = _to_float(account.get("market_value_usd"), 0.0)
+    market_value_krw_native = _to_float(
+        summary.get("eval_amount_krw"),
+        account_market_value_krw - (account_market_value_usd * default_fx_rate)
+        if account_market_value_krw > 0
+        else aggregated_market_value_krw - (aggregated_market_value_usd * default_fx_rate),
+    )
+    market_value_usd = _to_float(summary.get("eval_amount_usd"), account_market_value_usd or aggregated_market_value_usd)
     market_value_krw = market_value_krw_native + (market_value_usd * default_fx_rate)
     if market_value_krw == 0.0 and aggregated_market_value_krw > 0:
         market_value_krw = aggregated_market_value_krw
-    equity_krw = _to_float(summary.get("total_amount_krw"), _to_float(summary.get("total_amount"), cash_krw + cash_usd * default_fx_rate + market_value_krw))
-    unrealized_pnl_krw_native = _to_float(summary.get("eval_profit_loss_krw"), aggregated_unrealized_pnl_krw)
-    unrealized_pnl_usd = _to_float(summary.get("eval_profit_loss_usd"), 0.0)
+    equity_krw = _to_float(summary.get("total_amount_krw"), _to_float(summary.get("total_amount"), _to_float(account.get("equity_krw"), cash_krw + cash_usd * default_fx_rate + market_value_krw)))
+    unrealized_pnl_krw_native = _to_float(summary.get("eval_profit_loss_krw"), _to_float(account.get("unrealized_pnl_krw"), aggregated_unrealized_pnl_krw))
+    unrealized_pnl_usd = _to_float(summary.get("eval_profit_loss_usd"), _to_float(account.get("unrealized_pnl_usd"), 0.0))
     unrealized_pnl_krw = unrealized_pnl_krw_native + (unrealized_pnl_usd * default_fx_rate)
 
     normalized = dict(account)
@@ -1400,6 +1416,11 @@ def _default_auto_trader_config() -> dict:
         profile.market: serialize_strategy_profiles([profile])[profile.market]
         for profile in default_strategy_profiles(["KOSPI", "NASDAQ"])
     }
+    for market, profile in list(profiles.items()):
+        if isinstance(profile, dict) and profile.get("take_profit_pct") in (None, ""):
+            profile = dict(profile)
+            profile["take_profit_pct"] = _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET.get(normalize_strategy_market(market))
+            profiles[market] = profile
     primary = profiles["KOSPI"]
     base = {
         "interval_seconds": 300,
@@ -1543,6 +1564,12 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
         if normalize_strategy_market(market) in {"KOSPI", "NASDAQ"}
     ] or ["KOSPI", "NASDAQ"]
     profile_map = _auto_trader_profile_map(cfg, markets)
+    for market_key, profile in list(profile_map.items()):
+        normalized_market = normalize_strategy_market(market_key)
+        if isinstance(profile, dict) and profile.get("take_profit_pct") in (None, ""):
+            profile = dict(profile)
+            profile["take_profit_pct"] = _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET.get(normalized_market)
+            profile_map[market_key] = profile
     primary = profile_map.get(markets[0]) or next(iter(profile_map.values()))
     cfg["market_profiles"] = profile_map
     cfg["max_positions_per_market"] = int(primary.get(
@@ -1644,7 +1671,7 @@ def _select_rotation_plan(
     account: dict[str, Any],
     market: str,
     cfg: dict[str, Any],
-    effective_candidates: list[dict[str, Any]],
+    rotation_candidates: list[dict[str, Any]],
     signal_map: dict[str, dict[str, Any]],
     held_codes: set[str],
     strategy_position_counts: dict[str, int],
@@ -1670,7 +1697,7 @@ def _select_rotation_plan(
         return {"ok": False, "reason": "rotation_no_sellable_position"}
 
     buy_candidates: list[dict[str, Any]] = []
-    for candidate in effective_candidates:
+    for candidate in rotation_candidates:
         code = str(candidate.get("code") or "").upper()
         strategy_id = str(candidate.get("strategy_id") or "").strip()
         if not code or code in held_codes:
@@ -2238,12 +2265,13 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         market_signals = signal_book.get("signals", []) if isinstance(
             signal_book.get("signals"), list) else []
         effective_candidates: list[dict[str, Any]] = []
+        rotation_candidates: list[dict[str, Any]] = []
         blocked_count = 0
         for signal in market_signals:
             if not isinstance(signal, dict):
                 continue
             candidate = dict(signal)
-            signal_state = str(candidate.get("signal_state") or "")
+            signal_state = str(candidate.get("signal_state") or "").lower()
             risk_check = candidate.get("risk_check") if isinstance(candidate.get("risk_check"), dict) else {}
             decision = summarize_order_decision(candidate)
             entry_allowed = decision["orderable"]
@@ -2258,6 +2286,23 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     brief_candidates["blocked"].append(_compact_candidate(candidate))
             candidate["entry_allowed"] = entry_allowed
             candidate["reason_codes"] = merged_reasons
+            size_reco = candidate.get("size_recommendation") if isinstance(
+                candidate.get("size_recommendation"), dict) else {}
+            order_qty = int(size_reco.get("quantity") or 0)
+            rotation_blockers = {
+                str(reason or "")
+                for reason in merged_reasons
+                if str(reason or "")
+            }
+            if reason_code:
+                rotation_blockers.add(str(reason_code))
+            position_only_blocked = (
+                decision["action"] == "block"
+                and bool(rotation_blockers)
+                and rotation_blockers.issubset(_ROTATION_POSITION_ONLY_BLOCKERS)
+            )
+            if signal_state == "entry" and order_qty > 0 and (entry_allowed or position_only_blocked):
+                rotation_candidates.append(candidate)
             if entry_allowed:
                 effective_candidates.append(candidate)
                 if len(brief_candidates["buy"]) < 3:
@@ -2336,7 +2381,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 account=account,
                 market=market,
                 cfg=cfg,
-                effective_candidates=effective_candidates,
+                rotation_candidates=rotation_candidates,
                 signal_map=signal_map,
                 held_codes=held_codes,
                 strategy_position_counts=strategy_position_counts,
