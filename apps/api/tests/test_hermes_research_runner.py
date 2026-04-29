@@ -115,6 +115,20 @@ class HermesResearchRunnerTests(unittest.TestCase):
         self.assertEqual("strong_buy", item["rating"])
         self.assertEqual("agent_research", item["data_quality"]["analysis_mode"])
         self.assertEqual(5.0, item["trade_plan"]["size_intent_pct"])
+    def test_host_side_handlers_prefer_http_surface_by_default(self):
+        with patch.object(runner, "_http_json", return_value=(200, {"ok": True, "pending_items": []})) as mock_http:
+            status, payload = runner.handle_candidate_monitor_watchlist({"limit": ["1"]}, base_url="http://127.0.0.1:8001")
+
+        self.assertEqual(200, status)
+        self.assertTrue(payload["ok"])
+        mock_http.assert_called_once_with("GET", "/api/monitor/watchlist", base_url="http://127.0.0.1:8001", query={"limit": ["1"]})
+
+        with patch.object(runner, "_http_json", return_value=(200, {"ok": True, "accepted": 1})) as mock_http:
+            status, payload = runner.handle_research_ingest_bulk({"items": []}, base_url="http://127.0.0.1:8001")
+
+        self.assertEqual(200, status)
+        self.assertTrue(payload["ok"])
+        mock_http.assert_called_once_with("POST", "/api/research/ingest/bulk", base_url="http://127.0.0.1:8001", payload={"items": []})
 
 
 if __name__ == "__main__":

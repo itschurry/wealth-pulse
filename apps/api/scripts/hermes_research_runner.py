@@ -80,20 +80,37 @@ def _http_json(method: str, path: str, *, base_url: str | None = None, query: di
         return 503, {"ok": False, "error": f"api_request_failed:{exc}"}
 
 
+def _use_direct_routes(base_url: str | None = None) -> bool:
+    """Opt into in-process route calls only for tests/debugging.
+
+    Host-side Hermes runs must use the live API HTTP surface so they hit the
+    same Docker container, env, and mounted storage as production. Importing
+    route handlers directly from the checkout can silently write to a different
+    local path, so HTTP is the safe default.
+    """
+    text = str(base_url or "").strip().lower()
+    env_value = str(os.getenv("WEALTHPULSE_HERMES_DIRECT_ROUTES") or "").strip().lower()
+    return text in {"direct", "local"} or env_value in {"1", "true", "yes", "direct", "local"}
+
+
 def handle_candidate_monitor_watchlist(query: dict[str, list[str]], *, base_url: str | None = None) -> tuple[int, dict[str, Any]]:
-    try:
-        from routes.candidate_monitor import handle_candidate_monitor_watchlist as route_handler  # type: ignore
-        return route_handler(query)
-    except Exception:
-        return _http_json("GET", "/api/monitor/watchlist", base_url=base_url, query=query)
+    if _use_direct_routes(base_url):
+        try:
+            from routes.candidate_monitor import handle_candidate_monitor_watchlist as route_handler  # type: ignore
+            return route_handler(query)
+        except Exception:
+            pass
+    return _http_json("GET", "/api/monitor/watchlist", base_url=base_url, query=query)
 
 
 def handle_research_ingest_bulk(payload: dict[str, Any], *, base_url: str | None = None) -> tuple[int, dict[str, Any]]:
-    try:
-        from routes.research import handle_research_ingest_bulk as route_handler  # type: ignore
-        return route_handler(payload)
-    except Exception:
-        return _http_json("POST", "/api/research/ingest/bulk", base_url=base_url, payload=payload)
+    if _use_direct_routes(base_url):
+        try:
+            from routes.research import handle_research_ingest_bulk as route_handler  # type: ignore
+            return route_handler(payload)
+        except Exception:
+            pass
+    return _http_json("POST", "/api/research/ingest/bulk", base_url=base_url, payload=payload)
 
 
 def _market_query(markets: list[str], *, limit: int, mode: str) -> dict[str, list[str]]:
