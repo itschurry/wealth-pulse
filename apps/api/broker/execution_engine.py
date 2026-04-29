@@ -237,7 +237,14 @@ class PaperExecutionEngine:
             now = _now_iso()
 
             state = self._state
-            self._refresh_positions(state)
+            # Explicit sells must not trigger unrelated auto-liquidations before
+            # the requested position is checked. A previous refresh can remove a
+            # take-profit/stop-loss position from state; using the stale cycle
+            # snapshot would otherwise create a second sell attempt with
+            # "매도 가능 수량이 부족합니다.". Buys may still refresh first so
+            # pending liquidations free paper cash/slots before new exposure.
+            if normalized_side == "buy":
+                self._refresh_positions(state)
 
             order_id = f"paper-{uuid.uuid4().hex[:12]}"
             position_key = f"{normalized_market}:{normalized_code}"

@@ -926,9 +926,58 @@ def _normalize_runtime_account(
     )
 
 
+def _current_execution_mode() -> str:
+    """Return the single execution-engine selector used by runtime order paths."""
+    raw = str(os.getenv("EXECUTION_MODE", "paper") or "paper").strip().lower()
+    return "live" if raw == "live" else "paper"
+
+
+def _runtime_engine() -> PaperExecutionEngine | LiveBrokerExecutionEngine:
+    return get_execution_engine(_current_execution_mode())
+
+
 def _runtime_account_snapshot(*, refresh_quotes: bool = False) -> dict[str, Any]:
-    engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
-    return engine.get_account(refresh_quotes=refresh_quotes)
+    return _runtime_engine().get_account(refresh_quotes=refresh_quotes)
+
+
+def _available_sell_quantity(account: dict[str, Any], *, market: str, code: str) -> int:
+    """Current sellable inventory for a symbol, after account reconciliation.
+
+    Live accounts expose orderable_quantity; paper accounts only expose quantity.
+    The helper is intentionally fail-closed: unknown/missing positions are not sellable.
+    """
+    normalized_market = str(market or "").strip().upper()
+    normalized_code = str(code or "").strip().upper()
+    if not normalized_market or not normalized_code or not isinstance(account, dict):
+        return 0
+    account_mode = str(account.get("mode") or "").strip().lower()
+    positions = account.get("positions") if isinstance(account.get("positions"), list) else []
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+        if str(position.get("market") or "").strip().upper() != normalized_market:
+            continue
+        if str(position.get("code") or "").strip().upper() != normalized_code:
+            continue
+        held_qty = max(0, int(_to_float(position.get("quantity"), 0.0) or 0))
+        if account_mode == "real":
+            orderable_qty = max(0, int(_to_float(position.get("orderable_quantity"), 0.0) or 0))
+            return min(held_qty, orderable_qty)
+        return held_qty
+    return 0
+
+
+def _fresh_available_sell_quantity(
+    engine: PaperExecutionEngine | LiveBrokerExecutionEngine,
+    *,
+    market: str,
+    code: str,
+) -> int:
+    try:
+        account = _normalize_runtime_account(engine.get_account(refresh_quotes=False))
+    except Exception:
+        return 0
+    return _available_sell_quantity(account, market=market, code=code)
 
 
 def _auto_refresh_research_snapshots(*, markets: list[str], limit: int = 30, mode: str = "missing_or_stale") -> dict[str, Any]:
@@ -951,8 +1000,10 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
     normalized_account = _normalize_runtime_account(account)
     today_counts = _today_order_counts(normalized_account)
     running = state.get("engine_state") == "running"
+    execution_mode = _current_execution_mode()
     payload_state = dict(state)
     payload_state["running"] = running
+    payload_state["execution_mode"] = execution_mode
     payload_state["config"] = dict(state.get("current_config") or {})
     payload_state["today_order_counts"] = today_counts
     payload_state["order_failure_summary"] = _order_failure_summary()
@@ -968,6 +1019,7 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
     )
     return {
         "ok": True,
+        "execution_mode": execution_mode,
         "state": payload_state,
         "account": normalized_account,
     }
@@ -1284,7 +1336,8 @@ def get_execution_engine(mode: str = "paper") -> PaperExecutionEngine | LiveBrok
       .env 또는 API 파라미터로 EXECUTION_MODE=live 설정 후 이 함수에 전달.
       절대로 코드를 직접 수정하지 말고 이 함수의 mode 인자로만 제어할 것.
     """
-    if mode == "live":
+    normalized_mode = str(mode or "paper").strip().lower()
+    if normalized_mode == "live":
         return _get_live_engine()
     return _get_paper_engine()  # 기존 함수 그대로 유지
 
@@ -1882,7 +1935,7 @@ def _auto_invest_picks(
         "max_positions_per_market": int(max_positions),
     })
 
-    engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
+    engine = _runtime_engine()
     account = engine.get_account(refresh_quotes=True)
     held_codes = {
         str(position.get("code") or "").upper()
@@ -2000,7 +2053,7 @@ def _auto_invest_picks(
 
 def _run_auto_trader_cycle(cfg: dict) -> dict:
     global _last_daily_loss_notified_day, _last_market_open_brief_sent
-    engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
+    engine = _runtime_engine()
     notifier = get_notification_service()
     cycle_id = f"cycle-{datetime.datetime.now(_KST).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     started_at = _now_iso()
@@ -2144,6 +2197,17 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 position, technicals, cfg, market)
             if not reason:
                 continue
+            requested_sell_qty = int(position.get("quantity") or 0)
+            available_sell_qty = _fresh_available_sell_quantity(engine, market=market, code=code)
+            if available_sell_qty <= 0:
+                skipped.append({"code": code, "name": pos_name, "market": market,
+                               "reason": "sell_position_not_available"})
+                continue
+            sell_quantity = min(requested_sell_qty, available_sell_qty)
+            if sell_quantity <= 0:
+                skipped.append({"code": code, "name": pos_name, "market": market,
+                               "reason": "sell_quantity_not_available"})
+                continue
             if len(brief_candidates["sell"]) < 3:
                 brief_candidates["sell"].append(
                     _compact_sell_candidate(position, market=market, reason=reason)
@@ -2152,7 +2216,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 side="sell",
                 code=code,
                 market=market,
-                quantity=int(position.get("quantity") or 0),
+                quantity=sell_quantity,
                 order_type="market",
             )
             if result.get("ok"):
@@ -2366,11 +2430,34 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 buy_candidate = rotation_plan["buy"]
                 sell_code = str(sell_item.get("code") or "").upper()
                 buy_code = str(buy_candidate.get("code") or "").upper()
+                requested_sell_qty = int(sell_item.get("quantity") or 0)
+                available_sell_qty = _fresh_available_sell_quantity(engine, market=market, code=sell_code)
+                if available_sell_qty <= 0:
+                    rotation_summary["blocked"].append({
+                        "market": market,
+                        "reason": "rotation_sell_position_not_available",
+                        "sell_code": sell_code,
+                        "buy_code": buy_code,
+                        "score_gap": rotation_plan.get("score_gap"),
+                    })
+                    skipped.append({"code": sell_code, "market": market, "reason": "rotation_sell_position_not_available"})
+                    continue
+                sell_quantity = min(requested_sell_qty, available_sell_qty)
+                if sell_quantity <= 0:
+                    rotation_summary["blocked"].append({
+                        "market": market,
+                        "reason": "rotation_sell_quantity_not_available",
+                        "sell_code": sell_code,
+                        "buy_code": buy_code,
+                        "score_gap": rotation_plan.get("score_gap"),
+                    })
+                    skipped.append({"code": sell_code, "market": market, "reason": "rotation_sell_quantity_not_available"})
+                    continue
                 sell_result = engine.place_order(
                     side="sell",
                     code=sell_code,
                     market=market,
-                    quantity=int(sell_item.get("quantity") or 0),
+                    quantity=sell_quantity,
                     order_type="market",
                 )
                 if sell_result.get("ok"):
@@ -3025,7 +3112,7 @@ def _auto_trader_status() -> dict:
             _auto_trader_state["engine_state"] = "stopped"
             _auto_trader_state["running"] = False
             _persist_auto_trader_state_locked()
-    engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
+    engine = _runtime_engine()
     account = engine.get_account(refresh_quotes=False)
     return _build_status_payload(state, account)
 
@@ -3051,7 +3138,7 @@ def apply_quant_candidate_runtime_config(candidate: dict[str, Any]) -> dict[str,
 
 def handle_paper_account(refresh_quotes: bool) -> tuple[int, dict]:
     try:
-        engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
+        engine = _runtime_engine()
         account = engine.get_account(refresh_quotes=refresh_quotes)
         return 200, _normalize_runtime_account(account)
     except Exception as exc:
@@ -3085,7 +3172,7 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
             take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw not in (None, "") else None
         except (TypeError, ValueError):
             take_profit_pct = None
-        engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
+        engine = _runtime_engine()
         result = engine.place_order(
             side=side,
             code=code,
@@ -3201,7 +3288,7 @@ def handle_paper_reset(payload: dict) -> tuple[int, dict]:
             initial_cash_krw_raw) if initial_cash_krw_raw not in (None, "") else None
         initial_cash_usd = float(
             initial_cash_usd_raw) if initial_cash_usd_raw not in (None, "") else None
-        engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
+        engine = _runtime_engine()
         account = engine.reset(
             initial_cash_krw=initial_cash_krw,
             initial_cash_usd=initial_cash_usd,
@@ -3381,7 +3468,7 @@ def handle_paper_history_clear(payload: dict) -> tuple[int, dict]:
 
         if reset_account:
             _hydrate_auto_trader_state()
-            engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
+            engine = _runtime_engine()
 
         removed_orders = clear_order_events() if clear_orders else 0
         removed_execution_events = clear_execution_events() if clear_orders else 0
@@ -3392,7 +3479,7 @@ def handle_paper_history_clear(payload: dict) -> tuple[int, dict]:
         reset_account_skipped = False
         reset_account_error = ""
         if reset_account:
-            mode = str(os.getenv("EXECUTION_MODE", "paper") or "paper").strip().lower()
+            mode = _current_execution_mode()
             if mode == "live":
                 reset_account_skipped = True
                 reset_account_error = "실거래 계좌는 초기화하지 않고 로컬 히스토리만 정리했습니다."
