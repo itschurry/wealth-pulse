@@ -31,19 +31,18 @@ Candidate Sources
 
 ### 2.0 Legacy Docs Are No Longer Source Of Truth
 
-기존 `README.md`와 `docs/` 문서는 새 목표와 맞지 않는다.
+기존 `docs/`와 루트 `archive/` 문서는 새 목표와 맞지 않아 제거했다.
 
-앞으로 기준 문서는 이 파일이다.
+앞으로 기준 문서는 이 파일과 현재 코드다. `README.md`는 source of truth가 아니라 실행 진입점과 핵심 운영 요약만 담는다.
 
 처리 방침:
 
 ```text
-README.md는 새 source of truth 링크와 운영 요약으로 축소
-docs/는 legacy/archive로 이동하거나 새 설계 기준 문서만 유지
-archive/legacy-markdown-* 문서도 새 설계 판단에 사용하지 않음
+README.md는 현재 구조 요약과 실행 진입점만 유지
+docs/ 제거
+archive/ 제거
+새 설계 판단은 AGENT_TRADING_REDESIGN.md와 코드 기준으로 수행
 ```
-
-기존 문서는 바로 삭제하지 않는다. 운영 힌트 손실을 막기 위해 legacy/archive로 이동한 뒤, 필요한 최소 문서는 새 목표 기준으로 다시 만든다.
 
 ### 2.1 Research Is Not Real Analysis
 
@@ -691,12 +690,12 @@ size_intent_pct 과도함 -> risk guard가 clamp
 작업:
 
 ```text
-README.md를 새 source of truth 링크와 운영 요약으로 축소
-docs/를 legacy/archive로 이동하거나 새 설계 기준 문서만 유지
-run_research_audit.sh 명령 수정
-register_hanna_crons.sh 오래된 명령 수정
-research_ops.py pending 출력 안정화
-fallback enrich 유지
+README.md를 현재 구조 요약과 실행 진입점으로 축소
+docs/ 제거
+archive/ 제거
+legacy cron wrapper 제거
+research_ops.py는 현행 Agent/Hermes ingest 경로만 유지
+fallback enrich는 fallback-only로 명시
 ```
 
 완료 기준:
@@ -810,8 +809,8 @@ Hermes provider healthy면 deterministic hanna enrich가 덮어쓰지 않음
 5. Layer C에서 v2 필드 읽게 수정
 6. Layer E에서 quant_decision과 agent_decision 병렬 기록
 7. agent_primary_quant_assisted 모드의 paper/log-only 판단 추가
-8. run_research_audit.sh와 register_hanna_crons.sh 복구
-9. README.md/docs는 삭제 대신 legacy/archive 이동 후 새 source of truth 링크로 정리
+8. legacy cron wrapper는 복구하지 않음
+9. README.md는 현재 구조 요약만 유지하고 docs/archive는 제거
 ```
 
 처음부터 Hermes cron과 실계좌 주문까지 한 번에 붙이지 않는다. 먼저 저장 계약, runtime 소비 경로, paper/log 비교 경로부터 고친다.
