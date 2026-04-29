@@ -371,6 +371,62 @@ def _live_position_activity_map(account: dict[str, Any], positions: list[dict[st
 
 
 
+def _order_event_runtime_mode(item: dict[str, Any]) -> str:
+    explicit = str(
+        item.get("execution_mode")
+        or item.get("account_mode")
+        or item.get("runtime_mode")
+        or ""
+    ).strip().lower()
+    if explicit in {"live", "real"}:
+        return "live"
+    if explicit == "paper":
+        return "paper"
+
+    order_id = str(item.get("order_id") or item.get("trace_id") or "").strip().lower()
+    if order_id.startswith("paper-"):
+        return "paper"
+
+    reason = str(item.get("reason_code") or item.get("message") or "").strip().lower()
+    if reason == "live_balance_reconciled":
+        return "live"
+    return "legacy"
+
+
+def _filter_order_events_for_runtime_mode(events: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+    normalized_mode = "live" if str(mode or "").strip().lower() in {"live", "real"} else "paper"
+    filtered: list[dict[str, Any]] = []
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        event_mode = _order_event_runtime_mode(item)
+        if normalized_mode == "live":
+            if event_mode == "live":
+                filtered.append(item)
+            continue
+        if event_mode != "live":
+            filtered.append(item)
+    return filtered
+
+
+def _sanitize_last_summary_for_account_mode(state: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    payload_state = dict(state)
+    summary = payload_state.get("last_summary")
+    if not isinstance(summary, dict):
+        return payload_state
+    summary_account = summary.get("account") if isinstance(summary.get("account"), dict) else {}
+    summary_mode = str(summary_account.get("mode") or "").strip().lower()
+    account_mode = str(account.get("mode") or "").strip().lower()
+    if summary_mode and account_mode and summary_mode != account_mode:
+        sanitized_summary = dict(summary)
+        sanitized_summary.pop("account", None)
+        sanitized_summary["account_omitted_reason"] = "stale_execution_mode_mismatch"
+        sanitized_summary["account_omitted_mode"] = summary_mode
+        sanitized_summary["current_account_mode"] = account_mode
+        payload_state["last_summary"] = sanitized_summary
+    return payload_state
+
+
 def _hydrate_live_runtime_account(
     account: dict[str, Any],
     *,
@@ -382,11 +438,12 @@ def _hydrate_live_runtime_account(
 
     normalized = dict(account)
     positions = [dict(item) for item in (account.get("positions") if isinstance(account.get("positions"), list) else []) if isinstance(item, dict)]
-    order_events = [
+    raw_order_events = [
         dict(item)
         for item in read_order_events(limit=1000)
         if isinstance(item, dict) and str(item.get("order_type") or "").lower() != "screened"
     ]
+    order_events = _filter_order_events_for_runtime_mode(raw_order_events, "live")
     execution_events = [dict(item) for item in read_execution_events(limit=3000) if isinstance(item, dict)]
     latest_execution = _latest_execution_state_by_order(execution_events)
     position_activity = _live_position_activity_map(account, positions)
@@ -607,7 +664,11 @@ def _hydrate_live_runtime_account(
 
 def _today_order_counts(account: dict) -> dict[str, int]:
     today = _today_kst_str()
-    orders = account.get("orders", [])
+    account_mode = str(account.get("mode") or _current_execution_mode()).strip().lower()
+    orders = _filter_order_events_for_runtime_mode(
+        account.get("orders", []) if isinstance(account.get("orders"), list) else [],
+        account_mode,
+    )
     counts = {
         "buy": 0,
         "sell": 0,
@@ -623,7 +684,10 @@ def _today_order_counts(account: dict) -> dict[str, int]:
             lifecycle_state = "filled"
         if side in {"buy", "sell"} and lifecycle_state in {"filled", "partial_fill"}:
             counts[side] += 1
-    recent_failures = read_order_events(limit=300)
+    recent_failures = _filter_order_events_for_runtime_mode(
+        read_order_events(limit=300),
+        account_mode,
+    )
     for item in recent_failures:
         if str(item.get("timestamp") or "").startswith(today) and not bool(item.get("success")):
             counts["failed"] += 1
@@ -632,8 +696,9 @@ def _today_order_counts(account: dict) -> dict[str, int]:
 
 def _order_failure_summary() -> dict[str, Any]:
     today = _today_kst_str()
+    runtime_mode = _current_execution_mode()
     failures = [
-        item for item in read_order_events(limit=300)
+        item for item in _filter_order_events_for_runtime_mode(read_order_events(limit=300), runtime_mode)
         if str(item.get("timestamp") or "").startswith(today)
         and not bool(item.get("success"))
         and str(item.get("order_type") or "").lower() != "screened"
@@ -1001,7 +1066,7 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
     today_counts = _today_order_counts(normalized_account)
     running = state.get("engine_state") == "running"
     execution_mode = _current_execution_mode()
-    payload_state = dict(state)
+    payload_state = _sanitize_last_summary_for_account_mode(state, normalized_account)
     payload_state["running"] = running
     payload_state["execution_mode"] = execution_mode
     payload_state["config"] = dict(state.get("current_config") or {})

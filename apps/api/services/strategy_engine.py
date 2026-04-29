@@ -19,6 +19,9 @@ from services.sizing_service import recommend_position_size
 from services.trade_workflow import enrich_signal_payload
 
 
+DEFAULT_SIGNAL_MARKETS = ("KOSPI", "NASDAQ")
+
+
 def _context_snapshot() -> tuple[str, str]:
     try:
         payload = get_market_context()
@@ -330,6 +333,8 @@ def _build_signal_from_candidate(
         "risk_inputs": risk_inputs,
         "risk_guard_state": risk_guard_state,
         "strategy_type": determine_strategy_type(candidate),
+        "strategy_role": "auxiliary",
+        "candidate_primary_source": "common_candidate_pool",
         "allocation": allocator_weight(candidate=candidate, cfg=cfg, account=account),
         "ev_metrics": ev_metrics,
         "size_recommendation": size_recommendation,
@@ -362,26 +367,23 @@ def build_signal_book(
     cfg = cfg or {}
     account = account or {}
     refresh = bool(cfg.get("refresh_scanner"))
-
-    # Keep the strategy-registry live path for callers that don't need candidate-policy compatibility.
-    if not markets:
-        book = build_live_signal_book(markets=markets, account=account, refresh=refresh)
-        regime, risk_level = _context_snapshot()
-        payload = {**book, "regime": regime, "risk_level": risk_level}
-        if isinstance(payload.get("risk_guard_state"), dict):
-            payload["risk_guard_state"].setdefault("regime", regime)
-            payload["risk_guard_state"].setdefault("risk_level", risk_level)
-        return payload
+    normalized_markets = [str(item or "").strip().upper() for item in (markets or []) if str(item or "").strip()]
+    if not normalized_markets:
+        normalized_markets = list(DEFAULT_SIGNAL_MARKETS)
+    allow_strategy_fallback = bool(cfg.get("allow_strategy_scanner_fallback", False))
 
     optimized_payload = _load_optimized_params()
     regime, risk_level = _context_snapshot()
     signals: list[dict[str, Any]] = []
     risk_guard_state: dict[str, Any] = {}
+    fallback_used = False
 
-    for market in markets:
+    for market in normalized_markets:
         candidates = collect_pick_candidates(market=market, cfg=cfg)
-        fallback_to_live = not candidates
-        if fallback_to_live:
+        fallback_to_live = False
+        if not candidates and allow_strategy_fallback:
+            fallback_to_live = True
+            fallback_used = True
             live_payload = build_live_signal_book(markets=[market], account=account, refresh=refresh)
             candidates = [
                 _normalize_live_signal_candidate(candidate=item, market=market, cfg=cfg)
@@ -395,7 +397,7 @@ def build_signal_book(
             if not isinstance(candidate, dict):
                 continue
             signal = (
-                candidate
+                {**candidate, "strategy_role": "legacy_fallback", "candidate_primary_source": "strategy_scanner_fallback"}
                 if fallback_to_live
                 else _build_signal_from_candidate(
                     candidate=candidate,
@@ -410,7 +412,7 @@ def build_signal_book(
                 risk_guard_state = dict(signal.get("risk_guard_state") or {})
 
     payload = {
-        "generated_at": "",
+        "generated_at": _now_iso(),
         "signals": signals,
         "count": len(signals),
         "blocked_count": sum(1 for item in signals if str(item.get("signal_state") or "") == "entry" and not bool(item.get("entry_allowed"))),
@@ -419,6 +421,9 @@ def build_signal_book(
         "scanner": [],
         "regime": regime,
         "risk_level": risk_level,
+        "candidate_generation_mode": "common_candidate_pool" if not fallback_used else "common_candidate_pool_with_strategy_fallback",
+        "strategy_role": "auxiliary",
+        "markets": normalized_markets,
     }
     if isinstance(payload.get("risk_guard_state"), dict):
         payload["risk_guard_state"].setdefault("regime", regime)

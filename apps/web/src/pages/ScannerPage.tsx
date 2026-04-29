@@ -116,7 +116,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
   const items = snapshot.scanner.items || [];
   const scannerSource = snapshot.scanner.source || 'strategy_scan_cache';
   const scannerRefreshing = Boolean(snapshot.scanner.refreshing);
-  const scannerStatusText = scannerRefreshing ? '갱신 중' : (scannerSource === 'live_scan' ? '최신 반영' : '캐시');
+  const scannerStatusText = scannerRefreshing ? '갱신 중' : (scannerSource === 'common_candidate_pool' ? '공통 후보 풀' : scannerSource === 'live_scan' ? '최신 반영' : '캐시');
 
   const totalCandidates = useMemo(
     () => items.reduce((sum, item) => sum + Number(item.candidate_count || 0), 0),
@@ -126,7 +126,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
     () => items.reduce((sum, item) => sum + Number(item.scanned_symbol_count || 0), 0),
     [items],
   );
-  const activeCount = items.filter((item) => item.enabled).length;
+  const strategySupportCount = items.reduce((sum, item) => sum + Number(item.strategy_support_count || 0), 0);
   const providerResearchState = resolveProviderResearchState(snapshot.research.status, snapshot.research.freshness);
   const overallResearchState = useMemo<ResearchState>(() => {
     if (items.some((item) => summarizeResearchState(item, snapshot.research.status, snapshot.research.freshness) === 'timeout')) return 'timeout';
@@ -137,13 +137,13 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
   }, [items, providerResearchState, snapshot.research.status, snapshot.research.freshness]);
 
   const statusItems = useMemo(() => ([
-    { label: '스캔 전략', value: `${items.length}개`, tone: 'neutral' as const },
-    { label: '활성 전략', value: `${activeCount}개`, tone: activeCount > 0 ? 'good' as const : 'neutral' as const },
-    { label: '스캔 종목', value: `${totalScanned}건`, tone: totalScanned > 0 ? 'good' as const : 'neutral' as const },
+    { label: '후보 풀', value: `${items.length}개`, tone: 'neutral' as const },
+    { label: '보조 전략', value: `${strategySupportCount}개`, tone: strategySupportCount > 0 ? 'good' as const : 'neutral' as const },
+    { label: '검토 종목', value: `${totalScanned}건`, tone: totalScanned > 0 ? 'good' as const : 'neutral' as const },
     { label: '후보 수', value: `${totalCandidates}건`, tone: totalCandidates > 0 ? 'good' as const : 'neutral' as const },
-    { label: '스캔 소스', value: scannerStatusText, tone: scannerRefreshing ? 'bad' as const : 'neutral' as const },
+    { label: '후보 소스', value: scannerStatusText, tone: scannerRefreshing ? 'bad' as const : 'neutral' as const },
     { label: 'Hermes', value: RESEARCH_STATE_LABEL[overallResearchState], tone: toneForResearch(overallResearchState) },
-  ]), [activeCount, items.length, overallResearchState, scannerRefreshing, scannerStatusText, totalCandidates, totalScanned]);
+  ]), [items.length, overallResearchState, scannerRefreshing, scannerStatusText, strategySupportCount, totalCandidates, totalScanned]);
 
   const handleRefresh = useCallback(() => {
     onRefresh();
@@ -156,7 +156,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
         <div className="content-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="장중 스캐너"
-            subtitle="1단계 유니버스부터 최종 액션까지 같은 화면에서 읽는 운영용 스캐너야. 종목을 누르면 왜 검토 대상인지, 왜 막혔는지 단계별 근거를 바로 확인할 수 있어."
+            subtitle="공통 후보 풀을 먼저 만들고, 실험실 전략은 보조 태그·점수·제약으로만 붙이는 운영용 신호/리스크 화면이야. 종목을 누르면 왜 검토 대상인지, 왜 막혔는지 단계별 근거를 바로 확인할 수 있어."
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
@@ -166,7 +166,8 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
             onClearLogs={clear}
             settingsPanel={(
               <div style={{ display: 'grid', gap: 8, fontSize: 15, color: 'var(--text-3)' }}>
-                <div>1단계는 유니버스 포함 이유만 기록하고 주문 판단을 하지 않아.</div>
+                <div>1단계는 공통 후보 풀의 포함 이유만 기록하고 주문 판단을 하지 않아.</div>
+                <div>실험실 전략은 후보 생성 주체가 아니라 보조 태그·가중치·보수적 제한으로만 사용돼.</div>
                 <div>3단계 Hermes는 구조화된 데이터와 경고 코드만 제공하며, 매수/매도/주문 명령을 내리지 못해.</div>
                 <div>최종 실행 의미는 마지막 액션 기준이야: 진입 검토 / 관찰 전용 / 차단 / 관망.</div>
               </div>
@@ -174,7 +175,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
           />
 
           {items.map((item) => {
-            const strategyId = String(item.strategy_id || 'strategy');
+            const strategyId = String(item.strategy_id || 'common_candidate_pool');
             const selectedCandidate = selectedCandidateFor(item, selectedSignals[strategyId]);
             const strategyResearchState = summarizeResearchState(item, snapshot.research.status, snapshot.research.freshness);
 
@@ -183,17 +184,17 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: 17, fontWeight: 700 }}>{item.strategy_name || item.strategy_id}</div>
+                      <div style={{ fontSize: 17, fontWeight: 700 }}>{item.strategy_name || '공통 후보 풀'}</div>
                       <span className={classNameForResearch(strategyResearchState)}>Hermes {RESEARCH_STATE_LABEL[strategyResearchState]}</span>
                     </div>
                     <div className="signal-cell-copy" style={{ marginTop: 4 }}>
-                      {item.market || '-'} · {item.universe_rule || '-'} · {item.scan_cycle || '-'}
+                      {item.market || '-'} · {item.universe_rule || '-'} · 보조 전략 {formatNumber(item.strategy_support_count, 0)}개
                     </div>
                   </div>
                   <div style={{ display: 'grid', gap: 4, fontSize: 15, color: 'var(--text-3)', textAlign: 'right' }}>
-                    <div>마지막 스캔 {formatDateTime(item.last_scan_at)}</div>
-                    <div>다음 예정 {formatDateTime(item.next_scan_at)}</div>
-                    <div>스캔 {formatNumber(item.scanned_symbol_count, 0)} / 유니버스 {formatNumber(item.universe_symbol_count, 0)}</div>
+                    <div>마지막 갱신 {formatDateTime(item.last_scan_at)}</div>
+                    <div>다음 예정 {item.next_scan_at ? formatDateTime(item.next_scan_at) : '-'}</div>
+                    <div>검토 {formatNumber(item.scanned_symbol_count, 0)} / 후보 {formatNumber(item.candidate_count, 0)}</div>
                   </div>
                 </div>
 
@@ -278,7 +279,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                       <div>
                         <div style={{ fontSize: 17, fontWeight: 700 }}>{formatSymbol(selectedCandidate.code, selectedCandidate.name)}</div>
                         <div className="signal-cell-copy" style={{ marginTop: 4 }}>
-                          {selectedCandidate.strategy_name || selectedCandidate.strategy_id} · {selectedCandidate.market || '-'} · {reasonCodeToKorean(String(selectedCandidate.signal_state || '-'))}
+                          {selectedCandidate.strategy_name || selectedCandidate.strategy_id || selectedCandidate.strategy_type || '공통 후보'} · {selectedCandidate.market || '-'} · {reasonCodeToKorean(String(selectedCandidate.signal_state || '-'))}
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -299,7 +300,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                       <div className="operator-note-card" style={{ display: 'grid', gap: 6 }}>
                         <div className="operator-note-label">2단계 · 퀀트</div>
                         <div className="operator-note-copy">퀀트 점수 {selectedCandidate.layer_b?.quant_score == null ? '-' : formatNumber(selectedCandidate.layer_b?.quant_score, 2)}</div>
-                        <div className="operator-note-copy">전략 {selectedCandidate.layer_b?.strategy_id || selectedCandidate.strategy_id || '-'}</div>
+                        <div className="operator-note-copy">보조 태그 {selectedCandidate.layer_b?.strategy_id || selectedCandidate.strategy_type || '-'}</div>
                         <div className="operator-note-copy">태그 {translatedCodes(selectedCandidate.layer_b?.quant_tags)}</div>
                         <div className="operator-note-copy">시세 {selectedCandidate.layer_b?.technical_snapshot?.current_price ?? '-'} · {freshnessToKorean(String(selectedCandidate.layer_b?.technical_snapshot?.freshness || 'missing'))} · {gradeToKorean(String(selectedCandidate.layer_b?.technical_snapshot?.validation?.grade || '-'))}</div>
                       </div>

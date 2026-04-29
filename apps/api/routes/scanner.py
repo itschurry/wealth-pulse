@@ -4,8 +4,7 @@ import threading
 from typing import Any
 
 from services.execution_service import get_execution_service
-from services.live_signal_engine import scan_live_strategies
-from services.paper_runtime_store import list_strategy_scans
+from services.strategy_engine import build_signal_book
 from services.strategy_registry import list_strategies
 
 _REFRESH_LOCK = threading.Lock()
@@ -20,23 +19,57 @@ def _filter_rows(rows: list[dict[str, Any]], markets: list[str]) -> list[dict[st
     if not markets:
         return rows
     allowed = {str(item).upper() for item in markets}
-    return [item for item in rows if str(item.get("market") or "").upper() in allowed]
+    return [item for item in rows if str(item.get("market") or "").upper() in allowed or str(item.get("market") or "").upper() == "ALL"]
 
 
-def _load_cached_rows(markets: list[str]) -> list[dict[str, Any]]:
-    rows = list_strategy_scans()
-    safe_rows = [item for item in rows if isinstance(item, dict)]
-    current_strategy_ids = {
-        str(item.get("strategy_id") or "").strip()
-        for item in list_strategies()
-        if isinstance(item, dict) and str(item.get("strategy_id") or "").strip()
+def _strategy_support_count(markets: list[str]) -> int:
+    allowed = {str(item).upper() for item in markets if str(item).strip()}
+    count = 0
+    for item in list_strategies():
+        if not isinstance(item, dict):
+            continue
+        if not bool(item.get("enabled")):
+            continue
+        market = str(item.get("market") or "").upper()
+        if allowed and market not in allowed:
+            continue
+        count += 1
+    return count
+
+
+def _build_common_pool_rows(markets: list[str], account: dict[str, Any], *, refresh: bool = False) -> list[dict[str, Any]]:
+    selected_markets = markets or ["KOSPI", "NASDAQ"]
+    payload = build_signal_book(
+        markets=selected_markets,
+        cfg={"refresh_scanner": refresh},
+        account=account,
+    )
+    signals = [item for item in (payload.get("signals") or []) if isinstance(item, dict)]
+    for index, item in enumerate(signals, start=1):
+        item.setdefault("candidate_rank", index)
+    row = {
+        "strategy_id": "common_candidate_pool",
+        "strategy_name": "공통 후보 풀",
+        "approval_status": "runtime",
+        "enabled": True,
+        "market": "ALL" if len(selected_markets) > 1 else selected_markets[0],
+        "markets": selected_markets,
+        "universe_rule": "runtime_universe",
+        "scan_cycle": "runtime",
+        "last_scan_at": payload.get("generated_at") or "",
+        "next_scan_at": "",
+        "candidate_count": len(signals),
+        "scanned_symbol_count": len(signals),
+        "universe_symbol_count": len(signals),
+        "scan_duration_ms": 0,
+        "top_candidates": signals,
+        "status": "running",
+        "source": payload.get("candidate_generation_mode") or "common_candidate_pool",
+        "strategy_role": "auxiliary",
+        "strategy_support_count": _strategy_support_count(selected_markets),
+        "risk_guard_state": payload.get("risk_guard_state") if isinstance(payload.get("risk_guard_state"), dict) else {},
     }
-    if current_strategy_ids:
-        safe_rows = [
-            item for item in safe_rows
-            if str(item.get("strategy_id") or "").strip() in current_strategy_ids
-        ]
-    return _filter_rows(safe_rows, markets)
+    return _filter_rows([row], markets)
 
 
 def _refresh_scans_in_background(markets: list[str], account: dict[str, Any]) -> None:
@@ -49,7 +82,7 @@ def _refresh_scans_in_background(markets: list[str], account: dict[str, Any]) ->
     def _runner() -> None:
         global _REFRESH_RUNNING
         try:
-            scan_live_strategies(markets=markets or None, account=account, refresh=True)
+            _build_common_pool_rows(markets, account, refresh=True)
         finally:
             with _REFRESH_LOCK:
                 _REFRESH_RUNNING = False
@@ -84,41 +117,34 @@ def handle_scanner_status(query: dict[str, list[str]]) -> tuple[int, dict]:
         account = execution_payload.get("account") if isinstance(execution_payload, dict) else {}
         account = account if isinstance(account, dict) else {}
 
-        cached_rows = _load_cached_rows(markets)
+        common_rows = _build_common_pool_rows(markets, account, refresh=False)
         if cache_only:
             return 200, {
                 "ok": True,
-                "items": cached_rows,
-                "count": len(cached_rows),
+                "items": common_rows,
+                "count": len(common_rows),
                 "refreshing": False,
-                "source": "strategy_scan_cache",
+                "source": "common_candidate_pool",
+                "strategy_role": "auxiliary",
             }
         if refresh:
             _refresh_scans_in_background(markets, account)
             return 200, {
                 "ok": True,
-                "items": cached_rows,
-                "count": len(cached_rows),
+                "items": common_rows,
+                "count": len(common_rows),
                 "refreshing": True,
-                "source": "strategy_scan_cache",
+                "source": "common_candidate_pool",
+                "strategy_role": "auxiliary",
             }
 
-        if cached_rows:
-            return 200, {
-                "ok": True,
-                "items": cached_rows,
-                "count": len(cached_rows),
-                "refreshing": False,
-                "source": "strategy_scan_cache",
-            }
-
-        rows = scan_live_strategies(markets=markets or None, account=account, refresh=False)
         return 200, {
             "ok": True,
-            "items": rows,
-            "count": len(rows),
+            "items": common_rows,
+            "count": len(common_rows),
             "refreshing": False,
-            "source": "live_scan",
+            "source": "common_candidate_pool",
+            "strategy_role": "auxiliary",
         }
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}

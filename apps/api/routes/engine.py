@@ -54,6 +54,9 @@ def _compact_last_summary(summary: dict | None) -> dict:
         "validation_gate_summary",
         "pnl_snapshot",
         "error",
+        "account_omitted_reason",
+        "account_omitted_mode",
+        "current_account_mode",
     }
     compact = {key: summary[key] for key in keep_keys if key in summary}
     skipped = summary.get("skipped")
@@ -85,10 +88,12 @@ def _compact_execution_payload(execution_payload: dict | None) -> dict:
         "current_equity",
         "validation_policy",
         "optimized_params",
+        "execution_mode",
     }
     compact_state = {key: state[key] for key in keep_keys if key in state}
     compact_state["last_summary"] = _compact_last_summary(state.get("last_summary"))
     compact_account = {
+        "mode": account.get("mode"),
         "equity_krw": account.get("equity_krw"),
         "cash_krw": account.get("cash_krw"),
         "cash_usd": account.get("cash_usd"),
@@ -96,6 +101,7 @@ def _compact_execution_payload(execution_payload: dict | None) -> dict:
     }
     return {
         "ok": execution_payload.get("ok", True),
+        "execution_mode": execution_payload.get("execution_mode") or state.get("execution_mode"),
         "state": compact_state,
         "account": compact_account,
     }

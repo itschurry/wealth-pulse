@@ -359,6 +359,8 @@ export interface ScannerStatusItem {
   candidate_count?: number;
   scanned_symbol_count?: number;
   universe_symbol_count?: number;
+  strategy_support_count?: number;
+  strategy_role?: string;
   scan_duration_ms?: number;
   status?: string;
   top_candidates?: ScannerCandidate[];
