@@ -46,7 +46,6 @@ class ExecutionEngine(Protocol):
         *,
         initial_cash_krw: float | None = None,
         initial_cash_usd: float | None = None,
-        paper_days: int | None = None,
         seed_positions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]: ...
 
@@ -58,7 +57,6 @@ class EngineConfig:
     state_path: Path
     default_initial_cash_krw: float = 10_000_000.0
     default_initial_cash_usd: float = 10_000.0
-    default_paper_days: int = 7
 
     # 증권사 수수료 (매수/매도 공통, 온라인 기준 약 0.015%)
     buy_fee_rate: float = 0.00015
@@ -123,7 +121,6 @@ class PaperExecutionEngine:
         *,
         initial_cash_krw: float | None = None,
         initial_cash_usd: float | None = None,
-        paper_days: int | None = None,
         seed_positions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
@@ -137,16 +134,10 @@ class PaperExecutionEngine:
                 if initial_cash_usd is not None
                 else self.config.default_initial_cash_usd
             )
-            days = int(
-                paper_days
-                if paper_days is not None
-                else self.config.default_paper_days
-            )
             seed_krw = max(0.0, seed_krw)
             seed_usd = max(0.0, seed_usd)
-            days = max(1, min(365, days))
 
-            self._state = self._new_state(seed_krw, seed_usd, days)
+            self._state = self._new_state(seed_krw, seed_usd)
             if seed_positions:
                 self._state["positions"] = self._build_seed_positions(
                     seed_positions)
@@ -186,16 +177,6 @@ class PaperExecutionEngine:
             return {"ok": False, "error": "code가 필요합니다."}
 
         with self._lock:
-            elapsed = _days_elapsed(str(self._state.get("created_at") or ""))
-            paper_days = int(
-                self._state.get("paper_days") or self.config.default_paper_days
-            )
-            if elapsed >= paper_days:
-                return {
-                    "ok": False,
-                    "error": "설정한 모의투자 기간이 종료되어 신규 주문이 차단되었습니다.",
-                }
-
             try:
                 quote = self.quote_provider(normalized_code, normalized_market)
             except Exception as exc:
@@ -524,19 +505,14 @@ class PaperExecutionEngine:
             state.get("starting_equity_krw") or self._baseline_equity_krw(state)
         )
         created_at = state["created_at"]
-        paper_days = int(state.get("paper_days")
-                         or self.config.default_paper_days)
         days_elapsed = _days_elapsed(created_at)
-        days_left = max(0, paper_days - days_elapsed)
 
         return {
             "mode": "paper",
             "base_currency": "MULTI",
             "created_at": created_at,
             "updated_at": state["updated_at"],
-            "paper_days": paper_days,
             "days_elapsed": days_elapsed,
-            "days_left": days_left,
             "initial_cash_krw": round(float(state["initial_cash_krw"]), 2),
             "initial_cash_usd": round(float(state["initial_cash_usd"]), 2),
             "cash_krw": round(cash_krw, 2),
@@ -727,14 +703,13 @@ class PaperExecutionEngine:
                 pass
 
     def _new_state(
-        self, initial_cash_krw: float, initial_cash_usd: float, paper_days: int
+        self, initial_cash_krw: float, initial_cash_usd: float
     ) -> dict[str, Any]:
         now = _now_iso()
         fx_rate = _to_float(self.fx_provider()) or 1300.0
         return {
             "created_at": now,
             "updated_at": now,
-            "paper_days": paper_days,
             "initial_cash_krw": initial_cash_krw,
             "initial_cash_usd": initial_cash_usd,
             "cash_krw": initial_cash_krw,
@@ -794,7 +769,6 @@ class PaperExecutionEngine:
             state = self._new_state(
                 self.config.default_initial_cash_krw,
                 self.config.default_initial_cash_usd,
-                self.config.default_paper_days,
             )
             self._persist(state)
             return state
@@ -804,7 +778,7 @@ class PaperExecutionEngine:
             payload["orders"] = []
         payload.setdefault("created_at", _now_iso())
         payload.setdefault("updated_at", _now_iso())
-        payload.setdefault("paper_days", self.config.default_paper_days)
+        payload.pop("paper_days", None)
         payload.setdefault("initial_cash_krw",
                            self.config.default_initial_cash_krw)
         payload.setdefault("initial_cash_usd",
@@ -953,7 +927,6 @@ class LiveBrokerExecutionEngine:
         *,
         initial_cash_krw: float | None = None,
         initial_cash_usd: float | None = None,
-        paper_days: int | None = None,
         seed_positions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """실거래 엔진에서는 reset이 허용되지 않는다."""

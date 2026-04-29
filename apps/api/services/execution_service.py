@@ -899,9 +899,6 @@ def _normalize_runtime_account(
         "base_currency": "MULTI" if cash_usd > 0 else "KRW",
         "created_at": str(account.get("created_at") or ""),
         "updated_at": str(account.get("updated_at") or _now_iso()),
-        "paper_days": account.get("paper_days"),
-        "days_elapsed": account.get("days_elapsed"),
-        "days_left": account.get("days_left"),
         "initial_cash_krw": _to_float(account.get("initial_cash_krw"), equity_krw),
         "initial_cash_usd": _to_float(account.get("initial_cash_usd"), 0.0),
         "cash_krw": cash_krw,
@@ -919,6 +916,9 @@ def _normalize_runtime_account(
         "positions": normalized_positions,
         "orders": account.get("orders") if isinstance(account.get("orders"), list) else [],
     })
+    normalized.pop("paper_days", None)
+    normalized.pop("days_elapsed", None)
+    normalized.pop("days_left", None)
     return _hydrate_live_runtime_account(
         normalized,
         persist_reconciled_fills=persist_live_reconciled_fills,
@@ -1244,7 +1244,6 @@ def _get_paper_engine() -> PaperExecutionEngine:
                 state_path=state_path,
                 default_initial_cash_krw=10_000_000.0,
                 default_initial_cash_usd=10_000.0,
-                default_paper_days=7,
                 order_notifier=_notification_order_hook,
             ),
             quote_provider=_resolve_stock_quote,
@@ -2011,8 +2010,6 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         notify_live_fills=True,
     )
     account_mode = str(account.get("mode") or "paper").strip().lower()
-    if account_mode == "paper" and int(account.get("days_left") or 0) <= 0:
-        raise RuntimeError("모의투자 기간이 종료되어 자동매매를 중지합니다.")
 
     orders = account.get("orders", [])
     today = _today_kst_str()
@@ -2774,7 +2771,6 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         "unrealized_pnl": round(unrealized_pnl, 2),
         "open_positions_count": len(final_account.get("positions", [])),
         "total_orders_today": _today_order_counts(final_account).get("buy", 0) + _today_order_counts(final_account).get("sell", 0),
-        "days_left": final_account.get("days_left"),
         "engine_state": _auto_trader_state.get("engine_state"),
     })
     if isinstance(risk_guard_state, dict) and not bool(risk_guard_state.get("entry_allowed", True)):
@@ -3159,7 +3155,6 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
                 "unrealized_pnl": round(unrealized, 2),
                 "open_positions_count": len(account.get("positions", [])),
                 "total_orders_today": _today_order_counts(account).get("buy", 0) + _today_order_counts(account).get("sell", 0),
-                "days_left": account.get("days_left"),
                 "engine_state": _auto_trader_state.get("engine_state"),
             })
         else:
@@ -3201,19 +3196,15 @@ def handle_paper_reset(payload: dict) -> tuple[int, dict]:
         _hydrate_auto_trader_state()
         initial_cash_krw_raw = payload.get("initial_cash_krw")
         initial_cash_usd_raw = payload.get("initial_cash_usd")
-        paper_days_raw = payload.get("paper_days")
         seed_positions = _parse_seed_positions(payload.get("seed_positions"))
         initial_cash_krw = float(
             initial_cash_krw_raw) if initial_cash_krw_raw not in (None, "") else None
         initial_cash_usd = float(
             initial_cash_usd_raw) if initial_cash_usd_raw not in (None, "") else None
-        paper_days = int(paper_days_raw) if paper_days_raw not in (
-            None, "") else None
         engine = get_execution_engine(os.getenv("EXECUTION_MODE", "paper"))
         account = engine.reset(
             initial_cash_krw=initial_cash_krw,
             initial_cash_usd=initial_cash_usd,
-            paper_days=paper_days,
             seed_positions=seed_positions,
         )
         if not account.get("ok", True):
@@ -3357,15 +3348,6 @@ def _coerce_optional_float(raw: object) -> float | None:
     return value
 
 
-def _coerce_optional_int(raw: object) -> int | None:
-    if raw in (None, ""):
-        return None
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        return None
-    return value
-
 
 def _append_paper_reset_snapshot(account: dict[str, Any]) -> None:
     append_account_snapshot({
@@ -3378,7 +3360,6 @@ def _append_paper_reset_snapshot(account: dict[str, Any]) -> None:
         "unrealized_pnl": 0.0,
         "open_positions_count": len(account.get("positions", [])),
         "total_orders_today": _today_order_counts(account).get("buy", 0) + _today_order_counts(account).get("sell", 0),
-        "days_left": account.get("days_left"),
         "engine_state": _auto_trader_state.get("engine_state"),
     })
 
@@ -3420,7 +3401,6 @@ def handle_paper_history_clear(payload: dict) -> tuple[int, dict]:
                 account = engine.reset(
                     initial_cash_krw=_coerce_optional_float(payload.get("initial_cash_krw")),
                     initial_cash_usd=_coerce_optional_float(payload.get("initial_cash_usd")),
-                    paper_days=_coerce_optional_int(payload.get("paper_days")),
                     seed_positions=_parse_seed_positions(payload.get("seed_positions")),
                 )
                 if not account.get("ok", True):

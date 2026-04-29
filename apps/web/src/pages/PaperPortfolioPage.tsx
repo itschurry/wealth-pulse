@@ -20,7 +20,6 @@ interface PaperPortfolioPageProps {
 interface PaperSettings {
   initialCashKrw: number;
   initialCashUsd: number;
-  paperDays: number;
   runKospi: boolean;
   runNasdaq: boolean;
   maxPositions: number;
@@ -41,7 +40,6 @@ function defaultSettings(): PaperSettings {
   return {
     initialCashKrw: 10_000_000,
     initialCashUsd: 10_000,
-    paperDays: 7,
     runKospi: true,
     runNasdaq: true,
     maxPositions: 5,
@@ -950,7 +948,6 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       const result = await reset({
         initial_cash_krw: settings.initialCashKrw,
         initial_cash_usd: settings.initialCashUsd,
-        paper_days: settings.paperDays,
       });
       if (!result.ok) {
         push('error', '모의투자 초기화에 실패했습니다.', result.error || '', 'paper');
@@ -976,7 +973,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     } finally {
       setPendingAction(null);
     }
-  }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, settings.initialCashKrw, settings.initialCashUsd, settings.paperDays]);
+  }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, settings.initialCashKrw, settings.initialCashUsd]);
 
   const handleClearPaperHistory = useCallback(async () => {
     if (pendingAction) return;
@@ -1020,7 +1017,6 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         reset_account: true,
         initial_cash_krw: settings.initialCashKrw,
         initial_cash_usd: settings.initialCashUsd,
-        paper_days: settings.paperDays,
       });
       if (!result.ok) {
         push('error', '완전 정리 실패', result.error || '', 'paper');
@@ -1048,7 +1044,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     } finally {
       setPendingAction(null);
     }
-  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, refresh, refreshEngineStatus, refreshRuntimeLogs, settings.initialCashKrw, settings.initialCashUsd, settings.paperDays, push, pushToast]);
+  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, refresh, refreshEngineStatus, refreshRuntimeLogs, settings.initialCashKrw, settings.initialCashUsd, push, pushToast]);
 
   useEffect(() => {
     if (!autoRefreshEnabled) return;
@@ -1075,15 +1071,6 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           value={settings.initialCashUsd}
           style={{ padding: '0 12px' }}
           onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashUsd: Number(value ?? prev.initialCashUsd) }))}
-        />
-      </label>
-      <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>모의투자 기간(일)</span>
-        <NumericInput
-          value={settings.paperDays}
-          min={1}
-          style={{ padding: '0 12px' }}
-          onCommit={(value) => setSettings((prev) => ({ ...prev, paperDays: Number(value ?? prev.paperDays) }))}
         />
       </label>
       <div style={{ display: 'grid', gap: 8, fontSize: 15 }}>

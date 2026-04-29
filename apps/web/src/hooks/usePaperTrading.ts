@@ -166,7 +166,6 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
   const reset = useCallback(async (params?: {
     initial_cash_krw?: number;
     initial_cash_usd?: number;
-    paper_days?: number;
     seed_positions?: PaperSeedPositionInput[];
   }) => {
     invalidateAccountRequests();
@@ -307,7 +306,6 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     hard_reset?: boolean;
     initial_cash_krw?: number;
     initial_cash_usd?: number;
-    paper_days?: number;
   } = { clear_all: true }) => {
     invalidateAccountRequests();
     invalidateEngineRequests();

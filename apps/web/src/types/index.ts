@@ -677,9 +677,7 @@ export interface PaperAccountData {
   base_currency: 'MULTI';
   created_at?: string;
   updated_at?: string;
-  paper_days?: number;
   days_elapsed?: number;
-  days_left?: number;
   initial_cash_krw: number;
   initial_cash_usd: number;
   cash_krw: number;
