@@ -135,7 +135,7 @@ def build_risk_guard_state(
         entry_allowed = False
         reasons.append("regime_risk_off")
 
-    if str(risk_level or "") == "높음" and bool(cfg.get("block_buy_when_risk_high", True)):
+    if str(risk_level or "").strip().lower() in {"높음", "high"} and bool(cfg.get("block_buy_when_risk_high", True)):
         entry_allowed = False
         reasons.append("risk_level_high")
 

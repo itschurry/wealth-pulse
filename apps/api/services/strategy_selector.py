@@ -30,16 +30,27 @@ def get_strategy(strategy_kind: str | None) -> BaseStrategy:
     return _STRATEGIES.get(kind, _STRATEGIES["trend_following"])
 
 
-def _resolved_strategy_kind(profile: StrategyProfile, snapshot: Mapping[str, Any] | None) -> tuple[str, str]:
+def _resolved_strategy_kind(
+    profile: StrategyProfile,
+    snapshot: Mapping[str, Any] | None,
+    *,
+    regime_snapshot: Mapping[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
     if str(profile.regime_mode or "manual").strip().lower() != "auto":
-        return profile.strategy_kind, "manual"
-    regime_payload = detect_market_regime(snapshot)
+        return profile.strategy_kind, {"regime": "manual", "risk_level": "balanced", "confidence": 1.0}
+    regime_payload = detect_market_regime(regime_snapshot or snapshot)
     regime = str(regime_payload.get("regime") or "sideways")
-    return _REGIME_TO_STRATEGY.get(regime, profile.strategy_kind), regime
+    return _REGIME_TO_STRATEGY.get(regime, profile.strategy_kind), regime_payload
 
 
-def resolve_strategy(profile: StrategyProfile, snapshot: Mapping[str, Any] | None) -> dict[str, Any]:
-    resolved_kind, regime = _resolved_strategy_kind(profile, snapshot)
+def resolve_strategy(
+    profile: StrategyProfile,
+    snapshot: Mapping[str, Any] | None,
+    *,
+    regime_snapshot: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved_kind, regime_payload = _resolved_strategy_kind(profile, snapshot, regime_snapshot=regime_snapshot)
+    regime = str(regime_payload.get("regime") or "sideways")
     if resolved_kind == profile.strategy_kind:
         runtime_profile = replace(
             profile,
@@ -67,6 +78,9 @@ def resolve_strategy(profile: StrategyProfile, snapshot: Mapping[str, Any] | Non
     return {
         "strategy_kind": resolved_kind,
         "regime": regime,
+        "risk_level": regime_payload.get("risk_level"),
+        "regime_confidence": regime_payload.get("confidence"),
+        "regime_snapshot": regime_snapshot,
         "strategy": get_strategy(resolved_kind),
         "profile": runtime_profile,
     }

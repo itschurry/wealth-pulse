@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import datetime
-import random
 from typing import Any
 
-from analyzer.shared_strategy import profile_from_mapping, should_enter_from_snapshot, should_exit_from_snapshot
+from analyzer.shared_strategy import profile_from_mapping
 from helpers import _KST
 from analyzer.technical_snapshot import fetch_technical_snapshot as _compute_technical_snapshot
 from services.live_layers import (
@@ -17,7 +16,9 @@ from services.live_layers import (
 )
 from services.live_risk_engine import build_strategy_risk_state, evaluate_entry_risk
 from services.paper_runtime_store import load_strategy_scan, save_strategy_scan
+from services.regime_service import build_market_regime_snapshot
 from services.sizing_service import recommend_position_size
+from services.strategy_selector import resolve_strategy
 from services.strategy_registry import list_strategies
 from services.universe_builder import get_universe_snapshot
 from services.trade_workflow import enrich_signal_payload
@@ -76,31 +77,8 @@ def _position_holding_days(position: dict[str, Any]) -> int:
     return max(0, (datetime.datetime.now(_KST).date() - entry_date).days)
 
 
-def _score_snapshot(snapshot: dict[str, Any], signal_state: str) -> float:
-    close = _to_float(snapshot.get("current_price") or snapshot.get("close"), 0.0)
-    sma20 = _to_float(snapshot.get("sma20"), 0.0)
-    sma60 = _to_float(snapshot.get("sma60"), 0.0)
-    volume_ratio = _to_float(snapshot.get("volume_ratio"), 0.0)
-    rsi14 = _to_float(snapshot.get("rsi14"), 50.0)
-    macd_hist = _to_float(snapshot.get("macd_hist"), 0.0)
-    atr14_pct = _to_float(snapshot.get("atr14_pct"), 0.0)
-
-    trend = 0.0
-    if close > 0 and sma20 > 0:
-        trend += min(15.0, max(0.0, ((close / sma20) - 1.0) * 300.0))
-    if sma20 > 0 and sma60 > 0 and sma20 > sma60:
-        trend += min(15.0, max(0.0, ((sma20 / sma60) - 1.0) * 300.0))
-    liquidity = min(20.0, max(0.0, volume_ratio * 8.0))
-    momentum = max(0.0, 20.0 - abs(rsi14 - 55.0))
-    macd_score = 12.0 if macd_hist > 0 else 4.0
-    volatility_penalty = min(10.0, atr14_pct * 1.8)
-
-    base = trend + liquidity + momentum + macd_score - volatility_penalty
-    if signal_state == "entry":
-        base += 18.0
-    elif signal_state == "exit":
-        base += 12.0
-    return round(max(0.0, min(100.0, base)), 2)
+def _normalize_score(raw: Any) -> float:
+    return round(max(0.0, min(100.0, _to_float(raw, 0.0))), 2)
 
 
 def _build_reasoning(snapshot: dict[str, Any], *, signal_state: str, exit_reason: str | None = None) -> list[str]:
@@ -136,6 +114,17 @@ def _top_n(strategy: dict[str, Any]) -> int:
 def _scan_limit(strategy: dict[str, Any]) -> int:
     params = strategy.get("params") if isinstance(strategy.get("params"), dict) else {}
     return max(5, min(80, int(params.get("scan_limit") or 30)))
+
+
+def _symbol_sort_key(symbol: dict[str, Any]) -> tuple[float, float, str]:
+    liquidity = max(
+        _to_float(symbol.get("trading_value"), 0.0),
+        _to_float(symbol.get("market_cap"), 0.0),
+        _to_float(symbol.get("volume_avg20"), 0.0),
+        _to_float(symbol.get("volume"), 0.0),
+    )
+    priority = _to_float(symbol.get("priority") or symbol.get("rank"), 999999.0)
+    return (-liquidity, priority, str(symbol.get("code") or ""))
 
 
 def scan_strategy(
@@ -196,11 +185,13 @@ def scan_strategy(
         for item in positions
         if isinstance(item, dict)
     }
-    base_risk_state = build_strategy_risk_state(account=account_payload, strategy=strategy)
     candidates: list[dict[str, Any]] = []
 
-    symbols_pool = list(universe.get("symbols") or [])
-    random.shuffle(symbols_pool)
+    symbols_pool = sorted(
+        [item for item in list(universe.get("symbols") or []) if isinstance(item, dict)],
+        key=_symbol_sort_key,
+    )
+    scanned_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for symbol in symbols_pool[:_scan_limit(strategy)]:
         if not isinstance(symbol, dict):
             continue
@@ -215,15 +206,45 @@ def scan_strategy(
         )
         if not isinstance(technical_snapshot, dict):
             continue
+        scanned_rows.append((symbol, technical_snapshot))
+
+    market_regime_snapshot = build_market_regime_snapshot(
+        [snapshot for _, snapshot in scanned_rows],
+        market=market,
+    )
+    market_selection = resolve_strategy(profile, market_regime_snapshot, regime_snapshot=market_regime_snapshot)
+    regime = str(market_selection.get("regime") or "neutral")
+    risk_level = str(market_selection.get("risk_level") or "중간")
+    base_risk_state = build_strategy_risk_state(
+        account=account_payload,
+        strategy=strategy,
+        regime=regime,
+        risk_level=risk_level,
+    )
+
+    for symbol, technical_snapshot in scanned_rows:
+        code = str(symbol.get("code") or "").upper()
         position = position_map.get(f"{market}:{code}")
-        entry_signal = should_enter_from_snapshot(technical_snapshot, profile)
+        selection = resolve_strategy(profile, technical_snapshot, regime_snapshot=market_regime_snapshot)
+        strategy_impl = selection["strategy"]
+        resolved_profile = selection["profile"]
+        candidate_regime = str(selection.get("regime") or regime)
+        candidate_risk_level = str(selection.get("risk_level") or risk_level)
+        entry_signal = bool(strategy_impl.should_enter(
+            technical_snapshot,
+            resolved_profile,
+            {"regime": candidate_regime},
+        ))
         exit_reason = None
         if position is not None:
-            exit_reason = should_exit_from_snapshot(
+            exit_reason = strategy_impl.should_exit(
                 technical_snapshot,
-                entry_price=_to_float(position.get("avg_price_local"), 0.0) or None,
-                holding_days=_position_holding_days(position),
-                profile=profile,
+                {
+                    "entry_price": _to_float(position.get("avg_price_local"), 0.0) or None,
+                    "holding_days": _position_holding_days(position),
+                },
+                resolved_profile,
+                {"regime": candidate_regime},
             )
 
         signal_state = "watch"
@@ -235,7 +256,11 @@ def scan_strategy(
             continue
 
         current_price = _to_float(technical_snapshot.get("current_price") or technical_snapshot.get("close"), 0.0)
-        score = _score_snapshot(technical_snapshot, signal_state)
+        score = _normalize_score(strategy_impl.score(
+            technical_snapshot,
+            resolved_profile,
+            {"regime": candidate_regime},
+        ))
         reasons = _build_reasoning(technical_snapshot, signal_state=signal_state, exit_reason=exit_reason)
         confidence = round(max(40.0, min(92.0, 45.0 + (score / 2.0))), 2)
         candidate = {
@@ -252,6 +277,10 @@ def scan_strategy(
             "universe_rule": strategy.get("universe_rule"),
             "approval_status": strategy.get("approval_status"),
             "signal_state": signal_state,
+            "resolved_strategy_kind": selection.get("strategy_kind"),
+            "regime": candidate_regime,
+            "risk_level": candidate_risk_level,
+            "regime_confidence": selection.get("regime_confidence"),
             "entry_intent": signal_state == "entry",
             "exit_intent": signal_state == "exit",
             "current_price": current_price,
@@ -306,8 +335,8 @@ def scan_strategy(
             },
             "size_recommendation": {"quantity": 0, "reason": "signal_only"},
             "risk_inputs": {
-                "stop_loss_pct": profile.stop_loss_pct or 5.0,
-                **({"take_profit_pct": float(profile.take_profit_pct)} if getattr(profile, "take_profit_pct", None) is not None else {}),
+                "stop_loss_pct": resolved_profile.stop_loss_pct or 5.0,
+                **({"take_profit_pct": float(resolved_profile.take_profit_pct)} if getattr(resolved_profile, "take_profit_pct", None) is not None else {}),
             },
             "risk_check": {"passed": signal_state != "entry", "reason_code": "ok", "message": "scan_only", "checks": []},
             "entry_allowed": signal_state != "entry",
@@ -316,11 +345,17 @@ def scan_strategy(
         }
 
         if signal_state == "entry":
-            risk_pre = evaluate_entry_risk(account=account_payload, strategy=strategy, candidate=candidate)
+            risk_pre = evaluate_entry_risk(
+                account=account_payload,
+                strategy=strategy,
+                candidate=candidate,
+                regime=candidate_regime,
+                risk_level=candidate_risk_level,
+            )
             candidate["risk_check"] = risk_pre
             candidate["execution_realism"]["liquidity_gate_status"] = "passed" if risk_pre.get("passed") else str(risk_pre.get("reason_code") or "blocked")
             if risk_pre.get("passed"):
-                stop_loss_pct = _to_float(profile.stop_loss_pct, 5.0) or 5.0
+                stop_loss_pct = _to_float(resolved_profile.stop_loss_pct, 5.0) or 5.0
                 size_reco = recommend_position_size(
                     account=account_payload,
                     market=market,
@@ -339,6 +374,8 @@ def scan_strategy(
                     strategy=strategy,
                     candidate=candidate,
                     desired_quantity=int(size_reco.get("quantity") or 0),
+                    regime=candidate_regime,
+                    risk_level=candidate_risk_level,
                 )
                 candidate["risk_check"] = risk_final
                 candidate["entry_allowed"] = bool(risk_final.get("passed"))
@@ -420,8 +457,14 @@ def scan_strategy(
         "last_scan_at": _now_iso(),
         "next_scan_at": (finished + datetime.timedelta(seconds=scan_cycle_seconds)).astimezone().isoformat(timespec="seconds"),
         "candidate_count": len(candidates),
-        "scanned_symbol_count": min(len(universe.get("symbols") or []), _scan_limit(strategy)),
+        "scanned_symbol_count": len(scanned_rows),
         "universe_symbol_count": int(universe.get("symbol_count") or 0),
+        "market_regime": {
+            "regime": regime,
+            "risk_level": risk_level,
+            "confidence": market_selection.get("regime_confidence"),
+            "sample_count": market_regime_snapshot.get("sample_count"),
+        },
         "scan_duration_ms": round((finished - started).total_seconds() * 1000.0, 2),
         "top_candidates": top_candidates,
         "status": "running",

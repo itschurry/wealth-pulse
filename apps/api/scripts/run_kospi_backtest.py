@@ -24,6 +24,8 @@ def main() -> int:
     parser.add_argument("--volume-ratio-min", type=float)
     parser.add_argument("--stop-loss-pct", type=float)
     parser.add_argument("--take-profit-pct", type=float)
+    parser.add_argument("--position-sizing", choices=["risk_based", "equal_weight"], default="risk_based")
+    parser.add_argument("--risk-per-trade-pct", type=float, default=0.35)
     parser.add_argument("--candidate-selection-enabled", dest="candidate_selection_enabled", action="store_true")
     parser.add_argument("--candidate-selection-disabled", dest="candidate_selection_enabled", action="store_false")
     # Historical report/news candidate filtering must be explicitly enabled.
@@ -87,6 +89,8 @@ def main() -> int:
             stop_loss_pct=primary_profile.stop_loss_pct,
             take_profit_pct=primary_profile.take_profit_pct,
             market_profiles=market_profiles,
+            position_sizing=args.position_sizing,
+            risk_per_trade_pct=max(0.01, min(5.0, args.risk_per_trade_pct)),
             candidate_selection_enabled=args.candidate_selection_enabled,
             candidate_selection=candidate_selection,
         )

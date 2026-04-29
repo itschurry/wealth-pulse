@@ -1098,6 +1098,36 @@ def _score_components(metrics: dict[str, Any], tail_risk: dict[str, float]) -> d
     }
 
 
+def _strategy_breakdown(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for trade in trades:
+        strategy_kind = str(trade.get("strategy_kind") or "unknown")
+        buckets.setdefault(strategy_kind, []).append(trade)
+
+    total_pnl = sum(_to_float(item.get("pnl"), 0.0) for item in trades)
+    rows: list[dict[str, Any]] = []
+    for strategy_kind, bucket in buckets.items():
+        returns = [_to_float(item.get("pnl_pct"), 0.0) for item in bucket]
+        wins = [value for value in returns if value > 0]
+        losses = [value for value in returns if value < 0]
+        gross_profit = sum(wins)
+        gross_loss = abs(sum(losses))
+        pnl = sum(_to_float(item.get("pnl"), 0.0) for item in bucket)
+        rows.append(
+            {
+                "strategy_kind": strategy_kind,
+                "trade_count": len(bucket),
+                "win_rate_pct": round(len(wins) / len(bucket) * 100.0, 2) if bucket else 0.0,
+                "avg_return_pct": round(sum(returns) / len(bucket), 2) if bucket else 0.0,
+                "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss else (999.0 if gross_profit > 0 else 0.0),
+                "pnl": round(pnl, 2),
+                "pnl_share_pct": round(pnl / total_pnl * 100.0, 2) if total_pnl else 0.0,
+            }
+        )
+    rows.sort(key=lambda item: (float(item.get("pnl") or 0.0), int(item.get("trade_count") or 0)), reverse=True)
+    return rows
+
+
 
 def _build_strategy_scorecard(metrics: dict[str, Any], trades: list[dict[str, Any]]) -> dict[str, Any]:
     tail_risk = _tail_risk_snapshot(trades)
@@ -1106,6 +1136,7 @@ def _build_strategy_scorecard(metrics: dict[str, Any], trades: list[dict[str, An
         "composite_score": components.get("total_score", 0.0),
         "components": components,
         "tail_risk": tail_risk,
+        "strategy_breakdown": _strategy_breakdown(trades),
     }
 
 

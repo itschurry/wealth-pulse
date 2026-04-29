@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from math import sqrt
-from typing import Any
+from typing import Any, Iterable
 
 from analyzer.candidate_selector import (
     CandidateSelectionConfig,
@@ -27,6 +27,7 @@ from analyzer.shared_strategy import (
     should_exit_from_snapshot,
 )
 from schemas.strategy_metadata import editable_fields
+from services.regime_service import build_market_regime_snapshot
 from services.strategy_selector import get_strategy, resolve_strategy
 
 
@@ -52,6 +53,8 @@ class BacktestConfig:
     risk_profile: str = "balanced"
     portfolio_constraints: dict[str, Any] = field(default_factory=dict)
     strategy_params: dict[str, Any] = field(default_factory=dict)
+    position_sizing: str = "risk_based"
+    risk_per_trade_pct: float = 0.35
     # Historical report/theme/news candidate filtering is experimental and must
     # be explicitly opted into. Backtests should default to pure indicator-based
     # selection so live/report recommendation logic does not leak into
@@ -99,6 +102,8 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
     equity_curve: list[dict[str, Any]] = []
 
     for current_date in all_dates:
+        market_regime_snapshots = _market_regime_snapshots(row_maps, current_date, market_profiles.keys())
+
         # 1) 매도 조건 확인
         for code in list(positions):
             row = row_maps[code].get(current_date)
@@ -175,7 +180,11 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
                     candidate_cache, current_date.isoformat(), market, cfg)
                 if candidate_info["has_report"] and str(row.get("code") or "").strip().upper() not in candidate_info["codes"]:
                     continue
-                selection = resolve_strategy(profile, row)
+                selection = resolve_strategy(
+                    profile,
+                    row,
+                    regime_snapshot=market_regime_snapshots.get(market),
+                )
                 strategy = selection["strategy"]
                 resolved_profile = selection["profile"]
                 regime = selection["regime"]
@@ -194,11 +203,20 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
                                       for value in market_slots.values())
                 if remaining_slots <= 0:
                     break
-                budget = cash / remaining_slots
                 price = float(row["trade_price"])
                 if price <= 0:
                     continue
-                shares = int(budget // price)
+                if cfg.position_sizing == "risk_based":
+                    shares = _risk_based_shares(
+                        cash=cash,
+                        remaining_slots=remaining_slots,
+                        price=price,
+                        profile=profile,
+                        cfg=cfg,
+                    )
+                else:
+                    budget = cash / remaining_slots
+                    shares = int(budget // price)
                 if shares < 1:
                     continue
                 gross_cost = shares * price
@@ -283,6 +301,8 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
         "risk_profile": cfg.risk_profile,
         "portfolio_constraints": cfg.portfolio_constraints,
         "strategy_params": cfg.strategy_params,
+        "position_sizing": cfg.position_sizing,
+        "risk_per_trade_pct": cfg.risk_per_trade_pct,
         "config": {
             "initial_cash": cfg.initial_cash,
             "base_currency": base_currency,
@@ -295,6 +315,8 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             "risk_profile": cfg.risk_profile,
             "portfolio_constraints": cfg.portfolio_constraints,
             "strategy_params": cfg.strategy_params,
+            "position_sizing": cfg.position_sizing,
+            "risk_per_trade_pct": cfg.risk_per_trade_pct,
             "market_profiles": serialize_strategy_profiles(market_profiles),
             "candidate_selection": candidate_selection_config,
             **_single_market_profile_config(market_profiles),
@@ -310,6 +332,7 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             "strategy_mix": strategy_mix,
             "regime_mix": regime_mix,
             "selected_strategies_by_regime": _selected_strategies_by_regime(trades),
+            "strategy_breakdown": _strategy_breakdown(trades),
         },
         "symbols": [
             {"code": code, "name": rows[-1]["name"],
@@ -326,8 +349,10 @@ def run_kospi_backtest(config: BacktestConfig | None = None) -> dict[str, Any]:
             "win_rate_pct": metrics.get("win_rate_pct"),
             "profit_factor": metrics.get("profit_factor"),
             "trade_count": metrics.get("trade_count"),
+            "strategy_breakdown": _strategy_breakdown(trades),
         },
         "parameter_band": _build_parameter_bands(next(iter(market_profiles.values())) if market_profiles else None),
+        "strategy_breakdown": _strategy_breakdown(trades),
         "regime_breakdown": _regime_breakdown(trades),
         "failure_modes": _failure_modes(trades),
         "trades": trades,
@@ -531,6 +556,38 @@ def _selected_strategies_by_regime(trades: list[dict[str, Any]]) -> list[dict[st
     return rows
 
 
+def _strategy_breakdown(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for trade in trades:
+        strategy_kind = str(trade.get("strategy_kind") or "unknown")
+        buckets.setdefault(strategy_kind, []).append(trade)
+
+    rows: list[dict[str, Any]] = []
+    total_pnl = sum(float(item.get("pnl") or 0.0) for item in trades)
+    for strategy_kind, bucket in buckets.items():
+        pnl_values = [float(item.get("pnl_pct") or 0.0) for item in bucket]
+        cash_pnl = sum(float(item.get("pnl") or 0.0) for item in bucket)
+        wins = [value for value in pnl_values if value > 0]
+        losses = [value for value in pnl_values if value < 0]
+        gross_profit = sum(wins)
+        gross_loss = abs(sum(losses))
+        profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+        rows.append(
+            {
+                "strategy_kind": strategy_kind,
+                "trade_count": len(bucket),
+                "win_rate_pct": round(len(wins) / len(bucket) * 100.0, 2) if bucket else 0.0,
+                "avg_return_pct": round(sum(pnl_values) / len(bucket), 2) if bucket else 0.0,
+                "profit_factor": profit_factor,
+                "pnl": round(cash_pnl, 2),
+                "pnl_share_pct": round(cash_pnl / total_pnl * 100.0, 2) if total_pnl else 0.0,
+                "regime_mix": _mix_breakdown([str(item.get("regime") or "") for item in bucket]),
+            }
+        )
+    rows.sort(key=lambda item: (float(item.get("pnl") or 0.0), int(item.get("trade_count") or 0)), reverse=True)
+    return rows
+
+
 def _regime_breakdown(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
     order = ("bull", "sideways", "bear", "risk_off", "manual")
     buckets: dict[str, list[dict[str, Any]]] = {key: [] for key in order}
@@ -577,6 +634,41 @@ def _failure_modes(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
     rows.sort(key=lambda current: (float(current.get("avg_pnl_pct") or 0.0), -int(current.get("count") or 0)))
     return rows[:5]
+
+
+def _market_regime_snapshots(
+    row_maps: dict[str, dict[Any, dict[str, Any]]],
+    current_date,
+    markets: Iterable[str],
+) -> dict[str, dict[str, Any]]:
+    snapshots: dict[str, list[dict[str, Any]]] = {normalize_strategy_market(market): [] for market in markets}
+    for rows in row_maps.values():
+        row = rows.get(current_date)
+        if not row:
+            continue
+        market = normalize_strategy_market(str(row.get("market") or ""))
+        if market in snapshots:
+            snapshots[market].append(row)
+    return {
+        market: build_market_regime_snapshot(rows, market=market)
+        for market, rows in snapshots.items()
+    }
+
+
+def _risk_based_shares(
+    *,
+    cash: float,
+    remaining_slots: int,
+    price: float,
+    profile: StrategyProfile,
+    cfg: BacktestConfig,
+) -> int:
+    equal_weight_budget = cash / max(1, remaining_slots)
+    stop_loss_pct = max(0.2, float(profile.stop_loss_pct or cfg.stop_loss_pct or 5.0))
+    risk_budget = max(0.0, cfg.initial_cash * (max(0.01, float(cfg.risk_per_trade_pct)) / 100.0))
+    qty_by_risk = int(risk_budget / max(price * (stop_loss_pct / 100.0), 1e-6))
+    qty_by_cash = int(min(cash, equal_weight_budget) // price)
+    return max(0, min(qty_by_risk, qty_by_cash))
 
 
 def _available_market_slots(

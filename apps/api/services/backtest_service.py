@@ -198,6 +198,13 @@ class BacktestService:
             for symbol in selected_symbols_raw.split(",")
             if symbol.strip()
         )
+        position_sizing = (query.get("position_sizing", [str(portfolio_constraints_payload.get("position_sizing", "risk_based"))])[0] or "risk_based").strip().lower()
+        if position_sizing not in {"risk_based", "equal_weight"}:
+            position_sizing = "risk_based"
+        try:
+            risk_per_trade_pct = float(portfolio_constraints_payload.get("risk_per_trade_pct", _parse_float("risk_per_trade_pct", 0.35, 0.01, 5.0)))
+        except (TypeError, ValueError):
+            risk_per_trade_pct = 0.35
 
         return BacktestConfig(
             initial_cash=max(
@@ -237,6 +244,8 @@ class BacktestService:
                 "stoch_k_max": primary_profile.stoch_k_max,
                 "trade_suppression_threshold": primary_profile.trade_suppression_threshold,
             },
+            position_sizing=position_sizing,
+            risk_per_trade_pct=max(0.01, min(5.0, risk_per_trade_pct)),
             rsi_min=primary_profile.rsi_min,
             rsi_max=primary_profile.rsi_max,
             volume_ratio_min=primary_profile.volume_ratio_min,
