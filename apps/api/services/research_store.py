@@ -18,6 +18,9 @@ RESEARCH_PROVIDER_STATE_PATH = RESEARCH_DIR / "provider_state.json"
 DEFAULT_RESEARCH_PROVIDER = "default"
 LEGACY_RESEARCH_PROVIDER_ALIASES = {"openclaw"}
 RESEARCH_SCHEMA_VERSION = "v1"
+SUPPORTED_RESEARCH_SCHEMA_VERSIONS = {"v1", "v2"}
+ALLOWED_AGENT_RATINGS = {"strong_buy", "overweight", "hold", "underweight", "sell"}
+ALLOWED_AGENT_ACTIONS = {"buy", "buy_watch", "hold", "reduce", "sell", "block"}
 
 
 def _normalize_provider(value: Any) -> str:
@@ -294,6 +297,11 @@ def _build_snapshot_validation(snapshot: dict[str, Any], freshness: dict[str, An
                 grade = "B" if numeric_score >= 0.65 else "C"
                 reason = "warning_codes_present"
                 exclusion_reason = None
+            elif str(snapshot.get("action") or "").strip().lower() in {"buy", "buy_watch"} and str(snapshot.get("rating") or "").strip().lower() in {"strong_buy", "overweight"}:
+                confidence = _parse_score(snapshot.get("confidence"), field="confidence")
+                grade = "A" if numeric_score >= 0.8 and (confidence or 0.0) >= 0.8 else "B"
+                reason = "fresh_agent_buy_candidate"
+                exclusion_reason = None
             elif numeric_score >= 0.75 and (freshness_component_num is None or freshness_component_num >= 0.75):
                 grade = "A"
                 reason = "fresh_high_score"
@@ -376,6 +384,66 @@ def _normalize_components(value: Any) -> dict[str, float]:
     return components
 
 
+def _normalize_text_list(value: Any, *, field: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field}_must_be_list")
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _normalize_object(value: Any, *, field: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{field}_must_be_object")
+    return dict(value)
+
+
+def _normalize_object_list(value: Any, *, field: str) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field}_must_be_list")
+    rows: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError(f"{field}_item_must_be_object")
+        rows.append(dict(item))
+    return rows
+
+
+def _normalize_agent_rating(value: Any, *, schema_version: str) -> str:
+    rating = str(value or "").strip().lower()
+    if schema_version == "v1" and not rating:
+        return ""
+    if not rating:
+        return "hold"
+    if rating not in ALLOWED_AGENT_RATINGS:
+        raise ValueError("rating_unsupported")
+    return rating
+
+
+def _normalize_agent_action(value: Any, *, schema_version: str) -> str:
+    action = str(value or "").strip().lower()
+    if schema_version == "v1" and not action:
+        return ""
+    if not action:
+        return "hold"
+    if action not in ALLOWED_AGENT_ACTIONS:
+        raise ValueError("action_unsupported")
+    return action
+
+
+def _normalize_optional_int(value: Any, *, field: str) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field}_invalid") from None
+
+
 def _normalize_item(
     item: dict[str, Any],
     *,
@@ -412,7 +480,7 @@ def _normalize_item(
         if ttl_minutes <= 0:
             raise ValueError("ttl_minutes_invalid")
 
-    return {
+    normalized = {
         "provider": provider,
         "schema_version": schema_version,
         "run_id": run_id,
@@ -429,12 +497,33 @@ def _normalize_item(
         "ttl_minutes": ttl_minutes,
     }
 
+    if schema_version == "v2":
+        normalized.update({
+            "confidence": _parse_score(item.get("confidence"), field="confidence"),
+            "time_horizon_days": _normalize_optional_int(item.get("time_horizon_days"), field="time_horizon_days"),
+            "rating": _normalize_agent_rating(item.get("rating"), schema_version=schema_version),
+            "action": _normalize_agent_action(item.get("action"), schema_version=schema_version),
+            "candidate_source": str(item.get("candidate_source") or "").strip(),
+            "bull_case": _normalize_text_list(item.get("bull_case"), field="bull_case"),
+            "bear_case": _normalize_text_list(item.get("bear_case"), field="bear_case"),
+            "catalysts": _normalize_text_list(item.get("catalysts"), field="catalysts"),
+            "risks": _normalize_text_list(item.get("risks"), field="risks"),
+            "invalidation_trigger": _normalize_object(item.get("invalidation_trigger"), field="invalidation_trigger"),
+            "trade_plan": _normalize_object(item.get("trade_plan"), field="trade_plan"),
+            "technical_features": _normalize_object(item.get("technical_features"), field="technical_features"),
+            "news_inputs": _normalize_object_list(item.get("news_inputs"), field="news_inputs"),
+            "evidence": _normalize_object_list(item.get("evidence"), field="evidence"),
+            "data_quality": _normalize_object(item.get("data_quality"), field="data_quality"),
+        })
+
+    return normalized
+
 
 def ingest_research_snapshots(payload: dict[str, Any]) -> dict[str, Any]:
     provider = _normalize_provider(payload.get("provider"))
     schema_version = str(payload.get("schema_version") or RESEARCH_SCHEMA_VERSION).strip() or RESEARCH_SCHEMA_VERSION
 
-    if schema_version != RESEARCH_SCHEMA_VERSION:
+    if schema_version not in SUPPORTED_RESEARCH_SCHEMA_VERSIONS:
         return {
             "ok": False,
             "provider": provider,

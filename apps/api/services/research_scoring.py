@@ -20,6 +20,29 @@ def _parse_datetime(value: Any):
     return parsed.astimezone(__import__("datetime").timezone.utc)
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _list_of_str(value: Any) -> list[str]:
+    return [str(item) for item in value] if isinstance(value, list) else []
+
+
+def _list_of_dict(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass
 class ResearchScoreRequest:
     symbol: str
@@ -45,6 +68,20 @@ class ResearchScoreResult:
     freshness: str = "missing"
     freshness_detail: dict[str, Any] = field(default_factory=dict)
     validation: dict[str, Any] = field(default_factory=dict)
+    rating: str = ""
+    action: str = ""
+    confidence: float | None = None
+    candidate_source: str = ""
+    bull_case: list[str] = field(default_factory=list)
+    bear_case: list[str] = field(default_factory=list)
+    catalysts: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    invalidation_trigger: dict[str, Any] = field(default_factory=dict)
+    trade_plan: dict[str, Any] = field(default_factory=dict)
+    technical_features: dict[str, Any] = field(default_factory=dict)
+    news_inputs: list[dict[str, Any]] = field(default_factory=list)
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    data_quality: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -164,6 +201,20 @@ class StoredResearchScorer:
             freshness=freshness or "fresh",
             freshness_detail=freshness_detail,
             validation=validation,
+            rating=str(snapshot.get("rating") or ""),
+            action=str(snapshot.get("action") or ""),
+            confidence=_float_or_none(snapshot.get("confidence")),
+            candidate_source=str(snapshot.get("candidate_source") or ""),
+            bull_case=_list_of_str(snapshot.get("bull_case")),
+            bear_case=_list_of_str(snapshot.get("bear_case")),
+            catalysts=_list_of_str(snapshot.get("catalysts")),
+            risks=_list_of_str(snapshot.get("risks")),
+            invalidation_trigger=_dict_or_empty(snapshot.get("invalidation_trigger")),
+            trade_plan=_dict_or_empty(snapshot.get("trade_plan")),
+            technical_features=_dict_or_empty(snapshot.get("technical_features")),
+            news_inputs=_list_of_dict(snapshot.get("news_inputs")),
+            evidence=_list_of_dict(snapshot.get("evidence")),
+            data_quality=_dict_or_empty(snapshot.get("data_quality")),
         )
 
 

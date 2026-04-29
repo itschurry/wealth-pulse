@@ -20,6 +20,7 @@ from routes.research import (  # noqa: E402
     handle_research_snapshots,
     handle_research_status,
 )
+from services.research_agent_payload import build_agent_research_ingest_payload  # noqa: E402
 
 
 def _print_payload(status_code: int, payload: dict) -> int:
@@ -106,6 +107,15 @@ def cmd_ingest_bulk(args: argparse.Namespace) -> int:
     return _print_payload(*handle_research_ingest_bulk(payload))
 
 
+def cmd_ingest_agent(args: argparse.Namespace) -> int:
+    payload = _load_json_payload(args.input)
+    try:
+        ingest_payload = build_agent_research_ingest_payload(payload)
+    except ValueError as exc:
+        return _print_payload(400, {"ok": False, "error": str(exc), "stage": "agent_payload_validation"})
+    return _print_payload(*handle_research_ingest_bulk(ingest_payload))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Research ops helper for WealthPulse candidate-monitor research flows")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -163,6 +173,10 @@ def build_parser() -> argparse.ArgumentParser:
     ingest = sub.add_parser("ingest-bulk", help="Ingest bulk research snapshots from file or stdin")
     ingest.add_argument("--input", help="JSON file path. If omitted, read stdin")
     ingest.set_defaults(func=cmd_ingest_bulk)
+
+    ingest_agent = sub.add_parser("ingest-agent", help="Normalize Hermes/LLM agent analysis JSON and ingest it as Research Snapshot v2")
+    ingest_agent.add_argument("--input", help="Hermes/LLM analysis JSON file path. If omitted, read stdin")
+    ingest_agent.set_defaults(func=cmd_ingest_agent)
 
     return parser
 

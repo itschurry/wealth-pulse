@@ -90,6 +90,147 @@ class LiveLayerTests(unittest.TestCase):
         self.assertIsNone(result.research_score)
         self.assertEqual(["research_unavailable"], result.warnings)
 
+    def test_stored_research_scorer_returns_v2_agent_fields(self):
+        scorer = StoredResearchScorer(provider="hermes")
+        with patch.object(
+            research_scoring,
+            "load_research_snapshot_for_timestamp",
+            return_value={
+                "research_score": 0.82,
+                "components": {"technical_quality": 0.82, "news_quality": 0.7, "freshness_score": 1.0},
+                "warnings": [],
+                "tags": ["hermes", "agent_research"],
+                "summary": "agent thesis",
+                "ttl_minutes": 180,
+                "generated_at": "2026-04-02T17:00:00+09:00",
+                "freshness": "fresh",
+                "freshness_detail": {"status": "fresh", "is_stale": False, "reason": "within_ttl"},
+                "validation": {"grade": "B", "reason": "fresh_agent_buy_candidate"},
+                "rating": "strong_buy",
+                "action": "buy",
+                "confidence": 0.81,
+                "candidate_source": "news_event_trigger",
+                "bull_case": ["trend aligned"],
+                "bear_case": ["macro risk"],
+                "catalysts": ["earnings"],
+                "risks": ["index drawdown"],
+                "invalidation_trigger": {"type": "price_or_signal", "price_below": 70000},
+                "trade_plan": {"entry_style": "staged", "size_intent_pct": 8.0},
+                "technical_features": {"close_vs_sma20": 1.04, "volume_ratio": 1.8},
+                "news_inputs": [{"title": "cited news"}],
+                "evidence": [{"type": "technical", "summary": "trend ok"}],
+                "data_quality": {"has_recent_price": True, "has_technical_features": True, "has_news": True},
+            },
+        ):
+            result = scorer.score(ResearchScoreRequest(symbol="AAA", market="KOSPI", timestamp="2026-04-02T17:30:00+09:00"))
+
+        self.assertTrue(result.available)
+        self.assertEqual("strong_buy", result.rating)
+        self.assertEqual("buy", result.action)
+        self.assertEqual(0.81, result.confidence)
+        self.assertEqual("news_event_trigger", result.candidate_source)
+        self.assertEqual(["trend aligned"], result.bull_case)
+        self.assertEqual({"close_vs_sma20": 1.04, "volume_ratio": 1.8}, result.technical_features)
+
+    def test_agent_primary_mode_can_promote_non_quant_entry_when_evidence_is_safe(self):
+        risk = build_layer_d_snapshot(
+            risk_check={"passed": True, "reason_code": "OK", "message": "ok", "checks": []},
+            size_recommendation={"quantity": 3, "reason": "ok"},
+            risk_guard_state={"entry_allowed": True, "reasons": []},
+            research={"research_unavailable": False, "warnings": []},
+        )
+        decision = build_layer_e_snapshot(
+            signal_state="watch",
+            quant_score=38.0,
+            research={
+                "research_unavailable": False,
+                "research_score": 0.82,
+                "warnings": [],
+                "rating": "strong_buy",
+                "action": "buy",
+                "confidence": 0.81,
+                "validation": {"grade": "B", "reason": "fresh_agent_buy_candidate"},
+                "technical_features": {"close_vs_sma20": 1.03, "volume_ratio": 1.5, "rsi14": 62.0},
+                "data_quality": {"has_recent_price": True, "has_technical_features": True, "has_news": True},
+                "evidence": [{"type": "technical", "summary": "trend ok"}],
+            },
+            risk=risk,
+            timestamp="2026-04-02T17:00:00+09:00",
+            source_context={"symbol": "AAA", "agent_execution_mode": "agent_primary_quant_assisted"},
+        )
+
+        self.assertEqual("review_for_entry", decision["final_action"])
+        self.assertEqual("agent_primary_quant_assisted", decision["execution_mode"])
+        self.assertEqual("agent_primary_buy", decision["agent_decision"]["decision"])
+        self.assertEqual("non_entry_signal", decision["quant_decision"]["reason"])
+
+    def test_agent_primary_mode_does_not_promote_deterministic_fallback_without_quant_entry(self):
+        risk = build_layer_d_snapshot(
+            risk_check={"passed": True, "reason_code": "OK", "message": "ok", "checks": []},
+            size_recommendation={"quantity": 3, "reason": "ok"},
+            risk_guard_state={"entry_allowed": True, "reasons": []},
+            research={"research_unavailable": False, "warnings": []},
+        )
+        decision = build_layer_e_snapshot(
+            signal_state="watch",
+            quant_score=38.0,
+            research={
+                "research_unavailable": False,
+                "research_score": 0.91,
+                "warnings": [],
+                "rating": "overweight",
+                "action": "buy_watch",
+                "confidence": 0.91,
+                "validation": {"grade": "B", "reason": "fresh_agent_buy_candidate"},
+                "technical_features": {"close_vs_sma20": 1.03, "volume_ratio": 1.5, "rsi14": 62.0},
+                "data_quality": {
+                    "has_recent_price": True,
+                    "has_technical_features": True,
+                    "has_news": False,
+                    "analysis_mode": "deterministic_fallback",
+                },
+                "evidence": [{"type": "scanner_snapshot", "summary": "scanner fallback"}],
+            },
+            risk=risk,
+            timestamp="2026-04-02T17:00:00+09:00",
+            source_context={"symbol": "AAA", "agent_execution_mode": "agent_primary_quant_assisted"},
+        )
+
+        self.assertEqual("watch_only", decision["final_action"])
+        self.assertEqual("deterministic_fallback_requires_quant_entry", decision["decision_reason"])
+        self.assertFalse(decision["agent_decision"]["order_ready"])
+
+    def test_quant_gated_mode_keeps_agent_buy_as_watch_without_quant_entry(self):
+        risk = build_layer_d_snapshot(
+            risk_check={"passed": True, "reason_code": "OK", "message": "ok", "checks": []},
+            size_recommendation={"quantity": 3, "reason": "ok"},
+            risk_guard_state={"entry_allowed": True, "reasons": []},
+            research={"research_unavailable": False, "warnings": []},
+        )
+        decision = build_layer_e_snapshot(
+            signal_state="watch",
+            quant_score=38.0,
+            research={
+                "research_unavailable": False,
+                "research_score": 0.82,
+                "warnings": [],
+                "rating": "strong_buy",
+                "action": "buy",
+                "confidence": 0.81,
+                "validation": {"grade": "B", "reason": "fresh_agent_buy_candidate"},
+                "technical_features": {"close_vs_sma20": 1.03, "volume_ratio": 1.5},
+                "data_quality": {"has_recent_price": True, "has_technical_features": True, "has_news": True},
+                "evidence": [{"type": "technical", "summary": "trend ok"}],
+            },
+            risk=risk,
+            timestamp="2026-04-02T17:00:00+09:00",
+            source_context={"symbol": "AAA", "agent_execution_mode": "quant_gated_agent"},
+        )
+
+        self.assertEqual("watch_only", decision["final_action"])
+        self.assertEqual("agent_buy_without_quant_entry", decision["decision_reason"])
+        self.assertFalse(decision["agent_decision"]["order_ready"])
+
     def test_final_action_uses_required_semantics(self):
         risk = build_layer_d_snapshot(
             risk_check={"passed": True, "reason_code": "OK", "message": "ok", "checks": []},

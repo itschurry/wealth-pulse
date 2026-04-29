@@ -65,12 +65,13 @@ def _score_target(item: dict[str, Any]) -> tuple[float, dict[str, float], list[s
     research_score = round(max(0.05, min(0.95, weighted)), 2)
 
     warnings: list[str] = []
-    tags: list[str] = []
+    tags: list[str] = ["deterministic_fallback"]
 
     summary = (
         f"{name}는 {_market_label(market)} scanner 후보야. "
         f"전략 {strategy_name} 기준 우선 검토 대상이고, "
-        f"현재 상태는 {'신규 research 필요' if not snapshot_exists else 'stale research 갱신 필요' if not snapshot_fresh else '운영 재점검'} 쪽으로 보는 게 맞아."
+        f"현재 상태는 {'신규 research 필요' if not snapshot_exists else 'stale research 갱신 필요' if not snapshot_fresh else '운영 재점검'} 쪽으로 보는 게 맞아. "
+        "이 스냅샷은 Hermes/LLM 분석이 아니라 deterministic scanner fallback이므로 뉴스·정성 분석 전 확정 매수 근거로 쓰면 안 돼."
     )
 
     components = {
@@ -79,6 +80,127 @@ def _score_target(item: dict[str, Any]) -> tuple[float, dict[str, float], list[s
         "action_priority_score": round(action_score, 2),
     }
     return research_score, components, warnings, tags, summary
+
+
+def _coerce_int(value: Any, default: int | None = None) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any, default: float | None = None) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_scanner_score(value: Any) -> float | None:
+    score = _coerce_float(value)
+    if score is None:
+        return None
+    if score > 1.0:
+        score = score / 100.0
+    return round(max(0.0, min(1.0, score)), 4)
+
+
+def _risk_inputs(item: dict[str, Any]) -> dict[str, Any]:
+    raw = item.get("risk_inputs")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _build_technical_features(item: dict[str, Any]) -> dict[str, Any]:
+    rank = _coerce_int(item.get("candidate_rank"), 999)
+    risk_inputs = _risk_inputs(item)
+    features: dict[str, Any] = {
+        "source": "candidate_monitor",
+        "strategy_name": str(item.get("strategy_name") or "scanner").strip() or "scanner",
+        "candidate_rank": rank,
+        "final_action": str(item.get("final_action") or "").strip().lower(),
+        "signal_state": str(item.get("signal_state") or "").strip().lower(),
+    }
+    scanner_score = _normalize_scanner_score(item.get("score"))
+    if scanner_score is not None:
+        features["scanner_score"] = scanner_score
+    for source_key, target_key in (("stop_loss_pct", "stop_loss_pct"), ("take_profit_pct", "take_profit_pct")):
+        numeric = _coerce_float(risk_inputs.get(source_key))
+        if numeric is not None:
+            features[target_key] = numeric
+    return features
+
+
+def _agent_rating_action(item: dict[str, Any], research_score: float) -> tuple[str, str]:
+    final_action = str(item.get("final_action") or "").strip().lower()
+    signal_state = str(item.get("signal_state") or "").strip().lower()
+    rank = _coerce_int(item.get("candidate_rank"), 999) or 999
+    if final_action == "review_for_entry" and signal_state == "entry" and rank <= 10 and research_score >= 0.65:
+        return "overweight", "buy_watch"
+    if final_action in {"blocked", "do_not_touch"}:
+        return "underweight", "block"
+    return "hold", "hold"
+
+
+def _build_v2_agent_fields(item: dict[str, Any], research_score: float, summary: str) -> dict[str, Any]:
+    technical_features = _build_technical_features(item)
+    rating, action = _agent_rating_action(item, research_score)
+    final_action = technical_features.get("final_action") or "unknown"
+    signal_state = technical_features.get("signal_state") or "unknown"
+    rank = technical_features.get("candidate_rank")
+    strategy_name = technical_features.get("strategy_name")
+    snapshot_exists = bool(item.get("snapshot_exists"))
+    snapshot_fresh = bool(item.get("snapshot_fresh"))
+    research_context = "new_research" if not snapshot_exists else "fresh_recheck" if snapshot_fresh else "stale_recheck"
+
+    return {
+        "confidence": research_score,
+        "time_horizon_days": 3,
+        "rating": rating,
+        "action": action,
+        "candidate_source": "candidate_monitor_scanner",
+        "bull_case": [
+            f"candidate monitor rank {rank} / strategy {strategy_name}",
+            f"runtime final_action={final_action}, signal_state={signal_state}",
+        ],
+        "bear_case": [
+            "뉴스·실적·거시 이벤트를 Hermes/LLM이 아직 독립 검증하지 않았다.",
+            "deterministic scanner fallback은 가격/랭크 기반 우선순위일 뿐 확정 매수 판단이 아니다.",
+        ],
+        "catalysts": ["candidate_monitor_priority", research_context],
+        "risks": [
+            "Hermes/LLM 뉴스·차트 종합 분석 전에는 자동매수 확정 근거로 부족하다.",
+            "스캐너 점수는 시장 급변, 공시, 장중 유동성 악화를 반영하지 못할 수 있다.",
+        ],
+        "invalidation_trigger": {
+            "type": "runtime_recheck",
+            "condition": "final_action changes away from review_for_entry or signal_state loses entry alignment",
+        },
+        "trade_plan": {
+            "intent": "watchlist_enrich",
+            "entry": "risk_guard_and_runtime_only",
+            "sizing": "deterministic_risk_guard_clamped",
+            "notes": "Fallback v2 contract; real Hermes analysis should replace this snapshot before agent-primary live use.",
+        },
+        "technical_features": technical_features,
+        "news_inputs": [],
+        "evidence": [
+            {
+                "type": "scanner_snapshot",
+                "source": "candidate_monitor",
+                "summary": summary,
+                "final_action": final_action,
+                "signal_state": signal_state,
+                "candidate_rank": rank,
+            }
+        ],
+        "data_quality": {
+            "has_recent_price": True,
+            "has_technical_features": True,
+            "has_news": False,
+            "research_context": research_context,
+            "analysis_mode": "deterministic_fallback",
+        },
+    }
 
 
 def _build_ingest_payload(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -100,17 +222,18 @@ def _build_ingest_payload(items: list[dict[str, Any]]) -> dict[str, Any]:
                 "bucket_ts": bucket_ts,
                 "generated_at": generated_at,
                 "research_score": research_score,
-                "components": {"freshness_score": components.get("freshness_score", 0.5)},
+                "components": components,
                 "warnings": warnings,
                 "tags": tags,
                 "summary": summary,
                 "ttl_minutes": 180,
+                **_build_v2_agent_fields(item, research_score, summary),
             }
         )
 
     return {
         "provider": DEFAULT_RESEARCH_PROVIDER,
-        "schema_version": "v1",
+        "schema_version": "v2",
         "run_id": f"hanna-enrich-{uuid.uuid4().hex[:12]}",
         "generated_at": generated_at,
         "items": normalized_items,

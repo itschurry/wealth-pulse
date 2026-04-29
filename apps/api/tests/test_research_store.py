@@ -92,6 +92,82 @@ class ResearchStoreTests(unittest.TestCase):
         self.assertEqual(1, status_payload["received_valid_last_run"])
         self.assertEqual(0, status_payload["deduped_count_last_run"])
 
+    def test_v2_snapshot_persists_agent_contract_fields(self):
+        now = datetime.datetime.now(datetime.timezone.utc).astimezone().replace(second=0, microsecond=0)
+        status_code, payload = handle_research_ingest_bulk({
+            "provider": "hermes",
+            "schema_version": "v2",
+            "run_id": "hermes-agent-1",
+            "generated_at": now.isoformat(),
+            "items": [
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": now.isoformat(),
+                    "research_score": 0.82,
+                    "confidence": 0.79,
+                    "time_horizon_days": 10,
+                    "rating": "strong_buy",
+                    "action": "buy",
+                    "candidate_source": "news_event_trigger",
+                    "summary": "agent thesis",
+                    "bull_case": ["trend aligned"],
+                    "bear_case": ["macro risk"],
+                    "catalysts": ["earnings"],
+                    "risks": ["index drawdown"],
+                    "invalidation_trigger": {"type": "price_or_signal", "price_below": 70000},
+                    "trade_plan": {"entry_style": "staged", "size_intent_pct": 8.0, "max_loss_pct": 4.5},
+                    "technical_features": {"close_vs_sma20": 1.04, "volume_ratio": 1.8, "rsi14": 63.2},
+                    "news_inputs": [{"source": "news_provider", "title": "real cited news", "url": "https://example.com/n/1"}],
+                    "evidence": [{"type": "technical", "source": "technical_features", "summary": "trend and volume ok"}],
+                    "data_quality": {"has_recent_price": True, "has_technical_features": True, "has_news": True},
+                    "components": {"technical_quality": 0.82, "news_quality": 0.7, "risk_reward": 0.72, "freshness_score": 1.0},
+                    "warnings": [],
+                    "tags": ["hermes", "agent_research"],
+                    "ttl_minutes": 180,
+                }
+            ],
+        })
+
+        self.assertEqual(200, status_code)
+        self.assertEqual(1, payload["accepted"])
+        latest = store.load_latest_research_snapshot("005930", "KR", provider="hermes")
+        self.assertIsNotNone(latest)
+        self.assertEqual("v2", latest["schema_version"])
+        self.assertEqual("strong_buy", latest["rating"])
+        self.assertEqual("buy", latest["action"])
+        self.assertEqual(0.79, latest["confidence"])
+        self.assertEqual("news_event_trigger", latest["candidate_source"])
+        self.assertEqual(["trend aligned"], latest["bull_case"])
+        self.assertEqual({"close_vs_sma20": 1.04, "volume_ratio": 1.8, "rsi14": 63.2}, latest["technical_features"])
+        self.assertEqual("B", latest["validation"]["grade"])
+        self.assertEqual("fresh_agent_buy_candidate", latest["validation"]["reason"])
+
+    def test_v2_snapshot_rejects_unknown_rating_or_action(self):
+        now = datetime.datetime.now(datetime.timezone.utc).astimezone().replace(second=0, microsecond=0)
+        status_code, payload = handle_research_ingest_bulk({
+            "provider": "hermes",
+            "schema_version": "v2",
+            "generated_at": now.isoformat(),
+            "items": [
+                {
+                    "symbol": "005930",
+                    "market": "KR",
+                    "bucket_ts": now.isoformat(),
+                    "research_score": 0.8,
+                    "confidence": 0.8,
+                    "rating": "moonshot",
+                    "action": "buy_now",
+                    "ttl_minutes": 180,
+                }
+            ],
+        })
+
+        self.assertEqual(400, status_code)
+        self.assertEqual(0, payload["accepted"])
+        self.assertEqual(1, payload["rejected"])
+        self.assertIn(payload["errors"][0]["error"], {"rating_unsupported", "action_unsupported"})
+
     def test_market_alias_lookup_uses_canonical_market(self):
         status_code, payload = handle_research_ingest_bulk({
             "provider": "openclaw",
