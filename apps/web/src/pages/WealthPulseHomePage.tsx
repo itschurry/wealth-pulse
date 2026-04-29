@@ -141,7 +141,7 @@ export function WealthPulseHomePage({
   const riskGuardAllowed = isRiskEntryAllowed(snapshot);
   const riskReasons = Array.isArray(riskGuard.reasons) ? riskGuard.reasons.map((reason) => reasonCodeToKorean(String(reason))) : [];
   const validationSummary = snapshot.validation.summary || {};
-  const reportGeneratedAt = todayView.generatedAt || snapshot.hannaBrief.generated_at || snapshot.reports.generated_at || '';
+  const reportGeneratedAt = todayView.generatedAt || snapshot.reports.generated_at || '';
   const todayActions = todayView.actionItems.slice(0, 2);
   const avoidActions = [...todayView.watchPoints, ...todayView.judgmentLines]
     .filter((line, index, arr) => line && arr.indexOf(line) === index)

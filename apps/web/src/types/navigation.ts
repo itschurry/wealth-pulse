@@ -1,12 +1,14 @@
 export type WorkspacePage =
-  | 'operations-dashboard'
-  | 'orders-execution'
   | 'agent-dashboard'
-  | 'lab'
+  | 'research-ai'
+  | 'signal-review'
+  | 'orders-execution'
+  | 'performance'
   | 'watchlist'
-  | 'research-ai';
+  | 'lab'
+  | 'operations-dashboard';
 
-export type DashboardTab = 'overview' | 'scanner' | 'watch-decision' | 'performance';
+export type DashboardTab = 'overview';
 
 export type LabTab = 'validation' | 'strategies' | 'universe';
 

@@ -937,39 +937,15 @@ def _auto_refresh_research_snapshots(*, markets: list[str], limit: int = 30, mod
         for market in markets
         if str(market or "").strip().upper() in {"KOSPI", "NASDAQ"}
     ]
-    if not normalized_markets:
-        return {
-            "ok": True,
-            "stage": "skipped",
-            "reason": "no_supported_markets",
-            "markets": [],
-            "selected_count": 0,
-        }
-
-    try:
-        from scripts import hanna_enrich_runner
-
-        status_code, payload = hanna_enrich_runner.run(
-            markets=normalized_markets,
-            limit=max(1, min(200, int(limit or 30))),
-            mode=str(mode or "missing_or_stale").strip() or "missing_or_stale",
-        )
-        result = dict(payload) if isinstance(payload, dict) else {"ok": False, "error": "invalid_enrich_payload"}
-        result.setdefault("markets", normalized_markets)
-        result["status_code"] = status_code
-        if not (200 <= status_code < 300):
-            logger.warning("research auto refresh 실패: {}", result)
-        return result
-    except Exception as exc:
-        logger.warning("research auto refresh 예외: {}", exc)
-        return {
-            "ok": False,
-            "stage": "error",
-            "markets": normalized_markets,
-            "selected_count": 0,
-            "error": str(exc),
-        }
-
+    return {
+        "ok": True,
+        "stage": "skipped",
+        "reason": "host_side_hermes_research_runner_required",
+        "markets": normalized_markets,
+        "selected_count": 0,
+        "limit": max(1, min(200, int(limit or 30))),
+        "mode": str(mode or "missing_or_stale").strip() or "missing_or_stale",
+    }
 
 def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
     normalized_account = _normalize_runtime_account(account)

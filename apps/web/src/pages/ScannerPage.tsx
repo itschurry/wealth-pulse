@@ -14,16 +14,16 @@ interface ScannerPageProps {
   onRefresh: () => void;
 }
 
-type HannaState = 'healthy' | 'degraded' | 'timeout' | 'research_unavailable';
+type ResearchState = 'healthy' | 'degraded' | 'timeout' | 'research_unavailable';
 
-const HANNA_STATE_LABEL: Record<HannaState, string> = {
+const RESEARCH_STATE_LABEL: Record<ResearchState, string> = {
   healthy: '정상',
   degraded: '불안정',
   timeout: '응답 지연',
   research_unavailable: '리서치 미사용/불가',
 };
 
-function resolveHannaState(candidate?: ScannerCandidate): HannaState {
+function resolveResearchState(candidate?: ScannerCandidate): ResearchState {
   if (!candidate) return 'research_unavailable';
   if (candidate.research_unavailable) return 'research_unavailable';
   if (candidate.layer_c?.research_unavailable) return 'research_unavailable';
@@ -39,7 +39,7 @@ function resolveHannaState(candidate?: ScannerCandidate): HannaState {
   return 'healthy';
 }
 
-function resolveProviderHannaState(providerStatus: string | undefined, freshness: string | undefined): HannaState {
+function resolveProviderResearchState(providerStatus: string | undefined, freshness: string | undefined): ResearchState {
   if (providerStatus === 'healthy') return 'healthy';
   if (providerStatus === 'degraded' || providerStatus === 'stale_ingest') return 'degraded';
   if (providerStatus === 'missing' || freshness === 'missing') return 'research_unavailable';
@@ -48,32 +48,32 @@ function resolveProviderHannaState(providerStatus: string | undefined, freshness
   return 'healthy';
 }
 
-function resolveHannaStateWithProvider(candidate: ScannerCandidate | undefined, providerStatus?: string, freshness?: string): HannaState {
-  const fallback = resolveProviderHannaState(providerStatus, freshness);
+function resolveResearchStateWithProvider(candidate: ScannerCandidate | undefined, providerStatus?: string, freshness?: string): ResearchState {
+  const fallback = resolveProviderResearchState(providerStatus, freshness);
   if (!candidate) return fallback;
-  const candidateState = resolveHannaState(candidate);
+  const candidateState = resolveResearchState(candidate);
   if (candidateState === 'research_unavailable') return 'research_unavailable';
   if (candidateState === 'healthy') return fallback === 'healthy' ? 'healthy' : fallback;
   if (candidateState === 'degraded' || candidateState === 'timeout') return 'degraded';
   return fallback;
 }
-function summarizeHannaState(item: ScannerStatusItem, providerStatus?: string, freshness?: string): HannaState {
+function summarizeResearchState(item: ScannerStatusItem, providerStatus?: string, freshness?: string): ResearchState {
   const candidates = item.top_candidates || [];
-  const candidateStates = candidates.map((candidate) => resolveHannaStateWithProvider(candidate, providerStatus, freshness));
+  const candidateStates = candidates.map((candidate) => resolveResearchStateWithProvider(candidate, providerStatus, freshness));
   if (candidateStates.some((state) => state === 'timeout')) return 'timeout';
   if (candidateStates.some((state) => state === 'degraded')) return 'degraded';
   if (candidateStates.some((state) => state === 'research_unavailable')) return 'research_unavailable';
   if (candidateStates.some((state) => state === 'healthy')) return 'healthy';
-  return resolveProviderHannaState(providerStatus, freshness);
+  return resolveProviderResearchState(providerStatus, freshness);
 }
 
-function toneForHanna(state: HannaState): 'neutral' | 'good' | 'bad' {
+function toneForResearch(state: ResearchState): 'neutral' | 'good' | 'bad' {
   if (state === 'healthy') return 'good';
   if (state === 'degraded' || state === 'timeout') return 'bad';
   return 'neutral';
 }
 
-function classNameForHanna(state: HannaState) {
+function classNameForResearch(state: ResearchState) {
   if (state === 'healthy') return 'inline-badge is-success';
   if (state === 'degraded' || state === 'timeout') return 'inline-badge is-danger';
   return 'inline-badge';
@@ -127,14 +127,14 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
     [items],
   );
   const activeCount = items.filter((item) => item.enabled).length;
-  const providerHannaState = resolveProviderHannaState(snapshot.research.status, snapshot.research.freshness);
-  const overallHannaState = useMemo<HannaState>(() => {
-    if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'timeout')) return 'timeout';
-    if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'degraded')) return 'degraded';
-    if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'healthy')) return 'healthy';
-    if (items.some((item) => summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness) === 'research_unavailable')) return 'research_unavailable';
-    return providerHannaState;
-  }, [items, providerHannaState, snapshot.research.status, snapshot.research.freshness]);
+  const providerResearchState = resolveProviderResearchState(snapshot.research.status, snapshot.research.freshness);
+  const overallResearchState = useMemo<ResearchState>(() => {
+    if (items.some((item) => summarizeResearchState(item, snapshot.research.status, snapshot.research.freshness) === 'timeout')) return 'timeout';
+    if (items.some((item) => summarizeResearchState(item, snapshot.research.status, snapshot.research.freshness) === 'degraded')) return 'degraded';
+    if (items.some((item) => summarizeResearchState(item, snapshot.research.status, snapshot.research.freshness) === 'healthy')) return 'healthy';
+    if (items.some((item) => summarizeResearchState(item, snapshot.research.status, snapshot.research.freshness) === 'research_unavailable')) return 'research_unavailable';
+    return providerResearchState;
+  }, [items, providerResearchState, snapshot.research.status, snapshot.research.freshness]);
 
   const statusItems = useMemo(() => ([
     { label: '스캔 전략', value: `${items.length}개`, tone: 'neutral' as const },
@@ -142,8 +142,8 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
     { label: '스캔 종목', value: `${totalScanned}건`, tone: totalScanned > 0 ? 'good' as const : 'neutral' as const },
     { label: '후보 수', value: `${totalCandidates}건`, tone: totalCandidates > 0 ? 'good' as const : 'neutral' as const },
     { label: '스캔 소스', value: scannerStatusText, tone: scannerRefreshing ? 'bad' as const : 'neutral' as const },
-    { label: 'Hanna', value: HANNA_STATE_LABEL[overallHannaState], tone: toneForHanna(overallHannaState) },
-  ]), [activeCount, items.length, overallHannaState, scannerRefreshing, scannerStatusText, totalCandidates, totalScanned]);
+    { label: 'Hermes', value: RESEARCH_STATE_LABEL[overallResearchState], tone: toneForResearch(overallResearchState) },
+  ]), [activeCount, items.length, overallResearchState, scannerRefreshing, scannerStatusText, totalCandidates, totalScanned]);
 
   const handleRefresh = useCallback(() => {
     onRefresh();
@@ -167,7 +167,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
             settingsPanel={(
               <div style={{ display: 'grid', gap: 8, fontSize: 15, color: 'var(--text-3)' }}>
                 <div>1단계는 유니버스 포함 이유만 기록하고 주문 판단을 하지 않아.</div>
-                <div>3단계 Hanna는 구조화된 데이터와 경고 코드만 제공하며, 매수/매도/주문 명령을 내리지 못해.</div>
+                <div>3단계 Hermes는 구조화된 데이터와 경고 코드만 제공하며, 매수/매도/주문 명령을 내리지 못해.</div>
                 <div>최종 실행 의미는 마지막 액션 기준이야: 진입 검토 / 관찰 전용 / 차단 / 관망.</div>
               </div>
             )}
@@ -176,7 +176,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
           {items.map((item) => {
             const strategyId = String(item.strategy_id || 'strategy');
             const selectedCandidate = selectedCandidateFor(item, selectedSignals[strategyId]);
-            const strategyHannaState = summarizeHannaState(item, snapshot.research.status, snapshot.research.freshness);
+            const strategyResearchState = summarizeResearchState(item, snapshot.research.status, snapshot.research.freshness);
 
             return (
               <section key={strategyId} className="page-section" style={{ display: 'grid', gap: 12 }}>
@@ -184,7 +184,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <div style={{ fontSize: 17, fontWeight: 700 }}>{item.strategy_name || item.strategy_id}</div>
-                      <span className={classNameForHanna(strategyHannaState)}>Hanna {HANNA_STATE_LABEL[strategyHannaState]}</span>
+                      <span className={classNameForResearch(strategyResearchState)}>Hermes {RESEARCH_STATE_LABEL[strategyResearchState]}</span>
                     </div>
                     <div className="signal-cell-copy" style={{ marginTop: 4 }}>
                       {item.market || '-'} · {item.universe_rule || '-'} · {item.scan_cycle || '-'}
@@ -213,7 +213,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                       {(item.top_candidates || []).map((candidate) => {
                         const signalId = String(candidate.signal_id || `${candidate.strategy_id}:${candidate.code}`);
                         const isSelected = selectedCandidate?.signal_id === candidate.signal_id || (!selectedCandidate && signalId === selectedSignals[strategyId]);
-                        const hannaState = resolveHannaStateWithProvider(candidate, snapshot.research.status, snapshot.research.freshness);
+                        const researchState = resolveResearchStateWithProvider(candidate, snapshot.research.status, snapshot.research.freshness);
                         return (
                           <tr
                             key={signalId}
@@ -242,7 +242,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                               <div className="signal-cell-copy">{reasonCodeToKorean(String(candidate.signal_state || '-'))} · 원점수 {formatNumber(candidate.score, 2)}</div>
                             </td>
                             <td style={{ padding: 12, fontSize: 15 }}>
-                              <div className={classNameForHanna(hannaState)}>{HANNA_STATE_LABEL[hannaState]}</div>
+                              <div className={classNameForResearch(researchState)}>{RESEARCH_STATE_LABEL[researchState]}</div>
                               <div className="workspace-chip-row" style={{ marginTop: 6 }}>
                                 <FreshnessBadge value={researchFreshness(candidate)} />
                                 <GradeBadge value={researchGrade(candidate)} />
@@ -282,7 +282,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <span className={classNameForHanna(resolveHannaStateWithProvider(selectedCandidate, snapshot.research.status, snapshot.research.freshness))}>Hanna {HANNA_STATE_LABEL[resolveHannaStateWithProvider(selectedCandidate, snapshot.research.status, snapshot.research.freshness)]}</span>
+                        <span className={classNameForResearch(resolveResearchStateWithProvider(selectedCandidate, snapshot.research.status, snapshot.research.freshness))}>Hermes {RESEARCH_STATE_LABEL[resolveResearchStateWithProvider(selectedCandidate, snapshot.research.status, snapshot.research.freshness)]}</span>
                         <span className={classNameForFinalAction(selectedCandidate.final_action)}>{reasonCodeToKorean(String(selectedCandidate.final_action || '-'))}</span>
                       </div>
                     </div>
@@ -305,7 +305,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                       </div>
 
                       <div className="operator-note-card" style={{ display: 'grid', gap: 6 }}>
-                        <div className="operator-note-label">3단계 · Hanna</div>
+                        <div className="operator-note-label">3단계 · Hermes</div>
                         <div className="workspace-chip-row">
                           <FreshnessBadge value={researchFreshness(selectedCandidate)} />
                           <GradeBadge value={researchGrade(selectedCandidate)} />

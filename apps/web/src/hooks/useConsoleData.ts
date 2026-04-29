@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchEngineSummary,
-  fetchHannaBrief,
   fetchLiveMarket,
   fetchMacroLatest,
   fetchMarketContext,
@@ -61,13 +60,12 @@ function emptySnapshot(): ConsoleSnapshot {
     todayPicks: {},
     recommendations: {},
     macro: {},
-    hannaBrief: {},
     fetchedAt: nowIso,
   };
 }
 
 function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
-  if (route.page === 'operations-dashboard' && route.dashboardTab === 'overview') {
+  if (route.page === 'operations-dashboard') {
     return {
       signalLimit: 80,
       initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'marketContext', 'validation', 'reports'],
@@ -78,7 +76,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.page === 'operations-dashboard' && route.dashboardTab === 'scanner') {
+  if (route.page === 'signal-review') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'scanner', 'research'],
@@ -88,23 +86,13 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.page === 'operations-dashboard' && route.dashboardTab === 'performance') {
+  if (route.page === 'performance') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'performance', 'research'],
       fastTargets: ['engine'],
       midTargets: ['performance'],
       slowTargets: ['research'],
-    };
-  }
-
-  if (route.page === 'operations-dashboard' && route.dashboardTab === 'watch-decision') {
-    return {
-      signalLimit: 80,
-      initialTargets: ['engine', 'signals', 'validation', 'reports', 'research', 'todayPicks', 'hannaBrief'],
-      fastTargets: ['engine'],
-      midTargets: ['signals'],
-      slowTargets: ['reports', 'research', 'todayPicks', 'recommendations', 'macro', 'hannaBrief'],
     };
   }
 
@@ -199,7 +187,6 @@ export function useConsoleData(route: ConsoleDataRoute) {
     todayPicks: 0,
     recommendations: 0,
     macro: 0,
-    hannaBrief: 0,
   });
 
   useEffect(() => {
@@ -220,8 +207,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
       todayPicks: 0,
       recommendations: 0,
       macro: 0,
-      hannaBrief: 0,
-    };
+      };
     setState({
       snapshot: emptySnapshot(),
       loading: true,
@@ -277,7 +263,6 @@ export function useConsoleData(route: ConsoleDataRoute) {
       if (key === 'todayPicks') return fetchTodayPicks();
       if (key === 'recommendations') return fetchRecommendations();
       if (key === 'macro') return fetchMacroLatest();
-      if (key === 'hannaBrief') return fetchHannaBrief();
       return Promise.resolve({});
     });
     const results = await Promise.allSettled(tasks);

@@ -1,30 +1,31 @@
 from __future__ import annotations
 
-from routes.hanna import handle_hanna_brief
 from routes.reports import handle_reports
 from services.operations_report_service import build_operations_report
 
 
 def handle_reports_explain(date: str | None = None) -> tuple[int, dict]:
     try:
-        status, brief = handle_hanna_brief(date)
-        if status != 200:
-            return status, brief
-
-        analysis = brief.get("analysis") if isinstance(brief, dict) and isinstance(brief.get("analysis"), dict) else {}
+        operations = build_operations_report(limit=500)
+        alerts = operations.get('alerts') if isinstance(operations.get('alerts'), list) else []
+        summary_lines = [str(item.get('message') or '').strip() for item in alerts if isinstance(item, dict) and str(item.get('message') or '').strip()]
+        report = operations.get('report') if isinstance(operations.get('report'), dict) else {}
+        analysis = {
+            'summary_lines': summary_lines,
+            'operations': report,
+            'alerts': alerts,
+        }
         return 200, {
-            "ok": True,
-            "owner": brief.get("owner") if isinstance(brief, dict) else "hanna",
-            "brief_type": brief.get("brief_type") if isinstance(brief, dict) else "hanna_operator_brief_v1",
-            "migration": brief.get("migration") if isinstance(brief, dict) else {"backend_owner": "hanna"},
-            "brief": brief,
-            "analysis": analysis,
-            "summary_lines": brief.get("summary_lines") if isinstance(brief, dict) else [],
-            "report_reasoning": brief.get("report_reasoning") if isinstance(brief, dict) else (analysis.get("hanna_context") if isinstance(analysis, dict) else {}),
-            "generated_at": brief.get("generated_at") if isinstance(brief, dict) else None,
+            'ok': True,
+            'owner': 'wealthpulse-agent-runtime',
+            'brief_type': 'operations_report_v1',
+            'generated_at': operations.get('generated_at'),
+            'summary_lines': summary_lines,
+            'analysis': analysis,
+            'report_reasoning': report,
         }
     except Exception as exc:
-        return 500, {"ok": False, "error": str(exc)}
+        return 500, {'ok': False, 'error': str(exc)}
 
 
 def handle_reports_index() -> tuple[int, dict]:
@@ -34,8 +35,8 @@ def handle_reports_index() -> tuple[int, dict]:
 def handle_reports_operations(limit: int = 500) -> tuple[int, dict]:
     try:
         return 200, {
-            "ok": True,
+            'ok': True,
             **build_operations_report(limit=limit),
         }
     except Exception as exc:
-        return 500, {"ok": False, "error": str(exc)}
+        return 500, {'ok': False, 'error': str(exc)}

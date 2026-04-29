@@ -130,7 +130,7 @@ export const REASON_CODE_KR: Record<string, string> = {
   account_unavailable: '계좌 정보 없음',
   size_zero: '권장 수량 0',
   invalid_unit_price: '유효하지 않은 가격',
-  research_unavailable: 'Hanna 리서치 미사용/일시 불가',
+  research_unavailable: 'Hermes 리서치 미사용/일시 불가',
   headline_stronger_than_body: '헤드라인 강도 대비 본문 근거 약함',
   already_extended_intraday: '장중 과열로 추격 주의',
   low_evidence_density: '근거 밀도 낮음',
@@ -144,7 +144,7 @@ export const REASON_CODE_KR: Record<string, string> = {
 export function reasonCodeToKorean(code: string): string {
   if (code.startsWith('research_warning:')) {
     const warning = code.replace('research_warning:', '');
-    return `Hanna 경고 · ${REASON_CODE_KR[warning] || warning}`;
+    return `Hermes 경고 · ${REASON_CODE_KR[warning] || warning}`;
   }
   return REASON_CODE_KR[code] || code;
 }

@@ -14,7 +14,7 @@ from analyzer.utils import (
 from collectors.models import DailyData, NewsArticle
 from config.company_catalog import CompanyCatalogEntry, get_company_catalog
 from market_utils import resolve_market
-from services.hanna_commentary_service import build_hanna_candidate_commentary
+from services.agent_commentary_service import build_agent_candidate_commentary
 
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -197,7 +197,7 @@ def _ai_signal_adjustment(ai_signal: dict | None) -> tuple[float, list[str], lis
         "summary": summary,
         "reasons": reasons,
         "risks": risks,
-        "source": ai_signal.get("source", "hanna-aux-signal-v1"),
+        "source": ai_signal.get("source", "agent-aux-signal-v1"),
     }
     return round(score, 1), reasons, risks, serialized
 
@@ -641,7 +641,7 @@ def _build_pick(
     signal = "회피" if playbook_meta["gate_status"] == "blocked" else ("중립" if playbook_meta["gate_status"] == "caution" and _signal_from_score(score) == "추천" else _signal_from_score(score))
     deduped_reasons = reasons[:4]
     deduped_risks = risks[:3]
-    commentary = build_hanna_candidate_commentary(
+    commentary = build_agent_candidate_commentary(
         name=entry.name,
         market=entry.market,
         signal=signal,
@@ -789,7 +789,7 @@ def generate_today_picks(
         "generated_at": now.strftime("%Y-%m-%d %H:%M KST"),
         "date": now.strftime("%Y-%m-%d"),
         "market_tone": market_tone,
-        "strategy": "news-driven-picks-v1+hanna-commentary" if playbook else "news-driven-picks-v1",
+        "strategy": "news-driven-picks-v1+agent-commentary" if playbook else "news-driven-picks-v1",
         "playbook_ref": (playbook or {}).get("generated_at") or (playbook or {}).get("date"),
         "picks": matched[:limit],
         "auto_candidates": auto_candidates,
@@ -1029,7 +1029,7 @@ def build_watchlist_actions(
 
         deduped_reasons = (score_notes + technical_reasons + flow_reasons + reasons)[:4] or ["오늘 기준 뚜렷한 추가 재료는 제한적입니다."]
         deduped_risks = (technical_risks + flow_risks + ai_risks + risks)[:3] or ["단기 변동성 관리가 필요합니다."]
-        commentary = build_hanna_candidate_commentary(
+        commentary = build_agent_candidate_commentary(
             name=str(watch.get("name", "")),
             market=str(watch.get("market", "")),
             signal=signal,

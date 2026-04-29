@@ -12,7 +12,7 @@ def _clean_list(values: list[Any] | None, limit: int = 4) -> list[str]:
     return deduped[:limit]
 
 
-def build_hanna_candidate_commentary(
+def build_agent_candidate_commentary(
     *,
     name: str,
     market: str,
@@ -60,5 +60,5 @@ def build_hanna_candidate_commentary(
         "ai_thesis": thesis.strip(),
         "technical_view": technical.strip(),
         "risk_note": risk_line.strip(),
-        "commentary_owner": "hanna",
+        "commentary_owner": "wealthpulse-agent",
     }

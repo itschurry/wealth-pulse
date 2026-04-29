@@ -1,7 +1,6 @@
 import type {
   DomainSignal,
   EngineStatusResponse,
-  HannaBriefResponse,
   LiveMarketResponse,
   MacroLatestResponse,
   MarketContextResponse,
@@ -34,7 +33,6 @@ export interface ConsoleSnapshot {
   todayPicks: TodayPicksResponse;
   recommendations: RecommendationsResponse;
   macro: MacroLatestResponse;
-  hannaBrief: HannaBriefResponse;
   fetchedAt: string;
 }
 

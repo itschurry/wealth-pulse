@@ -319,7 +319,7 @@ def _annotate_standard_sources(rows: list[dict[str, Any]], *, held_symbols: set[
     for item in rows:
         sources = item.get("candidate_sources") if isinstance(item.get("candidate_sources"), list) else []
         if not sources:
-            sources = ["strategy_scan_fallback"]
+            sources = ["strategy_scan"]
         item["candidate_sources"] = sources
         item["candidate_source"] = "news_surge" if "news_surge" in sources else sources[0]
         item["selection_reason"] = ",".join(sources)

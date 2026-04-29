@@ -15,7 +15,6 @@ from routes.backtest import handle_backtest_run, handle_kospi_backtest
 from routes.broker import handle_kis_status
 from routes.candidate_monitor import handle_candidate_monitor_promotions, handle_candidate_monitor_status, handle_candidate_monitor_watchlist
 from routes.engine import handle_engine_status, handle_engine_summary
-from routes.hanna import handle_hanna_brief
 from routes.market import handle_live_market, handle_stock_price, handle_stock_search
 from routes.optimization import (
     handle_get_optimization_status,
@@ -158,7 +157,6 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/reports/explain", lambda _path, query: handle_reports_explain(_query_value(query, "date") or None)),
     Route("/api/reports/index", lambda _path, _query: handle_reports_index()),
     Route("/api/reports/operations", lambda _path, query: handle_reports_operations(_query_int(query, "limit", 500))),
-    Route("/api/hanna/brief", lambda _path, query: handle_hanna_brief(_query_value(query, "date") or None)),
     Route("/api/research/status", lambda _path, query: handle_research_status(query)),
     Route("/api/research/snapshots/latest", lambda _path, query: handle_research_latest_snapshot(query)),
     Route("/api/research/snapshots", lambda _path, query: handle_research_snapshots(query)),

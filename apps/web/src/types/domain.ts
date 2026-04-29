@@ -1411,20 +1411,6 @@ export interface MacroLatestResponse {
   [key: string]: unknown;
 }
 
-export interface HannaBriefResponse {
-  date?: string;
-  generated_at?: string;
-  summary_lines?: string[];
-  source?: string;
-  report_reasoning?: {
-    regime?: string;
-    risk_level?: string;
-    stance?: string;
-    guard_reasons?: string[];
-    context_risks?: string[];
-  };
-}
-
 export interface WatchlistItem {
   code: string;
   name: string;

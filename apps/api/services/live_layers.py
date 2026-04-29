@@ -69,14 +69,6 @@ def _evidence_ok(research: dict[str, Any]) -> bool:
     return _truthy(data_quality.get("has_technical_features")) or _truthy(data_quality.get("has_news"))
 
 
-def _is_deterministic_fallback(research: dict[str, Any]) -> bool:
-    data_quality = research.get("data_quality") if isinstance(research.get("data_quality"), dict) else {}
-    if str(data_quality.get("analysis_mode") or "").strip().lower() == "deterministic_fallback":
-        return True
-    tags = research.get("tags") if isinstance(research.get("tags"), list) else []
-    return "deterministic_fallback" in {str(tag).strip().lower() for tag in tags}
-
-
 def build_layer_a_snapshot(*, strategy: dict[str, Any], universe: dict[str, Any], symbol: dict[str, Any], scan_time: str) -> dict[str, Any]:
     return {
         "layer": "A",
@@ -229,7 +221,6 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     technical_ok = _technical_sanity_ok(research)
     evidence_ok = _evidence_ok(research)
     validation_ok = _grade_allows_entry(validation)
-    deterministic_fallback = _is_deterministic_fallback(research)
     buy_intent = rating in _BUY_RATINGS and action in _BUY_ACTIONS
     negative_intent = rating in _NEGATIVE_RATINGS or action in _NEGATIVE_ACTIONS
 
@@ -240,10 +231,8 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     elif action == "hold" or rating == "hold":
         agent_decision = {"decision": "agent_hold", "order_ready": False, "reason": "hold_rating_or_action", "rating": rating, "action": action}
     elif buy_intent and confidence >= confidence_threshold and validation_ok and technical_ok and evidence_ok and not warnings:
-        order_ready = (execution_mode == "agent_primary_quant_assisted" and not deterministic_fallback) or quant_entry_ready
+        order_ready = execution_mode == "agent_primary_quant_assisted" or quant_entry_ready
         reason = "agent_buy_confirmed" if order_ready else "agent_buy_without_quant_entry"
-        if deterministic_fallback and not quant_entry_ready:
-            reason = "deterministic_fallback_requires_quant_entry"
         agent_decision = {
             "decision": "agent_primary_buy",
             "order_ready": bool(order_ready),
@@ -253,7 +242,7 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
             "confidence": confidence,
             "technical_sanity": "ok",
             "validation_grade": validation.get("grade"),
-            "analysis_mode": "deterministic_fallback" if deterministic_fallback else "agent_research",
+            "analysis_mode": "agent_research",
         }
     elif buy_intent:
         agent_decision = {
@@ -281,9 +270,6 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     elif buy_intent and agent_decision.get("reason") == "agent_buy_without_quant_entry":
         final_action = "watch_only"
         decision_reason = "agent_buy_without_quant_entry"
-    elif buy_intent and agent_decision.get("reason") == "deterministic_fallback_requires_quant_entry":
-        final_action = "watch_only"
-        decision_reason = "deterministic_fallback_requires_quant_entry"
     elif quant_decision.get("order_ready"):
         final_action = "review_for_entry"
         decision_reason = str(quant_decision.get("reason"))

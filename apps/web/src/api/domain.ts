@@ -7,7 +7,6 @@ import type {
   AgentRunResponse,
   AgentRunsResponse,
   EngineStatusResponse,
-  HannaBriefResponse,
   LiveMarketResponse,
   MacroLatestResponse,
   MarketContextResponse,
@@ -337,10 +336,6 @@ export function fetchMacroLatest() {
   return getJSON<MacroLatestResponse>('/api/macro/latest', { noStore: true });
 }
 
-export function fetchHannaBrief(date?: string) {
-  const qs = date ? `?date=${encodeURIComponent(date)}` : '';
-  return getJSON<HannaBriefResponse>(`/api/hanna/brief${qs}`, { noStore: true });
-}
 
 export function fetchReportsIndex() {
   return getJSON<{ dates?: string[] }>('/api/reports/index', { noStore: true });

@@ -14,7 +14,7 @@ export interface AnalysisData {
   generated_at?: string;
   summary_lines?: string[];
   analysis_html?: string;
-  hanna_context?: {
+  agent_context?: {
     owner?: string;
     deprecated_legacy_playbook?: boolean;
     market_regime?: string;

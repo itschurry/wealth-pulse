@@ -264,87 +264,9 @@ def _normalize_market(market: Any) -> str:
     return aliases.get(text, text)
 
 
-def _fallback_build_agent_research_ingest_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    raw_items = payload.get("items") if isinstance(payload.get("items"), list) else [payload]
-    items: list[dict[str, Any]] = []
-    batch_id = str(payload.get("batch_id") or f"agent-{uuid.uuid4()}")
-    for raw in raw_items:
-        if not isinstance(raw, dict):
-            raise ValueError("item_must_be_object")
-        symbol = _text(raw.get("symbol") or raw.get("code"), field="symbol", required=True)
-        market = _normalize_market(_text(raw.get("market"), field="market", required=True))
-        rating = _text(raw.get("rating") or "hold", field="rating").lower()
-        action = _text(raw.get("action") or "hold", field="action").lower()
-        if rating not in ALLOWED_AGENT_RATINGS:
-            raise ValueError("rating_unsupported")
-        if action not in ALLOWED_AGENT_ACTIONS:
-            raise ValueError("action_unsupported")
-        confidence = _as_score(raw.get("confidence", 0.5), field="confidence")
-        technical_features = _object(raw.get("technical_features"))
-        evidence = _object_list(raw.get("evidence"))
-        buy_intent = rating in BUY_RATINGS and action in BUY_ACTIONS
-        if buy_intent and not technical_features:
-            raise ValueError("technical_features_required_for_buy_intent")
-        if buy_intent and not evidence:
-            raise ValueError("evidence_required_for_buy_intent")
-        trade_plan = _object(raw.get("trade_plan"))
-        if "size_intent_pct" in trade_plan:
-            try:
-                trade_plan["size_intent_pct"] = min(MAX_AGENT_SIZE_INTENT_PCT, max(0.0, float(trade_plan["size_intent_pct"])))
-                trade_plan["sizing"] = "risk_guard_clamped"
-            except (TypeError, ValueError):
-                trade_plan.pop("size_intent_pct", None)
-        data_quality = _object(raw.get("data_quality"))
-        data_quality.setdefault("analysis_mode", "agent_research")
-        data_quality.setdefault("has_technical_features", bool(technical_features))
-        data_quality.setdefault("has_news", bool(_object_list(raw.get("news_inputs"))))
-        data_quality.setdefault("has_recent_price", True)
-        tags = _text_list(raw.get("tags"))
-        if "agent_research" not in tags:
-            tags.append("agent_research")
-        items.append({
-            "symbol": symbol,
-            "market": market,
-            "bucket_ts": _minute_iso(raw.get("bucket_ts") or raw.get("generated_at")),
-            "generated_at": _minute_iso(raw.get("generated_at")),
-            "ttl_minutes": int(raw.get("ttl_minutes") or DEFAULT_AGENT_TTL_MINUTES),
-            "score": confidence,
-            "confidence": confidence,
-            "time_horizon_days": int(raw.get("time_horizon_days") or 5),
-            "rating": rating,
-            "action": action,
-            "summary": _text(raw.get("summary") or raw.get("thesis"), field="summary", required=True),
-            "components": _object(raw.get("components")),
-            "tags": tags,
-            "warnings": _text_list(raw.get("warnings")),
-            "candidate_source": _text(raw.get("candidate_source") or "hermes_agent", field="candidate_source"),
-            "bull_case": _text_list(raw.get("bull_case")),
-            "bear_case": _text_list(raw.get("bear_case")),
-            "catalysts": _text_list(raw.get("catalysts")),
-            "risks": _text_list(raw.get("risks")),
-            "invalidation_trigger": _object(raw.get("invalidation_trigger")),
-            "trade_plan": trade_plan,
-            "technical_features": technical_features,
-            "news_inputs": _object_list(raw.get("news_inputs")),
-            "evidence": evidence,
-            "data_quality": data_quality,
-        })
-    return {
-        "provider": str(payload.get("provider") or DEFAULT_RESEARCH_PROVIDER),
-        "schema_version": "v2",
-        "batch_id": batch_id,
-        "items": items,
-    }
-
-
 def build_agent_research_ingest_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    try:
-        from services.research_agent_payload import build_agent_research_ingest_payload as service_builder  # type: ignore
-        return service_builder(payload)
-    except Exception:
-        return _fallback_build_agent_research_ingest_payload(payload)
-
-
+    from services.research_agent_payload import build_agent_research_ingest_payload as service_builder  # type: ignore
+    return service_builder(payload)
 def _merge_analysis_with_target(analysis: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
     merged = dict(analysis)
     merged.setdefault("symbol", target.get("symbol") or target.get("code"))
@@ -462,7 +384,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=3)
     parser.add_argument("--mode", choices=["missing_or_stale", "missing_only", "stale_only"], default="missing_or_stale")
     parser.add_argument("--dry-run", action="store_true", help="Collect targets and print prompts without calling Hermes")
-    parser.add_argument("--agent-command", default=None, help="Command prefix used to call Hermes, default: env WEALTHPULSE_HERMES_RESEARCH_COMMAND or 'hermes chat -q'")
+    parser.add_argument("--agent-command", default=None, help="Command prefix used to call Hermes, default: env WEALTHPULSE_HERMES_RESEARCH_COMMAND or 'hermes chat -Q -q'")
     parser.add_argument("--api-base-url", default=None, help="WealthPulse API base URL for host-side execution, default: env WEALTHPULSE_API_BASE_URL or http://127.0.0.1:8001")
     parser.add_argument("--timeout", type=int, default=300)
     return parser

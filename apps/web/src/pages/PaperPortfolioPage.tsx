@@ -213,9 +213,9 @@ function mergeOrderHistoryItem(current: Record<string, unknown> | undefined, inc
   };
 }
 
-type HannaState = 'healthy' | 'degraded' | 'timeout' | 'research_unavailable';
+type ResearchState = 'healthy' | 'degraded' | 'timeout' | 'research_unavailable';
 
-function resolveHannaState(status: unknown, researchUnavailable: unknown): HannaState {
+function resolveResearchState(status: unknown, researchUnavailable: unknown): ResearchState {
   if (Boolean(researchUnavailable)) return 'research_unavailable';
   if (String(status || '') === 'timeout') return 'timeout';
   if (String(status || '') === 'degraded') return 'degraded';
@@ -224,7 +224,7 @@ function resolveHannaState(status: unknown, researchUnavailable: unknown): Hanna
   return 'healthy';
 }
 
-function resolveProviderHannaState(providerStatus: string | undefined, freshness: string | undefined): HannaState {
+function resolveProviderResearchState(providerStatus: string | undefined, freshness: string | undefined): ResearchState {
   if (providerStatus === 'healthy') return 'healthy';
   if (providerStatus === 'degraded' || providerStatus === 'stale_ingest') return 'degraded';
   if (providerStatus === 'missing' || freshness === 'missing') return 'research_unavailable';
@@ -232,21 +232,21 @@ function resolveProviderHannaState(providerStatus: string | undefined, freshness
   return 'healthy';
 }
 
-function resolveHannaStateWithProvider(status: unknown, researchUnavailable: unknown, providerStatus?: string, freshness?: string): HannaState {
-  const candidateState = resolveHannaState(status, researchUnavailable);
+function resolveResearchStateWithProvider(status: unknown, researchUnavailable: unknown, providerStatus?: string, freshness?: string): ResearchState {
+  const candidateState = resolveResearchState(status, researchUnavailable);
   if (candidateState === 'research_unavailable') return 'research_unavailable';
   if (candidateState === 'healthy') return 'healthy';
   if (candidateState === 'timeout' || candidateState === 'degraded') return 'degraded';
-  return resolveProviderHannaState(providerStatus, freshness);
+  return resolveProviderResearchState(providerStatus, freshness);
 }
 
-function hannaBadgeClass(state: HannaState) {
+function researchBadgeClass(state: ResearchState) {
   if (state === 'healthy') return 'inline-badge is-success';
   if (state === 'timeout' || state === 'degraded') return 'inline-badge is-danger';
   return 'inline-badge';
 }
 
-function hannaStateLabel(state: HannaState): string {
+function researchStateLabel(state: ResearchState): string {
   if (state === 'healthy') return '정상';
   if (state === 'degraded') return '불안정';
   if (state === 'timeout') return '응답 지연';
@@ -287,7 +287,7 @@ function layerCResearchBadgeClass(kind: 'freshness' | 'grade', value: string): s
   return 'inline-badge';
 }
 
-function hannaTone(state: HannaState): 'neutral' | 'good' | 'bad' {
+function researchTone(state: ResearchState): 'neutral' | 'good' | 'bad' {
   if (state === 'healthy') return 'good';
   if (state === 'timeout' || state === 'degraded') return 'bad';
   return 'neutral';
@@ -499,8 +499,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       .slice(0, 80)
       .sort((a, b) => orderEventTime(b).localeCompare(orderEventTime(a)));
   }, [orderEvents, orders]);
-  const currentHannaState = useMemo<HannaState>(() => {
-    const states = (snapshot.signals.signals || []).map((signal) => resolveHannaStateWithProvider(
+  const currentResearchState = useMemo<ResearchState>(() => {
+    const states = (snapshot.signals.signals || []).map((signal) => resolveResearchStateWithProvider(
       signal.research_status,
       signal.research_unavailable,
       snapshot.research.status,
@@ -509,7 +509,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     if (states.includes('timeout')) return 'timeout';
     if (states.includes('degraded')) return 'degraded';
     if (states.includes('healthy')) return 'healthy';
-    return resolveProviderHannaState(snapshot.research.status, snapshot.research.freshness);
+    return resolveProviderResearchState(snapshot.research.status, snapshot.research.freshness);
   }, [snapshot.research.freshness, snapshot.research.status, snapshot.signals.signals]);
   const signalRiskActionLogs = useMemo(() => {
     return [...signalSnapshots]
@@ -559,7 +559,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           decision_reason?: string;
           final_action?: string;
         }>(item.layer_events, 'E');
-        const hannaState = resolveHannaStateWithProvider(
+        const researchState = resolveResearchStateWithProvider(
           item.research_status,
           item.research_unavailable,
           snapshot.research.status,
@@ -591,7 +591,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           symbolName,
           strategy: String(item.strategy_name || item.strategy_id || '-'),
           market: String(item.market || '-'),
-          hannaState,
+          researchState,
           riskDecision,
           riskReasonCode,
           riskMessage,
@@ -788,11 +788,11 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       tone: 'neutral',
     },
     {
-      label: 'Hanna',
-      value: hannaStateLabel(currentHannaState),
-      tone: hannaTone(currentHannaState),
+      label: 'Hermes',
+      value: researchStateLabel(currentResearchState),
+      tone: researchTone(currentResearchState),
     },
-  ]), [currentHannaState, engineState.engine_state, engineState.running, riskGuardAllowed, status, vm.positionCount]);
+  ]), [currentResearchState, engineState.engine_state, engineState.running, riskGuardAllowed, status, vm.positionCount]);
 
   const handleRefreshAll = useCallback(async () => {
     onRefresh();
@@ -1465,7 +1465,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               </div>
               <div className="detail-list">
                 <div>2단계: 퀀트 스캐너가 진입 후보를 만든 뒤 사유 코드와 스냅샷을 남깁니다.</div>
-                <div>3단계: Hanna는 외부 리서치 점수기일 뿐이고, 매수/매도/주문을 직접 내리지 못합니다.</div>
+                <div>3단계: Hermes는 판단만 만들고, Risk Gate와 Executor가 주문 여부를 결정합니다.</div>
                 <div>3단계 점수는 최신성/등급을 같이 봐야 합니다. D등급이면 점수 숫자는 숨기고 사유만 봅니다.</div>
                 <div>4·5단계: 리스크 게이트가 최종 거부권을 쥐고, 결과는 진입 검토 / 관찰 전용 / 차단 / 관망으로만 끝냅니다.</div>
               </div>
@@ -1986,10 +1986,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             <div className="section-head-row">
               <div>
                 <div className="section-title">리스크/액션 로그</div>
-                <div className="section-copy">4단계 리스크 결과와 5단계 최종 액션을 분리해서 보여줍니다. Hanna 상태는 참고 정보이고 주문 허용 여부는 리스크 거부 기준으로 읽으면 됩니다.</div>
+                <div className="section-copy">4단계 리스크 결과와 5단계 최종 액션을 분리해서 보여줍니다. Hermes 리서치 상태는 참고 정보이고 주문 허용 여부는 Risk Gate 결과로 읽으면 됩니다.</div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <div className={hannaBadgeClass(currentHannaState)}>Hanna {hannaStateLabel(currentHannaState)}</div>
+                <div className={researchBadgeClass(currentResearchState)}>Hermes {researchStateLabel(currentResearchState)}</div>
                 <div className={layerCResearchBadgeClass('freshness', String(snapshot.research.freshness || 'missing').toLowerCase())}>{freshnessToKorean(String(snapshot.research.freshness || 'missing'))}</div>
               </div>
             </div>
@@ -2009,7 +2009,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                     <th style={{ padding: 12, fontSize: 15 }}>시각</th>
                     <th style={{ padding: 12, fontSize: 15 }}>종목</th>
                     <th style={{ padding: 12, fontSize: 15 }}>전략</th>
-                    <th style={{ padding: 12, fontSize: 15 }}>Hanna</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>Hermes</th>
                     <th style={{ padding: 12, fontSize: 15 }}>3단계</th>
                     <th style={{ padding: 12, fontSize: 15 }}>4단계</th>
                     <th style={{ padding: 12, fontSize: 15 }}>5단계</th>
@@ -2025,7 +2025,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       </td>
                       <td style={{ padding: 12, fontSize: 15 }}>{item.strategy}</td>
                       <td style={{ padding: 12, fontSize: 15 }}>
-                        <div className={hannaBadgeClass(item.hannaState)}>{hannaStateLabel(item.hannaState)}</div>
+                        <div className={researchBadgeClass(item.researchState)}>{researchStateLabel(item.researchState)}</div>
                       </td>
                       <td style={{ padding: 12, fontSize: 15 }}>
                         <div className="workspace-chip-row">
@@ -2072,7 +2072,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                       </div>
                       <div className="signal-cell-copy">{item.market} · {item.strategy}</div>
                     </div>
-                    <div className={hannaBadgeClass(item.hannaState)}>{hannaStateLabel(item.hannaState)}</div>
+                    <div className={researchBadgeClass(item.researchState)}>{researchStateLabel(item.researchState)}</div>
                   </div>
                   <div className="responsive-card-grid">
                     <div><div className="responsive-card-label">시각</div><div className="responsive-card-value">{formatDateTime(item.timestamp)}</div></div>
