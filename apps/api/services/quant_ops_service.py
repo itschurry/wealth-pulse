@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import RUNTIME_DIR
 from services.json_utils import json_dump_text, read_json_file_cached
 from services.backtest_params_store import (
     BACKTEST_VALIDATION_SETTINGS_PATH,
@@ -30,7 +30,7 @@ from services.validation_service import run_validation_diagnostics
 from services.signal_service import normalize_runtime_candidate_source_mode
 
 
-_QUANT_OPS_STATE_PATH = LOGS_DIR / "quant_ops_state.json"
+_QUANT_OPS_STATE_PATH = RUNTIME_DIR / "quant_ops_state.json"
 _OPT_RUNNING_FLAG = Path("/tmp/optimization_running")
 _OPTIMIZER_SCRIPT_NAME = "run_monte_carlo_optimizer.py"
 _OPTIMIZABLE_KEYS = {

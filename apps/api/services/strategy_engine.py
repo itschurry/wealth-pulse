@@ -397,7 +397,7 @@ def build_signal_book(
             if not isinstance(candidate, dict):
                 continue
             signal = (
-                {**candidate, "strategy_role": "legacy_fallback", "candidate_primary_source": "strategy_scanner_fallback"}
+                {**candidate, "strategy_role": "scanner_fallback", "candidate_primary_source": "strategy_scanner_fallback"}
                 if fallback_to_live
                 else _build_signal_from_candidate(
                     candidate=candidate,

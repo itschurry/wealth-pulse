@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from services.execution_service import get_execution_service
+from services.runtime_execution_service import get_execution_service
 from services.strategy_engine import build_signal_book
 from services.strategy_registry import list_strategies
 
@@ -113,7 +113,7 @@ def handle_scanner_status(query: dict[str, list[str]]) -> tuple[int, dict]:
         refresh = _to_bool((query.get("refresh", ["0"])[0] or "0"), False)
         cache_only = _to_bool((query.get("cache_only", ["0"])[0] or "0"), False)
         markets = _normalize_markets(query)
-        _, execution_payload = get_execution_service().paper_engine_status()
+        _, execution_payload = get_execution_service().runtime_engine_status()
         account = execution_payload.get("account") if isinstance(execution_payload, dict) else {}
         account = account if isinstance(account, dict) else {}
 

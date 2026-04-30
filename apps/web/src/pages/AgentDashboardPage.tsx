@@ -8,6 +8,7 @@ import {
   runAgent,
 } from '../api/domain';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
+import { SymbolIdentity } from '../components/SymbolIdentity';
 import type {
   AgentBrokerStatusResponse,
   AgentDecisionItem,
@@ -54,8 +55,27 @@ function statusBadge(value: string | undefined): { label: string; tone: string }
   const normalized = String(value || '').toLowerCase();
   if (['completed', 'submitted', 'approved', 'buy'].includes(normalized)) return { label: value || '-', tone: 'inline-badge is-success' };
   if (['failed', 'rejected', 'blocked', 'sell'].includes(normalized)) return { label: value || '-', tone: 'inline-badge is-danger' };
-  if (['running', 'paper', 'hold', 'skipped'].includes(normalized)) return { label: value || '-', tone: 'inline-badge' };
+  if (['running', 'hold', 'skipped'].includes(normalized)) return { label: value || '-', tone: 'inline-badge' };
   return { label: value || '-', tone: 'inline-badge' };
+}
+
+function executionChannelLabel(value: string | undefined): string {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return 'runtime';
+  return normalized;
+}
+
+function payloadText(item: { payload?: Record<string, unknown> } | null | undefined, key: string): string {
+  const payload = item?.payload;
+  return String(payload && payload[key] ? payload[key] : '').trim();
+}
+
+function itemName(item: { name?: string; payload?: Record<string, unknown> } | null | undefined): string {
+  return String(item?.name || payloadText(item, 'name')).trim();
+}
+
+function itemMarket(item: { market?: string; payload?: Record<string, unknown> } | null | undefined): string {
+  return String(item?.market || payloadText(item, 'market')).trim().toUpperCase();
 }
 
 function StatCard({ label, value, copy }: { label: string; value: string | number; copy?: string }) {
@@ -228,7 +248,7 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
                   <tr key={String(runId)}>
                     <td>#{String(runId)}</td>
                     <td><span className={badge.tone}>{badge.label}</span></td>
-                    <td>{item.execution_channel || 'runtime'}</td>
+                    <td>{executionChannelLabel(item.execution_channel)}</td>
                     <td>{formatNumber(item.summary?.candidate_count || 0)}</td>
                     <td>{formatNumber(item.summary?.decisions || 0)}</td>
                     <td>{formatNumber(item.summary?.risk_approved || 0)} / {formatNumber(item.summary?.risk_rejected || 0)}</td>
@@ -247,7 +267,9 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
           <div className="section-title">최근 판단</div>
           <div className="workspace-chip-row" style={{ marginTop: 10 }}>
             <span className={latestDecisionStatus.tone}>{latestDecisionStatus.label}</span>
-            <span className="inline-badge">{latestDecision?.symbol || '-'}</span>
+            <span className="inline-badge">
+              <SymbolIdentity code={latestDecision?.symbol} name={itemName(latestDecision)} market={itemMarket(latestDecision)} compact />
+            </span>
             <span className="inline-badge">신뢰도 {formatNumber(Number(latestDecision?.confidence || 0), 2)}</span>
           </div>
           <div className="section-copy" style={{ marginTop: 10 }}>{formatDateTime(latestDecision?.created_at)}</div>
@@ -256,8 +278,10 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
           <div className="section-title">최근 주문 기록</div>
           <div className="workspace-chip-row" style={{ marginTop: 10 }}>
             <span className={latestOrderStatus.tone}>{latestOrderStatus.label}</span>
-            <span className="inline-badge">{latestOrder?.execution_channel || 'runtime'}</span>
-            <span className="inline-badge">{latestOrder?.symbol || '-'}</span>
+            <span className="inline-badge">{executionChannelLabel(latestOrder?.execution_channel)}</span>
+            <span className="inline-badge">
+              <SymbolIdentity code={latestOrder?.symbol} name={itemName(latestOrder)} market={itemMarket(latestOrder)} compact />
+            </span>
           </div>
           <div className="section-copy" style={{ marginTop: 10 }}>Executor가 남긴 최신 주문/실행 기록입니다.</div>
         </div>

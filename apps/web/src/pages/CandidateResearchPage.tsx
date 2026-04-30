@@ -143,6 +143,13 @@ function validationBadge(item: CandidateMonitorSlot): { label: string; tone: str
   return { label: gradeToKorean(grade), tone: 'inline-badge is-danger' };
 }
 
+function candidateRankDisplay(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '-';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0 || numeric >= 999999) return '-';
+  return formatNumber(numeric, 0);
+}
+
 function promotionEventBadge(item: CandidateMonitorPromotionEvent): { label: string; tone: string } {
   const eventType = String(item.event_type || '').toLowerCase();
   if (eventType === 'entered_watch') return { label: '감시 편입', tone: 'inline-badge is-success' };
@@ -315,7 +322,7 @@ function MonitorSlotSection({
                         </div>
                       </td>
                       <td>{item.strategy_name || item.strategy_id || '-'}</td>
-                      <td>{item.candidate_rank ?? '-'}</td>
+                      <td>{candidateRankDisplay(item.candidate_rank)}</td>
                       <td>
                         <div className="workspace-chip-row">
                           <span className={status.tone}>{status.label}</span>
@@ -349,8 +356,10 @@ function MonitorSlotSection({
                 >
                   <div className="responsive-card-head">
                     <div>
-                      <div className="responsive-card-title">{item.name || symbol || '-'}</div>
-                      <div className="signal-cell-copy">{item.strategy_name || item.strategy_id || '-'} · 순위 {item.candidate_rank ?? '-'}</div>
+                      <div className="responsive-card-title">
+                        <SymbolIdentity code={symbol} name={item.name} market={item.market} compact />
+                      </div>
+                      <div className="signal-cell-copy">{item.strategy_name || item.strategy_id || '-'} · 순위 {candidateRankDisplay(item.candidate_rank)}</div>
                     </div>
                     <span className={action.tone}>{action.label}</span>
                   </div>
@@ -470,7 +479,7 @@ function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }
                     <tr key={`${item.market}-${item.symbol}-${item.created_at}-${idx}`}>
                       <td>{item.created_at ? formatDateTime(item.created_at) : '-'}</td>
                       <td>{item.market || '-'}</td>
-                      <td><SymbolIdentity code={item.symbol} market={item.market} /></td>
+                      <td><SymbolIdentity code={item.symbol} name={item.name} market={item.market} /></td>
                       <td><span className={event.tone}>{event.label}</span></td>
                       <td>{promotionReasonLabel(item)}</td>
                     </tr>
@@ -486,7 +495,7 @@ function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }
                 <article key={`${item.market}-${item.symbol}-${item.created_at}-${idx}-card`} className="responsive-card" style={{ cursor: 'default' }}>
                   <div className="responsive-card-head">
                     <div>
-                      <div className="responsive-card-title">{item.symbol || '-'}</div>
+                      <div className="responsive-card-title"><SymbolIdentity code={item.symbol} name={item.name} market={item.market} compact /></div>
                       <div className="signal-cell-copy">{item.market || '-'} · {item.created_at ? formatDateTime(item.created_at) : '-'}</div>
                     </div>
                     <span className={event.tone}>{event.label}</span>

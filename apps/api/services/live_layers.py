@@ -6,7 +6,7 @@ from typing import Any
 from services.research_scoring import ResearchScoreRequest, get_research_scorer
 
 
-_AGENT_EXECUTION_MODES = {"quant_gated_agent", "agent_primary_quant_assisted", "agent_only_paper"}
+_AGENT_EXECUTION_MODES = {"quant_gated_agent", "agent_primary_quant_assisted", "agent_only"}
 _BUY_RATINGS = {"strong_buy", "overweight"}
 _BUY_ACTIONS = {"buy", "buy_watch"}
 _NEGATIVE_RATINGS = {"underweight", "sell"}

@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-from config.settings import KIS_ACCOUNT_ACNT_PRDT_CD, KIS_ACCOUNT_CANO, KIS_APP_KEY, KIS_APP_SECRET, KIS_BASE_URL, LOGS_DIR
+from config.settings import CONFIG_STATE_DIR, KIS_ACCOUNT_ACNT_PRDT_CD, KIS_ACCOUNT_CANO, KIS_APP_KEY, KIS_APP_SECRET, KIS_BASE_URL
 
-DEFAULT_RISK_CONFIG_PATH = LOGS_DIR / "agent_risk_config.json"
+DEFAULT_RISK_CONFIG_PATH = CONFIG_STATE_DIR / "agent_risk_config.json"
 
 _DEFAULT_CONFIG: dict[str, Any] = {
     "min_confidence": 0.7,

@@ -16,7 +16,6 @@ export interface AnalysisData {
   analysis_html?: string;
   agent_context?: {
     owner?: string;
-    deprecated_legacy_playbook?: boolean;
     market_regime?: string;
     short_term_bias?: 'bullish' | 'neutral' | 'defensive';
     mid_term_bias?: 'bullish' | 'neutral' | 'defensive';
@@ -603,7 +602,7 @@ export interface BacktestData {
   error?: string;
 }
 
-export interface PaperStrategyProfile {
+export interface RuntimeStrategyProfile {
   market: 'KOSPI' | 'NASDAQ';
   max_positions: number;
   max_holding_days: number;
@@ -623,7 +622,7 @@ export interface PaperStrategyProfile {
   signal_range: '1d' | '5d' | '1mo' | '3mo' | '6mo' | '1y';
 }
 
-export interface PaperPosition {
+export interface RuntimePosition {
   code: string;
   name: string;
   market: 'KOSPI' | 'NASDAQ';
@@ -641,7 +640,7 @@ export interface PaperPosition {
   updated_at?: string;
 }
 
-export interface PaperOrderEvent {
+export interface RuntimeOrderEvent {
   order_id: string;
   trace_id?: string;
   ts: string;
@@ -672,7 +671,7 @@ export interface PaperOrderEvent {
   failure_reason?: string;
 }
 
-export interface PaperAccountData {
+export interface RuntimeAccountData {
   mode: 'paper' | 'real' | 'live' | string;
   base_currency: 'MULTI' | 'KRW' | 'USD' | string;
   created_at?: string;
@@ -691,12 +690,12 @@ export interface PaperAccountData {
   realized_pnl_usd: number;
   total_fees_krw: number;
   total_fees_usd: number;
-  positions: PaperPosition[];
-  orders: PaperOrderEvent[];
+  positions: RuntimePosition[];
+  orders: RuntimeOrderEvent[];
   error?: string;
 }
 
-export interface PaperSeedPositionInput {
+export interface RuntimeSeedPositionInput {
   code: string;
   name?: string;
   market: 'KOSPI' | 'NASDAQ';
@@ -704,7 +703,7 @@ export interface PaperSeedPositionInput {
   avg_price_local: number;
 }
 
-export interface PaperEngineConfig {
+export interface RuntimeEngineConfig {
   interval_seconds: number;
   markets: Array<'KOSPI' | 'NASDAQ'>;
   max_positions_per_market: number;
@@ -740,10 +739,10 @@ export interface PaperEngineConfig {
     daily_limit?: number;
     min_holding_days?: number;
   };
-  market_profiles?: Partial<Record<'KOSPI' | 'NASDAQ', PaperStrategyProfile>>;
+  market_profiles?: Partial<Record<'KOSPI' | 'NASDAQ', RuntimeStrategyProfile>>;
 }
 
-export interface PaperSkippedItem {
+export interface RuntimeSkippedItem {
   code?: string;
   name?: string;
   market?: string;
@@ -751,7 +750,7 @@ export interface PaperSkippedItem {
 }
 
 
-export interface PaperWorkflowItem {
+export interface RuntimeWorkflowItem {
   signal_key?: string;
   workflow_stage?: string;
   execution_status?: string;
@@ -785,14 +784,14 @@ export interface PaperWorkflowItem {
   };
 }
 
-export interface PaperWorkflowSummary {
+export interface RuntimeWorkflowSummary {
   counts?: Record<string, number>;
   lifecycle_counts?: Record<string, number>;
-  items?: PaperWorkflowItem[];
+  items?: RuntimeWorkflowItem[];
   count?: number;
 }
 
-export interface PaperEngineState {
+export interface RuntimeEngineState {
   engine_state?: 'idle' | 'running' | 'paused' | 'stopped' | 'error' | string;
   running: boolean;
   execution_mode?: 'paper' | 'live' | string;
@@ -851,7 +850,7 @@ export interface PaperEngineState {
     candidate_counts_by_market?: Record<string, number>;
     blocked_reason_counts?: Record<string, number>;
     skip_reason_counts?: Record<string, number>;
-    skipped?: PaperSkippedItem[];
+    skipped?: RuntimeSkippedItem[];
     closed_markets?: string[];
     pnl_snapshot?: {
       realized_today?: number;
@@ -891,8 +890,8 @@ export interface PaperEngineState {
       }>;
     };
   };
-  config?: Partial<PaperEngineConfig>;
-  workflow_summary?: PaperWorkflowSummary;
+  config?: Partial<RuntimeEngineConfig>;
+  workflow_summary?: RuntimeWorkflowSummary;
   execution_lifecycle_summary?: {
     counts?: Record<string, number>;
     terminal_counts?: Record<string, number>;

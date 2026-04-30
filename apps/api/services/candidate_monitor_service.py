@@ -5,9 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import CACHE_DIR, CONFIG_STATE_DIR
+from market_utils import lookup_company_listing
 from services import candidate_monitor_store as store
-from services.paper_runtime_store import list_strategy_scans
+from services.runtime_store import list_strategy_scans
 
 DEFAULT_POOL_LIMIT = 40
 DEFAULT_CORE_LIMIT = 12
@@ -25,6 +26,7 @@ _SIGNAL_STATE_WEIGHT = {
     "watch": 180.0,
     "exit": 0.0,
 }
+_MISSING_RANK_SENTINEL = 999999
 
 
 def _now_local() -> datetime.datetime:
@@ -41,6 +43,37 @@ def _normalize_market(value: Any) -> str:
 
 def _normalize_symbol(value: Any) -> str:
     return str(value or "").strip().upper()
+
+
+def _normalize_candidate_rank(value: Any) -> int | None:
+    try:
+        rank = int(value)
+    except (TypeError, ValueError):
+        return None
+    if rank <= 0 or rank >= _MISSING_RANK_SENTINEL:
+        return None
+    return rank
+
+
+def _rank_sort_value(value: Any) -> int:
+    return _normalize_candidate_rank(value) or _MISSING_RANK_SENTINEL
+
+
+def _resolve_company_identity(symbol: str, market: str, name: Any = "") -> dict[str, str]:
+    normalized_symbol = _normalize_symbol(symbol)
+    normalized_market = _normalize_market(market)
+    resolved_name = str(name or "").strip()
+    resolved_sector = ""
+    if normalized_symbol and (not resolved_name or resolved_name.upper() == normalized_symbol):
+        try:
+            listing = lookup_company_listing(code=normalized_symbol, market=normalized_market, scope="core") or {}
+        except Exception:
+            listing = {}
+        candidate_name = str(listing.get("name") or "").strip()
+        if candidate_name:
+            resolved_name = candidate_name
+        resolved_sector = str(listing.get("sector") or "").strip()
+    return {"name": resolved_name, "sector": resolved_sector}
 
 
 def _iter_positions(account: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -89,7 +122,7 @@ def _read_json(path: Path) -> Any:
 
 def _load_interest_watchlist(market: str) -> dict[str, dict[str, Any]]:
     normalized_market = _normalize_market(market)
-    raw = _read_json(LOGS_DIR / "watchlist.json")
+    raw = _read_json(CONFIG_STATE_DIR / "watchlist.json")
     if not isinstance(raw, list):
         return {}
     rows: dict[str, dict[str, Any]] = {}
@@ -101,11 +134,13 @@ def _load_interest_watchlist(market: str) -> dict[str, dict[str, Any]]:
         symbol = _normalize_symbol(item.get("code") or item.get("symbol"))
         if not symbol:
             continue
+        identity = _resolve_company_identity(symbol, normalized_market, item.get("name"))
         rows[symbol] = {
             "code": symbol,
             "symbol": symbol,
             "market": normalized_market,
-            "name": str(item.get("name") or "").strip(),
+            "name": identity["name"],
+            "sector": identity["sector"] or str(item.get("sector") or "").strip(),
             "current_price": item.get("price"),
             "change_pct": item.get("change_pct"),
             "candidate_source": "user_watchlist",
@@ -117,7 +152,7 @@ def _load_interest_watchlist(market: str) -> dict[str, dict[str, Any]]:
 
 
 def _load_latest_research_snapshot(symbol: str, market: str) -> dict[str, Any]:
-    path = LOGS_DIR / "research_snapshots" / "latest" / f"default__{_normalize_market(market)}__{_normalize_symbol(symbol)}.json"
+    path = CACHE_DIR / "research_snapshots" / "latest" / f"default__{_normalize_market(market)}__{_normalize_symbol(symbol)}.json"
     data = _read_json(path)
     return data if isinstance(data, dict) else {}
 
@@ -170,6 +205,7 @@ def _news_surge_score(candidate: dict[str, Any], snapshot: dict[str, Any]) -> fl
 def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], interest_symbols: set[str]) -> dict[str, Any]:
     symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
     market = _normalize_market(candidate.get("market"))
+    identity = _resolve_company_identity(symbol, market, candidate.get("name"))
     technical = _technical_payload(candidate)
     price = _first_number(candidate, technical, "current_price", "price", "close")
     volume = _first_number(candidate, technical, "volume", "accumulated_volume", "acml_vol")
@@ -193,6 +229,8 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
     return {
         "symbol": symbol,
         "market": market,
+        "name": identity["name"],
+        "sector": identity["sector"],
         "trading_value": trading_value,
         "change_pct": change_pct,
         "news_surge_score": news_score,
@@ -234,11 +272,7 @@ def _candidate_priority(candidate: dict[str, Any], *, held_symbols: set[str], in
     symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
     action = str(candidate.get("final_action") or "").strip().lower()
     signal_state = str(candidate.get("signal_state") or "watch").strip().lower()
-    rank_raw = candidate.get("candidate_rank")
-    try:
-        rank = int(rank_raw) if rank_raw is not None else 999999
-    except (TypeError, ValueError):
-        rank = 999999
+    rank = _rank_sort_value(candidate.get("candidate_rank"))
     score = _to_float(candidate.get("score"), 0.0)
     fresh, freshness = _extract_candidate_freshness(candidate)
     bonus = 0.0
@@ -317,6 +351,14 @@ def _annotate_standard_sources(rows: list[dict[str, Any]], *, held_symbols: set[
             ranks[source] = idx
             item["source_ranks"] = ranks
     for item in rows:
+        symbol = _normalize_symbol(item.get("code") or item.get("symbol"))
+        market = _normalize_market(item.get("market"))
+        item["candidate_rank"] = _normalize_candidate_rank(item.get("candidate_rank"))
+        identity = _resolve_company_identity(symbol, market, item.get("name"))
+        if identity.get("name"):
+            item["name"] = identity["name"]
+        if identity.get("sector") and not item.get("sector"):
+            item["sector"] = identity["sector"]
         sources = item.get("candidate_sources") if isinstance(item.get("candidate_sources"), list) else []
         if not sources:
             sources = ["strategy_scan"]
@@ -365,11 +407,12 @@ def _dedupe_market_candidates(market: str, *, account: dict[str, Any] | None = N
                 "code": symbol,
                 "symbol": symbol,
                 "market": normalized_market,
+                **_resolve_company_identity(symbol, normalized_market),
                 "candidate_source": "held_position",
                 "final_action": "watch_only",
                 "signal_state": "watch",
                 "score": 0,
-                "candidate_rank": 999999,
+                "candidate_rank": None,
                 "last_scanned_at": _now_local().isoformat(timespec="seconds"),
             }
     for symbol, row in interest_rows.items():
@@ -378,7 +421,7 @@ def _dedupe_market_candidates(market: str, *, account: dict[str, Any] | None = N
     rows.sort(
         key=lambda item: (
             float(item.get("monitor_priority") or 0.0),
-            -int(item.get("candidate_rank") or 999999) if item.get("candidate_rank") is not None else -999999,
+            -_rank_sort_value(item.get("candidate_rank")),
             float(item.get("score") or 0.0),
             _normalize_symbol(item.get("code") or item.get("symbol")),
         ),
@@ -576,7 +619,7 @@ def list_pending_research_targets(
     rows.sort(
         key=lambda item: (
             int(item.get("priority") or item.get("monitor_priority") or 0),
-            -int(item.get("candidate_rank") or 999999) if item.get("candidate_rank") is not None else -999999,
+            -_rank_sort_value(item.get("candidate_rank")),
             str(item.get("market") or ""),
             str(item.get("symbol") or item.get("code") or ""),
         ),

@@ -6,9 +6,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import RUNTIME_DIR
 
-DB_PATH = LOGS_DIR / "candidate_monitor.db"
+DB_PATH = RUNTIME_DIR / "candidate_monitor.db"
 
 
 def _now_iso() -> str:
@@ -123,6 +123,12 @@ def _from_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
         payload["entry_allowed"] = bool(payload.get("entry_allowed"))
     if "snapshot_fresh" in payload:
         payload["snapshot_fresh"] = bool(payload.get("snapshot_fresh"))
+    if payload.get("candidate_rank") is not None:
+        try:
+            rank = int(payload.get("candidate_rank"))
+            payload["candidate_rank"] = None if rank >= 999999 else rank
+        except (TypeError, ValueError):
+            payload["candidate_rank"] = None
     return payload
 
 

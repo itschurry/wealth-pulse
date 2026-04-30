@@ -5,15 +5,14 @@ from typing import Any
 import os
 import stat
 
+from config.settings import RUNTIME_DIR
 from services.json_utils import json_dump_text, read_json_file_cached
 
 
 
-_API_DIR = Path(__file__).resolve().parent.parent
-_REPO_ROOT = _API_DIR.parent.parent
-_LOGS_DIR = Path(os.getenv("LOGS_DIR", str(_REPO_ROOT / "storage" / "logs")))
-SEARCH_OPTIMIZED_PARAMS_PATH = _LOGS_DIR / "optimized_params.json"
-RUNTIME_OPTIMIZED_PARAMS_PATH = _LOGS_DIR / "runtime_optimized_params.json"
+OPTIMIZED_PARAMS_DIR = RUNTIME_DIR / "optimized_params"
+SEARCH_OPTIMIZED_PARAMS_PATH = OPTIMIZED_PARAMS_DIR / "search.json"
+RUNTIME_OPTIMIZED_PARAMS_PATH = OPTIMIZED_PARAMS_DIR / "runtime.json"
 _EXECUTION_APPROVED_SOURCES = {
     "validated_candidate",
     "quant_ops_saved_candidate",

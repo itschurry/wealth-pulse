@@ -11,7 +11,7 @@ _WRAPPED_PREFIXES: tuple[str, ...] = (
     "/api/signals",
     "/api/validation",
     "/api/quant-ops",
-    "/api/paper",
+    "/api/runtime",
     "/api/performance/summary",
     "/api/reports/operations",
 )
@@ -99,7 +99,7 @@ def build_error_envelope(payload: ApiPayload, *, source: str, status_code: int) 
     }
 
 
-def normalize_legacy_response(path: str, status_code: int, payload: Any) -> Any:
+def normalize_api_response(path: str, status_code: int, payload: Any) -> Any:
     if not should_wrap_response(path) or not isinstance(payload, dict):
         return payload
     source = path.removeprefix("/api/").replace("/", "_") or "api"

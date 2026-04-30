@@ -129,7 +129,7 @@ export interface ActionBarAction {
   confirmDetails?: string[];
 }
 
-export interface PaperViewModel {
+export interface RuntimeViewModel {
   totalEquityKrw: number;
   cashKrw: number;
   cashUsd: number;

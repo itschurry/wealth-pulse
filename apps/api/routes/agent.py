@@ -6,7 +6,7 @@ from urllib.parse import unquote
 
 from routes.candidate_monitor import handle_candidate_monitor_watchlist
 from routes.research import handle_research_latest_snapshot
-from routes.trading import handle_paper_order, handle_paper_account
+from routes.trading import handle_runtime_order, handle_runtime_account
 from services.agent_decision_provider import call_hermes_trade_decision, research_analysis_to_trade_decision
 from services.agent_runner import run_agent_once
 from services.agent_store import default_store
@@ -125,7 +125,7 @@ def _decision_provider_from_payload(payload: dict[str, Any]):
 
 
 def _submit_runtime_order(payload: dict[str, Any]) -> dict[str, Any]:
-    status, result = handle_paper_order(payload)
+    status, result = handle_runtime_order(payload)
     if not isinstance(result, dict):
         result = {"raw": result}
     return {"ok": 200 <= int(status) < 300 and bool(result.get("ok", True)), "status_code": status, **result}
@@ -149,7 +149,7 @@ def _account_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if account is not None:
         return account
     try:
-        status, result = handle_paper_account(False)
+        status, result = handle_runtime_account(False)
         if status == 200 and isinstance(result, dict):
             nested = result.get("account")
             return nested if isinstance(nested, dict) else result

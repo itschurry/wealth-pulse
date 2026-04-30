@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import CONFIG_STATE_DIR, RUNTIME_DIR
 from schemas.strategy_metadata import portfolio_defaults, strategy_defaults
-BACKTEST_VALIDATION_SETTINGS_PATH = LOGS_DIR / "backtest_validation_settings.json"
+BACKTEST_VALIDATION_SETTINGS_PATH = CONFIG_STATE_DIR / "backtest_validation_settings.json"
 STATE_SCHEMA_VERSION = 1
 
 _DEFAULT_QUERY: dict[str, Any] = {
@@ -232,7 +232,7 @@ def _build_state_snapshot(
 
 def _load_runtime_apply_meta() -> dict[str, Any] | None:
     """quant_ops_state.json 의 runtime_apply 메타만 읽는다. 없으면 None."""
-    path = LOGS_DIR / "quant_ops_state.json"
+    path = RUNTIME_DIR / "quant_ops_state.json"
     try:
         if not path.exists():
             return None
@@ -250,7 +250,7 @@ def _build_response(query: dict[str, Any], settings: dict[str, Any], saved_at: s
     approved_snapshot: dict[str, Any] | None = None
     applied_snapshot: dict[str, Any] | None = None
     if ra:
-        ra_source = str(LOGS_DIR / "quant_ops_state.json")
+        ra_source = str(RUNTIME_DIR / "quant_ops_state.json")
         if ra.get("approved_at"):
             approved_snapshot = {
                 "status": "approved",

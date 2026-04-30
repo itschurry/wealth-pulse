@@ -285,9 +285,7 @@ def _build_quant_runtime_candidate(
 
 
 def _universe_code_set(market: str) -> set[str]:
-    """실거래 유니버스 스냅샷(storage/logs/universe_snapshots)에서 유효 종목 코드 집합을 반환한다.
-    스냅샷이 없거나 비어 있으면 빈 집합을 반환하고, 호출부에서 fail-closed 처리한다.
-    """
+    """유니버스 스냅샷에서 유효 종목 코드 집합을 반환한다."""
     rule = "kospi" if normalize_market(market) == "KOSPI" else "sp500"
     snapshot = get_universe_snapshot(rule, market=market)
     return {

@@ -5,23 +5,22 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import CACHE_DIR, RUNTIME_DIR
 from services.json_utils import json_dump_compact, json_dump_text, read_json_file_cached
 
 
-ENGINE_STATE_PATH = LOGS_DIR / "engine_state.json"
-ENGINE_CYCLES_DIR = LOGS_DIR / "engine_cycles"
-ORDER_EVENTS_PATH = LOGS_DIR / "order_events.jsonl"
-EXECUTION_EVENTS_PATH = LOGS_DIR / "execution_events.jsonl"
-SIGNAL_SNAPSHOTS_PATH = LOGS_DIR / "signal_snapshots.jsonl"
-ACCOUNT_SNAPSHOTS_PATH = LOGS_DIR / "account_snapshots.jsonl"
-UNIVERSE_SNAPSHOTS_DIR = LOGS_DIR / "universe_snapshots"
-STRATEGY_SCANS_DIR = LOGS_DIR / "strategy_scans"
-RUNTIME_EVENTS_PATH = LOGS_DIR / "runtime_events.jsonl"
+ENGINE_STATE_PATH = RUNTIME_DIR / "engine_state.json"
+ENGINE_CYCLES_DIR = RUNTIME_DIR / "engine_cycles"
+EVENTS_DIR = RUNTIME_DIR / "events"
+ORDER_EVENTS_PATH = EVENTS_DIR / "order_events.jsonl"
+EXECUTION_EVENTS_PATH = EVENTS_DIR / "execution_events.jsonl"
+SIGNAL_SNAPSHOTS_PATH = EVENTS_DIR / "signal_snapshots.jsonl"
+ACCOUNT_SNAPSHOTS_PATH = EVENTS_DIR / "account_snapshots.jsonl"
+RUNTIME_EVENTS_PATH = EVENTS_DIR / "runtime_events.jsonl"
+UNIVERSE_SNAPSHOTS_DIR = CACHE_DIR / "universe_snapshots"
+STRATEGY_SCANS_DIR = CACHE_DIR / "strategy_scans"
 
-# 서버 시작 시 execution_events.jsonl 파일이 없으면 빈 파일로 초기화한다.
-# order_events.jsonl 은 paper_reset 시 생성되지만 execution_events.jsonl 은
-# 첫 번째 이벤트 기록 전까지 존재하지 않아 모니터링 도구에서 오류를 일으킬 수 있다.
+# 서버 시작 시 execution event stream이 없으면 빈 파일로 초기화한다.
 EXECUTION_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
 if not EXECUTION_EVENTS_PATH.exists():
     EXECUTION_EVENTS_PATH.touch()

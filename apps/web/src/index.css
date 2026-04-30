@@ -2383,7 +2383,7 @@ button:disabled {
 
 .console-page-shell,
 .strategies-shell,
-.paper-ops-shell,
+.runtime-ops-shell,
 .performance-shell {
   gap: 18px;
 }
@@ -2438,32 +2438,32 @@ button:disabled {
   overflow: hidden;
 }
 
-.paper-ops-shell .console-actionbar-head {
+.runtime-ops-shell .console-actionbar-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
 }
 
-.paper-ops-shell .console-actionbar-buttons {
+.runtime-ops-shell .console-actionbar-buttons {
   max-width: 520px;
   justify-content: flex-end;
 }
 
-.paper-ops-shell .console-actionbar-buttons > * {
+.runtime-ops-shell .console-actionbar-buttons > * {
   flex: 0 0 auto;
 }
 
-.paper-ops-shell .validation-decision-hero {
+.runtime-ops-shell .validation-decision-hero {
   gap: 12px;
 }
 
-.paper-ops-shell .validation-decision-grid {
+.runtime-ops-shell .validation-decision-grid {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
-.paper-ops-overview-grid,
-.paper-ops-summary-grid,
-.paper-ops-log-grid {
+.runtime-ops-overview-grid,
+.runtime-ops-summary-grid,
+.runtime-ops-log-grid {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -2471,13 +2471,13 @@ button:disabled {
 
 .performance-shell .responsive-table-desktop,
 .strategies-registry-shell .responsive-table-desktop,
-.paper-ops-shell .responsive-table-desktop {
+.runtime-ops-shell .responsive-table-desktop {
   width: 100%;
 }
 
-.paper-ops-overview-grid > *,
-.paper-ops-summary-grid > *,
-.paper-ops-log-grid > * {
+.runtime-ops-overview-grid > *,
+.runtime-ops-summary-grid > *,
+.runtime-ops-log-grid > * {
   min-width: 0;
 }
 
@@ -2945,7 +2945,7 @@ button:disabled {
 
 .console-page-shell,
 .strategies-shell,
-.paper-ops-shell,
+.runtime-ops-shell,
 .performance-shell {
   gap: 18px;
 }
@@ -3000,32 +3000,32 @@ button:disabled {
   overflow: hidden;
 }
 
-.paper-ops-shell .console-actionbar-head {
+.runtime-ops-shell .console-actionbar-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
 }
 
-.paper-ops-shell .console-actionbar-buttons {
+.runtime-ops-shell .console-actionbar-buttons {
   max-width: 520px;
   justify-content: flex-end;
 }
 
-.paper-ops-shell .console-actionbar-buttons > * {
+.runtime-ops-shell .console-actionbar-buttons > * {
   flex: 0 0 auto;
 }
 
-.paper-ops-shell .validation-decision-hero {
+.runtime-ops-shell .validation-decision-hero {
   gap: 12px;
 }
 
-.paper-ops-shell .validation-decision-grid {
+.runtime-ops-shell .validation-decision-grid {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
-.paper-ops-overview-grid,
-.paper-ops-summary-grid,
-.paper-ops-log-grid {
+.runtime-ops-overview-grid,
+.runtime-ops-summary-grid,
+.runtime-ops-log-grid {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -3033,13 +3033,13 @@ button:disabled {
 
 .performance-shell .responsive-table-desktop,
 .strategies-registry-shell .responsive-table-desktop,
-.paper-ops-shell .responsive-table-desktop {
+.runtime-ops-shell .responsive-table-desktop {
   width: 100%;
 }
 
-.paper-ops-overview-grid > *,
-.paper-ops-summary-grid > *,
-.paper-ops-log-grid > * {
+.runtime-ops-overview-grid > *,
+.runtime-ops-summary-grid > *,
+.runtime-ops-log-grid > * {
   min-width: 0;
 }
 
@@ -3870,11 +3870,11 @@ button:disabled {
 }
 
 @media (max-width: 1280px) {
-  .paper-ops-shell .console-actionbar-head {
+  .runtime-ops-shell .console-actionbar-head {
     grid-template-columns: 1fr;
   }
 
-  .paper-ops-shell .console-actionbar-buttons {
+  .runtime-ops-shell .console-actionbar-buttons {
     max-width: none;
     justify-content: flex-start;
   }
@@ -4005,9 +4005,9 @@ button:disabled {
   .validation-history-grid,
   .process-grid,
   .backtest-grid,
-  .paper-ops-overview-grid,
-  .paper-ops-summary-grid,
-  .paper-ops-log-grid {
+  .runtime-ops-overview-grid,
+  .runtime-ops-summary-grid,
+  .runtime-ops-log-grid {
     gap: 8px;
   }
 
@@ -4185,9 +4185,9 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .paper-ops-overview-grid,
-  .paper-ops-summary-grid,
-  .paper-ops-log-grid,
+  .runtime-ops-overview-grid,
+  .runtime-ops-summary-grid,
+  .runtime-ops-log-grid,
   .console-metric-grid,
   .strategy-detail-grid,
   .strategy-param-grid {
@@ -5253,7 +5253,7 @@ body {
   }
 
   .console-actionbar-head,
-  .paper-ops-shell .console-actionbar-head {
+  .runtime-ops-shell .console-actionbar-head {
     display: grid;
     grid-template-columns: minmax(0, 1fr) !important;
     gap: 12px;
@@ -5352,11 +5352,11 @@ body {
 
   .console-status-grid,
   .validation-decision-grid,
-  .paper-ops-shell .validation-decision-grid,
+  .runtime-ops-shell .validation-decision-grid,
   .summary-metric-grid,
-  .paper-ops-overview-grid,
-  .paper-ops-summary-grid,
-  .paper-ops-log-grid,
+  .runtime-ops-overview-grid,
+  .runtime-ops-summary-grid,
+  .runtime-ops-log-grid,
   .operator-note-grid,
   .validation-history-grid,
   .process-grid,

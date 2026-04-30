@@ -14,6 +14,13 @@ interface ScannerPageProps {
   onRefresh: () => void;
 }
 
+function candidateRankDisplay(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '-';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0 || numeric >= 999999) return '-';
+  return formatNumber(numeric, 0);
+}
+
 type ResearchState = 'healthy' | 'degraded' | 'timeout' | 'research_unavailable';
 
 const RESEARCH_STATE_LABEL: Record<ResearchState, string> = {
@@ -223,7 +230,7 @@ export function ScannerPage({ snapshot, loading, errorMessage, onRefresh }: Scan
                               background: isSelected ? 'var(--bg-soft)' : 'transparent',
                             }}
                           >
-                            <td style={{ padding: 12, fontSize: 15 }}>{candidate.candidate_rank || '-'}</td>
+                            <td style={{ padding: 12, fontSize: 15 }}>{candidateRankDisplay(candidate.candidate_rank)}</td>
                             <td style={{ padding: 12, fontSize: 15 }}>
                               <div style={{ display: 'grid', gap: 6 }}>
                                 <div style={{ fontWeight: 700 }}>{formatSymbol(candidate.code, candidate.name)}</div>

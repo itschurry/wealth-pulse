@@ -3,7 +3,7 @@ import { UI_TEXT } from './constants/uiText';
 import { useConsoleData } from './hooks/useConsoleData';
 import { AgentDashboardPage } from './pages/AgentDashboardPage';
 import { BacktestValidationPage } from './pages/BacktestValidationPage';
-import { PaperPortfolioPage } from './pages/PaperPortfolioPage';
+import { RuntimePortfolioPage } from './pages/RuntimePortfolioPage';
 import { PerformancePage } from './pages/PerformancePage';
 import { CandidateResearchPage } from './pages/CandidateResearchPage';
 import { ScannerPage } from './pages/ScannerPage';
@@ -270,7 +270,7 @@ export default function App() {
           {route.page === 'agent-dashboard' && <AgentDashboardPage {...sharedProps} />}
           {route.page === 'research-ai' && <CandidateResearchPage {...sharedProps} />}
           {route.page === 'signal-review' && <ScannerPage {...sharedProps} />}
-          {route.page === 'orders-execution' && <PaperPortfolioPage {...sharedProps} />}
+          {route.page === 'orders-execution' && <RuntimePortfolioPage {...sharedProps} />}
           {route.page === 'performance' && <PerformancePage {...sharedProps} />}
           {route.page === 'watchlist' && <WatchlistPage {...sharedProps} />}
           {route.page === 'operations-dashboard' && (

@@ -107,8 +107,14 @@ def _ensure_directory(path: Path) -> None:
         pass
 
 
+RUNTIME_DIR = settings.logs_dir / "runtime"
+AUDIT_DIR = settings.logs_dir / "audit"
+CONFIG_STATE_DIR = settings.logs_dir / "config"
+CACHE_DIR = settings.logs_dir / "cache"
+
 _ensure_directory(settings.report_output_dir)
-_ensure_directory(settings.logs_dir)
+for _path in (settings.logs_dir, RUNTIME_DIR, AUDIT_DIR, CONFIG_STATE_DIR, CACHE_DIR):
+    _ensure_directory(_path)
 
 BASE_DIR = REPO_ROOT
 

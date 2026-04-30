@@ -13,9 +13,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import AUDIT_DIR
+from market_utils import lookup_company_listing
 
-DEFAULT_AGENT_DB_PATH = LOGS_DIR / "agent_trading.db"
+DEFAULT_AGENT_DB_PATH = AUDIT_DIR / "agent_trading.db"
 
 
 def _now_iso() -> str:
@@ -49,6 +50,24 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return payload
 
 
+def _with_symbol_identity(row: dict[str, Any]) -> dict[str, Any]:
+    symbol = str(row.get("symbol") or "").strip().upper()
+    payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    market = str(row.get("market") or payload.get("market") or "").strip().upper()
+    name = str(row.get("name") or payload.get("name") or "").strip()
+    if symbol and (not name or name.upper() == symbol):
+        try:
+            listing = lookup_company_listing(code=symbol, market=market, scope="core") or {}
+            name = str(listing.get("name") or name).strip()
+            market = market or str(listing.get("market") or "").strip().upper()
+        except Exception:
+            pass
+    row["symbol"] = symbol or row.get("symbol")
+    row["name"] = name
+    row["market"] = market
+    return row
+
+
 class AgentAuditStore:
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.db_path = Path(db_path or DEFAULT_AGENT_DB_PATH)
@@ -66,10 +85,12 @@ class AgentAuditStore:
             return True
         return "execution_channel" in run_columns and "execution_channel" in order_columns
 
-    def _archive_incompatible_db(self) -> None:
-        stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_path = self.db_path.with_name(f"{self.db_path.stem}.schema-backup-{stamp}{self.db_path.suffix}")
-        self.db_path.replace(backup_path)
+    def _reset_incompatible_db(self) -> None:
+        for path in (self.db_path, self.db_path.with_name(f"{self.db_path.name}-wal"), self.db_path.with_name(f"{self.db_path.name}-shm")):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,7 +101,7 @@ class AgentAuditStore:
 
     def initialize(self) -> None:
         if self.db_path.exists() and not self._schema_ready():
-            self._archive_incompatible_db()
+            self._reset_incompatible_db()
         with self._connect() as conn:
             conn.executescript(
                 """
@@ -237,10 +258,40 @@ class AgentAuditStore:
         return self._list("agent_runs", limit=limit)
 
     def list_decisions(self, *, limit: int = 50) -> list[dict[str, Any]]:
-        return self._list("trade_decisions", limit=limit)
+        self.initialize()
+        safe_limit = max(1, min(int(limit or 50), 500))
+        sql = """
+            SELECT
+                d.*,
+                c.name AS name,
+                c.market AS market,
+                c.source AS candidate_source
+            FROM trade_decisions d
+            LEFT JOIN trade_candidates c ON c.id = d.candidate_id
+            ORDER BY d.id DESC
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            return [_with_symbol_identity(_row_to_dict(row)) for row in conn.execute(sql, (safe_limit,)).fetchall()]
 
     def list_orders(self, *, limit: int = 50) -> list[dict[str, Any]]:
-        return self._list("trade_orders", limit=limit)
+        self.initialize()
+        safe_limit = max(1, min(int(limit or 50), 500))
+        sql = """
+            SELECT
+                o.*,
+                c.name AS name,
+                c.market AS market,
+                c.source AS candidate_source
+            FROM trade_orders o
+            LEFT JOIN trade_candidates c ON c.id = (
+                SELECT d.candidate_id FROM trade_decisions d WHERE d.id = o.decision_id
+            )
+            ORDER BY o.id DESC
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            return [_with_symbol_identity(_row_to_dict(row)) for row in conn.execute(sql, (safe_limit,)).fetchall()]
 
     def list_evidence(self, *, symbol: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         if symbol:

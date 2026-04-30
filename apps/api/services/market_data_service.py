@@ -31,7 +31,7 @@ def _usd_krw_fetch() -> float | None:
     return None
 
 
-def get_paper_fx_rate() -> float | None:
+def get_usd_krw_rate() -> float | None:
     """현재 USD/KRW 환율을 반환한다. 시장 캐시 우선, 폴백으로 네이버 스크래핑."""
     try:
         if _cache._market_cache["data"] is not None:

@@ -5,9 +5,60 @@ export interface CompanyCatalogEntry {
   aliases: string[];
 }
 
-// Source of truth lives on the backend universe snapshot / lookup layer.
-// The frontend should not import runtime-generated files from storage/ directly.
-export const COMPANY_CATALOG: CompanyCatalogEntry[] = [];
+export const COMPANY_CATALOG: CompanyCatalogEntry[] = [
+  {
+    "name": "신일전자",
+    "code": "002700",
+    "market": "KOSPI",
+    "aliases": [
+      "신일전자",
+      "002700",
+      "SHINIL ELECTRONICS"
+    ]
+  },
+  {
+    "name": "보령",
+    "code": "003850",
+    "market": "KOSPI",
+    "aliases": [
+      "보령",
+      "003850",
+      "Boryung"
+    ]
+  },
+  {
+    "name": "엔케이",
+    "code": "085310",
+    "market": "KOSPI",
+    "aliases": [
+      "엔케이",
+      "085310",
+      "NK"
+    ]
+  },
+  {
+    "name": "두산밥캣",
+    "code": "241560",
+    "market": "KOSPI",
+    "aliases": [
+      "두산밥캣",
+      "241560",
+      "Doosan Bobcat"
+    ]
+  },
+  {
+    "name": "IPARK현대산업개발",
+    "code": "294870",
+    "market": "KOSPI",
+    "aliases": [
+      "IPARK현대산업개발",
+      "294870",
+      "아이파크현대산업개발",
+      "HDC현대산업개발",
+      "IPARK HYUNDAI DEVELOPMENT COMPANY"
+    ]
+  }
+];
 
 export const CANDIDATE_EXCLUDES = new Set([
   'kospi', 'kosdaq', 'cnbc', 'fomc', 'wti', 'btc', 'usd', 'krw', 'fed', 'sec',

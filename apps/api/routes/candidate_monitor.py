@@ -8,7 +8,7 @@ from services.candidate_monitor_service import (
     list_recent_promotion_events,
     summarize_market_watchlists,
 )
-from services.execution_service import get_execution_service
+from services.runtime_execution_service import get_execution_service
 
 _DEFAULT_MARKETS = ["KOSPI", "NASDAQ"]
 
@@ -32,7 +32,7 @@ def _normalize_markets(query: dict[str, list[str]]) -> list[str]:
 
 def _load_runtime_account() -> dict[str, Any]:
     try:
-        _, payload = get_execution_service().paper_account(False)
+        _, payload = get_execution_service().runtime_account(False)
     except Exception:
         return {}
     if not isinstance(payload, dict):

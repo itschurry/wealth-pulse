@@ -5,7 +5,7 @@ import datetime
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import CACHE_DIR
 from market_utils import normalize_market
 from services.json_utils import read_json_file_cached
 
@@ -16,8 +16,8 @@ UNIVERSE_RULE_ALIASES = {
     "kr_core_bluechips": "kospi",
 }
 _ALIASES_BY_RULE = {}
-for _legacy_rule, _canonical_rule in UNIVERSE_RULE_ALIASES.items():
-    _ALIASES_BY_RULE.setdefault(_canonical_rule, []).append(_legacy_rule)
+for _alias_rule, _canonical_rule in UNIVERSE_RULE_ALIASES.items():
+    _ALIASES_BY_RULE.setdefault(_canonical_rule, []).append(_alias_rule)
 
 UNIVERSE_RULE_LABELS = {
     "kospi": "KOSPI",
@@ -29,7 +29,7 @@ UNIVERSE_MARKET_BY_RULE = {
     "sp500": "US",
 }
 
-UNIVERSE_ROOT = LOGS_DIR / "universe_snapshots"
+UNIVERSE_ROOT = CACHE_DIR / "universe_snapshots"
 
 _DEFAULT_MAX_AGE_MINUTES = 60
 
@@ -63,10 +63,6 @@ def _latest_snapshot_path(rule_name: str) -> Path:
 
 def _latest_summary_path(rule_name: str) -> Path:
     return _snapshot_dir(rule_name) / "latest.summary.json"
-
-
-def _legacy_snapshot_path(rule_name: str) -> Path:
-    return UNIVERSE_ROOT / f"{_safe_rule(rule_name)}.json"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -268,24 +264,13 @@ def _read_snapshot_summary(rule_name: str) -> dict[str, Any]:
     if latest_snapshot:
         return latest_snapshot
 
-    legacy_snapshot = _read_json(_legacy_snapshot_path(normalized_rule))
-    if legacy_snapshot:
-        return legacy_snapshot
-
     for candidate_rule in _ALIASES_BY_RULE.get(normalized_rule, []):
-        legacy = _read_json(_latest_summary_path(candidate_rule))
-        if legacy:
-            return legacy
-        legacy = _read_json(_legacy_snapshot_path(candidate_rule))
-        if legacy:
-            return legacy
-        legacy = _read_json(_latest_snapshot_path(candidate_rule))
-        if legacy:
-            return legacy
-
-    legacy = _read_json(_latest_snapshot_path(UNIVERSE_RULE_ALIASES.get(normalized_rule, normalized_rule)))
-    if legacy:
-        return legacy
+        alias_summary = _read_json(_latest_summary_path(candidate_rule))
+        if alias_summary:
+            return alias_summary
+        alias_snapshot = _read_json(_latest_snapshot_path(candidate_rule))
+        if alias_snapshot:
+            return alias_snapshot
 
     return _empty_snapshot(normalized_rule)
 
@@ -296,21 +281,10 @@ def _read_snapshot_payload(rule_name: str) -> dict[str, Any]:
     if snapshot:
         return snapshot
 
-    snapshot = _read_json(_legacy_snapshot_path(normalized_rule))
-    if snapshot:
-        return snapshot
-
     for candidate_rule in _ALIASES_BY_RULE.get(normalized_rule, []):
-        legacy = _read_json(_legacy_snapshot_path(candidate_rule))
-        if legacy:
-            return legacy
-        legacy = _read_json(_latest_snapshot_path(candidate_rule))
-        if legacy:
-            return legacy
-
-    legacy = _read_json(_latest_snapshot_path(UNIVERSE_RULE_ALIASES.get(normalized_rule, normalized_rule)))
-    if legacy:
-        return legacy
+        alias_snapshot = _read_json(_latest_snapshot_path(candidate_rule))
+        if alias_snapshot:
+            return alias_snapshot
 
     return _empty_snapshot(normalized_rule)
 

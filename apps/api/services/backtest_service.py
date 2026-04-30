@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
 import cache as _cache
 from analyzer.candidate_selector import (
@@ -19,8 +18,7 @@ from analyzer.shared_strategy import (
 )
 from schemas.strategy_metadata import portfolio_defaults
 from config.settings import REPORT_OUTPUT_DIR
-
-_OPTIMIZED_PARAMS_PATH = Path(__file__).resolve().parent.parent / "config" / "optimized_params.json"
+from services.optimized_params_store import load_search_optimized_params
 
 
 class BacktestService:
@@ -328,7 +326,7 @@ class BacktestService:
         if not auto_optimize:
             return result
 
-        if not _OPTIMIZED_PARAMS_PATH.exists():
+        if load_search_optimized_params() is None:
             try:
                 from services.optimization_runner import handle_run_optimization
 

@@ -22,7 +22,7 @@ _API_ROOT = _SCRIPT_PATH.parents[1]
 if str(_API_ROOT) not in sys.path:
     sys.path.insert(0, str(_API_ROOT))
 
-from config.settings import LOGS_DIR
+from config.settings import CACHE_DIR
 
 
 UNIVERSE_TARGETS = {
@@ -36,7 +36,7 @@ UNIVERSE_TARGETS = {
     },
 }
 
-_UNIVERSE_ROOT = LOGS_DIR / "universe_snapshots"
+_UNIVERSE_ROOT = CACHE_DIR / "universe_snapshots"
 
 
 def _market_date() -> str:

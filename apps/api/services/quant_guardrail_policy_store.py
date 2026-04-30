@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import CONFIG_STATE_DIR
 
 
-QUANT_GUARDRAIL_POLICY_PATH = LOGS_DIR / "quant_guardrail_policy.json"
+QUANT_GUARDRAIL_POLICY_PATH = CONFIG_STATE_DIR / "quant_guardrail_policy.json"
 _DEFAULT_POLICY_VERSION = 1
 
 _DEFAULT_POLICY: dict[str, Any] = {

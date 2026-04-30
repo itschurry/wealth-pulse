@@ -5,19 +5,19 @@ import { SymbolIdentity } from '../components/SymbolIdentity';
 import { getRiskGuardState, isRiskEntryAllowed } from '../adapters/consoleViewAdapter';
 import { UI_TEXT, reasonCodeToKorean, freshnessToKorean, gradeToKorean, providerStatusToKorean, providerSourceToKorean } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
-import { usePaperTrading } from '../hooks/usePaperTrading';
+import { useRuntimeTrading } from '../hooks/useRuntimeTrading';
 import { useToast } from '../hooks/useToast';
-import type { ActionBarStatusItem, ConsoleSnapshot, PaperViewModel } from '../types/consoleView';
+import type { ActionBarStatusItem, ConsoleSnapshot, RuntimeViewModel } from '../types/consoleView';
 import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatLocalAmountWithKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
 
-interface PaperPortfolioPageProps {
+interface RuntimePortfolioPageProps {
   snapshot: ConsoleSnapshot;
   loading: boolean;
   errorMessage: string;
   onRefresh: () => void;
 }
 
-interface PaperSettings {
+interface RuntimeSettings {
   initialCashKrw: number;
   initialCashUsd: number;
   runKospi: boolean;
@@ -33,10 +33,10 @@ interface PaperSettings {
   rotationMinHoldingDays: number;
 }
 
-const SETTINGS_KEY = 'console_paper_settings_v1';
-const SETTINGS_META_KEY = 'console_paper_settings_meta_v1';
+const SETTINGS_KEY = 'console_runtime_settings_v1';
+const SETTINGS_META_KEY = 'console_runtime_settings_meta_v1';
 
-function defaultSettings(): PaperSettings {
+function defaultSettings(): RuntimeSettings {
   return {
     initialCashKrw: 10_000_000,
     initialCashUsd: 10_000,
@@ -54,9 +54,9 @@ function defaultSettings(): PaperSettings {
   };
 }
 
-function readSettings(): PaperSettings {
+function readSettings(): RuntimeSettings {
   try {
-    const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null') as Partial<PaperSettings> | null;
+    const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null') as Partial<RuntimeSettings> | null;
     if (!raw || typeof raw !== 'object') return defaultSettings();
     return {
       ...defaultSettings(),
@@ -67,7 +67,7 @@ function readSettings(): PaperSettings {
   }
 }
 
-function saveSettings(settings: PaperSettings) {
+function saveSettings(settings: RuntimeSettings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   const savedAt = new Date().toISOString();
   localStorage.setItem(SETTINGS_META_KEY, JSON.stringify({ savedAt }));
@@ -118,7 +118,7 @@ function resolveRuntimeMode(accountMode: unknown, executionMode: unknown): 'pape
   return 'paper';
 }
 
-function paperSkipReasonLabel(reason: string): string {
+function runtimeSkipReasonLabel(reason: string): string {
   if (reason === 'account_unavailable') return '계좌 스냅샷 없음 · sizing 계산 불가';
   if (reason === 'size_zero') return '권장 수량 0주';
   if (reason === 'exposure_or_cash_limit') return '현금/노출 한도로 권장 수량 0주';
@@ -441,11 +441,11 @@ function layerEventSnapshot<T extends Record<string, unknown>>(events: unknown, 
   return matched.snapshot;
 }
 
-export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh }: PaperPortfolioPageProps) {
+export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefresh }: RuntimePortfolioPageProps) {
   const { pushToast } = useToast();
   const { entries, push, clear } = useConsoleLogs();
-  const [settings, setSettings] = useState<PaperSettings>(() => readSettings());
-  const [savedSettings, setSavedSettings] = useState<PaperSettings>(() => readSettings());
+  const [settings, setSettings] = useState<RuntimeSettings>(() => readSettings());
+  const [savedSettings, setSavedSettings] = useState<RuntimeSettings>(() => readSettings());
   const [settingsSavedAt, setSettingsSavedAt] = useState(() => readSettingsSavedAt());
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [pendingAction, setPendingAction] = useState<
@@ -476,7 +476,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     pauseEngine,
     resumeEngine,
     clearHistory,
-  } = usePaperTrading({ autoRefreshEnabled });
+  } = useRuntimeTrading({ autoRefreshEnabled });
 
   const runtimeMode = resolveRuntimeMode(account.mode, engineState.execution_mode);
   const runtimeLabel = runtimeModeLabel(runtimeMode);
@@ -738,7 +738,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     return filtered.slice(0, 16);
   }, [deferredWorkflowSearch, workflowItems, workflowOnlyBlocked, workflowTab]);
 
-  const vm = useMemo<PaperViewModel>(() => {
+  const vm = useMemo<RuntimeViewModel>(() => {
     const unrealized = positions.reduce((sum, item) => sum + toNumber(item.unrealized_pnl_krw), 0);
     return {
       totalEquityKrw: toNumber(account.equity_krw),
@@ -998,7 +998,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     }
   }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, runtimeLabel, runtimeLogSource, settings.initialCashKrw, settings.initialCashUsd]);
 
-  const handleClearPaperHistory = useCallback(async () => {
+  const handleClearRuntimeHistory = useCallback(async () => {
     if (pendingAction) return;
     setPendingAction('history-clear');
     try {
@@ -1031,7 +1031,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     }
   }, [clear, clearHistory, clearRuntimeLogs, pendingAction, push, pushToast, refreshRuntimeLogs, runtimeLogSource]);
 
-  const handleClearPaperHistoryAndReset = useCallback(async () => {
+  const handleClearRuntimeHistoryAndReset = useCallback(async () => {
     if (pendingAction) return;
     setPendingAction('history-reset');
     try {
@@ -1321,7 +1321,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="content-shell console-page-shell paper-ops-shell" style={{ display: 'grid', gap: 16 }}>
+        <div className="content-shell console-page-shell runtime-ops-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="주문/리스크"
             subtitle="계좌, 포지션, 주문 이력, 리스크 거절 사유를 한 화면에서 확인합니다. 신호가 있었는데 왜 주문이 없었는지 이 화면에서 바로 추적합니다."
@@ -1378,7 +1378,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               },
               {
                 label: '실행 로그 전부 삭제',
-                onClick: () => { void handleClearPaperHistory(); },
+                onClick: () => { void handleClearRuntimeHistory(); },
                 tone: 'danger',
                 busy: pendingAction === 'history-clear',
                 busyLabel: '삭제 중...',
@@ -1397,13 +1397,13 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 disabled: runtimeMode === 'live',
                 busy: pendingAction === 'reset',
                 busyLabel: '초기화 중...',
-                confirmTitle: runtimeMode === 'live' ? '실거래 계좌는 초기화할 수 없습니다' : UI_TEXT.confirm.resetPaperTitle,
-                confirmMessage: runtimeMode === 'live' ? '실거래 계좌 상태는 증권사 원장 기준이라 화면에서 reset하지 않습니다.' : UI_TEXT.confirm.resetPaperMessage,
+                confirmTitle: runtimeMode === 'live' ? '실거래 계좌는 초기화할 수 없습니다' : UI_TEXT.confirm.resetRuntimeTitle,
+                confirmMessage: runtimeMode === 'live' ? '실거래 계좌 상태는 증권사 원장 기준이라 화면에서 reset하지 않습니다.' : UI_TEXT.confirm.resetRuntimeMessage,
                 confirmDetails: ['계좌, 포지션, 주문/사이클 기준 데이터가 새 초기 자금으로 다시 설정됩니다.', '이 작업은 되돌릴 수 없습니다.'],
               },
               {
                 label: '계좌/엔진 히스토리 완전 정리',
-                onClick: () => { void handleClearPaperHistoryAndReset(); },
+                onClick: () => { void handleClearRuntimeHistoryAndReset(); },
                 tone: 'danger',
                 busy: pendingAction === 'history-reset',
                 busyLabel: '완전 정리 중...',
@@ -1427,10 +1427,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             <div className="report-decision-title">운용 우선순위: {riskyPositions.length > 0 || todayFailCount > 0 ? '리스크 정리 먼저' : '정상 운영 지속'}</div>
             <div className="report-hero-copy">지금 필요한 순서만 짧게 보이도록 정리했어. 보유 포지션 확인 → 실행 워크플로우 확인 → 리스크/액션 로그 확인 순서로 보면 어디서 막혔는지 훨씬 빨리 찾을 수 있어.</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-              <button type="button" className="ghost-button" onClick={() => scrollToSection('paper-positions-section')}>보유 포지션으로</button>
-              <button type="button" className="ghost-button" onClick={() => scrollToSection('paper-workflow-section')}>실행 워크플로우로</button>
-              <button type="button" className="ghost-button" onClick={() => scrollToSection('paper-risk-action-section')}>리스크/액션 로그로</button>
-              <button type="button" className="ghost-button" onClick={() => scrollToSection('paper-engine-panel-section')}>엔진 상태로</button>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-positions-section')}>보유 포지션으로</button>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-workflow-section')}>실행 워크플로우로</button>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-risk-action-section')}>리스크/액션 로그로</button>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-engine-panel-section')}>엔진 상태로</button>
             </div>
             {repeatedCashRetries.length > 0 && (
               <div className="inline-warning-card" style={{ marginTop: 12 }}>
@@ -1462,7 +1462,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div className="paper-ops-overview-grid">
+          <div className="runtime-ops-overview-grid">
             <div className="page-section" style={{ padding: 16 }}>
               <div className="section-title">리서치 입력 분리</div>
               <div className="workspace-chip-row" style={{ marginTop: 10, marginBottom: 10 }}>
@@ -1609,7 +1609,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div id="paper-positions-section" className="page-section" style={{ padding: 0 }}>
+          <div id="runtime-positions-section" className="page-section" style={{ padding: 0 }}>
             <div style={{ padding: '14px 16px 0', display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 종목은 시장별로 나눠서 보는 쪽이 훨씬 덜 헷갈려. 미국장은 달러 가격 뒤에 원화 환산을 같이 붙였어.</div>
@@ -1730,8 +1730,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div className="paper-ops-summary-grid">
-            <div id="paper-engine-panel-section" className="page-section" style={{ padding: 16 }}>
+          <div className="runtime-ops-summary-grid">
+            <div id="runtime-engine-panel-section" className="page-section" style={{ padding: 16 }}>
               <div style={{ fontSize: 17, fontWeight: 700 }}>엔진 상태 패널</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
                 <div>상태: {engineStateLabel(engineState.engine_state, engineState.running)}</div>
@@ -1761,7 +1761,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div className="paper-ops-log-grid">
+          <div className="runtime-ops-log-grid">
             <div className="page-section" style={{ padding: 16 }}>
               <div style={{ fontSize: 17, fontWeight: 700 }}>최근 주문 / 체결 내역</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
@@ -1825,7 +1825,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                 {Object.entries(skipReasonCounts).slice(0, 6).map(([reason, count]) => (
                   <div key={reason} style={{ fontSize: 15, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
-                    {paperSkipReasonLabel(reason)}: {formatCount(count, '건')}
+                    {runtimeSkipReasonLabel(reason)}: {formatCount(count, '건')}
                   </div>
                 ))}
                 {cycles.slice(0, 4).map((cycle, idx) => {
@@ -1854,7 +1854,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           </div>
 
 
-          <div id="paper-workflow-section" className="page-section" style={{ padding: 16 }}>
+          <div id="runtime-workflow-section" className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
               <div>
                 <div className="section-title">실행 워크플로우</div>
@@ -1993,7 +1993,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
             </div>
           </div>
 
-          <div id="paper-risk-action-section" className="page-section" style={{ padding: 16 }}>
+          <div id="runtime-risk-action-section" className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
               <div>
                 <div className="section-title">리스크/액션 로그</div>

@@ -505,6 +505,7 @@ export interface CandidateMonitorPromotionEvent {
   id?: number;
   market?: string;
   symbol?: string;
+  name?: string;
   event_type?: string;
   reason?: string;
   created_at?: string;
@@ -1302,22 +1303,12 @@ export interface ReportsExplainResponse {
   brief_type?: string;
   generated_at?: string;
   summary_lines?: string[];
-  migration?: {
-    backend_owner?: string;
-    legacy_source_retained?: boolean;
-    stage?: string;
-  };
   brief?: {
     owner?: string;
     brief_type?: string;
     generated_at?: string;
     summary_lines?: string[];
     report_reasoning?: Record<string, unknown>;
-    migration?: {
-      backend_owner?: string;
-      legacy_source_retained?: boolean;
-      stage?: string;
-    };
     analysis?: {
       summary_lines?: string[];
     };
@@ -1453,6 +1444,8 @@ export interface AgentDecisionItem {
   id?: number;
   run_id?: number;
   symbol?: string;
+  name?: string;
+  market?: string;
   action?: 'BUY' | 'SELL' | 'HOLD' | string;
   confidence?: number;
   schema_valid?: boolean;
@@ -1465,6 +1458,8 @@ export interface AgentOrderItem {
   id?: number;
   run_id?: number;
   symbol?: string;
+  name?: string;
+  market?: string;
   action?: string;
   execution_channel?: string;
   status?: string;

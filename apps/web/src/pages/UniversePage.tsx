@@ -4,7 +4,7 @@ import { FreshnessBadge, GradeBadge } from '../components/QualityBadge';
 import { reasonCodeToKorean } from '../constants/uiText';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import type { ConsoleSnapshot } from '../types/consoleView';
-import { formatDateTime } from '../utils/format';
+import { formatDateTime, formatSymbol } from '../utils/format';
 
 interface UniversePageProps {
   snapshot: ConsoleSnapshot;
@@ -71,11 +71,11 @@ export function UniversePage({ snapshot, loading, errorMessage, onRefresh }: Uni
                 </div>
                 <div>
                   <div style={{ fontSize: 15, color: 'var(--text-4)', marginBottom: 8 }}>포함 종목 예시</div>
-                  <div style={{ fontSize: 15 }}>{(item.symbols || []).slice(0, 10).map((symbol) => symbol.code).join(', ') || '데이터 없음'}</div>
+                  <div style={{ fontSize: 15 }}>{(item.symbols || []).slice(0, 10).map((symbol) => formatSymbol(symbol.code, symbol.name)).join(', ') || '데이터 없음'}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 15, color: 'var(--text-4)', marginBottom: 8 }}>주요 제외 사유</div>
-                  <div style={{ fontSize: 15 }}>{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '유니버스 스냅샷 없음') : ((item.excluded || []).slice(0, 6).map((symbol) => `${symbol.code}(${symbol.reason})`).join(', ') || '제외 없음')}</div>
+                  <div style={{ fontSize: 15 }}>{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '유니버스 스냅샷 없음') : ((item.excluded || []).slice(0, 6).map((symbol) => `${formatSymbol(symbol.code, symbol.name)}(${symbol.reason})`).join(', ') || '제외 없음')}</div>
                 </div>
               </div>
             </section>

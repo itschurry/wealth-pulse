@@ -140,7 +140,7 @@ def build_trade_decision_prompt(candidate: dict[str, Any], evidence: list[dict[s
         "Return ONLY one JSON object, no markdown and no commentary.\n"
         "Allowed action values are BUY, SELL, HOLD.\n"
         "Do not place orders, do not call brokers, and do not claim execution.\n"
-        "Risk Gate and Executor decide whether any paper/live order is sent.\n"
+        "Risk Gate and Executor decide whether any simulated/live order is sent.\n"
         "If evidence is weak, stale, or risk fields are missing, choose HOLD.\n\n"
         f"Feature pack:\n{json.dumps(feature_pack, ensure_ascii=False, indent=2, sort_keys=True)}"
     )

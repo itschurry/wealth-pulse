@@ -1,4 +1,4 @@
-"""Risk guard calculations for paper/live execution gating."""
+"""Risk guard calculations for simulated/live execution gating."""
 
 from __future__ import annotations
 

@@ -26,7 +26,7 @@ from config.settings import (
     KIS_APP_KEY,
     KIS_APP_SECRET,
     KIS_BASE_URL,
-    LOGS_DIR,
+    CACHE_DIR,
 )
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ from config.settings import (
 
 # KIS REST API 공식 제한은 앱 단위로 적용된다. 화면 여러 곳에서 잔고/시세/히스토리를
 # 동시에 조회하므로 클라이언트 인스턴스별 16rps는 실제로 초과를 자주 만든다.
-# 전역 8rps로 낮추고 EGW00201 응답은 짧게 재시도해 live/paper 공통 기능을 안정화한다.
+# 전역 8rps로 낮추고 EGW00201 응답은 짧게 재시도해 KIS 공통 기능을 안정화한다.
 _KIS_RATE_LIMIT_INTERVAL: float = 1.0 / 8  # ≈ 0.125초
 _KIS_RATE_LIMIT_RETRY_DELAYS: tuple[float, ...] = (1.1, 2.2)
 
@@ -81,7 +81,7 @@ class KISCredentials:
 class KISClient:
     """토큰 발급과 시세/거래 조회를 위한 최소 REST 클라이언트."""
 
-    _TOKEN_CACHE_PATH = LOGS_DIR / "kis_token_cache.json"
+    _TOKEN_CACHE_PATH = CACHE_DIR / "secrets" / "kis_token_cache.json"
     _OVERSEAS_PRICE_PATH = "/uapi/overseas-price/v1/quotations/price-detail"
     _OVERSEAS_DAILY_PATH = "/uapi/overseas-price/v1/quotations/dailyprice"
     _OVERSEAS_PRICE_TR_IDS = ("HHDFS76200200",)
@@ -1056,7 +1056,7 @@ class KISClient:
         hashkey를 자동으로 발급하여 헤더에 포함한다.
         실거래 API를 호출하므로 실제 계좌에서 체결된다.
         현재 프로젝트는 이 메서드를 직접 호출하지 않고
-        PaperExecutionEngine이 내부 가상계좌로 처리한다.
+        SimulatedExecutionEngine이 내부 가상계좌로 처리한다.
         """
         cano, product_code = self._account_parts()
         normalized_side = side.lower()

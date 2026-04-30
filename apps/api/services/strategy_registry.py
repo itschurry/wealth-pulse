@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from analyzer.shared_strategy import default_strategy_profile, serialize_strategy_profile
-from config.settings import LOGS_DIR
+from config.settings import CONFIG_STATE_DIR
 from market_utils import normalize_market
 
 
-STRATEGY_REGISTRY_PATH = LOGS_DIR / "strategy_registry.json"
+STRATEGY_REGISTRY_PATH = CONFIG_STATE_DIR / "strategy_registry.json"
 
 # status: human-readable lifecycle label, independent from enabled flag
 # enabled is the only thing the engine reads — status is for operator context
@@ -42,15 +42,9 @@ def _normalize_market(value: Any) -> str:
 
 
 def _normalize_status(value: Any, *, fallback: str = "draft") -> str:
-    """Return a valid status value. Accepts legacy approval_status values."""
     raw = str(value or "").strip().lower()
     if raw in _ALLOWED_STATUS:
         return raw
-    # migrate legacy approval_status values
-    if raw == "approved" or raw == "testing":
-        return "ready"
-    if raw == "retired":
-        return "archived"
     return fallback
 
 
@@ -190,13 +184,10 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
     market = _normalize_market(payload.get("market"))
     enabled = _to_bool(payload.get("enabled"), False)
 
-    # status is independent from enabled — engine reads enabled, status is operator label
-    # also migrate legacy approval_status field
-    raw_status = payload.get("status") or payload.get("approval_status")
-    status = _normalize_status(raw_status)
+    # status is independent from enabled: engine reads enabled, status is operator context
+    status = _normalize_status(payload.get("status"))
 
-    # enabled_at: recorded when first enabled (migrates legacy approved_at)
-    enabled_at = str(payload.get("enabled_at") or payload.get("approved_at") or "").strip()
+    enabled_at = str(payload.get("enabled_at") or "").strip()
     if enabled and not enabled_at:
         enabled_at = _now_iso()
 

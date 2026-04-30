@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from services.execution_service import get_execution_service
+from services.runtime_execution_service import get_execution_service
 from services.strategy_engine import build_signal_book
 
 
 def _load_runtime_account() -> dict:
     service = get_execution_service()
-    paper_account = getattr(service, "paper_account", None)
-    if not callable(paper_account):
+    runtime_account = getattr(service, "runtime_account", None)
+    if not callable(runtime_account):
         return {}
-    _, payload = paper_account(False)
+    _, payload = runtime_account(False)
     if not isinstance(payload, dict):
         return {}
     account = payload.get("account")

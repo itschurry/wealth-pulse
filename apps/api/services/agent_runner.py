@@ -2,8 +2,7 @@
 
 The Agent is a mode-independent decision producer. It evaluates candidates,
 records evidence/decisions/risk checks, and hands approved order intents to the
-injected execution boundary. The execution boundary decides whether the order is
-handled by paper or live runtime infrastructure.
+injected runtime execution boundary.
 """
 
 from __future__ import annotations
@@ -79,11 +78,12 @@ def run_agent_once(
             if not symbol:
                 continue
             market = str(candidate.get("market") or "").strip().upper()
+            candidate_name = str(candidate.get("name") or "").strip()
             candidate_id = store.add_candidate(
                 run_id,
                 symbol=symbol,
                 market=market,
-                name=str(candidate.get("name") or ""),
+                name=candidate_name,
                 source=str(candidate.get("source") or candidate.get("candidate_source") or "manual"),
                 payload=candidate,
             )
@@ -108,6 +108,8 @@ def run_agent_once(
                 decision["symbol"] = symbol
             if not str(decision.get("market") or "").strip():
                 decision["market"] = market
+            if candidate_name and not str(decision.get("name") or "").strip():
+                decision["name"] = candidate_name
             payload = {**decision, "schema_errors": parsed["errors"]}
             decision_id = store.add_decision(
                 run_id,
@@ -156,9 +158,15 @@ def run_agent_once(
                     risk_event_id=risk_event_id,
                     symbol=decision.get("symbol") or symbol,
                     action=str(decision.get("action") or "HOLD"),
-                    execution_channel=str(execution_result.get("mode") or execution_result.get("execution_mode") or execution_channel),
+                    execution_channel=execution_channel,
                     status=order_status,
-                    payload={"intent": risk.get("order_intent"), "execution_result": execution_result},
+                    payload={
+                        "intent": risk.get("order_intent"),
+                        "name": candidate_name,
+                        "market": market,
+                        "runtime_mode": str(execution_result.get("mode") or execution_result.get("execution_mode") or ""),
+                        "execution_result": execution_result,
+                    },
                 )
             else:
                 summary["orders_skipped"] += 1
@@ -170,7 +178,7 @@ def run_agent_once(
                     action=str(decision.get("action") or "HOLD"),
                     execution_channel=execution_channel,
                     status="skipped",
-                    payload={"risk": risk},
+                    payload={"risk": risk, "name": candidate_name, "market": market},
                 )
     except Exception as exc:
         status = "failed"

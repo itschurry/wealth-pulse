@@ -19,6 +19,7 @@ from services.reliability_policy import (
     overlay_policy_metadata,
     select_global_overlay_candidates,
 )
+from services.optimized_params_store import SEARCH_OPTIMIZED_PARAMS_PATH
 
 import argparse
 import datetime
@@ -33,7 +34,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 
-_OPTIMIZED_PARAMS_PATH = Path(os.getenv("LOGS_DIR", str(_PROJECT_ROOT.parent.parent / "storage" / "logs"))) / "optimized_params.json"
+_OPTIMIZED_PARAMS_PATH = SEARCH_OPTIMIZED_PARAMS_PATH
 
 # 파라미터 클램핑 범위
 _STOP_LOSS_RANGE = (2.0, 15.0)
@@ -370,10 +371,10 @@ def _save_results(
     name_map: dict[str, str] | None = None,
     search_context: dict | None = None,
 ) -> bool:
-    """결과를 config/optimized_params.json에 저장한다."""
+    """결과를 runtime optimized-params store에 저장한다."""
     if not results:
         _safe_warning(
-            "저장 가능한 최적화 결과가 없어 optimized_params.json 갱신을 건너뜁니다: {}",
+            "저장 가능한 최적화 결과가 없어 optimized params 갱신을 건너뜁니다: {}",
             _OPTIMIZED_PARAMS_PATH,
         )
         return False
@@ -662,7 +663,7 @@ def main() -> None:
         )
 
     if not results:
-        logger.error("최적화 결과가 없어 기존 optimized_params.json을 유지합니다.")
+        logger.error("최적화 결과가 없어 기존 optimized params를 유지합니다.")
         return
 
     reliable = [r for r in results if r.is_reliable]

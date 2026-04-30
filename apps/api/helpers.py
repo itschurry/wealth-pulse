@@ -50,10 +50,6 @@ def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", "", value).strip().lower()
 
 
-def _send_paper_trade_notification(event: dict, account: dict) -> None:
-    return None
-
-
 def _get_kis_client() -> KISClient | None:
     if _cache._kis_client_disabled:
         return None

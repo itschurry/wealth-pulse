@@ -17,7 +17,7 @@ from helpers import (
     _now_iso,
 )
 from analyzer.technical_snapshot import fetch_technical_snapshot as _compute_technical_snapshot
-from services.market_data_service import get_paper_fx_rate as _paper_fx_rate, resolve_stock_quote as _resolve_stock_quote
+from services.market_data_service import get_usd_krw_rate as _usd_krw_rate, resolve_stock_quote as _resolve_stock_quote
 from analyzer.shared_strategy import (
     build_strategy_profile,
     default_strategy_profile,
@@ -28,9 +28,8 @@ from analyzer.shared_strategy import (
     should_enter_from_snapshot,
     should_exit_from_snapshot,
 )
-from broker.execution_engine import EngineConfig, PaperExecutionEngine
 from config.market_calendar import SESSION_WINDOWS, get_market_local_dt, is_market_open
-from config.settings import LOGS_DIR
+from config.settings import RUNTIME_DIR
 from market_utils import normalize_market, resolve_market
 from services.notification_service import get_notification_service
 from services.optimized_params_store import (
@@ -38,7 +37,7 @@ from services.optimized_params_store import (
     SEARCH_OPTIMIZED_PARAMS_PATH as STORE_SEARCH_OPTIMIZED_PARAMS_PATH,
     load_execution_optimized_params,
 )
-from services.paper_runtime_store import (
+from services.runtime_store import (
     append_account_snapshot,
     append_engine_cycle,
     append_execution_events,
@@ -78,17 +77,16 @@ from broker.kis_client import KISClient
 from broker.execution_engine import (
     EngineConfig,
     LiveBrokerExecutionEngine,
-    PaperExecutionEngine,
+    SimulatedExecutionEngine,
 )
-from config.settings import LOGS_DIR
-
 
 _DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]
 _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
 
 _OPTIMIZED_PARAMS_PATH = STORE_SEARCH_OPTIMIZED_PARAMS_PATH
 _RUNTIME_OPTIMIZED_PARAMS_PATH = STORE_RUNTIME_OPTIMIZED_PARAMS_PATH
-_LIVE_POSITION_ENTRY_PATH = LOGS_DIR / "live_position_entries.json"
+_ACCOUNT_STATE_DIR = RUNTIME_DIR / "accounts"
+_LIVE_POSITION_ENTRY_PATH = _ACCOUNT_STATE_DIR / "live_position_entries.json"
 _OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
 _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
     "KOSPI": 8.0,
@@ -111,7 +109,7 @@ _OPTIMIZABLE_KEYS = {
     "stoch_k_max",
 }
 
-_paper_engine: PaperExecutionEngine | None = None
+_simulated_engine: SimulatedExecutionEngine | None = None
 _auto_trader_lock = threading.Lock()
 _auto_trader_stop_event: threading.Event | None = None
 _auto_trader_thread: threading.Thread | None = None
@@ -390,7 +388,7 @@ def _order_event_runtime_mode(item: dict[str, Any]) -> str:
     reason = str(item.get("reason_code") or item.get("message") or "").strip().lower()
     if reason == "live_balance_reconciled":
         return "live"
-    return "legacy"
+    return "unknown"
 
 
 def _filter_order_events_for_runtime_mode(events: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
@@ -563,7 +561,7 @@ def _hydrate_live_runtime_account(
             price_krw = item.get("filled_price_krw")
             if price_krw in (None, ""):
                 price_krw = position.get("avg_price_krw") if side == "buy" else position.get("last_price_krw")
-            fx_rate = _to_float(position.get("fx_rate"), _to_float(item.get("fx_rate"), 1.0 if str(item.get("currency") or "KRW").upper() != "USD" else _paper_fx_rate()))
+            fx_rate = _to_float(position.get("fx_rate"), _to_float(item.get("fx_rate"), 1.0 if str(item.get("currency") or "KRW").upper() != "USD" else _usd_krw_rate()))
             notional_local = item.get("notional_local")
             if notional_local in (None, "") and price_local not in (None, ""):
                 notional_local = round(_to_float(price_local) * reconciled_quantity, 4)
@@ -879,7 +877,7 @@ def _normalize_runtime_account(
     default_fx_rate = _to_float(
         summary.get("fx_rate")
         or account.get("fx_rate")
-        or _paper_fx_rate(),
+        or _usd_krw_rate(),
         0.0,
     )
     normalized_positions: list[dict[str, Any]] = []
@@ -981,7 +979,6 @@ def _normalize_runtime_account(
         "positions": normalized_positions,
         "orders": account.get("orders") if isinstance(account.get("orders"), list) else [],
     })
-    normalized.pop("paper_days", None)
     normalized.pop("days_elapsed", None)
     normalized.pop("days_left", None)
     return _hydrate_live_runtime_account(
@@ -997,7 +994,7 @@ def _current_execution_mode() -> str:
     return "live" if raw == "live" else "paper"
 
 
-def _runtime_engine() -> PaperExecutionEngine | LiveBrokerExecutionEngine:
+def _runtime_engine() -> SimulatedExecutionEngine | LiveBrokerExecutionEngine:
     return get_execution_engine(_current_execution_mode())
 
 
@@ -1008,7 +1005,7 @@ def _runtime_account_snapshot(*, refresh_quotes: bool = False) -> dict[str, Any]
 def _available_sell_quantity(account: dict[str, Any], *, market: str, code: str) -> int:
     """Current sellable inventory for a symbol, after account reconciliation.
 
-    Live accounts expose orderable_quantity; paper accounts only expose quantity.
+    Live accounts expose orderable_quantity; simulated accounts only expose quantity.
     The helper is intentionally fail-closed: unknown/missing positions are not sellable.
     """
     normalized_market = str(market or "").strip().upper()
@@ -1033,7 +1030,7 @@ def _available_sell_quantity(account: dict[str, Any], *, market: str, code: str)
 
 
 def _fresh_available_sell_quantity(
-    engine: PaperExecutionEngine | LiveBrokerExecutionEngine,
+    engine: SimulatedExecutionEngine | LiveBrokerExecutionEngine,
     *,
     market: str,
     code: str,
@@ -1351,12 +1348,11 @@ def _get_symbol_optimized_params(code: str) -> dict:
     }
 
 
-def _get_paper_engine() -> PaperExecutionEngine:
-    global _paper_engine
-    if _paper_engine is None:
-        state_path = Path(os.getenv("PAPER_TRADING_STATE_PATH",
-                          str(LOGS_DIR / "paper_account_state.json")))
-        _paper_engine = PaperExecutionEngine(
+def _get_simulated_engine() -> SimulatedExecutionEngine:
+    global _simulated_engine
+    if _simulated_engine is None:
+        state_path = Path(os.getenv("RUNTIME_ACCOUNT_STATE_PATH") or str(_ACCOUNT_STATE_DIR / "simulated_account_state.json"))
+        _simulated_engine = SimulatedExecutionEngine(
             config=EngineConfig(
                 state_path=state_path,
                 default_initial_cash_krw=10_000_000.0,
@@ -1364,47 +1360,38 @@ def _get_paper_engine() -> PaperExecutionEngine:
                 order_notifier=_notification_order_hook,
             ),
             quote_provider=_resolve_stock_quote,
-            fx_provider=_paper_fx_rate,
+            fx_provider=_usd_krw_rate,
         )
-    return _paper_engine
+    return _simulated_engine
 
 
 def _get_live_engine() -> LiveBrokerExecutionEngine:
-    """KISClient가 연결된 실거래 엔진을 반환한다 (싱글턴).
-
-    실거래 전환 시: get_execution_engine()에서 이 함수를 호출하도록 분기 추가.
-    """
+    """KISClient가 연결된 실거래 엔진을 반환한다."""
     global _live_engine
     if _live_engine is None:
         kis = KISClient.from_env()
         _live_engine = LiveBrokerExecutionEngine(
             kis_client=kis,
-            quote_provider=_resolve_stock_quote,   # 기존 quote provider 재사용
-            fx_provider=_paper_fx_rate,            # 기존 fx provider 재사용
+            quote_provider=_resolve_stock_quote,
+            fx_provider=_usd_krw_rate,
             config=EngineConfig(
-                state_path=LOGS_DIR / "live_account_state.json",  # paper와 분리
+                state_path=_ACCOUNT_STATE_DIR / "live_account_state.json",
             ),
         )
     return _live_engine
 
 
-# ── 엔진 선택 함수 (기존 get_execution_engine 또는 유사 함수 교체) ────────────
-
-def get_execution_engine(mode: str = "paper") -> PaperExecutionEngine | LiveBrokerExecutionEngine:
+def get_execution_engine(mode: str = "paper") -> SimulatedExecutionEngine | LiveBrokerExecutionEngine:
     """실행 모드에 따라 엔진을 반환한다.
 
     mode:
       'paper' - 내부 가상계좌 (현재 운영 중, 기본값)
       'live'  - KIS 실거래 주문 (실거래 전환 시 사용)
-
-    전환 방법:
-      .env 또는 API 파라미터로 EXECUTION_MODE=live 설정 후 이 함수에 전달.
-      절대로 코드를 직접 수정하지 말고 이 함수의 mode 인자로만 제어할 것.
     """
     normalized_mode = str(mode or "paper").strip().lower()
     if normalized_mode == "live":
         return _get_live_engine()
-    return _get_paper_engine()  # 기존 함수 그대로 유지
+    return _get_simulated_engine()
 
 
 def _normalize_pick_market(market: str) -> str:
@@ -2214,7 +2201,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     research_refresh = {
         "ok": True,
         "stage": "skipped",
-        "reason": "paper_mode",
+        "reason": "simulated_mode",
         "markets": markets,
         "selected_count": 0,
     }
@@ -3201,7 +3188,7 @@ def apply_quant_candidate_runtime_config(candidate: dict[str, Any]) -> dict[str,
     return _build_status_payload(state, account)
 
 
-def handle_paper_account(refresh_quotes: bool) -> tuple[int, dict]:
+def handle_runtime_account(refresh_quotes: bool) -> tuple[int, dict]:
     try:
         engine = _runtime_engine()
         account = engine.get_account(refresh_quotes=refresh_quotes)
@@ -3210,7 +3197,7 @@ def handle_paper_account(refresh_quotes: bool) -> tuple[int, dict]:
         return 500, {"error": str(exc)}
 
 
-def handle_paper_order(payload: dict) -> tuple[int, dict]:
+def handle_runtime_order(payload: dict) -> tuple[int, dict]:
     try:
         _hydrate_auto_trader_state()
         side = str(payload.get("side") or "").strip().lower()
@@ -3343,7 +3330,7 @@ def handle_paper_order(payload: dict) -> tuple[int, dict]:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_reset(payload: dict) -> tuple[int, dict]:
+def handle_runtime_reset(payload: dict) -> tuple[int, dict]:
     try:
         _hydrate_auto_trader_state()
         initial_cash_krw_raw = payload.get("initial_cash_krw")
@@ -3365,7 +3352,7 @@ def handle_paper_reset(payload: dict) -> tuple[int, dict]:
                 "error": account.get("error") or "account_reset_not_supported",
                 "account": account,
             }
-        _append_paper_reset_snapshot(account)
+        _append_runtime_reset_snapshot(account)
         return 200, {
             "ok": True,
             "account": account,
@@ -3376,7 +3363,7 @@ def handle_paper_reset(payload: dict) -> tuple[int, dict]:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_auto_invest(payload: dict) -> tuple[int, dict]:
+def handle_runtime_auto_invest(payload: dict) -> tuple[int, dict]:
     try:
         market = str(payload.get("market") or "NASDAQ").strip().upper()
         try:
@@ -3412,42 +3399,42 @@ def handle_paper_auto_invest(payload: dict) -> tuple[int, dict]:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_engine_start(payload: dict) -> tuple[int, dict]:
+def handle_runtime_engine_start(payload: dict) -> tuple[int, dict]:
     try:
         return 200, _start_auto_trader(payload)
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_engine_stop() -> tuple[int, dict]:
+def handle_runtime_engine_stop() -> tuple[int, dict]:
     try:
         return 200, _stop_auto_trader()
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_engine_pause() -> tuple[int, dict]:
+def handle_runtime_engine_pause() -> tuple[int, dict]:
     try:
         return 200, _pause_auto_trader()
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_engine_resume() -> tuple[int, dict]:
+def handle_runtime_engine_resume() -> tuple[int, dict]:
     try:
         return 200, _resume_auto_trader()
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_engine_status() -> tuple[int, dict]:
+def handle_runtime_engine_status() -> tuple[int, dict]:
     try:
         return 200, _auto_trader_status()
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_engine_cycles(limit: int = 50) -> tuple[int, dict]:
+def handle_runtime_engine_cycles(limit: int = 50) -> tuple[int, dict]:
     try:
         rows = read_engine_cycles(limit=limit)
         return 200, {"ok": True, "cycles": rows, "count": len(rows)}
@@ -3455,7 +3442,7 @@ def handle_paper_engine_cycles(limit: int = 50) -> tuple[int, dict]:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_order_events(limit: int = 100) -> tuple[int, dict]:
+def handle_runtime_order_events(limit: int = 100) -> tuple[int, dict]:
     try:
         rows = [enrich_order_payload(item) for item in read_order_events(limit=limit)]
         execution_events = read_execution_events(limit=limit * 4)
@@ -3470,7 +3457,7 @@ def handle_paper_order_events(limit: int = 100) -> tuple[int, dict]:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_account_history(limit: int = 100) -> tuple[int, dict]:
+def handle_runtime_account_history(limit: int = 100) -> tuple[int, dict]:
     try:
         rows = read_account_snapshots(limit=limit)
         return 200, {"ok": True, "history": rows, "count": len(rows)}
@@ -3501,7 +3488,7 @@ def _coerce_optional_float(raw: object) -> float | None:
 
 
 
-def _append_paper_reset_snapshot(account: dict[str, Any]) -> None:
+def _append_runtime_reset_snapshot(account: dict[str, Any]) -> None:
     append_account_snapshot({
         "timestamp": _now_iso(),
         "cycle_id": "",
@@ -3516,7 +3503,7 @@ def _append_paper_reset_snapshot(account: dict[str, Any]) -> None:
     })
 
 
-def handle_paper_history_clear(payload: dict) -> tuple[int, dict]:
+def handle_runtime_history_clear(payload: dict) -> tuple[int, dict]:
     try:
         clear_all = _coerce_bool(payload.get("clear_all"), True)
         clear_orders = clear_all or _coerce_bool(payload.get("clear_orders"), False)
@@ -3568,7 +3555,7 @@ def handle_paper_history_clear(payload: dict) -> tuple[int, dict]:
                         },
                         "account": account,
                     }
-                _append_paper_reset_snapshot(account)
+                _append_runtime_reset_snapshot(account)
                 reset_account_data = account
 
         return 200, {
@@ -3599,7 +3586,7 @@ def handle_signal_snapshots(limit: int = 200) -> tuple[int, dict]:
         return 500, {"ok": False, "error": str(exc)}
 
 
-def handle_paper_workflow(limit: int = 120) -> tuple[int, dict]:
+def handle_runtime_workflow(limit: int = 120) -> tuple[int, dict]:
     try:
         signals = read_signal_snapshots(limit=limit)
         orders = read_order_events(limit=limit)
@@ -3614,59 +3601,5 @@ def handle_paper_workflow(limit: int = 120) -> tuple[int, dict]:
         return 500, {"ok": False, "error": str(exc)}
 
 
-class ExecutionService:
-    def paper_account(self, refresh_quotes: bool) -> tuple[int, dict]:
-        return handle_paper_account(refresh_quotes)
-
-    def paper_order(self, payload: dict) -> tuple[int, dict]:
-        return handle_paper_order(payload)
-
-    def paper_reset(self, payload: dict) -> tuple[int, dict]:
-        return handle_paper_reset(payload)
-
-    def paper_auto_invest(self, payload: dict) -> tuple[int, dict]:
-        return handle_paper_auto_invest(payload)
-
-    def paper_engine_start(self, payload: dict) -> tuple[int, dict]:
-        return handle_paper_engine_start(payload)
-
-    def paper_engine_stop(self) -> tuple[int, dict]:
-        return handle_paper_engine_stop()
-
-    def paper_engine_pause(self) -> tuple[int, dict]:
-        return handle_paper_engine_pause()
-
-    def paper_engine_resume(self) -> tuple[int, dict]:
-        return handle_paper_engine_resume()
-
-    def paper_engine_status(self) -> tuple[int, dict]:
-        return handle_paper_engine_status()
-
-    def paper_engine_cycles(self, limit: int = 50) -> tuple[int, dict]:
-        return handle_paper_engine_cycles(limit)
-
-    def paper_orders(self, limit: int = 100) -> tuple[int, dict]:
-        return handle_paper_order_events(limit)
-
-    def paper_account_history(self, limit: int = 100) -> tuple[int, dict]:
-        return handle_paper_account_history(limit)
-
-    def paper_history_clear(self, payload: dict) -> tuple[int, dict]:
-        return handle_paper_history_clear(payload)
-
-    def signal_snapshots(self, limit: int = 200) -> tuple[int, dict]:
-        return handle_signal_snapshots(limit)
-
-    def paper_workflow(self, limit: int = 120) -> tuple[int, dict]:
-        return handle_paper_workflow(limit)
-
-
-_execution_service: ExecutionService | None = None
-
-
-def get_execution_service() -> ExecutionService:
-    global _execution_service
-    if _execution_service is None:
-        _execution_service = ExecutionService()
+def hydrate_runtime_state() -> None:
     _hydrate_auto_trader_state()
-    return _execution_service

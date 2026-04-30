@@ -8,7 +8,7 @@ from services.execution_lifecycle import (
     LIFECYCLE_FILLED,
     summarize_execution_events,
 )
-from services.paper_runtime_store import read_execution_events, read_signal_snapshots
+from services.runtime_store import read_execution_events, read_signal_snapshots
 
 
 def _today_str() -> str:

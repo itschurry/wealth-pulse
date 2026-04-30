@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import datetime
 import json
-from pathlib import Path
 from typing import Any
 
+from config.settings import RUNTIME_DIR
 from services.execution_lifecycle import coerce_order_id
-from services.execution_service import _normalize_runtime_account, get_execution_service
+from services.execution_service import _normalize_runtime_account
+from services.runtime_execution_service import get_execution_service
 from services.operations_report_service import build_operations_report
-from services.paper_runtime_store import read_execution_events, read_order_events
+from services.runtime_store import read_execution_events, read_order_events
 
-_ACCOUNT_STATE_PATH = Path(__file__).parent.parent.parent.parent / "storage" / "logs" / "paper_account_state.json"
-_LIVE_PERFORMANCE_BASELINE_PATH = Path(__file__).parent.parent.parent.parent / "storage" / "logs" / "live_performance_baseline.json"
+_ACCOUNT_STATE_PATH = RUNTIME_DIR / "accounts" / "simulated_account_state.json"
+_LIVE_PERFORMANCE_BASELINE_PATH = RUNTIME_DIR / "accounts" / "live_performance_baseline.json"
 _FILLED_STATES = {"filled", "partial_fill"}
 _LIFECYCLE_PRIORITY = {
     "intent": 0,
@@ -196,7 +197,7 @@ def _normalize_history_row(order_event: dict[str, Any], status: str, latest_exec
 
 def handle_performance_summary() -> tuple[int, dict]:
     try:
-        _, execution_payload = get_execution_service().paper_engine_status()
+        _, execution_payload = get_execution_service().runtime_engine_status()
         engine_state = execution_payload.get("state") if isinstance(execution_payload, dict) else {}
         engine_account = execution_payload.get("account") if isinstance(execution_payload, dict) else {}
 
@@ -204,7 +205,7 @@ def handle_performance_summary() -> tuple[int, dict]:
         if not account:
             account = engine_account or {}
 
-        account_status, account_payload = get_execution_service().paper_account(False)
+        account_status, account_payload = get_execution_service().runtime_account(False)
         if account_status == 200 and isinstance(account_payload, dict):
             account = account_payload
 

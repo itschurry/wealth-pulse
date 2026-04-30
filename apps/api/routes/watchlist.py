@@ -18,9 +18,9 @@ from routes.reports import (
 )
 from analyzer.technical_snapshot import fetch_technical_snapshot
 from analyzer.today_picks_engine import build_watchlist_actions
-from config.settings import LOGS_DIR
+from config.settings import CONFIG_STATE_DIR
 
-WATCHLIST_PATH = LOGS_DIR / "watchlist.json"
+WATCHLIST_PATH = CONFIG_STATE_DIR / "watchlist.json"
 
 
 def _sanitize_watchlist_item(item: dict) -> dict | None:

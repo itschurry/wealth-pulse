@@ -5,13 +5,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config.settings import LOGS_DIR
+from config.settings import CACHE_DIR
 from services.json_utils import clear_json_file_cache, json_dump_compact, json_dump_text, read_json_file_cached
 from services.research_contract import normalize_and_validate_warning_codes, normalize_tags
 from market_utils import normalize_market
 
 
-RESEARCH_DIR = LOGS_DIR / "research_snapshots"
+RESEARCH_DIR = CACHE_DIR / "research_snapshots"
 RESEARCH_LATEST_DIR = RESEARCH_DIR / "latest"
 RESEARCH_INGEST_LOG_PATH = RESEARCH_DIR / "ingest_history.jsonl"
 RESEARCH_PROVIDER_STATE_PATH = RESEARCH_DIR / "provider_state.json"

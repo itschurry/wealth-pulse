@@ -1,7 +1,7 @@
-"""실시세 기반 모의/실주문 엔진 인터페이스와 Paper/Live 구현.
+"""실시세 기반 모의/실주문 엔진 인터페이스와 Simulated/Live 구현.
 
 변경 사항:
-  - [수정] PaperExecutionEngine.sell_fee_rate 계산에 증권거래세(0.18%) 반영
+  - [수정] SimulatedExecutionEngine.sell_fee_rate 계산에 증권거래세(0.18%) 반영
   - [수정] LiveBrokerExecutionEngine: KISClient를 실제로 연결하는 구현체로 교체
            (기존 stub → 국내/해외주식 주문 + 잔고 조회 실제 호출)
   - [추가] EngineConfig.sell_tax_rate_domestic: 증권거래세 상수 분리
@@ -86,9 +86,9 @@ class EngineConfig:
         return self.sell_fee_rate
 
 
-# ── Paper 엔진 ────────────────────────────────────────────────────────────────
+# ── Simulated 엔진 ────────────────────────────────────────────────────────────────
 
-class PaperExecutionEngine:
+class SimulatedExecutionEngine:
     """실시세를 참고해 내부 가상 계좌만 업데이트하는 모의 체결 엔진.
 
     KIS 실거래 API로 시세를 조회하지만, 실제 주문은 내부 state에만 기록한다.
@@ -242,7 +242,7 @@ class PaperExecutionEngine:
             # take-profit/stop-loss position from state; using the stale cycle
             # snapshot would otherwise create a second sell attempt with
             # "매도 가능 수량이 부족합니다.". Buys may still refresh first so
-            # pending liquidations free paper cash/slots before new exposure.
+            # pending liquidations free simulated cash/slots before new exposure.
             if normalized_side == "buy":
                 self._refresh_positions(state)
 
@@ -785,7 +785,6 @@ class PaperExecutionEngine:
             payload["orders"] = []
         payload.setdefault("created_at", _now_iso())
         payload.setdefault("updated_at", _now_iso())
-        payload.pop("paper_days", None)
         payload.setdefault("initial_cash_krw",
                            self.config.default_initial_cash_krw)
         payload.setdefault("initial_cash_usd",

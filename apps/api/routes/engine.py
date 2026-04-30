@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from services.execution_service import get_execution_service
-from services.paper_runtime_store import list_strategy_scans
+from services.runtime_execution_service import get_execution_service
+from services.runtime_store import list_strategy_scans
 from services.strategy_registry import summarize_registry
 from services.strategy_engine import _context_snapshot
 from services.system_mode_service import get_mode_status
@@ -109,7 +109,7 @@ def _compact_execution_payload(execution_payload: dict | None) -> dict:
 
 def handle_engine_status() -> tuple[int, dict]:
     try:
-        _, execution_payload = get_execution_service().paper_engine_status()
+        _, execution_payload = get_execution_service().runtime_engine_status()
 
         # Use cached scan results only — do NOT trigger fresh scans here.
         # build_signal_book with live scanning can take 100s+ and this
@@ -140,7 +140,7 @@ def handle_engine_status() -> tuple[int, dict]:
 
 def handle_engine_summary() -> tuple[int, dict]:
     try:
-        _, execution_payload = get_execution_service().paper_engine_status()
+        _, execution_payload = get_execution_service().runtime_engine_status()
         scans = list_strategy_scans()
         strategy_counts, entry_allowed_count, blocked_count, risk_guard_state = _allocator_snapshot(scans)
         regime, risk_level = _context_snapshot()

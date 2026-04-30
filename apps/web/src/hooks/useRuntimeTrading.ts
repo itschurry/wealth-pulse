@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getJSON, postJSON } from '../api/client';
-import type { PaperAccountData, PaperEngineConfig, PaperEngineState, PaperSeedPositionInput, PaperSkippedItem, PaperWorkflowSummary } from '../types';
+import type { RuntimeAccountData, RuntimeEngineConfig, RuntimeEngineState, RuntimeSeedPositionInput, RuntimeSkippedItem, RuntimeWorkflowSummary } from '../types';
 
-const EMPTY_ACCOUNT: PaperAccountData = {
+const EMPTY_ACCOUNT: RuntimeAccountData = {
   mode: 'paper',
   base_currency: 'MULTI',
   initial_cash_krw: 0,
@@ -22,43 +22,43 @@ const EMPTY_ACCOUNT: PaperAccountData = {
   orders: [],
 };
 
-type PaperOrderResponse = { ok?: boolean; error?: string; account?: PaperAccountData };
-type PaperAutoInvestResponse = {
+type RuntimeOrderResponse = { ok?: boolean; error?: string; account?: RuntimeAccountData };
+type RuntimeAutoInvestResponse = {
   ok?: boolean;
   error?: string;
-  account?: PaperAccountData;
+  account?: RuntimeAccountData;
   executed?: unknown[];
-  skipped?: PaperSkippedItem[];
+  skipped?: RuntimeSkippedItem[];
   message?: string;
   [key: string]: unknown;
 };
-type PaperEngineResponse = {
+type RuntimeEngineResponse = {
   ok?: boolean;
   error?: string;
-  state?: PaperEngineState;
-  account?: PaperAccountData;
+  state?: RuntimeEngineState;
+  account?: RuntimeAccountData;
   message?: string;
   [key: string]: unknown;
 };
-type PaperCyclesResponse = {
+type RuntimeCyclesResponse = {
   ok?: boolean;
   cycles?: Record<string, unknown>[];
   count?: number;
   error?: string;
 };
-type PaperOrderEventsResponse = {
+type RuntimeOrderEventsResponse = {
   ok?: boolean;
   orders?: Record<string, unknown>[];
   count?: number;
   error?: string;
 };
-type PaperAccountHistoryResponse = {
+type RuntimeAccountHistoryResponse = {
   ok?: boolean;
   history?: Record<string, unknown>[];
   count?: number;
   error?: string;
 };
-type PaperHistoryClearResponse = {
+type RuntimeHistoryClearResponse = {
   ok?: boolean;
   error?: string;
   account_reset?: boolean;
@@ -68,7 +68,7 @@ type PaperHistoryClearResponse = {
     account_snapshots?: number;
     engine_cycles?: number;
   };
-  account?: PaperAccountData;
+  account?: RuntimeAccountData;
 };
 type SignalSnapshotsResponse = {
   ok?: boolean;
@@ -77,22 +77,22 @@ type SignalSnapshotsResponse = {
   error?: string;
 };
 
-type PaperWorkflowResponse = {
+type RuntimeWorkflowResponse = {
   ok?: boolean;
-  workflow?: PaperWorkflowSummary;
+  workflow?: RuntimeWorkflowSummary;
   error?: string;
 };
 
-export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
-  const [account, setAccount] = useState<PaperAccountData>(EMPTY_ACCOUNT);
-  const [engineState, setEngineState] = useState<PaperEngineState>({ running: false, engine_state: 'stopped' });
+export function useRuntimeTrading(options?: { autoRefreshEnabled?: boolean }) {
+  const [account, setAccount] = useState<RuntimeAccountData>(EMPTY_ACCOUNT);
+  const [engineState, setEngineState] = useState<RuntimeEngineState>({ running: false, engine_state: 'stopped' });
   const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [lastError, setLastError] = useState<string>('');
   const [cycles, setCycles] = useState<Record<string, unknown>[]>([]);
   const [orderEvents, setOrderEvents] = useState<Record<string, unknown>[]>([]);
   const [accountHistory, setAccountHistory] = useState<Record<string, unknown>[]>([]);
   const [signalSnapshots, setSignalSnapshots] = useState<Record<string, unknown>[]>([]);
-  const [workflowSummary, setWorkflowSummary] = useState<PaperWorkflowSummary>({ counts: {}, items: [], count: 0 });
+  const [workflowSummary, setWorkflowSummary] = useState<RuntimeWorkflowSummary>({ counts: {}, items: [], count: 0 });
   const autoRefreshEnabled = options?.autoRefreshEnabled ?? true;
   const accountRequestIdRef = useRef(0);
   const engineRequestIdRef = useRef(0);
@@ -114,7 +114,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     const requestId = accountRequestIdRef.current + 1;
     accountRequestIdRef.current = requestId;
     try {
-      const payload = await getJSON<PaperAccountData>(`/api/paper/account?refresh=${refreshQuotes ? '1' : '0'}`, { noStore: true });
+      const payload = await getJSON<RuntimeAccountData>(`/api/runtime/account?refresh=${refreshQuotes ? '1' : '0'}`, { noStore: true });
       if (accountRequestIdRef.current !== requestId) {
         return payload;
       }
@@ -145,7 +145,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     invalidateAccountRequests();
     invalidateRuntimeLogRequests();
     try {
-      const response = await postJSON<PaperOrderResponse>('/api/paper/order', params);
+      const response = await postJSON<RuntimeOrderResponse>('/api/runtime/order', params);
       const payload = response.data;
       if (!response.ok || !payload.ok) {
         const message = payload.error || '모의 주문에 실패했습니다.';
@@ -166,13 +166,13 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
   const reset = useCallback(async (params?: {
     initial_cash_krw?: number;
     initial_cash_usd?: number;
-    seed_positions?: PaperSeedPositionInput[];
+    seed_positions?: RuntimeSeedPositionInput[];
   }) => {
     invalidateAccountRequests();
     invalidateEngineRequests();
     invalidateRuntimeLogRequests();
     try {
-      const response = await postJSON<PaperOrderResponse>('/api/paper/reset', params || {});
+      const response = await postJSON<RuntimeOrderResponse>('/api/runtime/reset', params || {});
       const payload = response.data;
       if (!response.ok || !payload.ok) {
         const message = payload.error || '모의계좌 초기화에 실패했습니다.';
@@ -204,7 +204,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     invalidateAccountRequests();
     invalidateRuntimeLogRequests();
     try {
-      const response = await postJSON<PaperAutoInvestResponse>('/api/paper/auto-invest', params || {});
+      const response = await postJSON<RuntimeAutoInvestResponse>('/api/runtime/auto-invest', params || {});
       const payload = response.data;
       if (!response.ok || !payload.ok) {
         const message = payload.error || '추천 기반 자동매수 실행에 실패했습니다.';
@@ -226,7 +226,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     const requestId = engineRequestIdRef.current + 1;
     engineRequestIdRef.current = requestId;
     try {
-      const payload = await getJSON<PaperEngineResponse>('/api/paper/engine/status', { noStore: true });
+      const payload = await getJSON<RuntimeEngineResponse>('/api/runtime/engine/status', { noStore: true });
       if (engineRequestIdRef.current !== requestId) {
         return { ok: false, error: 'stale' };
       }
@@ -236,9 +236,9 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         return { ok: false, error: message };
       }
       if (payload.account) {
-        setAccount(payload.account as PaperAccountData);
+        setAccount(payload.account as RuntimeAccountData);
       }
-      const nextState = (payload.state || { running: false, engine_state: 'stopped' }) as PaperEngineState;
+      const nextState = (payload.state || { running: false, engine_state: 'stopped' }) as RuntimeEngineState;
       setEngineState(nextState);
       if (nextState.workflow_summary) {
         setWorkflowSummary(nextState.workflow_summary);
@@ -259,17 +259,17 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     runtimeLogsRequestIdRef.current = requestId;
     try {
       const settled = await Promise.allSettled([
-        getJSON<PaperCyclesResponse>('/api/paper/engine/cycles?limit=30', { noStore: true }),
-        getJSON<PaperOrderEventsResponse>('/api/paper/orders?limit=60', { noStore: true }),
-        getJSON<PaperAccountHistoryResponse>('/api/paper/account/history?limit=60', { noStore: true }),
+        getJSON<RuntimeCyclesResponse>('/api/runtime/engine/cycles?limit=30', { noStore: true }),
+        getJSON<RuntimeOrderEventsResponse>('/api/runtime/orders?limit=60', { noStore: true }),
+        getJSON<RuntimeAccountHistoryResponse>('/api/runtime/account/history?limit=60', { noStore: true }),
         getJSON<SignalSnapshotsResponse>('/api/signals/snapshots?limit=120', { noStore: true }),
-        getJSON<PaperWorkflowResponse>('/api/paper/workflow?limit=120', { noStore: true }),
+        getJSON<RuntimeWorkflowResponse>('/api/runtime/workflow?limit=120', { noStore: true }),
       ]) as [
-        PromiseSettledResult<PaperCyclesResponse>,
-        PromiseSettledResult<PaperOrderEventsResponse>,
-        PromiseSettledResult<PaperAccountHistoryResponse>,
+        PromiseSettledResult<RuntimeCyclesResponse>,
+        PromiseSettledResult<RuntimeOrderEventsResponse>,
+        PromiseSettledResult<RuntimeAccountHistoryResponse>,
         PromiseSettledResult<SignalSnapshotsResponse>,
-        PromiseSettledResult<PaperWorkflowResponse>,
+        PromiseSettledResult<RuntimeWorkflowResponse>,
       ];
       if (runtimeLogsRequestIdRef.current !== requestId) {
         return { ok: false, error: 'stale' };
@@ -311,7 +311,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     invalidateEngineRequests();
     invalidateRuntimeLogRequests();
     try {
-      const response = await postJSON<PaperHistoryClearResponse>('/api/paper/history/clear', payload);
+      const response = await postJSON<RuntimeHistoryClearResponse>('/api/runtime/history/clear', payload);
       const payloadData = response.data;
       if (!response.ok || !payloadData.ok) {
         const message = payloadData.error || '논리 실행 로그 정리에 실패했습니다.';
@@ -323,7 +323,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         ok: true,
         clear_count: payloadData.clear_count || {},
         account_reset: payloadData.account_reset || false,
-        account: payloadData.account as PaperAccountData,
+        account: payloadData.account as RuntimeAccountData,
       };
     } catch {
       const message = '논리 실행 로그 정리 요청 중 오류가 발생했습니다.';
@@ -340,11 +340,11 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     setWorkflowSummary({ counts: {}, items: [], count: 0 });
   }, []);
 
-  const startEngine = useCallback(async (params?: Partial<PaperEngineConfig>) => {
+  const startEngine = useCallback(async (params?: Partial<RuntimeEngineConfig>) => {
     invalidateEngineRequests();
     invalidateRuntimeLogRequests();
     try {
-      const response = await postJSON<PaperEngineResponse>('/api/paper/engine/start', params || {});
+      const response = await postJSON<RuntimeEngineResponse>('/api/runtime/engine/start', params || {});
       const payload = response.data;
       if (!response.ok || !payload.ok) {
         const message = payload.error || '자동매매 실행에 실패했습니다.';
@@ -352,10 +352,10 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         return { ok: false, error: message };
       }
       if (payload.account) {
-        setAccount(payload.account as PaperAccountData);
+        setAccount(payload.account as RuntimeAccountData);
       }
       if (payload.state) {
-        setEngineState(payload.state as PaperEngineState);
+        setEngineState(payload.state as RuntimeEngineState);
       }
       setLastError('');
       return { ok: true, payload };
@@ -370,7 +370,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     invalidateEngineRequests();
     invalidateRuntimeLogRequests();
     try {
-      const response = await postJSON<PaperEngineResponse>('/api/paper/engine/stop');
+      const response = await postJSON<RuntimeEngineResponse>('/api/runtime/engine/stop');
       const payload = response.data;
       if (!response.ok || !payload.ok) {
         const message = payload.error || '자동매매 중지에 실패했습니다.';
@@ -378,10 +378,10 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         return { ok: false, error: message };
       }
       if (payload.account) {
-        setAccount(payload.account as PaperAccountData);
+        setAccount(payload.account as RuntimeAccountData);
       }
       if (payload.state) {
-        setEngineState(payload.state as PaperEngineState);
+        setEngineState(payload.state as RuntimeEngineState);
       } else {
         setEngineState({ running: false, engine_state: 'stopped' });
       }
@@ -398,7 +398,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     invalidateEngineRequests();
     invalidateRuntimeLogRequests();
     try {
-      const response = await postJSON<PaperEngineResponse>('/api/paper/engine/pause');
+      const response = await postJSON<RuntimeEngineResponse>('/api/runtime/engine/pause');
       const payload = response.data;
       if (!response.ok || !payload.ok) {
         const message = payload.error || '자동매매 일시정지에 실패했습니다.';
@@ -406,10 +406,10 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         return { ok: false, error: message };
       }
       if (payload.account) {
-        setAccount(payload.account as PaperAccountData);
+        setAccount(payload.account as RuntimeAccountData);
       }
       if (payload.state) {
-        setEngineState(payload.state as PaperEngineState);
+        setEngineState(payload.state as RuntimeEngineState);
       }
       setLastError('');
       return { ok: true, payload };
@@ -424,7 +424,7 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
     invalidateEngineRequests();
     invalidateRuntimeLogRequests();
     try {
-      const response = await postJSON<PaperEngineResponse>('/api/paper/engine/resume');
+      const response = await postJSON<RuntimeEngineResponse>('/api/runtime/engine/resume');
       const payload = response.data;
       if (!response.ok || !payload.ok) {
         const message = payload.error || '자동매매 재개에 실패했습니다.';
@@ -432,10 +432,10 @@ export function usePaperTrading(options?: { autoRefreshEnabled?: boolean }) {
         return { ok: false, error: message };
       }
       if (payload.account) {
-        setAccount(payload.account as PaperAccountData);
+        setAccount(payload.account as RuntimeAccountData);
       }
       if (payload.state) {
-        setEngineState(payload.state as PaperEngineState);
+        setEngineState(payload.state as RuntimeEngineState);
       }
       setLastError('');
       return { ok: true, payload };

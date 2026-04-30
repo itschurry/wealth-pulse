@@ -1,6 +1,5 @@
 import json
 import time
-from pathlib import Path
 from typing import Any
 
 import cache as _cache
@@ -11,9 +10,9 @@ except ModuleNotFoundError:  # pragma: no cover - package import fallback
 from market_utils import resolve_market
 from services.reliability_service import assess_validation_reliability
 from services.report_cache import get_cached_payload
+from services.optimized_params_store import load_search_optimized_params
 
 _SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ"}
-_OPTIMIZED_PARAMS_PATH = Path(__file__).resolve().parent.parent / "config" / "optimized_params.json"
 
 
 def _infer_recommendation_market(ticker: str, market: str = "", code: str = "", name: str = "") -> str:
@@ -175,13 +174,7 @@ def _research_quality_gate(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _load_optimized_params_payload() -> dict[str, Any] | None:
-    try:
-        if not _OPTIMIZED_PARAMS_PATH.exists():
-            return None
-        payload = json.loads(_OPTIMIZED_PARAMS_PATH.read_text(encoding="utf-8"))
-        return payload if isinstance(payload, dict) else None
-    except Exception:
-        return None
+    return load_search_optimized_params()
 
 
 def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
@@ -304,9 +297,9 @@ def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
 
 def _strategy_recommendations_payload() -> dict[str, Any]:
     from services.strategy_engine import build_signal_book
-    from services.execution_service import get_execution_service
+    from services.runtime_execution_service import get_execution_service
 
-    _, execution_payload = get_execution_service().paper_engine_status()
+    _, execution_payload = get_execution_service().runtime_engine_status()
     account = execution_payload.get("account") if isinstance(execution_payload, dict) else {}
     signal_book = build_signal_book(
         markets=["KOSPI", "NASDAQ"],

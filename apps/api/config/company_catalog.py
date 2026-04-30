@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from config.settings import LOGS_DIR
+from config.settings import CACHE_DIR
 
 
 @dataclass(frozen=True)
@@ -20,10 +20,13 @@ class CompanyCatalogEntry:
 
 _ALLOWED_MARKETS = {"KOSPI", "KOSDAQ", "NASDAQ", "NYSE", "AMEX", "US"}
 _CATALOG_CACHE: dict[str, list[CompanyCatalogEntry]] = {}
-_UNIVERSE_ROOT = LOGS_DIR / "universe_snapshots"
+_UNIVERSE_ROOT = CACHE_DIR / "universe_snapshots"
+_CONFIG_UNIVERSE_ROOT = Path(__file__).resolve().parent / "universes"
 _SNAPSHOT_SOURCES: tuple[tuple[str, Path], ...] = (
     ("kospi", _UNIVERSE_ROOT / "kospi" / "latest.json"),
     ("sp500", _UNIVERSE_ROOT / "sp500" / "latest.json"),
+    ("kospi_config", _CONFIG_UNIVERSE_ROOT / "kospi100.json"),
+    ("sp100_config", _CONFIG_UNIVERSE_ROOT / "sp100.json"),
 )
 
 _US_SUFFIX_PATTERN = re.compile(
@@ -32,6 +35,41 @@ _US_SUFFIX_PATTERN = re.compile(
 )
 
 _STATIC_FALLBACK_ROWS: tuple[dict[str, object], ...] = (
+    {
+        "name": "IPARK현대산업개발",
+        "code": "294870",
+        "market": "KOSPI",
+        "sector": "건설",
+        "aliases": ("아이파크현대산업개발", "HDC현대산업개발", "IPARK HYUNDAI DEVELOPMENT COMPANY"),
+    },
+    {
+        "name": "두산밥캣",
+        "code": "241560",
+        "market": "KOSPI",
+        "sector": "기계",
+        "aliases": ("Doosan Bobcat",),
+    },
+    {
+        "name": "엔케이",
+        "code": "085310",
+        "market": "KOSPI",
+        "sector": "기계",
+        "aliases": ("NK",),
+    },
+    {
+        "name": "보령",
+        "code": "003850",
+        "market": "KOSPI",
+        "sector": "제약",
+        "aliases": ("Boryung",),
+    },
+    {
+        "name": "신일전자",
+        "code": "002700",
+        "market": "KOSPI",
+        "sector": "전자제품",
+        "aliases": ("SHINIL ELECTRONICS",),
+    },
     {
         "name": "IBK기업은행",
         "code": "024110",
@@ -58,10 +96,10 @@ def _normalize_market(value: str) -> str:
     return normalized
 
 
-def _read_snapshot(path: Path) -> dict:
+def _read_snapshot(path: Path) -> dict | list:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"snapshot payload must be an object: {path}")
+    if not isinstance(payload, (dict, list)):
+        raise ValueError(f"snapshot payload must be an object or array: {path}")
     return payload
 
 
@@ -147,10 +185,15 @@ def _load_catalog_entries() -> list[CompanyCatalogEntry]:
             continue
 
         payload = _read_snapshot(path)
-        symbols = payload.get("symbols") if isinstance(payload.get("symbols"), list) else []
+        if isinstance(payload, list):
+            symbols = payload
+            default_market = ""
+        else:
+            symbols = payload.get("symbols") if isinstance(payload.get("symbols"), list) else []
+            default_market = str(payload.get("market") or "")
         for row in symbols:
             if isinstance(row, dict):
-                _append_entry(entries, seen, row, str(payload.get("market") or ""))
+                _append_entry(entries, seen, row, default_market)
 
     for row in _STATIC_FALLBACK_ROWS:
         _append_entry(entries, seen, row)

@@ -13,7 +13,7 @@ services:
       PYTHONPATH: /app/apps/api
       REPORT_OUTPUT_DIR: /reports
       LOGS_DIR: /logs
-      PAPER_TRADING_STATE_PATH: /logs/paper_account_state.json
+      RUNTIME_ACCOUNT_STATE_PATH: /logs/runtime/accounts/simulated_account_state.json
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
     env_file:
       - ./apps/api/.env

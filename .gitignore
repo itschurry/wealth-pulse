@@ -27,6 +27,18 @@ apps/web/.cache/
 # --- Logs ---
 storage/logs/*
 !storage/logs/.gitkeep
+!storage/logs/runtime/
+storage/logs/runtime/**
+!storage/logs/runtime/.gitkeep
+!storage/logs/audit/
+storage/logs/audit/**
+!storage/logs/audit/.gitkeep
+!storage/logs/config/
+storage/logs/config/**
+!storage/logs/config/.gitkeep
+!storage/logs/cache/
+storage/logs/cache/**
+!storage/logs/cache/.gitkeep
 *.log
 
 # --- Generated reports/artifacts ---
