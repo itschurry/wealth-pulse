@@ -33,10 +33,10 @@ interface RouteState {
 }
 
 const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; hint: string }> = [
-  { id: 'agent-dashboard', label: 'Agent 관제', path: '/agent-dashboard', hint: 'Hermes 판단 · Risk Gate · Paper 주문 감사' },
+  { id: 'agent-dashboard', label: 'Agent 관제', path: '/agent-dashboard', hint: 'Hermes 판단 · Risk Gate · Runtime 주문 감사' },
   { id: 'research-ai', label: '종목 선정/리서치', path: '/research-ai', hint: '5대 후보 입력원과 Research Snapshot' },
   { id: 'signal-review', label: '신호/리스크', path: '/signal-review', hint: 'Layer A~E 신호와 차단 사유 검토' },
-  { id: 'orders-execution', label: '주문/포트폴리오', path: '/orders-execution', hint: 'Paper 주문 · 포지션 · 체결 이력' },
+  { id: 'orders-execution', label: '주문/포트폴리오', path: '/orders-execution', hint: 'Runtime 주문 · 포지션 · 체결 이력' },
   { id: 'performance', label: '성과/회고', path: '/performance', hint: '체결 성과와 에이전트 의사결정 회고' },
   { id: 'watchlist', label: UI_TEXT.analysisTabs.watchlist, path: '/watchlist', hint: '사용자 관심 종목 입력원 관리' },
   { id: 'lab', label: '실험실', path: '/lab/validation', hint: '백테스트 · 전략 프리셋 · 유니버스 검증' },
@@ -50,10 +50,10 @@ const LAB_TABS: Array<{ id: LabTab; label: string; path: string; hint: string }>
 ];
 
 const PAGE_COPY: Record<WorkspacePage, string> = {
-  'agent-dashboard': '자동거래의 현재 중심입니다. Hermes 판단, Risk Gate, Paper 주문 감사를 이 화면에서 먼저 봅니다.',
+  'agent-dashboard': '자동거래의 현재 중심입니다. Hermes 판단, Risk Gate, Runtime 주문 감사를 이 화면에서 먼저 봅니다.',
   'research-ai': '거래대금 상위, 등락률 상위, 뉴스 급증, 보유 종목, 관심 종목을 후보 입력원으로 모읍니다.',
   'signal-review': '후보가 어떤 레이어에서 허용·차단됐는지 점검합니다. 주문 버튼보다 근거 확인이 우선입니다.',
-  'orders-execution': 'Risk Gate를 통과한 Paper 주문과 포트폴리오 상태를 확인합니다.',
+  'orders-execution': 'Risk Gate를 통과한 Runtime 주문과 포트폴리오 상태를 확인합니다.',
   performance: '주문 접수와 실제 체결 성과를 분리해 에이전트 결정을 회고합니다.',
   watchlist: '사용자 의도를 반영하는 관심 종목 입력원을 관리합니다.',
   lab: '백테스트, 전략, 유니버스 실험은 운영 흐름과 분리된 실험실에서만 다룹니다.',

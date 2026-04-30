@@ -53,6 +53,24 @@ class AgentAuditStore:
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.db_path = Path(db_path or DEFAULT_AGENT_DB_PATH)
 
+    def _schema_ready(self) -> bool:
+        if not self.db_path.exists():
+            return True
+        try:
+            with self._connect() as conn:
+                run_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agent_runs)").fetchall()}
+                order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(trade_orders)").fetchall()}
+        except sqlite3.DatabaseError:
+            return False
+        if not run_columns and not order_columns:
+            return True
+        return "execution_channel" in run_columns and "execution_channel" in order_columns
+
+    def _archive_incompatible_db(self) -> None:
+        stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_path = self.db_path.with_name(f"{self.db_path.stem}.schema-backup-{stamp}{self.db_path.suffix}")
+        self.db_path.replace(backup_path)
+
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
@@ -61,13 +79,15 @@ class AgentAuditStore:
         return conn
 
     def initialize(self) -> None:
+        if self.db_path.exists() and not self._schema_ready():
+            self._archive_incompatible_db()
         with self._connect() as conn:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS agent_runs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     trigger TEXT NOT NULL DEFAULT 'manual',
-                    trading_mode TEXT NOT NULL DEFAULT 'paper',
+                    execution_channel TEXT NOT NULL DEFAULT 'runtime',
                     status TEXT NOT NULL,
                     started_at TEXT NOT NULL,
                     finished_at TEXT NOT NULL DEFAULT '',
@@ -128,7 +148,7 @@ class AgentAuditStore:
                     risk_event_id INTEGER,
                     symbol TEXT NOT NULL,
                     action TEXT NOT NULL,
-                    trading_mode TEXT NOT NULL DEFAULT 'paper',
+                    execution_channel TEXT NOT NULL DEFAULT 'runtime',
                     status TEXT NOT NULL DEFAULT 'skipped',
                     payload TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
@@ -139,16 +159,17 @@ class AgentAuditStore:
                 CREATE INDEX IF NOT EXISTS idx_agent_runs_started_at ON agent_runs(started_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_trade_decisions_symbol ON trade_decisions(symbol, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_trade_orders_symbol ON trade_orders(symbol, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_trade_orders_execution_channel ON trade_orders(execution_channel, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_market_evidence_symbol ON market_evidence(symbol, created_at DESC);
                 """
             )
 
-    def create_run(self, *, trigger: str, trading_mode: str, status: str = "running", summary: dict[str, Any] | None = None) -> int:
+    def create_run(self, *, trigger: str, execution_channel: str, status: str = "running", summary: dict[str, Any] | None = None) -> int:
         self.initialize()
         with self._connect() as conn:
             cur = conn.execute(
-                "INSERT INTO agent_runs(trigger, trading_mode, status, started_at, summary) VALUES (?, ?, ?, ?, ?)",
-                (trigger, trading_mode, status, _now_iso(), _json_dumps(summary)),
+                "INSERT INTO agent_runs(trigger, execution_channel, status, started_at, summary) VALUES (?, ?, ?, ?, ?)",
+                (trigger, execution_channel, status, _now_iso(), _json_dumps(summary)),
             )
             return int(cur.lastrowid)
 
@@ -196,12 +217,12 @@ class AgentAuditStore:
             )
             return int(cur.lastrowid)
 
-    def add_order(self, run_id: int, *, decision_id: int | None, risk_event_id: int | None, symbol: str, action: str, trading_mode: str, status: str, payload: dict[str, Any] | None = None) -> int:
+    def add_order(self, run_id: int, *, decision_id: int | None, risk_event_id: int | None, symbol: str, action: str, execution_channel: str, status: str, payload: dict[str, Any] | None = None) -> int:
         self.initialize()
         with self._connect() as conn:
             cur = conn.execute(
-                "INSERT INTO trade_orders(run_id, decision_id, risk_event_id, symbol, action, trading_mode, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (int(run_id), decision_id, risk_event_id, symbol, action, trading_mode, status, _json_dumps(payload), _now_iso()),
+                "INSERT INTO trade_orders(run_id, decision_id, risk_event_id, symbol, action, execution_channel, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (int(run_id), decision_id, risk_event_id, symbol, action, execution_channel, status, _json_dumps(payload), _now_iso()),
             )
             return int(cur.lastrowid)
 

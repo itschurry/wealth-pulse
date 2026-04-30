@@ -5,7 +5,7 @@ import {
   fetchAgentOrders,
   fetchAgentRiskConfig,
   fetchAgentRuns,
-  runAgentPaper,
+  runAgent,
 } from '../api/domain';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import type {
@@ -115,15 +115,15 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
       { label: '최근 후보', value: safeSummaryValue(latestRun, 'candidate_count'), copy: 'Agent Run 입력 후보 수' },
       { label: '판단', value: safeSummaryValue(latestRun, 'decisions'), copy: 'Hermes/스냅샷 BUY·SELL·HOLD 판단' },
       { label: 'Risk 승인', value: safeSummaryValue(latestRun, 'risk_approved'), copy: '결정적 Risk Gate 통과' },
-      { label: 'Paper 주문', value: safeSummaryValue(latestRun, 'orders_submitted'), copy: '실계좌가 아닌 paper 주문 제출' },
+      { label: '주문 기록', value: safeSummaryValue(latestRun, 'orders_submitted'), copy: 'Executor가 남긴 주문/실행 기록' },
     ];
   }, [latestRun]);
 
-  async function handleRunPaper() {
+  async function handleRunAgent() {
     setRunning(true);
     setState((prev) => ({ ...prev, error: '' }));
     try {
-      const result = await runAgentPaper({ limit: 5 });
+      const result = await runAgent({ limit: 5 });
       setState((prev) => ({ ...prev, lastRun: result }));
       await refresh();
       onRefresh();
@@ -145,19 +145,19 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
     <div className="content-shell workspace-grid">
       <ConsoleActionBar
         title="Agent 자동거래 관제"
-        subtitle="Hermes는 판단만 만들고, Risk Gate와 paper executor가 최종 기록을 남깁니다. Live 주문은 이 화면에서 열지 않습니다."
+        subtitle="Hermes 판단, Risk Gate, Executor 기록을 런타임 모드와 분리해서 관제합니다."
         lastUpdated={state.updatedAt}
         loading={combinedLoading}
         errorMessage={visibleError}
         statusItems={[
-          { label: '거래 모드', value: String(riskConfig.trading_mode || 'paper'), tone: 'neutral' },
-          { label: 'Live 주문', value: riskConfig.enable_live_trading ? '허용' : '차단', tone: riskConfig.enable_live_trading ? 'bad' : 'good' },
+          { label: '관제 상태', value: running ? '실행 중' : '대기', tone: running ? 'good' : 'neutral' },
+          { label: 'Risk Gate', value: `${formatNumber(Number(riskConfig.min_confidence ?? 0), 2)}+`, tone: 'neutral' },
           { label: 'KIS 설정', value: broker?.configured ? '준비' : '미설정', tone: broker?.configured ? 'good' : 'neutral' },
           { label: '계좌', value: broker?.account_configured ? '준비' : '미설정', tone: broker?.account_configured ? 'good' : 'neutral' },
         ]}
         onRefresh={refresh}
         actions={[
-          { label: running ? 'Paper Agent 실행 중' : 'Paper Agent 1회 실행', onClick: handleRunPaper, tone: 'primary', disabled: running },
+          { label: running ? 'Agent 실행 중' : 'Agent 1회 실행', onClick: handleRunAgent, tone: 'primary', disabled: running },
         ]}
         logs={[]}
         onClearLogs={() => undefined}
@@ -202,7 +202,7 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
             <div className="workspace-summary-title">KIS Broker</div>
             <div className="workspace-summary-copy">API 키 {broker?.configured ? '설정됨' : '미설정'} · 계좌 {broker?.account_configured ? '설정됨' : '미설정'}</div>
             <div className="workspace-summary-copy">Base URL {broker?.base_url || '-'}</div>
-            <div className="workspace-summary-copy">Live 주문 플래그 {broker?.live_order_enabled ? 'ON' : 'OFF'}</div>
+            <div className="workspace-summary-copy">주문 실행은 Runtime 엔진에서 결정</div>
           </div>
         </div>
       </section>
@@ -211,13 +211,13 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
         <div className="workspace-section-head" style={{ padding: '16px 16px 0' }}>
           <div>
             <div className="section-title">최근 Agent Runs</div>
-            <div className="section-copy">후보 수, 판단 수, Risk 승인/거절, Paper 주문 수를 한 줄로 확인합니다.</div>
+            <div className="section-copy">후보 수, 판단 수, Risk 승인/거절, 주문 기록 수를 한 줄로 확인합니다.</div>
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table className="workspace-table">
             <thead>
-              <tr><th>Run</th><th>상태</th><th>모드</th><th>후보</th><th>판단</th><th>승인/거절</th><th>주문</th><th>시각</th></tr>
+              <tr><th>Run</th><th>상태</th><th>채널</th><th>후보</th><th>판단</th><th>승인/거절</th><th>주문</th><th>시각</th></tr>
             </thead>
             <tbody>
               {state.runs.length === 0 && <tr><td colSpan={8}>아직 Agent Run 기록이 없습니다.</td></tr>}
@@ -228,7 +228,7 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
                   <tr key={String(runId)}>
                     <td>#{String(runId)}</td>
                     <td><span className={badge.tone}>{badge.label}</span></td>
-                    <td>{item.trading_mode || 'paper'}</td>
+                    <td>{item.execution_channel || 'runtime'}</td>
                     <td>{formatNumber(item.summary?.candidate_count || 0)}</td>
                     <td>{formatNumber(item.summary?.decisions || 0)}</td>
                     <td>{formatNumber(item.summary?.risk_approved || 0)} / {formatNumber(item.summary?.risk_rejected || 0)}</td>
@@ -256,10 +256,10 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
           <div className="section-title">최근 주문 기록</div>
           <div className="workspace-chip-row" style={{ marginTop: 10 }}>
             <span className={latestOrderStatus.tone}>{latestOrderStatus.label}</span>
-            <span className="inline-badge">{latestOrder?.trading_mode || 'paper'}</span>
+            <span className="inline-badge">{latestOrder?.execution_channel || 'runtime'}</span>
             <span className="inline-badge">{latestOrder?.symbol || '-'}</span>
           </div>
-          <div className="section-copy" style={{ marginTop: 10 }}>실주문이 아니라 paper executor 기록입니다.</div>
+          <div className="section-copy" style={{ marginTop: 10 }}>Executor가 남긴 최신 주문/실행 기록입니다.</div>
         </div>
       </section>
     </div>

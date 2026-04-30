@@ -68,11 +68,11 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
   if (route.page === 'operations-dashboard') {
     return {
       signalLimit: 80,
-      initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'marketContext', 'validation', 'reports'],
+      initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'marketContext', 'validation', 'reports', 'universe', 'performance'],
       initialAwaitTargets: ['engine'],
       fastTargets: ['engine', 'liveMarket'],
       midTargets: ['signals', 'portfolio'],
-      slowTargets: ['research', 'marketContext', 'validation', 'reports'],
+      slowTargets: ['research', 'marketContext', 'validation', 'reports', 'universe', 'performance'],
     };
   }
 

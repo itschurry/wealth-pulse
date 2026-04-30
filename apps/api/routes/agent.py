@@ -124,14 +124,14 @@ def _decision_provider_from_payload(payload: dict[str, Any]):
     return _provider
 
 
-def _submit_paper_order(payload: dict[str, Any]) -> dict[str, Any]:
+def _submit_runtime_order(payload: dict[str, Any]) -> dict[str, Any]:
     status, result = handle_paper_order(payload)
     if not isinstance(result, dict):
         result = {"raw": result}
     return {"ok": 200 <= int(status) < 300 and bool(result.get("ok", True)), "status_code": status, **result}
 
 
-def _paper_order_executor(intent: dict[str, Any]) -> dict[str, Any]:
+def _runtime_order_executor(intent: dict[str, Any]) -> dict[str, Any]:
     action = str(intent.get("action") or "").strip().lower()
     side = "buy" if action == "buy" else "sell" if action == "sell" else action
     payload = {
@@ -141,7 +141,7 @@ def _paper_order_executor(intent: dict[str, Any]) -> dict[str, Any]:
         "quantity": int(intent.get("quantity") or 0),
         "order_type": "market",
     }
-    return _submit_paper_order(payload)
+    return _submit_runtime_order(payload)
 
 
 def _account_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -160,17 +160,13 @@ def _account_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def handle_agent_run(payload: dict) -> tuple[int, dict]:
     payload = payload if isinstance(payload, dict) else {}
-    trading_mode = str(payload.get("trading_mode") or "paper").strip().lower()
-    if trading_mode != "paper":
-        return 400, {"ok": False, "error": "agent_run_phase1_supports_paper_only"}
-
     candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
     candidates = [item for item in candidates if isinstance(item, dict)]
     if not candidates or str(payload.get("candidate_source") or "").strip().lower() == "monitor_watchlist":
         candidates = _collect_monitor_candidates(payload)
     evidence_by_symbol = _evidence_from_payload(payload, candidates)
     risk_config = payload.get("risk_config") if isinstance(payload.get("risk_config"), dict) else {}
-    config = {"trading_mode": "paper", "enable_live_trading": False, **risk_config}
+    config = {"execution_channel": "runtime", **risk_config}
     account = _account_from_payload(payload)
 
     result = run_agent_once(
@@ -178,7 +174,7 @@ def handle_agent_run(payload: dict) -> tuple[int, dict]:
         evidence_by_symbol=evidence_by_symbol,
         decision_provider=_decision_provider_from_payload(payload),
         account_provider=lambda: account,
-        order_executor=_paper_order_executor,
+        order_executor=_runtime_order_executor,
         config=config,
         store=default_store(),
         trigger=str(payload.get("trigger") or "manual"),

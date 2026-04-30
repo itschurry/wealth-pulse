@@ -57,6 +57,7 @@ function sourceLabel(source: string): string {
   if (source === 'optimization') return '최적화';
   if (source === 'settings') return '설정';
   if (source === 'paper') return '모의투자';
+  if (source === 'live') return '실거래';
   if (source === 'engine') return '엔진';
   if (source === 'refresh') return '새로고침';
   if (source === 'all') return '전체';

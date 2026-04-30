@@ -105,6 +105,19 @@ function engineStateLabel(raw: string | undefined, running: boolean): string {
   return UI_TEXT.status.stopped;
 }
 
+function runtimeModeLabel(mode: 'paper' | 'live'): string {
+  return mode === 'live' ? '실거래' : '모의투자';
+}
+
+function resolveRuntimeMode(accountMode: unknown, executionMode: unknown): 'paper' | 'live' {
+  const normalizedExecutionMode = String(executionMode || '').trim().toLowerCase();
+  const normalizedAccountMode = String(accountMode || '').trim().toLowerCase();
+  if (normalizedExecutionMode === 'live' || normalizedAccountMode === 'real' || normalizedAccountMode === 'live') {
+    return 'live';
+  }
+  return 'paper';
+}
+
 function paperSkipReasonLabel(reason: string): string {
   if (reason === 'account_unavailable') return '계좌 스냅샷 없음 · sizing 계산 불가';
   if (reason === 'size_zero') return '권장 수량 0주';
@@ -465,6 +478,9 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     clearHistory,
   } = usePaperTrading({ autoRefreshEnabled });
 
+  const runtimeMode = resolveRuntimeMode(account.mode, engineState.execution_mode);
+  const runtimeLabel = runtimeModeLabel(runtimeMode);
+  const runtimeLogSource = runtimeMode === 'live' ? 'live' : 'paper';
   const positions = account.positions || [];
   const positionMarketCounts = useMemo(() => {
     const counts = { ALL: positions.length, KOSPI: 0, NASDAQ: 0 };
@@ -766,6 +782,11 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
 
   const statusItems = useMemo<ActionBarStatusItem[]>(() => ([
     {
+      label: '실행 모드',
+      value: runtimeLabel,
+      tone: runtimeMode === 'live' ? 'bad' : 'neutral',
+    },
+    {
       label: '엔진 상태',
       value: engineStateLabel(engineState.engine_state, engineState.running),
       tone: engineState.engine_state === 'error' ? 'bad' : engineState.running ? 'good' : 'neutral',
@@ -790,18 +811,18 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       value: researchStateLabel(currentResearchState),
       tone: researchTone(currentResearchState),
     },
-  ]), [currentResearchState, engineState.engine_state, engineState.running, riskGuardAllowed, status, vm.positionCount]);
+  ]), [currentResearchState, engineState.engine_state, engineState.running, riskGuardAllowed, runtimeLabel, runtimeMode, status, vm.positionCount]);
 
   const handleRefreshAll = useCallback(async () => {
     onRefresh();
     await Promise.all([refresh(true), refreshEngineStatus(), refreshRuntimeLogs()]);
-    push('info', '모의투자 데이터와 콘솔 스냅샷을 새로고침했습니다.', undefined, 'paper');
+    push('info', `${runtimeLabel} 데이터와 콘솔 스냅샷을 새로고침했습니다.`, undefined, runtimeLogSource);
     pushToast({
       tone: 'info',
-      title: '모의투자 화면을 새로고침했습니다.',
+      title: `${runtimeLabel} 화면을 새로고침했습니다.`,
       description: '계좌, 엔진 상태, 런타임 로그를 다시 불러왔습니다.',
     });
-  }, [onRefresh, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs]);
+  }, [onRefresh, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, runtimeLabel, runtimeLogSource]);
 
   const handleStartStop = useCallback(async () => {
     if (pendingAction) return;
@@ -810,7 +831,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
       if (engineState.running || engineState.engine_state === 'paused') {
         const result = await stopEngine();
         if (!result.ok) {
-          push('error', '모의투자 엔진 중지에 실패했습니다.', result.error || '', 'paper');
+          push('error', `${runtimeLabel} 엔진 중지에 실패했습니다.`, result.error || '', runtimeLogSource);
           pushToast({
             tone: 'error',
             title: '엔진 중지 실패',
@@ -818,7 +839,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           });
           return;
         }
-        push('success', '모의투자 엔진을 중지했습니다.', undefined, 'paper');
+        push('success', `${runtimeLabel} 엔진을 중지했습니다.`, undefined, runtimeLogSource);
         pushToast({
           tone: 'success',
           title: '엔진 중지 완료',
@@ -829,7 +850,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         if (settings.runKospi) markets.push('KOSPI');
         if (settings.runNasdaq) markets.push('NASDAQ');
         if (markets.length === 0) {
-          push('warning', '시장 선택이 필요합니다.', '설정에서 KOSPI 또는 NASDAQ을 최소 1개 선택하세요.', 'paper');
+          push('warning', '시장 선택이 필요합니다.', '설정에서 KOSPI 또는 NASDAQ을 최소 1개 선택하세요.', runtimeLogSource);
           pushToast({
             tone: 'warning',
             title: '시장 선택 필요',
@@ -852,7 +873,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           },
         });
         if (!result.ok) {
-          push('error', '모의투자 엔진 시작에 실패했습니다.', result.error || '', 'paper');
+          push('error', `${runtimeLabel} 엔진 시작에 실패했습니다.`, result.error || '', runtimeLogSource);
           pushToast({
             tone: 'error',
             title: '엔진 시작 실패',
@@ -860,7 +881,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
           });
           return;
         }
-        push('success', '모의투자 엔진을 시작했습니다.', `시장: ${markets.join(', ')}`, 'paper');
+        push('success', `${runtimeLabel} 엔진을 시작했습니다.`, `시장: ${markets.join(', ')}`, runtimeLogSource);
         pushToast({
           tone: 'success',
           title: '엔진 시작 완료',
@@ -885,6 +906,8 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     settings.runKospi,
     settings.runNasdaq,
     refreshRuntimeLogs,
+    runtimeLabel,
+    runtimeLogSource,
     startEngine,
     stopEngine,
   ]);
@@ -895,7 +918,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     const result = await pauseEngine();
     try {
       if (!result.ok) {
-        push('error', '모의투자 엔진 일시정지에 실패했습니다.', result.error || '', 'paper');
+        push('error', `${runtimeLabel} 엔진 일시정지에 실패했습니다.`, result.error || '', runtimeLogSource);
         pushToast({
           tone: 'error',
           title: '엔진 일시정지 실패',
@@ -904,7 +927,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         return;
       }
       await Promise.all([refreshEngineStatus(), refreshRuntimeLogs()]);
-      push('success', '모의투자 엔진을 일시정지했습니다.', undefined, 'paper');
+      push('success', `${runtimeLabel} 엔진을 일시정지했습니다.`, undefined, runtimeLogSource);
       pushToast({
         tone: 'success',
         title: '엔진 일시정지',
@@ -913,7 +936,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     } finally {
       setPendingAction(null);
     }
-  }, [pauseEngine, pendingAction, push, pushToast, refreshEngineStatus, refreshRuntimeLogs]);
+  }, [pauseEngine, pendingAction, push, pushToast, refreshEngineStatus, refreshRuntimeLogs, runtimeLabel, runtimeLogSource]);
 
   const handleResume = useCallback(async () => {
     if (pendingAction) return;
@@ -921,7 +944,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     const result = await resumeEngine();
     try {
       if (!result.ok) {
-        push('error', '모의투자 엔진 재개에 실패했습니다.', result.error || '', 'paper');
+        push('error', `${runtimeLabel} 엔진 재개에 실패했습니다.`, result.error || '', runtimeLogSource);
         pushToast({
           tone: 'error',
           title: '엔진 재개 실패',
@@ -930,7 +953,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         return;
       }
       await Promise.all([refreshEngineStatus(), refreshRuntimeLogs()]);
-      push('success', '모의투자 엔진을 재개했습니다.', undefined, 'paper');
+      push('success', `${runtimeLabel} 엔진을 재개했습니다.`, undefined, runtimeLogSource);
       pushToast({
         tone: 'success',
         title: '엔진 재개 완료',
@@ -939,7 +962,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     } finally {
       setPendingAction(null);
     }
-  }, [pendingAction, push, pushToast, refreshEngineStatus, refreshRuntimeLogs, resumeEngine]);
+  }, [pendingAction, push, pushToast, refreshEngineStatus, refreshRuntimeLogs, resumeEngine, runtimeLabel, runtimeLogSource]);
 
   const handleReset = useCallback(async () => {
     if (pendingAction) return;
@@ -950,30 +973,30 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         initial_cash_usd: settings.initialCashUsd,
       });
       if (!result.ok) {
-        push('error', '모의투자 초기화에 실패했습니다.', result.error || '', 'paper');
+        push('error', `${runtimeLabel} 초기화에 실패했습니다.`, result.error || '', runtimeLogSource);
         pushToast({
           tone: 'error',
-          title: '모의투자 초기화 실패',
+          title: `${runtimeLabel} 초기화 실패`,
           description: result.error || '초기 자금과 엔진 상태를 다시 확인해 주세요.',
         });
         return;
       }
       push(
         'success',
-        '모의투자 계좌를 초기화했습니다.',
+        `${runtimeLabel} 계좌를 초기화했습니다.`,
         `초기자금 KRW ${formatKRW(settings.initialCashKrw, true)} / USD ${formatUSD(settings.initialCashUsd, true)}`,
-        'paper',
+        runtimeLogSource,
       );
       pushToast({
         tone: 'success',
-        title: '모의투자 초기화 완료',
+        title: `${runtimeLabel} 초기화 완료`,
         description: '계좌, 포지션, 로그 기준점이 새로 초기화되었습니다.',
       });
       await Promise.all([refresh(true), refreshEngineStatus(), refreshRuntimeLogs()]);
     } finally {
       setPendingAction(null);
     }
-  }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, settings.initialCashKrw, settings.initialCashUsd]);
+  }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, runtimeLabel, runtimeLogSource, settings.initialCashKrw, settings.initialCashUsd]);
 
   const handleClearPaperHistory = useCallback(async () => {
     if (pendingAction) return;
@@ -996,7 +1019,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         'success',
         '실행 로그를 정리했습니다.',
         `삭제 건수: 주문 ${result.clear_count?.order_events || 0}건, Signal ${result.clear_count?.signal_snapshots || 0}건, 계좌 ${result.clear_count?.account_snapshots || 0}건, 엔진 ${result.clear_count?.engine_cycles || 0}건`,
-        'paper',
+        runtimeLogSource,
       );
       pushToast({
         tone: 'success',
@@ -1006,7 +1029,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     } finally {
       setPendingAction(null);
     }
-  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, push, pushToast, refreshRuntimeLogs]);
+  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, push, pushToast, refreshRuntimeLogs, runtimeLogSource]);
 
   const handleClearPaperHistoryAndReset = useCallback(async () => {
     if (pendingAction) return;
@@ -1019,10 +1042,10 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         initial_cash_usd: settings.initialCashUsd,
       });
       if (!result.ok) {
-        push('error', '완전 정리 실패', result.error || '', 'paper');
+        push('error', '완전 정리 실패', result.error || '', runtimeLogSource);
         pushToast({
           tone: 'error',
-          title: '모의투자 완전 정리 실패',
+          title: `${runtimeLabel} 완전 정리 실패`,
           description: result.error || '계좌 초기화값 기반으로 로그 및 계좌 상태를 다시 설정하지 못했습니다.',
         });
         return;
@@ -1034,7 +1057,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
         'success',
         '로그와 계좌 상태를 완전히 정리했습니다.',
         `삭제 건수: 주문 ${result.clear_count?.order_events || 0}건, Signal ${result.clear_count?.signal_snapshots || 0}건, 계좌 ${result.clear_count?.account_snapshots || 0}건, 엔진 ${result.clear_count?.engine_cycles || 0}건`,
-        'paper',
+        runtimeLogSource,
       );
       pushToast({
         tone: 'success',
@@ -1044,7 +1067,7 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
     } finally {
       setPendingAction(null);
     }
-  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, refresh, refreshEngineStatus, refreshRuntimeLogs, settings.initialCashKrw, settings.initialCashUsd, push, pushToast]);
+  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, refresh, refreshEngineStatus, refreshRuntimeLogs, runtimeLabel, runtimeLogSource, settings.initialCashKrw, settings.initialCashUsd, push, pushToast]);
 
   useEffect(() => {
     if (!autoRefreshEnabled) return;
@@ -1368,13 +1391,14 @@ export function PaperPortfolioPage({ snapshot, loading, errorMessage, onRefresh 
                 ],
               },
               {
-                label: '모의투자 초기화',
+                label: runtimeMode === 'live' ? '실거래 초기화 불가' : '모의투자 초기화',
                 onClick: () => { void handleReset(); },
                 tone: 'danger',
+                disabled: runtimeMode === 'live',
                 busy: pendingAction === 'reset',
                 busyLabel: '초기화 중...',
-                confirmTitle: UI_TEXT.confirm.resetPaperTitle,
-                confirmMessage: UI_TEXT.confirm.resetPaperMessage,
+                confirmTitle: runtimeMode === 'live' ? '실거래 계좌는 초기화할 수 없습니다' : UI_TEXT.confirm.resetPaperTitle,
+                confirmMessage: runtimeMode === 'live' ? '실거래 계좌 상태는 증권사 원장 기준이라 화면에서 reset하지 않습니다.' : UI_TEXT.confirm.resetPaperMessage,
                 confirmDetails: ['계좌, 포지션, 주문/사이클 기준 데이터가 새 초기 자금으로 다시 설정됩니다.', '이 작업은 되돌릴 수 없습니다.'],
               },
               {

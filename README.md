@@ -45,7 +45,7 @@ curl http://localhost:8001/health
 
 ## 주요 화면
 
-- `/agent-dashboard` — Agent Run · Risk Gate · Paper 주문 감사
+- `/agent-dashboard` — Agent Run · Risk Gate · Runtime 주문 감사
 - `/research-ai` — 후보 리서치와 Hermes 판단 상태
 - `/signal-review` — 신호/리스크 검토
 - `/orders-execution` — 주문·체결·포트폴리오 관제

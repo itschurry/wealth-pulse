@@ -673,8 +673,8 @@ export interface PaperOrderEvent {
 }
 
 export interface PaperAccountData {
-  mode: 'paper';
-  base_currency: 'MULTI';
+  mode: 'paper' | 'real' | 'live' | string;
+  base_currency: 'MULTI' | 'KRW' | 'USD' | string;
   created_at?: string;
   updated_at?: string;
   days_elapsed?: number;
@@ -795,6 +795,7 @@ export interface PaperWorkflowSummary {
 export interface PaperEngineState {
   engine_state?: 'idle' | 'running' | 'paused' | 'stopped' | 'error' | string;
   running: boolean;
+  execution_mode?: 'paper' | 'live' | string;
   started_at?: string;
   paused_at?: string;
   stopped_at?: string;

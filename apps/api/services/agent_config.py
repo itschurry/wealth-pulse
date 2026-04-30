@@ -10,8 +10,6 @@ from config.settings import KIS_ACCOUNT_ACNT_PRDT_CD, KIS_ACCOUNT_CANO, KIS_APP_
 DEFAULT_RISK_CONFIG_PATH = LOGS_DIR / "agent_risk_config.json"
 
 _DEFAULT_CONFIG: dict[str, Any] = {
-    "trading_mode": "paper",
-    "enable_live_trading": False,
     "min_confidence": 0.7,
     "min_reward_risk_ratio": 1.3,
     "max_symbol_position_ratio": 0.10,
@@ -54,10 +52,6 @@ def _sanitize_config(raw: dict[str, Any]) -> dict[str, Any]:
     for key in _ALLOWED_KEYS:
         if key in raw:
             config[key] = raw[key]
-    config["trading_mode"] = "paper" if str(config.get("trading_mode") or "paper").lower() != "live" else "live"
-    # Live trading cannot be enabled through this first API. Operators must use
-    # explicit env/config rollout in a later phase.
-    config["enable_live_trading"] = False
     config["min_confidence"] = max(0.0, min(1.0, _to_float(config.get("min_confidence"), _DEFAULT_CONFIG["min_confidence"])))
     config["min_reward_risk_ratio"] = max(0.0, _to_float(config.get("min_reward_risk_ratio"), _DEFAULT_CONFIG["min_reward_risk_ratio"]))
     config["max_symbol_position_ratio"] = max(0.0, min(0.10, _to_float(config.get("max_symbol_position_ratio"), _DEFAULT_CONFIG["max_symbol_position_ratio"])))
@@ -120,5 +114,5 @@ def broker_status() -> dict[str, Any]:
             "account_product_code": _redacted(account_product),
         },
         "connectivity_checked": False,
-        "live_order_enabled": False,
+        "order_execution_managed_by_runtime": True,
     }

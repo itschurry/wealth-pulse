@@ -989,6 +989,353 @@ button:disabled {
   font-size: 15px;
 }
 
+.wealth-terminal-hero {
+  display: grid;
+  gap: 18px;
+}
+
+.wealth-terminal-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wealth-terminal-brand,
+.wealth-terminal-actions,
+.wealth-hero-subline,
+.wealth-session-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.wealth-terminal-brand {
+  color: var(--silver);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-terminal-brand strong {
+  color: var(--gold);
+  font-weight: 500;
+}
+
+.wealth-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--down);
+}
+
+.wealth-status-dot.is-live {
+  background: var(--up);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+.wealth-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 24px;
+  align-items: end;
+}
+
+.wealth-hero-number {
+  margin-top: 8px;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 3.1rem;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.wealth-hero-subline {
+  margin-top: 12px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.wealth-hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px;
+}
+
+.wealth-hero-metrics div {
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+.wealth-hero-metrics span {
+  display: block;
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-hero-metrics strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.wealth-market-strip {
+  display: grid;
+  gap: 12px;
+}
+
+.wealth-ticker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px 16px;
+}
+
+.wealth-ticker {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+.wealth-ticker span,
+.wealth-ticker em {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-ticker strong {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.wealth-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.wealth-chart-panel {
+  min-width: 0;
+}
+
+.wealth-chart-body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.wealth-donut {
+  width: 150px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.wealth-donut::before {
+  content: '';
+  position: absolute;
+  inset: 16px;
+  border-radius: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.wealth-donut > div {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
+.wealth-donut strong {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.wealth-donut span {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.wealth-flow-step {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding-top: 12px;
+  border-top: 2px solid var(--border-light);
+}
+
+.wealth-flow-step span,
+.wealth-flow-step em {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-flow-step div {
+  color: var(--silver);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.wealth-flow-step strong {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.wealth-flow-step.is-good {
+  border-top-color: var(--up-border);
+}
+
+.wealth-flow-step.is-bad {
+  border-top-color: var(--down-border);
+}
+
+.wealth-flow-step.is-warning {
+  border-top-color: var(--warning-border);
+}
+
+.wealth-reason-bars .wealth-bar-row {
+  grid-template-columns: minmax(120px, 180px) 1fr 48px;
+}
+
+.wealth-table {
+  display: grid;
+  margin-top: 12px;
+}
+
+.wealth-table-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.4fr) 90px 80px 80px 80px minmax(160px, 1.2fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-light);
+}
+
+.wealth-table.is-positions .wealth-table-row {
+  grid-template-columns: minmax(170px, 1.5fr) 90px 80px 120px minmax(160px, 1fr);
+}
+
+.wealth-table-row.is-head {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-table-row span {
+  min-width: 0;
+  color: var(--silver);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.wealth-table-row strong {
+  display: block;
+  color: var(--text-1);
+  font-size: 15px;
+}
+
+.wealth-table-row em {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-4);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.wealth-empty-line {
+  padding: 14px 0;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.wealth-context-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.wealth-context-item {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+.wealth-context-item span {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-context-item strong {
+  color: var(--text-1);
+  font-size: 16px;
+}
+
+.is-up {
+  color: var(--up) !important;
+}
+
+.is-down {
+  color: var(--down) !important;
+}
+
+.is-neutral {
+  color: var(--silver) !important;
+}
+
 .wealth-home-muted {
   font-size: 14px;
   color: var(--text-4);
@@ -1126,14 +1473,26 @@ button:disabled {
   min-width: 6px;
 }
 
-.wealth-bar-fill.is-kospi,
+.wealth-bar-fill.is-kospi {
+  background: linear-gradient(90deg, rgba(200,169,110,0.18), #c8a96e);
+}
+
 .wealth-bar-fill.is-nasdaq,
 .wealth-bar-fill.is-allowed {
-  background: linear-gradient(90deg, rgba(200,169,110,0.18), #c8a96e);
+  background: linear-gradient(90deg, rgba(94,196,135,0.16), #5ec487);
 }
 
 .wealth-bar-fill.is-blocked {
   background: linear-gradient(90deg, rgba(224,107,107,0.18), #e06b6b);
+}
+
+.wealth-bar-fill.is-watch,
+.wealth-bar-fill.is-other {
+  background: linear-gradient(90deg, rgba(155,163,178,0.12), #9ba3b2);
+}
+
+.wealth-bar-fill.is-cash {
+  background: linear-gradient(90deg, rgba(111,116,128,0.12), #6f7480);
 }
 
 .wealth-bar-value {
@@ -4761,6 +5120,18 @@ body {
   .workspace-query-grid {
     grid-template-columns: 1fr;
   }
+
+  .wealth-hero-grid,
+  .wealth-dashboard-grid,
+  .wealth-chart-body,
+  .wealth-flow-grid,
+  .wealth-context-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wealth-ticker-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -4804,6 +5175,35 @@ body {
 
   .wealth-position-right {
     text-align: left;
+  }
+
+  .wealth-terminal-topbar,
+  .wealth-terminal-actions {
+    align-items: stretch;
+  }
+
+  .wealth-terminal-topbar {
+    display: grid;
+  }
+
+  .wealth-terminal-topbar,
+  .wealth-hero-metrics,
+  .wealth-ticker-grid,
+  .wealth-table-row,
+  .wealth-table.is-positions .wealth-table-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wealth-terminal-actions .ghost-button {
+    flex: 1 1 90px;
+  }
+
+  .wealth-hero-number {
+    font-size: 2.25rem;
+  }
+
+  .wealth-chart-body {
+    justify-items: start;
   }
 
   .workspace-mini-metrics {

@@ -737,14 +737,18 @@ export interface OperationsReportResponse {
 
 export interface EngineStatusResponse {
   ok?: boolean;
+  error?: string;
   mode?: {
+    current_mode?: string;
     mode?: string;
     report_enabled?: boolean;
     paper_enabled?: boolean;
     live_enabled?: boolean;
   };
   execution?: {
+    execution_mode?: string;
     state?: {
+      execution_mode?: string;
       engine_state?: string;
       running?: boolean;
       started_at?: string;
@@ -796,6 +800,7 @@ export interface EngineStatusResponse {
       last_summary?: Record<string, unknown>;
     };
     account?: {
+      mode?: string;
       equity_krw?: number;
       cash_krw?: number;
       cash_usd?: number;
@@ -1435,7 +1440,7 @@ export interface AgentRunItem {
   id?: number;
   run_id?: number;
   trigger?: string;
-  trading_mode?: string;
+  execution_channel?: string;
   status?: string;
   started_at?: string;
   finished_at?: string;
@@ -1461,7 +1466,7 @@ export interface AgentOrderItem {
   run_id?: number;
   symbol?: string;
   action?: string;
-  trading_mode?: string;
+  execution_channel?: string;
   status?: string;
   created_at?: string;
   submitted_at?: string;
@@ -1499,8 +1504,6 @@ export interface AgentRunResponse {
 export interface AgentRiskConfigResponse {
   ok?: boolean;
   config?: {
-    trading_mode?: string;
-    enable_live_trading?: boolean;
     min_confidence?: number;
     min_reward_risk_ratio?: number;
     max_symbol_position_ratio?: number;
@@ -1521,7 +1524,7 @@ export interface AgentBrokerStatusResponse {
   base_url?: string;
   credentials?: Record<string, string>;
   connectivity_checked?: boolean;
-  live_order_enabled?: boolean;
+  order_execution_managed_by_runtime?: boolean;
   error?: string;
 }
 

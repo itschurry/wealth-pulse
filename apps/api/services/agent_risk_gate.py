@@ -88,13 +88,6 @@ def evaluate_agent_decision_risk(
     risk = decision.get("risk") if isinstance(decision.get("risk"), dict) else {}
     checks: list[dict[str, Any]] = []
 
-    trading_mode = str(config.get("trading_mode") or "paper").strip().lower()
-    enable_live = bool(config.get("enable_live_trading", False))
-    if trading_mode not in {"paper", "live"}:
-        return _reject("invalid_trading_mode", checks=checks)
-    if trading_mode == "live" and not enable_live:
-        return _reject("live_trading_disabled", final_action=action if action == "HOLD" else "HOLD", checks=checks)
-
     if action == "HOLD":
         return _reject("hold_decision", final_action="HOLD", checks=checks)
 
@@ -104,14 +97,16 @@ def evaluate_agent_decision_risk(
     if confidence < min_confidence:
         return _reject("confidence_below_minimum", checks=checks)
 
-    entry_price = _to_float(risk.get("entry_price"))
-    stop_loss = _to_float(risk.get("stop_loss"))
-    take_profit = _to_float(risk.get("take_profit"))
-    if stop_loss <= 0:
-        checks.append({"id": "stop_loss", "passed": False, "current": stop_loss})
-        return _reject("stop_loss_required", final_action=action, checks=checks)
+    positions = account.get("positions") if isinstance(account.get("positions"), list) else []
 
     if action == "BUY":
+        entry_price = _to_float(risk.get("entry_price"))
+        stop_loss = _to_float(risk.get("stop_loss"))
+        take_profit = _to_float(risk.get("take_profit"))
+        if stop_loss <= 0:
+            checks.append({"id": "stop_loss", "passed": False, "current": stop_loss})
+            return _reject("stop_loss_required", final_action=action, checks=checks)
+
         downside = max(0.0, entry_price - stop_loss)
         upside = max(0.0, take_profit - entry_price)
         reward_risk = (upside / downside) if downside > 0 else 0.0
@@ -120,7 +115,6 @@ def evaluate_agent_decision_risk(
         if reward_risk < min_rr:
             return _reject("reward_risk_below_minimum", final_action=action, checks=checks)
 
-        positions = account.get("positions") if isinstance(account.get("positions"), list) else []
         existing_position = next((p for p in positions if isinstance(p, dict) and _position_matches(p, symbol)), None)
         if existing_position and not bool(config.get("allow_additional_buy", False)):
             checks.append({"id": "additional_buy", "passed": False})
@@ -156,8 +150,31 @@ def evaluate_agent_decision_risk(
                 "quantity": quantity,
                 "estimated_price": entry_price,
                 "estimated_amount_krw": quantity * entry_price,
-                "trading_mode": trading_mode,
                 "reward_risk_ratio": round(reward_risk, 4),
+            },
+        }
+
+    if action == "SELL":
+        existing_position = next((p for p in positions if isinstance(p, dict) and _position_matches(p, symbol)), None)
+        if not existing_position:
+            checks.append({"id": "position", "passed": False})
+            return _reject("sell_position_not_found", final_action=action, checks=checks)
+        held_quantity = int(_to_float(existing_position.get("quantity") or existing_position.get("hldg_qty"), 0.0))
+        orderable_quantity = int(_to_float(existing_position.get("orderable_quantity"), held_quantity))
+        quantity = max(0, min(held_quantity, orderable_quantity))
+        if quantity <= 0:
+            checks.append({"id": "sell_quantity", "passed": False, "held": held_quantity, "orderable": orderable_quantity})
+            return _reject("sell_quantity_unavailable", final_action=action, checks=checks)
+        return {
+            "approved": True,
+            "final_action": "SELL",
+            "reason_code": "approved",
+            "checks": checks,
+            "order_intent": {
+                "symbol": symbol,
+                "market": str(decision.get("market") or existing_position.get("market") or "").strip().upper(),
+                "action": "SELL",
+                "quantity": quantity,
             },
         }
 
@@ -166,5 +183,5 @@ def evaluate_agent_decision_risk(
         "final_action": action,
         "reason_code": "approved",
         "checks": checks,
-        "order_intent": {"symbol": symbol, "market": str(decision.get("market") or "").strip().upper(), "action": action, "quantity": 0, "trading_mode": trading_mode},
+        "order_intent": {"symbol": symbol, "market": str(decision.get("market") or "").strip().upper(), "action": action, "quantity": 0},
     }

@@ -113,9 +113,8 @@ export function fetchAgentBrokerStatus() {
   return getJSON<AgentBrokerStatusResponse>('/api/broker/kis/status', { noStore: true });
 }
 
-export async function runAgentPaper(payload: Record<string, unknown> = {}) {
+export async function runAgent(payload: Record<string, unknown> = {}) {
   const response = await postJSON<AgentRunResponse>('/api/agent/run', {
-    trading_mode: 'paper',
     candidate_source: 'monitor_watchlist',
     decision_source: 'research_snapshot',
     limit: 5,

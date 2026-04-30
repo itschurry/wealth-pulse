@@ -1,8 +1,9 @@
-"""Paper-first Agent Run orchestration.
+"""Agent Run orchestration.
 
-Phase 1 keeps dependencies injectable so the audit/risk contract can be tested
-without invoking Hermes or KIS. Production routes can start with a manual
-candidate/decision payload and later swap in real tools.
+The Agent is a mode-independent decision producer. It evaluates candidates,
+records evidence/decisions/risk checks, and hands approved order intents to the
+injected execution boundary. The execution boundary decides whether the order is
+handled by paper or live runtime infrastructure.
 """
 
 from __future__ import annotations
@@ -54,13 +55,13 @@ def run_agent_once(
 ) -> dict[str, Any]:
     store = store or default_store()
     config = dict(config or {})
-    trading_mode = str(config.get("trading_mode") or "paper").strip().lower()
+    execution_channel = str(config.get("execution_channel") or "runtime").strip().lower() or "runtime"
     evidence_by_symbol = evidence_by_symbol or {}
     decision_provider = decision_provider or _default_decision_provider
     account_provider = account_provider or _default_account_provider
     order_executor = order_executor or _default_order_executor
 
-    run_id = store.create_run(trigger=trigger, trading_mode=trading_mode, status="running")
+    run_id = store.create_run(trigger=trigger, execution_channel=execution_channel, status="running")
     summary = {
         "candidate_count": 0,
         "decisions": 0,
@@ -155,7 +156,7 @@ def run_agent_once(
                     risk_event_id=risk_event_id,
                     symbol=decision.get("symbol") or symbol,
                     action=str(decision.get("action") or "HOLD"),
-                    trading_mode=trading_mode,
+                    execution_channel=str(execution_result.get("mode") or execution_result.get("execution_mode") or execution_channel),
                     status=order_status,
                     payload={"intent": risk.get("order_intent"), "execution_result": execution_result},
                 )
@@ -167,7 +168,7 @@ def run_agent_once(
                     risk_event_id=risk_event_id,
                     symbol=decision.get("symbol") or symbol,
                     action=str(decision.get("action") or "HOLD"),
-                    trading_mode=trading_mode,
+                    execution_channel=execution_channel,
                     status="skipped",
                     payload={"risk": risk},
                 )
