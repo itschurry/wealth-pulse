@@ -5,7 +5,7 @@ import datetime
 from pathlib import Path
 from typing import Any
 
-from config.settings import CACHE_DIR
+from config.settings import API_DIR, CACHE_DIR
 from market_utils import normalize_market
 from services.json_utils import read_json_file_cached
 
@@ -30,6 +30,11 @@ UNIVERSE_MARKET_BY_RULE = {
 }
 
 UNIVERSE_ROOT = CACHE_DIR / "universe_snapshots"
+CONFIG_UNIVERSE_DIR = API_DIR / "config" / "universes"
+CONFIG_UNIVERSE_FILES = {
+    "kospi": "kospi100.json",
+    "sp500": "sp100.json",
+}
 
 _DEFAULT_MAX_AGE_MINUTES = 60
 
@@ -73,6 +78,52 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
     except Exception:
         return {}
+
+
+def _read_json_list(path: Path) -> list[dict[str, Any]]:
+    try:
+        payload = read_json_file_cached(path)
+    except OSError:
+        return []
+    except Exception:
+        return []
+    return [dict(item) for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+
+
+def _read_config_snapshot(rule_name: str) -> dict[str, Any]:
+    normalized_rule = _normalize_rule(rule_name)
+    filename = CONFIG_UNIVERSE_FILES.get(normalized_rule)
+    if not filename:
+        return {}
+    rows = _read_json_list(CONFIG_UNIVERSE_DIR / filename)
+    if not rows:
+        return {}
+    now = _now_iso()
+    return {
+        "rule_name": normalized_rule,
+        "universe": normalized_rule,
+        "market": UNIVERSE_MARKET_BY_RULE.get(normalized_rule, ""),
+        "schema_version": 1,
+        "source": "config_universe",
+        "as_of_date": datetime.datetime.now(datetime.timezone.utc).date().isoformat(),
+        "generated_at": now,
+        "updated_at": now,
+        "symbols": rows,
+        "excluded": [],
+        "symbol_count": len(rows),
+        "excluded_count": 0,
+        "meta": {
+            "listing_key": UNIVERSE_RULE_LABELS.get(normalized_rule, normalized_rule),
+            "status": "configured",
+        },
+    }
+
+
+def get_configured_universe_snapshot(rule_name: str, *, market: str | None = None) -> dict[str, Any]:
+    snapshot = _read_config_snapshot(rule_name)
+    if not snapshot:
+        return _normalize_snapshot(_empty_snapshot(rule_name), market=market)
+    return copy.deepcopy(_normalize_snapshot(snapshot, market=market))
 
 
 def _minutes_since(timestamp: str) -> float | None:

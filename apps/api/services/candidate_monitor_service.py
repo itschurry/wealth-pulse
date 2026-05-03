@@ -222,6 +222,9 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
         sources.append("change_rate_top")
     if news_score > 0:
         sources.append("news_surge")
+    source_hint = str(candidate.get("candidate_source") or "").strip()
+    if source_hint and source_hint not in sources:
+        sources.append(source_hint)
     if symbol in held_symbols:
         sources.append("held_position")
     if symbol in interest_symbols:
@@ -237,6 +240,41 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
         "candidate_sources": sources,
         "technical_snapshot": technical or candidate.get("technical_snapshot"),
     }
+
+
+def _universe_rule_for_market(market: str) -> str:
+    normalized_market = _normalize_market(market)
+    return "sp500" if normalized_market in {"NASDAQ", "NYSE", "US"} else "kospi"
+
+
+def _configured_universe_candidates(market: str) -> list[dict[str, Any]]:
+    normalized_market = _normalize_market(market)
+    from services.universe_builder import get_configured_universe_snapshot
+
+    universe = get_configured_universe_snapshot(_universe_rule_for_market(normalized_market), market=normalized_market)
+
+    rows = universe.get("symbols") if isinstance(universe, dict) else []
+    result: list[dict[str, Any]] = []
+    for index, row in enumerate(rows if isinstance(rows, list) else [], start=1):
+        if not isinstance(row, dict):
+            continue
+        symbol = _normalize_symbol(row.get("code") or row.get("symbol"))
+        if not symbol:
+            continue
+        result.append({
+            "code": symbol,
+            "symbol": symbol,
+            "market": normalized_market,
+            "name": row.get("name") or symbol,
+            "sector": row.get("sector") or "",
+            "candidate_source": "config_universe",
+            "final_action": "watch_only",
+            "signal_state": "watch",
+            "score": max(0.0, 100.0 - float(index)),
+            "candidate_rank": index,
+            "last_scanned_at": _now_local().isoformat(timespec="seconds"),
+        })
+    return result
 
 
 def _extract_candidate_freshness(candidate: dict[str, Any]) -> tuple[bool, str]:
@@ -375,17 +413,24 @@ def _annotate_standard_sources(rows: list[dict[str, Any]], *, held_symbols: set[
     return rows
 
 
-def _dedupe_market_candidates(market: str, *, account: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def _strategy_scans_for_market(normalized_market: str) -> list[dict[str, Any]]:
+    return [
+        scan for scan in list_strategy_scans()
+        if isinstance(scan, dict) and _normalize_market(scan.get("market")) == normalized_market
+    ]
+
+
+def _dedupe_market_candidates(
+    market: str,
+    *,
+    account: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     normalized_market = _normalize_market(market)
     held_symbols = _held_symbols(account, normalized_market)
     interest_rows = _load_interest_watchlist(normalized_market)
     interest_symbols = set(interest_rows)
     best_by_symbol: dict[str, dict[str, Any]] = {}
-    for scan in list_strategy_scans():
-        if not isinstance(scan, dict):
-            continue
-        if _normalize_market(scan.get("market")) != normalized_market:
-            continue
+    for scan in _strategy_scans_for_market(normalized_market):
         for candidate in scan.get("top_candidates") or []:
             if not isinstance(candidate, dict):
                 continue
@@ -401,6 +446,13 @@ def _dedupe_market_candidates(market: str, *, account: dict[str, Any] | None = N
             merged.setdefault("last_scanned_at", candidate.get("fetched_at") or scan.get("last_scan_at"))
             merged.update(_snapshot_meta(merged))
             best_by_symbol[symbol] = _merge_candidate(best_by_symbol.get(symbol), merged)
+    for candidate in _configured_universe_candidates(normalized_market):
+        symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
+        if not symbol:
+            continue
+        merged = dict(candidate)
+        merged.update(_snapshot_meta(merged))
+        best_by_symbol[symbol] = _merge_candidate(best_by_symbol.get(symbol), merged)
     for symbol in sorted(held_symbols):
         if symbol not in best_by_symbol:
             best_by_symbol[symbol] = {
@@ -434,6 +486,7 @@ def build_market_watchlist(
     market: str,
     *,
     account: dict[str, Any] | None = None,
+    refresh: bool = False,
     pool_limit: int = DEFAULT_POOL_LIMIT,
     core_limit: int = DEFAULT_CORE_LIMIT,
     promotion_limit: int = DEFAULT_PROMOTION_LIMIT,
@@ -561,7 +614,7 @@ def list_market_watchlists(
     if not normalized_markets:
         normalized_markets = ["KOSPI", "NASDAQ"]
     return [
-        build_market_watchlist(market, account=account) if refresh else get_market_watchlist(market)
+        build_market_watchlist(market, account=account, refresh=refresh) if refresh else get_market_watchlist(market)
         for market in normalized_markets
     ]
 

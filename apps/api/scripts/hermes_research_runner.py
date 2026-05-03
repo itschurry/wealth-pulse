@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-DEFAULT_AGENT_COMMAND = "hermes chat -Q -q"
+DEFAULT_AGENT_COMMAND = "hermes --oneshot"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
 DEFAULT_RESEARCH_PROVIDER = "default"
 DEFAULT_AGENT_TTL_MINUTES = 180
@@ -49,6 +49,11 @@ _REQUIRED_OUTPUT_FIELDS = {
 
 def _json_dumps(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _log(message: str, *, enabled: bool = True) -> None:
+    if enabled:
+        print(message, file=sys.stderr, flush=True)
 
 
 def _api_base_url(base_url: str | None = None) -> str:
@@ -189,20 +194,39 @@ def _command_list(agent_command: list[str] | str | None) -> list[str]:
     return shlex.split(command_text)
 
 
-def call_hermes_agent(prompt: str, *, agent_command: list[str] | str | None = None, timeout: int = 300) -> str:
+def _command_with_prompt(command: list[str], prompt: str) -> list[str]:
+    if any("{prompt}" in part for part in command):
+        return [part.replace("{prompt}", prompt) for part in command]
+    return [*command, prompt]
+
+
+def call_hermes_agent(
+    prompt: str,
+    *,
+    agent_command: list[str] | str | None = None,
+    timeout: int = 300,
+) -> str:
     command = _command_list(agent_command)
     if not command:
         raise ValueError("agent_command_required")
-    completed = subprocess.run(
-        [*command, prompt],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=max(1, int(timeout)),
-    )
+    timeout_seconds = max(1, int(timeout))
+    try:
+        completed = subprocess.run(
+            _command_with_prompt(command, prompt),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stderr = str(exc.stderr or "").strip()
+        raise RuntimeError(f"hermes_agent_timeout:{timeout_seconds}s:{stderr[:500]}") from exc
     if completed.returncode != 0:
         raise RuntimeError(f"hermes_agent_failed:{completed.returncode}:{completed.stderr.strip()[:500]}")
-    return completed.stdout.strip()
+    output = completed.stdout.strip()
+    if not output:
+        raise RuntimeError("hermes_agent_empty_output")
+    return output
 
 
 def _now_local() -> dt.datetime:
@@ -288,10 +312,13 @@ def run(
     agent_command: list[str] | str | None = None,
     timeout: int = 300,
     api_base_url: str | None = None,
+    progress: bool = True,
 ) -> tuple[int, dict[str, Any]]:
     query = _market_query(markets, limit=limit, mode=mode)
+    _log(f"[hermes] collect targets markets={markets or ['KOSPI']} limit={limit} mode={mode}", enabled=progress)
     status_code, target_payload = handle_candidate_monitor_watchlist(query, base_url=api_base_url)
     if status_code != 200:
+        _log(f"[hermes] target collection failed status={status_code}", enabled=progress)
         return status_code, {
             "ok": False,
             "stage": "target_collection",
@@ -304,6 +331,7 @@ def run(
         target_items = []
     target_items = [item for item in target_items if isinstance(item, dict)]
     if not target_items:
+        _log("[hermes] no pending targets", enabled=progress)
         return 200, {
             "ok": True,
             "stage": "noop",
@@ -321,7 +349,9 @@ def run(
         }
         for target in target_items
     ]
+    _log(f"[hermes] selected targets={len(target_items)}", enabled=progress)
     if dry_run:
+        _log("[hermes] dry-run only; Hermes is not called", enabled=progress)
         return 200, {
             "ok": True,
             "stage": "dry_run",
@@ -333,17 +363,24 @@ def run(
 
     analyses: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    for target, prompt_row in zip(target_items, prompt_rows):
+    total = len(prompt_rows)
+    command_preview = " ".join(shlex.quote(part) for part in _command_list(agent_command))
+    _log(f"[hermes] command={command_preview} timeout={max(1, int(timeout))}s", enabled=progress)
+    for index, (target, prompt_row) in enumerate(zip(target_items, prompt_rows), start=1):
         symbol = str(prompt_row.get("symbol") or "")
         market = str(prompt_row.get("market") or "")
         try:
+            _log(f"[hermes] {index}/{total} start {market}:{symbol}", enabled=progress)
             raw_output = call_hermes_agent(prompt_row["prompt"], agent_command=agent_command, timeout=timeout)
             analysis = _merge_analysis_with_target(parse_agent_json(raw_output), target)
             analyses.append(analysis)
+            _log(f"[hermes] {index}/{total} ok {market}:{symbol}", enabled=progress)
         except Exception as exc:
             errors.append({"symbol": symbol, "market": market, "error": str(exc)})
+            _log(f"[hermes] {index}/{total} failed {market}:{symbol} error={exc}", enabled=progress)
 
     if not analyses:
+        _log(f"[hermes] all Hermes calls failed errors={len(errors)}", enabled=progress)
         return 502, {
             "ok": False,
             "stage": "agent_failed",
@@ -356,6 +393,7 @@ def run(
     try:
         ingest_payload = build_agent_research_ingest_payload({"items": analyses})
     except ValueError as exc:
+        _log(f"[hermes] ingest payload validation failed error={exc}", enabled=progress)
         return 400, {
             "ok": False,
             "stage": "agent_payload_validation",
@@ -365,6 +403,7 @@ def run(
         }
 
     ingest_status, ingest_result = handle_research_ingest_bulk(ingest_payload, base_url=api_base_url)
+    _log(f"[hermes] ingest status={ingest_status} accepted={ingest_result.get('accepted') if isinstance(ingest_result, dict) else '?'}", enabled=progress)
     return ingest_status, {
         "ok": 200 <= ingest_status < 300,
         "stage": "ingested",
@@ -384,9 +423,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=3)
     parser.add_argument("--mode", choices=["missing_or_stale", "missing_only", "stale_only"], default="missing_or_stale")
     parser.add_argument("--dry-run", action="store_true", help="Collect targets and print prompts without calling Hermes")
-    parser.add_argument("--agent-command", default=None, help="Command prefix used to call Hermes, default: env WEALTHPULSE_HERMES_RESEARCH_COMMAND or 'hermes chat -Q -q'")
+    parser.add_argument("--agent-command", default=None, help="Command prefix used to call Hermes, default: env WEALTHPULSE_HERMES_RESEARCH_COMMAND or 'hermes --oneshot'")
     parser.add_argument("--api-base-url", default=None, help="WealthPulse API base URL for host-side execution, default: env WEALTHPULSE_API_BASE_URL or http://127.0.0.1:8001")
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--no-progress", action="store_true", help="Do not print progress logs to stderr")
     return parser
 
 
@@ -400,6 +440,7 @@ def main() -> int:
         agent_command=args.agent_command,
         timeout=max(1, int(args.timeout)),
         api_base_url=args.api_base_url,
+        progress=not bool(args.no_progress),
     )
     print(json.dumps({"status_code": status_code, **payload}, ensure_ascii=False, indent=2))
     return 0 if 200 <= status_code < 300 else 1

@@ -11,12 +11,12 @@ except ModuleNotFoundError:  # pragma: no cover - package import fallback
 from helpers import _now_iso
 from services.risk_guard_service import build_risk_guard_state as _build_account_risk_guard_state
 from services.live_layers import build_layer_c_snapshot, build_layer_d_snapshot, build_layer_e_snapshot, build_layer_events
-from services.live_signal_engine import build_live_signal_book
 from services.optimized_params_store import load_execution_optimized_params
 from services.reliability_policy import should_apply_symbol_overlay
 from services.signal_service import collect_pick_candidates
 from services.sizing_service import recommend_position_size
 from services.trade_workflow import enrich_signal_payload
+from services.universe_builder import get_configured_universe_snapshot
 
 
 DEFAULT_SIGNAL_MARKETS = ("KOSPI", "NASDAQ")
@@ -41,6 +41,45 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _universe_rule_for_market(market: str) -> str:
+    normalized_market = str(market or "").strip().upper()
+    return "sp500" if normalized_market in {"NASDAQ", "NYSE", "US"} else "kospi"
+
+
+def _configured_universe_candidates(market: str, *, limit: int = 40) -> list[dict[str, Any]]:
+    normalized_market = str(market or "").strip().upper() or "KOSPI"
+    universe = get_configured_universe_snapshot(_universe_rule_for_market(normalized_market), market=normalized_market)
+    rows = universe.get("symbols") if isinstance(universe, dict) else []
+    candidates: list[dict[str, Any]] = []
+    for index, row in enumerate(rows if isinstance(rows, list) else [], start=1):
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code") or row.get("symbol") or "").strip().upper()
+        if not code:
+            continue
+        candidates.append({
+            "code": code,
+            "symbol": code,
+            "market": normalized_market,
+            "name": row.get("name") or code,
+            "sector": row.get("sector") or "미분류",
+            "candidate_source": "config_universe",
+            "candidate_source_label": "universe",
+            "candidate_source_detail": _universe_rule_for_market(normalized_market),
+            "candidate_source_tier": "tier_3",
+            "candidate_source_priority": 40,
+            "candidate_rank": index,
+            "signal_state": "watch",
+            "final_action": "watch_only",
+            "score": max(0.0, 100.0 - float(index)),
+            "reasons": ["config_universe"],
+            "gate_status": "passed",
+        })
+        if len(candidates) >= max(1, int(limit or 40)):
+            break
+    return candidates
+
+
 def _load_optimized_params() -> dict[str, Any] | None:
     payload = load_execution_optimized_params()
     return payload if isinstance(payload, dict) else None
@@ -48,46 +87,6 @@ def _load_optimized_params() -> dict[str, Any] | None:
 
 def determine_strategy_type(candidate: dict[str, Any]) -> str:
     return str(candidate.get("strategy_type") or candidate.get("source") or "quant").strip() or "quant"
-
-
-def _normalize_live_signal_candidate(
-    *,
-    candidate: dict[str, Any],
-    market: str,
-    cfg: dict[str, Any],
-) -> dict[str, Any]:
-    normalized = dict(candidate)
-    normalized_market = str(candidate.get("market") or market).upper()
-    normalized["market"] = normalized_market
-    normalized["candidate_runtime_source_mode"] = str(
-        candidate.get("candidate_runtime_source_mode")
-        or candidate.get("candidate_source")
-        or "live_scanner"
-    )
-    normalized.setdefault("candidate_source", "live_scanner")
-    normalized.setdefault("candidate_source_label", "scanner")
-    normalized.setdefault("candidate_source_detail", "live_scanner")
-    normalized.setdefault("candidate_source_tier", "tier_1")
-    normalized.setdefault("candidate_source_priority", 100)
-    normalized.setdefault("signal_state", "entry")
-    normalized.setdefault("entry_allowed", False)
-    normalized.setdefault("final_action", "blocked")
-    normalized.setdefault(
-        "risk_check",
-        {"passed": bool(normalized.get("entry_allowed")), "reason_code": "ok" if bool(normalized.get("entry_allowed")) else "fallback_blocked", "message": "fallback_live_candidate", "checks": []},
-    )
-    if not isinstance(normalized.get("risk_check"), dict):
-        normalized["risk_check"] = {"passed": bool(normalized.get("entry_allowed")), "reason_code": "ok" if bool(normalized.get("entry_allowed")) else "fallback_blocked", "message": "fallback_live_candidate", "checks": []}
-    else:
-        normalized["risk_check"]["passed"] = bool(normalized.get("entry_allowed"))
-        if bool(normalized.get("entry_allowed")):
-            normalized["risk_check"]["reason_code"] = str(normalized["risk_check"].get("reason_code") or "ok") if str(normalized["risk_check"].get("reason_code") or "").strip() else "ok"
-        else:
-            normalized["risk_check"].setdefault("reason_code", "fallback_blocked")
-            normalized["risk_check"].setdefault("message", "fallback_live_candidate")
-            normalized.setdefault("reason_codes", ["fallback_blocked"])
-    normalized.setdefault("execution_realism", {})
-    return normalized
 
 
 def allocator_weight(*, candidate: dict[str, Any], cfg: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
@@ -366,46 +365,40 @@ def build_signal_book(
 ) -> dict[str, Any]:
     cfg = cfg or {}
     account = account or {}
-    refresh = bool(cfg.get("refresh_scanner"))
     normalized_markets = [str(item or "").strip().upper() for item in (markets or []) if str(item or "").strip()]
     if not normalized_markets:
         normalized_markets = list(DEFAULT_SIGNAL_MARKETS)
-    allow_strategy_fallback = bool(cfg.get("allow_strategy_scanner_fallback", False))
-
     optimized_payload = _load_optimized_params()
     regime, risk_level = _context_snapshot()
     signals: list[dict[str, Any]] = []
     risk_guard_state: dict[str, Any] = {}
-    fallback_used = False
 
     for market in normalized_markets:
         candidates = collect_pick_candidates(market=market, cfg=cfg)
-        fallback_to_live = False
-        if not candidates and allow_strategy_fallback:
-            fallback_to_live = True
-            fallback_used = True
-            live_payload = build_live_signal_book(markets=[market], account=account, refresh=refresh)
-            candidates = [
-                _normalize_live_signal_candidate(candidate=item, market=market, cfg=cfg)
-                for item in (live_payload.get("signals") or [])
-                if isinstance(item, dict)
-            ]
-            if not risk_guard_state and isinstance(live_payload.get("risk_guard_state"), dict):
-                risk_guard_state = dict(live_payload.get("risk_guard_state") or {})
-
+        configured_candidates = _configured_universe_candidates(
+            market,
+            limit=int(cfg.get("candidate_pool_limit") or 40),
+        )
+        if configured_candidates:
+            by_symbol = {
+                str(item.get("code") or item.get("symbol") or "").strip().upper(): item
+                for item in candidates
+                if isinstance(item, dict) and str(item.get("code") or item.get("symbol") or "").strip()
+            }
+            for item in configured_candidates:
+                symbol = str(item.get("code") or item.get("symbol") or "").strip().upper()
+                if symbol and symbol not in by_symbol:
+                    by_symbol[symbol] = item
+            candidates = list(by_symbol.values())
         for candidate in candidates:
             if not isinstance(candidate, dict):
                 continue
-            signal = (
-                {**candidate, "strategy_role": "scanner_fallback", "candidate_primary_source": "strategy_scanner_fallback"}
-                if fallback_to_live
-                else _build_signal_from_candidate(
-                    candidate=candidate,
-                    market=market,
-                    cfg=cfg,
-                    account=account,
-                    optimized_payload=optimized_payload,
-                )
+            signal = _build_signal_from_candidate(
+                candidate=candidate,
+                market=market,
+                cfg=cfg,
+                account=account,
+                optimized_payload=optimized_payload,
             )
             signals.append(signal)
             if not risk_guard_state and isinstance(signal.get("risk_guard_state"), dict):
@@ -421,7 +414,7 @@ def build_signal_book(
         "scanner": [],
         "regime": regime,
         "risk_level": risk_level,
-        "candidate_generation_mode": "common_candidate_pool" if not fallback_used else "common_candidate_pool_with_strategy_fallback",
+        "candidate_generation_mode": "common_candidate_pool",
         "strategy_role": "auxiliary",
         "markets": normalized_markets,
     }
