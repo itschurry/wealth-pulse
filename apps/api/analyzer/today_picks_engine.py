@@ -799,6 +799,48 @@ def generate_today_picks(
     }
 
 
+def _watchlist_confidence(
+    *,
+    score: float,
+    current_pick: dict | None,
+    current_rec: dict | None,
+    technicals: dict,
+    investor_flow: dict,
+    related_news: list,
+    score_notes: list[str],
+    technical_risks: list[str],
+    flow_risks: list[str],
+) -> int:
+    technical_fields = sum(
+        1
+        for key in ("current_price", "sma20", "sma60", "volume_ratio", "rsi14", "macd", "macd_signal", "macd_hist")
+        if technicals.get(key) is not None
+    )
+    flow_fields = sum(
+        1
+        for key in ("foreign_net_1d", "foreign_net_5d", "institution_net_1d", "institution_net_5d")
+        if investor_flow.get(key) is not None
+    )
+
+    evidence_score = 40.0
+    evidence_score += min(18.0, technical_fields * 2.25)
+    evidence_score += min(10.0, flow_fields * 2.5)
+    evidence_score += min(8.0, len(related_news) * 2.0)
+    evidence_score += min(6.0, len(score_notes) * 3.0)
+    evidence_score += min(10.0, abs(score - 50.0) * 0.35)
+    evidence_score -= min(10.0, (len(technical_risks) + len(flow_risks)) * 1.5)
+
+    source_confidence = None
+    if current_pick:
+        source_confidence = _safe_float(current_pick.get("confidence"))
+    if source_confidence is None and current_rec:
+        source_confidence = _safe_float(current_rec.get("confidence"))
+    if source_confidence is not None:
+        evidence_score = evidence_score * 0.55 + source_confidence * 0.45
+
+    return int(max(35, min(92, round(evidence_score))))
+
+
 def build_watchlist_actions(
     watchlist_items: list[dict],
     today_picks: dict | None,
@@ -1021,11 +1063,17 @@ def build_watchlist_actions(
                 "score_diff": round(score - (previous_score or 0), 1),
             }
 
-        confidence = 55
-        if current_pick:
-            confidence = current_pick.get("confidence", confidence)
-        elif current_rec:
-            confidence = current_rec.get("confidence", confidence)
+        confidence = _watchlist_confidence(
+            score=score,
+            current_pick=current_pick,
+            current_rec=current_rec,
+            technicals=technicals,
+            investor_flow=investor_flow,
+            related_news=related_news,
+            score_notes=score_notes,
+            technical_risks=technical_risks,
+            flow_risks=flow_risks,
+        )
 
         deduped_reasons = (score_notes + technical_reasons + flow_reasons + reasons)[:4] or ["오늘 기준 뚜렷한 추가 재료는 제한적입니다."]
         deduped_risks = (technical_risks + flow_risks + ai_risks + risks)[:3] or ["단기 변동성 관리가 필요합니다."]

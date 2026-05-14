@@ -10,6 +10,7 @@ from routes.trading import handle_runtime_order, handle_runtime_account
 from services.agent_decision_provider import call_hermes_trade_decision, research_analysis_to_trade_decision
 from services.agent_runner import run_agent_once
 from services.agent_store import default_store
+from services.runtime_store import read_engine_cycles
 
 
 def _query_int(query: dict[str, list[str]], name: str, default: int = 50) -> int:
@@ -17,6 +18,41 @@ def _query_int(query: dict[str, list[str]], name: str, default: int = 50) -> int
         return int((query.get(name) or [str(default)])[0] or default)
     except (TypeError, ValueError):
         return default
+
+
+def _sum_numeric_values(payload: dict[str, Any] | None) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    total = 0
+    for value in payload.values():
+        try:
+            total += int(value or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _runtime_cycle_to_agent_run(cycle: dict[str, Any]) -> dict[str, Any]:
+    candidate_count = _sum_numeric_values(cycle.get("candidate_counts_by_market"))
+    rejected_count = _sum_numeric_values(cycle.get("blocked_reason_counts")) + _sum_numeric_values(cycle.get("skip_reason_counts"))
+    submitted_count = int(cycle.get("executed_buy_count") or 0) + int(cycle.get("executed_sell_count") or 0)
+    return {
+        "run_id": str(cycle.get("cycle_id") or cycle.get("logged_at") or "runtime-cycle"),
+        "trigger": "runtime_engine_cycle",
+        "execution_channel": "runtime",
+        "status": "completed" if bool(cycle.get("ok", True)) else "failed",
+        "started_at": str(cycle.get("started_at") or cycle.get("logged_at") or ""),
+        "finished_at": str(cycle.get("finished_at") or cycle.get("ran_at") or cycle.get("logged_at") or ""),
+        "summary": {
+            "candidate_count": candidate_count,
+            "decisions": candidate_count,
+            "risk_approved": submitted_count,
+            "risk_rejected": rejected_count,
+            "orders_submitted": submitted_count,
+            "orders_skipped": rejected_count,
+        },
+        "source": "runtime_engine_cycle",
+    }
 
 
 def _symbol(candidate: dict[str, Any]) -> str:
@@ -185,7 +221,14 @@ def handle_agent_run(payload: dict) -> tuple[int, dict]:
 
 
 def handle_agent_runs(query: dict[str, list[str]]) -> tuple[int, dict]:
-    items = default_store().list_runs(limit=_query_int(query, "limit", 50))
+    limit = _query_int(query, "limit", 50)
+    runtime_items = [_runtime_cycle_to_agent_run(cycle) for cycle in read_engine_cycles(limit=limit)]
+    audit_items = default_store().list_runs(limit=limit)
+    items = sorted(
+        [*runtime_items, *audit_items],
+        key=lambda item: str(item.get("finished_at") or item.get("started_at") or item.get("created_at") or ""),
+        reverse=True,
+    )[: max(1, min(int(limit or 50), 500))]
     return 200, {"ok": True, "items": items}
 
 

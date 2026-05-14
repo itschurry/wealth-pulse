@@ -11,12 +11,14 @@ except ModuleNotFoundError:  # pragma: no cover - package import fallback
 from helpers import _now_iso
 from services.risk_guard_service import build_risk_guard_state as _build_account_risk_guard_state
 from services.live_layers import build_layer_c_snapshot, build_layer_d_snapshot, build_layer_e_snapshot, build_layer_events
+from services.market_data_service import resolve_stock_quote
 from services.optimized_params_store import load_execution_optimized_params
 from services.reliability_policy import should_apply_symbol_overlay
+from services.candidate_monitor_service import list_market_watchlists
+from services.research_store import DEFAULT_RESEARCH_PROVIDER, load_latest_research_snapshot
 from services.signal_service import collect_pick_candidates
 from services.sizing_service import recommend_position_size
 from services.trade_workflow import enrich_signal_payload
-from services.universe_builder import get_configured_universe_snapshot
 
 
 DEFAULT_SIGNAL_MARKETS = ("KOSPI", "NASDAQ")
@@ -41,43 +43,106 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _universe_rule_for_market(market: str) -> str:
-    normalized_market = str(market or "").strip().upper()
-    return "sp500" if normalized_market in {"NASDAQ", "NYSE", "US"} else "kospi"
+def _snapshot_is_fresh(symbol: str, market: str) -> tuple[bool, dict[str, Any]]:
+    snapshot = load_latest_research_snapshot(symbol, market, provider=DEFAULT_RESEARCH_PROVIDER)
+    if not isinstance(snapshot, dict):
+        return False, {}
+    freshness = str(
+        snapshot.get("freshness")
+        or (snapshot.get("freshness_detail") if isinstance(snapshot.get("freshness_detail"), dict) else {}).get("status")
+        or "missing"
+    ).strip().lower()
+    return freshness in {"fresh", "healthy", "derived"}, snapshot
 
 
-def _configured_universe_candidates(market: str, *, limit: int = 40) -> list[dict[str, Any]]:
+def _with_live_technical_snapshot(candidate: dict[str, Any], market: str) -> dict[str, Any]:
+    row = dict(candidate)
+    code = str(row.get("code") or row.get("symbol") or "").strip().upper()
+    if not code:
+        return row
+
+    technical = dict(row.get("technical_snapshot")) if isinstance(row.get("technical_snapshot"), dict) else {}
+    try:
+        quote = resolve_stock_quote(code, market)
+    except Exception as exc:
+        technical["quote_error"] = str(exc)
+        row["technical_snapshot"] = technical
+        return row
+    current_price = quote.get("price")
+    if current_price not in (None, ""):
+        row["current_price"] = current_price
+        row["price"] = current_price
+        row["last_price_local"] = current_price
+        technical["current_price"] = current_price
+        technical["close"] = current_price
+    if quote.get("change_pct") not in (None, ""):
+        technical["change_pct"] = quote.get("change_pct")
+    technical["quote_source"] = str(quote.get("source") or "KIS")
+    technical["quote_fetched_at"] = str(quote.get("fetched_at") or _now_iso())
+    technical["freshness"] = "fresh"
+    technical["quote_is_stale"] = bool(quote.get("is_stale", False))
+
+    row["technical_snapshot"] = technical
+    return row
+
+
+def _monitor_active_slot_candidates(market: str, *, cfg: dict[str, Any]) -> list[dict[str, Any]]:
     normalized_market = str(market or "").strip().upper() or "KOSPI"
-    universe = get_configured_universe_snapshot(_universe_rule_for_market(normalized_market), market=normalized_market)
-    rows = universe.get("symbols") if isinstance(universe, dict) else []
+    min_score = _to_float(cfg.get("min_score"), 50.0)
+    watchlists = list_market_watchlists([normalized_market], refresh=False)
+    watchlist = watchlists[0] if watchlists else {}
+    active_slots = watchlist.get("active_slots") if isinstance(watchlist, dict) and isinstance(watchlist.get("active_slots"), list) else []
     candidates: list[dict[str, Any]] = []
-    for index, row in enumerate(rows if isinstance(rows, list) else [], start=1):
-        if not isinstance(row, dict):
+    for index, item in enumerate(active_slots, start=1):
+        if not isinstance(item, dict):
             continue
-        code = str(row.get("code") or row.get("symbol") or "").strip().upper()
+        code = str(item.get("code") or item.get("symbol") or "").strip().upper()
         if not code:
             continue
-        candidates.append({
+        fresh, snapshot = _snapshot_is_fresh(code, normalized_market)
+        score = max(
+            _to_float(item.get("score"), 0.0),
+            _to_float(item.get("snapshot_research_score"), 0.0) * 100.0,
+            _to_float(snapshot.get("research_score"), 0.0) * 100.0,
+        )
+        slot_type = str(item.get("slot_type") or "active").strip().lower()
+        row = {
+            **item,
             "code": code,
             "symbol": code,
             "market": normalized_market,
-            "name": row.get("name") or code,
-            "sector": row.get("sector") or "미분류",
-            "candidate_source": "config_universe",
-            "candidate_source_label": "universe",
-            "candidate_source_detail": _universe_rule_for_market(normalized_market),
-            "candidate_source_tier": "tier_3",
-            "candidate_source_priority": 40,
-            "candidate_rank": index,
-            "signal_state": "watch",
-            "final_action": "watch_only",
-            "score": max(0.0, 100.0 - float(index)),
-            "reasons": ["config_universe"],
-            "gate_status": "passed",
-        })
-        if len(candidates) >= max(1, int(limit or 40)):
-            break
-    return candidates
+            "name": item.get("name") or code,
+            "sector": item.get("sector") or "미분류",
+            "score": round(score, 2),
+            "candidate_rank": item.get("candidate_rank") or index,
+            "candidate_source": str(item.get("candidate_source") or slot_type or "monitor_active_slot"),
+            "candidate_source_label": "active-slot",
+            "candidate_source_detail": str(item.get("reason") or item.get("selection_reason") or slot_type or "monitor_active_slot"),
+            "candidate_source_tier": "tier_1" if fresh else "tier_3",
+            "candidate_source_priority": 85 if fresh else 35,
+            "candidate_runtime_source_mode": "monitor_active_slots",
+            "candidate_source_mode": "monitor_active_slots",
+            "candidate_research_source": DEFAULT_RESEARCH_PROVIDER,
+            "signal_state": "entry" if fresh and score >= min_score else "watch",
+            "final_action": "review_for_entry" if fresh and score >= min_score else "watch_only",
+            "gate_status": "passed" if fresh else "research_missing_or_stale",
+            "gate_reasons": [] if fresh else ["research_missing_or_stale"],
+            "reasons": [
+                "monitor_active_slot",
+                f"slot_type:{slot_type}",
+                f"research:{'fresh' if fresh else 'missing_or_stale'}",
+            ],
+        }
+        candidates.append(_with_live_technical_snapshot(row, normalized_market))
+    candidates.sort(
+        key=lambda row: (
+            int(row.get("candidate_source_priority") or 0),
+            _to_float(row.get("score"), 0.0),
+            -int(row.get("candidate_rank") or 999999),
+        ),
+        reverse=True,
+    )
+    return candidates[: max(1, int(cfg.get("candidate_pool_limit") or 40))]
 
 
 def _load_optimized_params() -> dict[str, Any] | None:
@@ -375,17 +440,14 @@ def build_signal_book(
 
     for market in normalized_markets:
         candidates = collect_pick_candidates(market=market, cfg=cfg)
-        configured_candidates = _configured_universe_candidates(
-            market,
-            limit=int(cfg.get("candidate_pool_limit") or 40),
-        )
-        if configured_candidates:
+        monitor_candidates = _monitor_active_slot_candidates(market, cfg=cfg)
+        if monitor_candidates:
             by_symbol = {
                 str(item.get("code") or item.get("symbol") or "").strip().upper(): item
                 for item in candidates
                 if isinstance(item, dict) and str(item.get("code") or item.get("symbol") or "").strip()
             }
-            for item in configured_candidates:
+            for item in monitor_candidates:
                 symbol = str(item.get("code") or item.get("symbol") or "").strip().upper()
                 if symbol and symbol not in by_symbol:
                     by_symbol[symbol] = item

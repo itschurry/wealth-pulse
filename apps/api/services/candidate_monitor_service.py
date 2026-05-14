@@ -8,6 +8,7 @@ from typing import Any
 from config.settings import CACHE_DIR, CONFIG_STATE_DIR
 from market_utils import lookup_company_listing
 from services import candidate_monitor_store as store
+from services.research_store import DEFAULT_RESEARCH_PROVIDER, load_latest_research_snapshot
 from services.runtime_store import list_strategy_scans
 
 DEFAULT_POOL_LIMIT = 40
@@ -649,6 +650,52 @@ def _matches_pending_mode(item: dict[str, Any], mode: str) -> bool:
     return (not snapshot_exists) or (not snapshot_fresh)
 
 
+def _with_latest_research_snapshot_meta(item: dict[str, Any]) -> dict[str, Any]:
+    row = dict(item)
+    symbol = _normalize_symbol(row.get("symbol") or row.get("code"))
+    market = _normalize_market(row.get("market"))
+    if not symbol or not market:
+        return row
+
+    snapshot = load_latest_research_snapshot(symbol, market, provider=DEFAULT_RESEARCH_PROVIDER)
+    if not isinstance(snapshot, dict):
+        row.update({
+            "snapshot_exists": False,
+            "snapshot_fresh": False,
+            "snapshot_generated_at": "",
+            "snapshot_research_score": None,
+            "research_status": "missing",
+            "validation_grade": "",
+        })
+        return row
+
+    freshness = str(
+        snapshot.get("freshness")
+        or (snapshot.get("freshness_detail") if isinstance(snapshot.get("freshness_detail"), dict) else {}).get("status")
+        or "missing"
+    ).strip().lower()
+    validation = snapshot.get("validation") if isinstance(snapshot.get("validation"), dict) else {}
+    row.update({
+        "snapshot_exists": True,
+        "snapshot_fresh": freshness == "fresh",
+        "snapshot_generated_at": str(snapshot.get("generated_at") or ""),
+        "snapshot_research_score": snapshot.get("research_score"),
+        "research_status": freshness,
+        "validation_grade": str(validation.get("grade") or "").upper(),
+    })
+    payload = dict(row.get("payload")) if isinstance(row.get("payload"), dict) else {}
+    payload.update({
+        "snapshot_exists": row["snapshot_exists"],
+        "snapshot_fresh": row["snapshot_fresh"],
+        "snapshot_generated_at": row["snapshot_generated_at"],
+        "snapshot_research_score": row["snapshot_research_score"],
+        "research_status": row["research_status"],
+        "validation_grade": row["validation_grade"],
+    })
+    row["payload"] = payload
+    return row
+
+
 def list_pending_research_targets(
     items: list[dict[str, Any]],
     *,
@@ -665,10 +712,11 @@ def list_pending_research_targets(
             key = (_normalize_market(row.get("market") or watchlist.get("market")), _normalize_symbol(row.get("symbol") or row.get("code")))
             if not key[0] or not key[1] or key in seen:
                 continue
-            if not _matches_pending_mode(row, mode):
+            row_with_meta = _with_latest_research_snapshot_meta(row)
+            if not _matches_pending_mode(row_with_meta, mode):
                 continue
             seen.add(key)
-            rows.append(row)
+            rows.append(row_with_meta)
     rows.sort(
         key=lambda item: (
             int(item.get("priority") or item.get("monitor_priority") or 0),

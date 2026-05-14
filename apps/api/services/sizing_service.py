@@ -80,6 +80,8 @@ def recommend_position_size(
     qty_by_caps = int(min(symbol_room_krw, sector_room_krw, market_room_krw) // max(unit_price_krw, 1.0))
 
     quantity = max(0, min(qty_by_risk, qty_by_cash, qty_by_caps))
+    if quantity <= 0 and qty_by_risk <= 0 and qty_by_cash > 0 and qty_by_caps > 0 and expected_value > 0:
+        quantity = 1
     if quantity <= 0:
         zero_limits: list[str] = []
         if qty_by_risk <= 0:

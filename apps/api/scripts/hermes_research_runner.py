@@ -363,6 +363,7 @@ def run(
 
     analyses: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    ingest_results: list[dict[str, Any]] = []
     total = len(prompt_rows)
     command_preview = " ".join(shlex.quote(part) for part in _command_list(agent_command))
     _log(f"[hermes] command={command_preview} timeout={max(1, int(timeout))}s", enabled=progress)
@@ -373,14 +374,26 @@ def run(
             _log(f"[hermes] {index}/{total} start {market}:{symbol}", enabled=progress)
             raw_output = call_hermes_agent(prompt_row["prompt"], agent_command=agent_command, timeout=timeout)
             analysis = _merge_analysis_with_target(parse_agent_json(raw_output), target)
+            ingest_payload = build_agent_research_ingest_payload({"items": [analysis]})
+            ingest_status, ingest_result = handle_research_ingest_bulk(ingest_payload, base_url=api_base_url)
+            accepted = int(ingest_result.get("accepted") or 0) if isinstance(ingest_result, dict) else 0
+            ingest_results.append({
+                "symbol": symbol,
+                "market": market,
+                "status_code": ingest_status,
+                "accepted": accepted,
+                "result": ingest_result,
+            })
+            if not (200 <= ingest_status < 300) or accepted <= 0:
+                raise RuntimeError(f"ingest_failed:{ingest_status}:accepted={accepted}")
             analyses.append(analysis)
-            _log(f"[hermes] {index}/{total} ok {market}:{symbol}", enabled=progress)
+            _log(f"[hermes] {index}/{total} ok {market}:{symbol} ingest_status={ingest_status} accepted={accepted}", enabled=progress)
         except Exception as exc:
             errors.append({"symbol": symbol, "market": market, "error": str(exc)})
             _log(f"[hermes] {index}/{total} failed {market}:{symbol} error={exc}", enabled=progress)
 
     if not analyses:
-        _log(f"[hermes] all Hermes calls failed errors={len(errors)}", enabled=progress)
+        _log(f"[hermes] all Hermes calls or ingests failed errors={len(errors)}", enabled=progress)
         return 502, {
             "ok": False,
             "stage": "agent_failed",
@@ -388,32 +401,20 @@ def run(
             "mode": mode,
             "selected_count": len(target_items),
             "errors": errors,
+            "ingest_results": ingest_results,
         }
 
-    try:
-        ingest_payload = build_agent_research_ingest_payload({"items": analyses})
-    except ValueError as exc:
-        _log(f"[hermes] ingest payload validation failed error={exc}", enabled=progress)
-        return 400, {
-            "ok": False,
-            "stage": "agent_payload_validation",
-            "error": str(exc),
-            "errors": errors,
-            "selected_count": len(target_items),
-        }
-
-    ingest_status, ingest_result = handle_research_ingest_bulk(ingest_payload, base_url=api_base_url)
-    _log(f"[hermes] ingest status={ingest_status} accepted={ingest_result.get('accepted') if isinstance(ingest_result, dict) else '?'}", enabled=progress)
-    return ingest_status, {
-        "ok": 200 <= ingest_status < 300,
-        "stage": "ingested",
+    return 200, {
+        "ok": True,
+        "stage": "ingested_incremental",
         "markets": markets,
         "mode": mode,
         "selected_count": len(target_items),
         "agent_success_count": len(analyses),
         "agent_error_count": len(errors),
+        "accepted_count": sum(int(item.get("accepted") or 0) for item in ingest_results),
         "errors": errors,
-        "ingest": ingest_result,
+        "ingest_results": ingest_results,
     }
 
 

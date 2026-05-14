@@ -412,7 +412,7 @@ function workflowStatusLabel(status: unknown): string {
   if (value === 'risk_blocked') return '리스크 차단';
   if (value === 'ready_for_order') return '주문 가능';
   if (value === 'size_pending') return '수량 계산 대기';
-  if (value === 'operator_review') return '운영자 검토';
+  if (value === 'operator_review') return '리서치 확증 부족';
   if (value === 'signal_detected') return '신호 감지';
   if (value === 'submitted') return '주문 전송됨';
   if (value === 'filled') return '체결 완료';

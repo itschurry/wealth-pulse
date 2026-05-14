@@ -70,6 +70,8 @@ from services.signal_service import (
     normalize_theme_focus as _signal_normalize_theme_focus,
     parse_theme_gate_config as _signal_parse_theme_gate_config,
 )
+from services.risk_guard_service import build_risk_guard_state as _build_account_risk_guard_state
+from services.sizing_service import recommend_position_size
 from services.strategy_engine import build_signal_book, select_entry_candidates
 from services.strategy_registry import list_strategies
 
@@ -93,6 +95,7 @@ _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
     "NASDAQ": 10.0,
 }
 _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
+_ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit"}
 _OPTIMIZABLE_KEYS = {
     "stop_loss_pct",
     "take_profit_pct",
@@ -111,6 +114,7 @@ _OPTIMIZABLE_KEYS = {
 
 _simulated_engine: SimulatedExecutionEngine | None = None
 _auto_trader_lock = threading.Lock()
+_auto_trader_cycle_lock = threading.Lock()
 _auto_trader_stop_event: threading.Event | None = None
 _auto_trader_thread: threading.Thread | None = None
 _auto_trader_state_loaded = False
@@ -836,13 +840,8 @@ def _hydrate_auto_trader_state() -> None:
     merged["config"] = dict(merged["current_config"])
 
     engine_state = str(merged.get("engine_state") or "stopped").lower()
-    if engine_state in {"running", "paused"}:
-        # 프로세스 재시작 시 자동 재개하지 않고 안전 정지로 복구한다.
+    if engine_state not in {"running", "paused", "stopped", "error"}:
         engine_state = "stopped"
-        merged["running"] = False
-        if not merged.get("last_error"):
-            merged["last_error"] = "서버 재시작으로 엔진 상태를 stopped로 복구했습니다."
-            merged["last_error_at"] = _now_iso()
     merged["engine_state"] = engine_state
     merged["running"] = engine_state == "running"
 
@@ -857,6 +856,23 @@ def _hydrate_auto_trader_state() -> None:
     _auto_trader_state = merged
     _auto_trader_state_loaded = True
     _persist_auto_trader_state_locked()
+
+
+def _ensure_auto_trader_thread_running() -> None:
+    global _auto_trader_stop_event, _auto_trader_thread
+    with _auto_trader_lock:
+        if str(_auto_trader_state.get("engine_state") or "").lower() != "running":
+            return
+        if _auto_trader_thread and _auto_trader_thread.is_alive():
+            return
+        _auto_trader_stop_event = threading.Event()
+        _auto_trader_thread = threading.Thread(
+            target=_auto_trader_loop,
+            args=(_auto_trader_stop_event,),
+            daemon=True,
+        )
+        thread = _auto_trader_thread
+    thread.start()
 
 
 def _normalize_runtime_account(
@@ -1524,13 +1540,13 @@ def _default_auto_trader_config() -> dict:
         "stop_loss_pct": primary["stop_loss_pct"],
         "take_profit_pct": primary["take_profit_pct"],
         "max_holding_days": primary["max_holding_days"],
-        "risk_per_trade_pct": 0.35,
+        "risk_per_trade_pct": 0.8,
         "daily_loss_limit_pct": 2.0,
         "max_consecutive_loss": 3,
         "cooldown_minutes": 120,
-        "max_symbol_weight_pct": 20.0,
-        "max_sector_weight_pct": 35.0,
-        "max_market_exposure_pct": 70.0,
+        "max_symbol_weight_pct": 30.0,
+        "max_sector_weight_pct": 50.0,
+        "max_market_exposure_pct": 95.0,
         "block_buy_in_risk_off": True,
         "block_buy_when_risk_high": True,
         "validation_gate_enabled": True,
@@ -1543,9 +1559,9 @@ def _default_auto_trader_config() -> dict:
         "slippage_bps_base": 8.0,
         "rotation": {
             "enabled": True,
-            "min_score_gap": 8.0,
-            "daily_limit": 1,
-            "min_holding_days": 2,
+            "min_score_gap": 5.0,
+            "daily_limit": 3,
+            "min_holding_days": 1,
         },
         "market_profiles": profiles,
     }
@@ -1669,6 +1685,17 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     cfg["stop_loss_pct"] = primary.get("stop_loss_pct")
     cfg["take_profit_pct"] = primary.get("take_profit_pct")
     cfg["max_holding_days"] = int(primary.get("max_holding_days") or 30)
+    cfg["risk_per_trade_pct"] = max(0.8, _to_float(cfg.get("risk_per_trade_pct"), 0.8))
+    cfg["max_symbol_weight_pct"] = max(30.0, _to_float(cfg.get("max_symbol_weight_pct"), 30.0))
+    cfg["max_sector_weight_pct"] = max(50.0, _to_float(cfg.get("max_sector_weight_pct"), 50.0))
+    cfg["max_market_exposure_pct"] = max(95.0, _to_float(cfg.get("max_market_exposure_pct"), 95.0))
+    rotation_raw = cfg.get("rotation") if isinstance(cfg.get("rotation"), dict) else {}
+    cfg["rotation"] = {
+        "enabled": bool(rotation_raw.get("enabled", True)),
+        "min_score_gap": min(5.0, _to_float(rotation_raw.get("min_score_gap"), 5.0)),
+        "daily_limit": max(3, int(_to_float(rotation_raw.get("daily_limit"), 3))),
+        "min_holding_days": min(1, max(0, int(_to_float(rotation_raw.get("min_holding_days"), 1)))),
+    }
     return cfg
 
 
@@ -1683,10 +1710,10 @@ def _coerce_positive_int(value: Any) -> int | None:
 def _rotation_config(cfg: dict[str, Any]) -> dict[str, Any]:
     raw = cfg.get("rotation") if isinstance(cfg.get("rotation"), dict) else {}
     return {
-        "enabled": bool(raw.get("enabled", False)),
-        "min_score_gap": _to_float(raw.get("min_score_gap"), 8.0),
-        "daily_limit": max(0, int(_to_float(raw.get("daily_limit"), 1))),
-        "min_holding_days": max(0, int(_to_float(raw.get("min_holding_days"), 2))),
+        "enabled": bool(raw.get("enabled", True)),
+        "min_score_gap": _to_float(raw.get("min_score_gap"), 5.0),
+        "daily_limit": max(0, int(_to_float(raw.get("daily_limit"), 3))),
+        "min_holding_days": max(0, int(_to_float(raw.get("min_holding_days"), 1))),
     }
 
 
@@ -1711,6 +1738,29 @@ def _rotation_today_count(market: str) -> int:
     return count
 
 
+def _sell_blocked_by_trading_halt_today(*, market: str, code: str) -> bool:
+    today = _today_kst_str()
+    normalized_market = normalize_strategy_market(market)
+    normalized_code = str(code or "").strip().upper()
+    if not normalized_code:
+        return False
+    for item in read_order_events(limit=500):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("timestamp") or "").startswith(today) is False:
+            continue
+        if str(item.get("market") or "").upper() != normalized_market:
+            continue
+        if str(item.get("code") or "").upper() != normalized_code:
+            continue
+        if str(item.get("side") or "").lower() != "sell":
+            continue
+        reason = str(item.get("failure_reason") or item.get("reason_code") or item.get("message") or "")
+        if "거래정지종목" in reason or "취소주문만 가능" in reason:
+            return True
+    return False
+
+
 def _candidate_rotation_score(candidate: dict[str, Any]) -> float:
     if not isinstance(candidate, dict):
         return 0.0
@@ -1720,6 +1770,78 @@ def _candidate_rotation_score(candidate: dict[str, Any]) -> float:
     ev_metrics = candidate.get("ev_metrics") if isinstance(candidate.get("ev_metrics"), dict) else {}
     expected_value = _to_float(ev_metrics.get("expected_value"), 0.0)
     return expected_value * 100.0
+
+
+def _rotation_candidate_needs_resizing(candidate: dict[str, Any]) -> bool:
+    size_recommendation = candidate.get("size_recommendation") if isinstance(candidate.get("size_recommendation"), dict) else {}
+    return str(size_recommendation.get("reason") or "").strip() in _ROTATION_RESIZABLE_SIZE_REASONS
+
+
+def _candidate_unit_price_local(candidate: dict[str, Any]) -> float:
+    technical_snapshot = candidate.get("technical_snapshot") if isinstance(candidate.get("technical_snapshot"), dict) else {}
+    for key in ("price", "current_price", "last_price_local"):
+        value = _to_float(candidate.get(key), 0.0)
+        if value > 0:
+            return value
+    for key in ("current_price", "close"):
+        value = _to_float(technical_snapshot.get(key), 0.0)
+        if value > 0:
+            return value
+    return 0.0
+
+
+def _account_after_rotation_sell(account: dict[str, Any], sell_item: dict[str, Any]) -> dict[str, Any]:
+    updated = dict(account)
+    sell_code = str(sell_item.get("code") or "").upper()
+    sell_market = str(sell_item.get("market") or "").upper()
+    positions: list[dict[str, Any]] = []
+    released_krw = 0.0
+    for position in account.get("positions", []):
+        if not isinstance(position, dict):
+            continue
+        code = str(position.get("code") or "").upper()
+        market = str(position.get("market") or "").upper()
+        if code == sell_code and market == sell_market:
+            qty = int(position.get("quantity") or 0)
+            released_krw = max(
+                _to_float(position.get("market_value_krw"), 0.0),
+                _to_float(position.get("last_price_krw"), _to_float(position.get("last_price_local"), 0.0)) * qty,
+            )
+            continue
+        positions.append(dict(position))
+    updated["positions"] = positions
+    updated["cash_krw"] = _to_float(account.get("cash_krw"), 0.0) + max(0.0, released_krw)
+    updated["market_value_krw"] = max(0.0, _to_float(account.get("market_value_krw"), 0.0) - max(0.0, released_krw))
+    return updated
+
+
+def _resize_rotation_buy_candidate(candidate: dict[str, Any], account: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    updated = dict(candidate)
+    risk_inputs = updated.get("risk_inputs") if isinstance(updated.get("risk_inputs"), dict) else {}
+    ev_metrics = updated.get("ev_metrics") if isinstance(updated.get("ev_metrics"), dict) else {}
+    validation_snapshot = updated.get("validation_snapshot") if isinstance(updated.get("validation_snapshot"), dict) else {}
+    previous_risk = updated.get("risk_guard_state") if isinstance(updated.get("risk_guard_state"), dict) else {}
+    risk_guard_state = _build_account_risk_guard_state(
+        account=account,
+        cfg=cfg,
+        regime=str(previous_risk.get("regime") or "neutral"),
+        risk_level=str(previous_risk.get("risk_level") or "중간"),
+    )
+    size_recommendation = recommend_position_size(
+        account=account,
+        market=str(updated.get("market") or "").upper(),
+        unit_price_local=_candidate_unit_price_local(updated),
+        stop_loss_pct=_to_float(risk_inputs.get("stop_loss_pct"), 5.0),
+        expected_value=_to_float(ev_metrics.get("expected_value"), 0.0),
+        reliability=str(ev_metrics.get("reliability") or validation_snapshot.get("strategy_reliability") or "medium"),
+        risk_guard_state=risk_guard_state,
+        cfg=cfg,
+        symbol_key=f"{str(updated.get('market') or '').upper()}:{str(updated.get('code') or '').upper()}",
+        sector=str(updated.get("sector") or "미분류"),
+    )
+    updated["risk_guard_state"] = risk_guard_state
+    updated["size_recommendation"] = size_recommendation
+    return updated
 
 
 def _held_rotation_snapshot(position: dict[str, Any], signal_map: dict[str, dict[str, Any]], min_holding_days: int) -> dict[str, Any] | None:
@@ -1771,8 +1893,11 @@ def _select_rotation_plan(
         if str(position.get("market") or "").upper() != market:
             continue
         snapshot = _held_rotation_snapshot(position, signal_map, min_holding_days)
-        if snapshot is not None:
-            held_candidates.append(snapshot)
+        if snapshot is None:
+            continue
+        if _sell_blocked_by_trading_halt_today(market=market, code=str(snapshot.get("code") or "")):
+            continue
+        held_candidates.append(snapshot)
     if not held_candidates:
         return {"ok": False, "reason": "rotation_no_sellable_position"}
 
@@ -1787,27 +1912,51 @@ def _select_rotation_plan(
         if strategy_cap is not None and strategy_position_count >= strategy_cap:
             continue
         size_recommendation = candidate.get("size_recommendation") if isinstance(candidate.get("size_recommendation"), dict) else {}
-        if int(size_recommendation.get("quantity") or 0) <= 0:
+        if int(size_recommendation.get("quantity") or 0) <= 0 and not _rotation_candidate_needs_resizing(candidate):
             continue
         buy_candidates.append(candidate)
     if not buy_candidates:
         return {"ok": False, "reason": "rotation_no_buy_candidate"}
 
-    weakest = min(held_candidates, key=lambda item: (float(item.get("score") or 0.0), str(item.get("code") or "")))
-    strongest = max(buy_candidates, key=lambda item: (_candidate_rotation_score(item), str(item.get("code") or "")))
-    score_gap = round(_candidate_rotation_score(strongest) - _to_float(weakest.get("score"), 0.0), 4)
-    if score_gap < float(rotation_cfg.get("min_score_gap") or 0.0):
+    pairs: list[tuple[float, dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+    for sell_candidate in held_candidates:
+        provisional_account = _account_after_rotation_sell(account, sell_candidate)
+        sell_score = _to_float(sell_candidate.get("score"), 0.0)
+        for buy_candidate in buy_candidates:
+            resized_buy = _resize_rotation_buy_candidate(buy_candidate, provisional_account, cfg)
+            size_recommendation = resized_buy.get("size_recommendation") if isinstance(resized_buy.get("size_recommendation"), dict) else {}
+            if int(size_recommendation.get("quantity") or 0) <= 0:
+                continue
+            score_gap = round(_candidate_rotation_score(resized_buy) - sell_score, 4)
+            if score_gap >= float(rotation_cfg.get("min_score_gap") or 0.0):
+                pairs.append((score_gap, sell_candidate, resized_buy, size_recommendation))
+    if not pairs:
+        weakest = min(held_candidates, key=lambda item: (float(item.get("score") or 0.0), str(item.get("code") or "")))
+        strongest = max(buy_candidates, key=lambda item: (_candidate_rotation_score(item), str(item.get("code") or "")))
+        score_gap = round(_candidate_rotation_score(strongest) - _to_float(weakest.get("score"), 0.0), 4)
+        if score_gap < float(rotation_cfg.get("min_score_gap") or 0.0):
+            return {
+                "ok": False,
+                "reason": "rotation_score_gap_too_small",
+                "score_gap": score_gap,
+                "sell_code": weakest.get("code"),
+                "buy_code": strongest.get("code"),
+            }
         return {
             "ok": False,
-            "reason": "rotation_score_gap_too_small",
+            "reason": "rotation_no_sized_buy_candidate",
             "score_gap": score_gap,
             "sell_code": weakest.get("code"),
             "buy_code": strongest.get("code"),
         }
+    score_gap, sell_candidate, buy_candidate, _size = max(
+        pairs,
+        key=lambda item: (item[0], _candidate_rotation_score(item[2]), -_to_float(item[1].get("score"), 0.0), str(item[2].get("code") or "")),
+    )
     return {
         "ok": True,
-        "sell": weakest,
-        "buy": strongest,
+        "sell": sell_candidate,
+        "buy": buy_candidate,
         "score_gap": score_gap,
     }
 
@@ -2240,8 +2389,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 continue
             technicals, tech_error = _load_technicals(code, market)
             if tech_error:
-                skipped.append({"code": code, "name": pos_name, "market": market,
-                               "reason": f"technicals_error: {tech_error}"})
+                logger.debug("exit technicals unavailable for {}:{}: {}", market, code, tech_error)
                 continue
             if not technicals:
                 continue
@@ -2390,7 +2538,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 and bool(rotation_blockers)
                 and rotation_blockers.issubset(_ROTATION_POSITION_ONLY_BLOCKERS)
             )
-            if signal_state == "entry" and order_qty > 0 and (entry_allowed or position_only_blocked):
+            if signal_state == "entry" and (order_qty > 0 or _rotation_candidate_needs_resizing(candidate)) and (entry_allowed or position_only_blocked or _rotation_candidate_needs_resizing(candidate)):
                 rotation_candidates.append(candidate)
             if entry_allowed:
                 effective_candidates.append(candidate)
@@ -2550,8 +2698,25 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                         strategy_position_counts[strategy_id] = max(0, strategy_position_counts.get(strategy_id, 0) - 1)
                     market_position_count = max(0, market_position_count - 1)
                     slots = max(0, max_positions - market_position_count)
+                    post_sell_account = _normalize_runtime_account(
+                        engine.get_account(refresh_quotes=True),
+                        persist_live_reconciled_fills=True,
+                        notify_live_fills=True,
+                    )
+                    buy_candidate = _resize_rotation_buy_candidate(buy_candidate, post_sell_account, cfg)
                     size_recommendation = buy_candidate.get("size_recommendation") if isinstance(buy_candidate.get("size_recommendation"), dict) else {}
                     quantity = int(size_recommendation.get("quantity") or 0)
+                    if quantity <= 0:
+                        failure_reason = size_recommendation.get("reason") or "rotation_buy_size_zero"
+                        skipped.append({"code": buy_code, "name": str(buy_candidate.get("name") or buy_code), "market": market, "reason": failure_reason})
+                        rotation_summary["blocked"].append({
+                            "market": market,
+                            "reason": failure_reason,
+                            "sell_code": sell_code,
+                            "buy_code": buy_code,
+                            "score_gap": rotation_plan.get("score_gap"),
+                        })
+                        continue
                     risk_inputs = buy_candidate.get("risk_inputs") if isinstance(buy_candidate.get("risk_inputs"), dict) else {}
                     buy_result = engine.place_order(
                         side="buy",
@@ -2954,6 +3119,10 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
         if engine_state != "running":
             stop_event.set()
             break
+        acquired_cycle = _auto_trader_cycle_lock.acquire(blocking=False)
+        if not acquired_cycle:
+            stop_event.wait(1.0)
+            continue
         try:
             summary = _run_auto_trader_cycle(cfg)
             with _auto_trader_lock:
@@ -2993,6 +3162,8 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
             })
             stop_event.set()
             break
+        finally:
+            _auto_trader_cycle_lock.release()
         interval = int((cfg.get("interval_seconds") or 300))
         interval = max(30, min(3600, interval))
         with _auto_trader_lock:
@@ -3588,9 +3759,23 @@ def handle_signal_snapshots(limit: int = 200) -> tuple[int, dict]:
 
 def handle_runtime_workflow(limit: int = 120) -> tuple[int, dict]:
     try:
-        signals = read_signal_snapshots(limit=limit)
-        orders = read_order_events(limit=limit)
+        raw_signals = read_signal_snapshots(limit=limit)
+        latest_cycle_id = ""
+        for item in raw_signals:
+            latest_cycle_id = str(item.get("cycle_id") or "").strip()
+            if latest_cycle_id:
+                break
+        signals = [
+            item for item in raw_signals
+            if not latest_cycle_id or str(item.get("cycle_id") or "").strip() == latest_cycle_id
+        ]
+        raw_orders = read_order_events(limit=limit)
+        orders = [
+            item for item in raw_orders
+            if not latest_cycle_id or str(item.get("originating_cycle_id") or "").strip() == latest_cycle_id
+        ]
         summary = build_workflow_summary(signals, orders)
+        summary["latest_cycle_id"] = latest_cycle_id
         execution_events = read_execution_events(limit=limit * 4)
         return 200, {
             "ok": True,
@@ -3603,3 +3788,4 @@ def handle_runtime_workflow(limit: int = 120) -> tuple[int, dict]:
 
 def hydrate_runtime_state() -> None:
     _hydrate_auto_trader_state()
+    _ensure_auto_trader_thread_running()
