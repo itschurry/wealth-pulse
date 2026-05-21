@@ -56,9 +56,9 @@ function sourceLabel(source: string): string {
   if (source === 'backtest') return '백테스트';
   if (source === 'optimization') return '최적화';
   if (source === 'settings') return '설정';
-  if (source === 'paper') return '모의투자';
-  if (source === 'live') return '실거래';
-  if (source === 'engine') return '엔진';
+  if (source === 'paper') return '모의계좌';
+  if (source === 'live') return '실계좌';
+  if (source === 'engine') return '자동매매 엔진';
   if (source === 'refresh') return '새로고침';
   if (source === 'all') return '전체';
   return source || '전체';
@@ -157,7 +157,7 @@ function renderLoadFailure(errorMessage: string, onRetry: () => void, onOpenLogs
       <ul className="console-error-card-list">
         <li>네트워크 지연 또는 API 일시 장애가 있었을 수 있습니다.</li>
         <li>아직 수집되지 않은 데이터라 화면 일부가 비어 있을 수 있습니다.</li>
-        <li>인증 또는 백엔드 런타임 오류로 일부 엔드포인트가 실패했을 수 있습니다.</li>
+        <li>인증 또는 백엔드 자동매매 엔진 오류로 일부 엔드포인트가 실패했을 수 있습니다.</li>
       </ul>
       <div className="console-error-card-actions">
         <button className="ghost-button" onClick={onRetry}>재시도</button>

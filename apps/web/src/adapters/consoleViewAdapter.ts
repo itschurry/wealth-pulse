@@ -344,7 +344,7 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
     dataAsOf: snapshot.fetchedAt,
     statusItems: [
       {
-        label: '엔진 상태',
+        label: '자동매매 엔진 상태',
         value: running ? '실행 중' : '중지',
         tone: running ? 'good' : 'bad',
       },

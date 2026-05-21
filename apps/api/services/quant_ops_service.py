@@ -799,7 +799,7 @@ def _candidate_decision(
 
     decision_status = "hold"
     decision_label = "보류"
-    summary = "재검증은 끝났지만 아직 저장/런타임 반영까지 가기엔 근거가 부족합니다."
+    summary = "재검증은 끝났지만 아직 저장/자동매매 엔진 반영까지 가기엔 근거가 부족합니다."
     approval_level = "blocked"
     near_miss_metrics: list[str] = []
 
@@ -1065,7 +1065,7 @@ def get_quant_ops_workflow() -> dict[str, Any]:
         "stage_status": stage_status,
         "notes": [
             "전략 설정 탐색 결과는 strategy_candidates 목록으로 제공되고, latest_candidate는 선택된 전략 후보를 재검증한 운영 후보입니다.",
-            "saved_candidate는 재검증 통과 후 저장된 전략 후보 스냅샷이고, runtime_apply는 저장된 운영 후보만 실제 런타임에 반영한 상태입니다.",
+            "saved_candidate는 재검증 통과 후 저장된 전략 후보 스냅샷이고, runtime_apply는 저장된 운영 후보를 자동매매 엔진에 반영한 상태입니다.",
             "strategy_candidates가 비어 있으면 OpenClaw payload가 아직 전략 후보 셋을 보내지 않은 상태로 간주합니다.",
         ],
     }
@@ -1666,7 +1666,7 @@ def reset_quant_ops_workflow_results(payload: dict[str, Any] | None = None) -> d
 
     return {
         "ok": True,
-        "message": "전략 검증 결과를 초기화했어요. 운영 중인 runtime 반영값은 건드리지 않았습니다.",
+        "message": "전략 검증 결과를 초기화했어요. 운영 중인 자동매매 엔진 반영값은 건드리지 않았습니다.",
         "workflow": get_quant_ops_workflow(),
         "cleared": {
             "quant_ops_state": True,

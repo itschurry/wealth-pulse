@@ -217,7 +217,7 @@ class TelegramNotifier:
 
     def notify_engine_error(self, *, error: str, cycle_id: str) -> None:
         message = (
-            "[WealthPulse] 엔진 오류\n"
+            "[WealthPulse] 자동매매 엔진 오류\n"
             f"시각: {_now_iso()}\n"
             f"오류: {error}\n"
             f"cycle: {cycle_id or '-'}"

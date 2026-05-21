@@ -3705,7 +3705,7 @@ def handle_runtime_history_clear(payload: dict) -> tuple[int, dict]:
             mode = _current_execution_mode()
             if mode == "live":
                 reset_account_skipped = True
-                reset_account_error = "실거래 계좌는 초기화하지 않고 로컬 히스토리만 정리했습니다."
+                reset_account_error = "실계좌는 초기화하지 않고 로컬 히스토리만 정리했습니다."
                 reset_account = False
             else:
                 account = engine.reset(

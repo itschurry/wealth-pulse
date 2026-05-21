@@ -174,10 +174,10 @@ function quantOpsCandidateSummary(candidate?: QuantOpsCandidatePayload | null) {
 
 function quantOpsRuntimeSummary(runtimeApply?: QuantOpsRuntimeApplyPayload | null) {
   if (!runtimeApply?.available) return '미반영';
-  const sourceMode = runtimeApply.runtime_candidate_source_mode === 'runtime_candidates' ? '런타임 후보' : String(runtimeApply.runtime_candidate_source_mode || '-');
+  const sourceMode = runtimeApply.runtime_candidate_source_mode === 'runtime_candidates' ? '자동매매 후보' : String(runtimeApply.runtime_candidate_source_mode || '-');
   const applyStatus = String(runtimeApply.status || '').toLowerCase() === 'applied' ? '반영됨' : (runtimeApply.status || '반영됨');
   const engineState = String(runtimeApply.engine_state || '').toLowerCase() === 'stopped' ? '중지' : (runtimeApply.engine_state || '-');
-  return `${applyStatus} · ${sourceMode} · 엔진 ${engineState}`;
+  return `${applyStatus} · ${sourceMode} · 자동매매 엔진 ${engineState}`;
 }
 
 export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefresh }: BacktestValidationPageProps) {
@@ -511,7 +511,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
   const handleQuantOpsApply = useCallback(async () => {
     const candidateId = quantOpsWorkflow?.saved_candidate?.id;
     if (!candidateId) {
-      push('warning', '런타임에 반영할 저장 후보가 없습니다.', undefined, 'quant-ops');
+      push('warning', '자동매매 엔진에 반영할 저장 후보가 없습니다.', undefined, 'quant-ops');
       return;
     }
     setQuantOpsBusyAction('apply');
@@ -519,13 +519,13 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       const response = await applyQuantOpsRuntime(candidateId);
       const payload = response.data;
       if (!response.ok || payload.ok === false) {
-        push('error', '런타임 반영에 실패했습니다.', payload.error || response.error?.message, 'quant-ops');
+        push('error', '자동매매 엔진 반영에 실패했습니다.', payload.error || response.error?.message, 'quant-ops');
       } else {
         setQuantOpsWorkflow(payload.workflow || null);
-        push('success', '저장 후보를 런타임에 반영했습니다.', quantOpsRuntimeSummary(payload.runtime_apply), 'quant-ops');
+        push('success', '저장 후보를 자동매매 엔진에 반영했습니다.', quantOpsRuntimeSummary(payload.runtime_apply), 'quant-ops');
       }
     } catch {
-      push('error', '런타임 반영 요청에 실패했습니다.', undefined, 'quant-ops');
+      push('error', '자동매매 엔진 반영 요청에 실패했습니다.', undefined, 'quant-ops');
     } finally {
       setQuantOpsBusyAction(null);
       loadQuantOpsWorkflow().catch(() => undefined);
@@ -1101,7 +1101,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
               <div>
                 <div style={{ fontSize: 17, fontWeight: 700 }}>운영 반영 워크플로우</div>
                 <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>
-                  검증 랩 결과를 최신 후보 → 저장 후보 → 런타임 반영 순서로 넘겨야 실제 엔진에 반영됩니다.
+                  검증 랩 결과를 최신 후보 → 저장 후보 → 자동매매 엔진 반영 순서로 넘겨야 자동매매 엔진에 반영됩니다.
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1122,7 +1122,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   disabled={quantOpsBusyAction !== null || !savedCandidate || savedCandidate?.guardrails?.can_apply === false}
                   title={!savedCandidate ? '저장 후보가 없어서 반영할 수 없습니다.' : savedCandidate?.guardrails?.can_apply === false ? (savedCandidate.guardrails?.reasons || []).join(', ') : ''}
                 >
-                  {quantOpsBusyAction === 'apply' ? '반영 중...' : '저장 후보 런타임 반영'}
+                  {quantOpsBusyAction === 'apply' ? '반영 중...' : '저장 후보 자동매매 엔진 반영'}
                 </button>
               </div>
             </div>
@@ -1144,7 +1144,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>{quantOpsStateLabel(savedCandidateState)}</div>
               </div>
               <div>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>Runtime 반영</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>자동매매 엔진 반영</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{runtimeApply?.candidate_id || '-'}</div>
                 <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>{quantOpsRuntimeSummary(runtimeApply)}</div>
               </div>
@@ -1162,7 +1162,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                 <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{savedCandidateState?.reasons?.length ? savedCandidateState.reasons.join(', ') : savedCandidate?.save_note || '-'}</div>
               </div>
               <div style={{ padding: 12, background: 'var(--bg-soft)', borderRadius: 8, display: 'grid', gap: 6 }}>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>런타임 반영</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>자동매매 엔진 반영</div>
                 <div style={{ fontWeight: 700 }}>{quantOpsRuntimeSummary(runtimeApply)}</div>
                 <div style={{ fontSize: 15, color: 'var(--text-4)' }}>
                   반영 시각 {formatDateTime(runtimeApply?.applied_at || '') || '-'} · 다음 실행 {formatDateTime(runtimeApply?.next_run_at || '') || '-'}

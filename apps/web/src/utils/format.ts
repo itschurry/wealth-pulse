@@ -158,8 +158,8 @@ export function explainOrderFailureReason(reason: string | null | undefined): st
   const reasonGuide: Record<string, string> = {
     quote_stale: '시세가 오래돼 주문을 막았습니다. 가격 갱신 후 자동 재시도합니다.',
     liquidity_guard_blocked: '유동성 가드에서 주문을 막았습니다. 유동성/스프레드 조건이 완화되어야 합니다.',
-    BUY_FAILED: '매수 주문 처리 중 브로커/엔진 단계 오류입니다. 잔액/유동성/호가를 다시 확인하세요.',
-    SELL_FAILED: '매도 주문 처리 중 브로커/엔진 단계 오류입니다. 잔액/호가/포지션 상태를 다시 확인하세요.',
+    BUY_FAILED: '매수 주문 처리 중 브로커/자동매매 엔진 단계 오류입니다. 잔액/유동성/호가를 다시 확인하세요.',
+    SELL_FAILED: '매도 주문 처리 중 브로커/자동매매 엔진 단계 오류입니다. 잔액/호가/포지션 상태를 다시 확인하세요.',
     insufficient_cash: '현금이 부족해 주문 수량이 부족합니다. 진입 수량을 낮추거나 현금 기반 한도를 확인하세요.',
     account_unavailable: '계좌 스냅샷이 비어 있어 주문 경로 추적이 제한됩니다. 계좌 조회를 새로고침하세요.',
     liquidity_unknown: '유동성 정보가 없어 주문이 보류되었습니다. 시장 데이터 수신 시 재평가가 필요합니다.',

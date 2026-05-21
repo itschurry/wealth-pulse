@@ -165,7 +165,7 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
     <div className="content-shell workspace-grid">
       <ConsoleActionBar
         title="Agent 자동거래 관제"
-        subtitle="Hermes 판단, Risk Gate, Executor 기록을 런타임 모드와 분리해서 관제합니다."
+        subtitle="Hermes 판단, Risk Gate, Executor 기록을 자동매매 엔진 모드와 분리해서 관제합니다."
         lastUpdated={state.updatedAt}
         loading={combinedLoading}
         errorMessage={visibleError}
@@ -222,7 +222,7 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
             <div className="workspace-summary-title">KIS Broker</div>
             <div className="workspace-summary-copy">API 키 {broker?.configured ? '설정됨' : '미설정'} · 계좌 {broker?.account_configured ? '설정됨' : '미설정'}</div>
             <div className="workspace-summary-copy">Base URL {broker?.base_url || '-'}</div>
-            <div className="workspace-summary-copy">주문 실행은 Runtime 엔진에서 결정</div>
+            <div className="workspace-summary-copy">주문 실행은 자동매매 엔진에서 결정</div>
           </div>
         </div>
       </section>

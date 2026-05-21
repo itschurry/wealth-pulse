@@ -106,7 +106,7 @@ function engineStateLabel(raw: string | undefined, running: boolean): string {
 }
 
 function runtimeModeLabel(mode: 'paper' | 'live'): string {
-  return mode === 'live' ? '실거래' : '모의투자';
+  return mode === 'live' ? '실계좌' : '모의계좌';
 }
 
 function resolveRuntimeMode(accountMode: unknown, executionMode: unknown): 'paper' | 'live' {
@@ -643,7 +643,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       return {
         tone: 'neutral' as const,
         title: '아직 판별 로그 없음',
-        detail: '리스크/액션 로그가 쌓이지 않았습니다. 엔진을 1회 실행하고 시계열을 갱신하세요.',
+        detail: '리스크/액션 로그가 쌓이지 않았습니다. 자동매매 엔진을 1회 실행하고 시계열을 갱신하세요.',
         steps: [
           '2단계 신호 수집 → 4단계 리스크 판단 → 5단계 최종 액션',
           '모든 단계가 비어 있으면 이번 사이클이 생성되지 않은 상태입니다.',
@@ -677,7 +677,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       title: '리스크/액션 경로는 주문 허용 상태',
       detail: '최근 후보가 진입 검토 또는 허용 상태이면 주문 이벤트가 만들어져야 해.',
       steps: [
-        '최근 주문 실패가 계속 난다면 엔진 실행 중단/브로커 에러/잔고 상태를 점검하세요.',
+        '최근 주문 실패가 계속 난다면 자동매매 엔진 실행 중단/브로커 에러/잔고 상태를 점검하세요.',
         '워크플로우 단계에서 주문 준비 → 주문 전송으로 넘어가는지 확인하세요.',
       ],
     };
@@ -787,7 +787,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       tone: runtimeMode === 'live' ? 'bad' : 'neutral',
     },
     {
-      label: '엔진 상태',
+      label: '자동매매 엔진 상태',
       value: engineStateLabel(engineState.engine_state, engineState.running),
       tone: engineState.engine_state === 'error' ? 'bad' : engineState.running ? 'good' : 'neutral',
     },
@@ -820,7 +820,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
     pushToast({
       tone: 'info',
       title: `${runtimeLabel} 화면을 새로고침했습니다.`,
-      description: '계좌, 엔진 상태, 런타임 로그를 다시 불러왔습니다.',
+      description: '계좌, 자동매매 엔진 상태, 실행 로그를 다시 불러왔습니다.',
     });
   }, [onRefresh, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, runtimeLabel, runtimeLogSource]);
 
@@ -831,18 +831,18 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       if (engineState.running || engineState.engine_state === 'paused') {
         const result = await stopEngine();
         if (!result.ok) {
-          push('error', `${runtimeLabel} 엔진 중지에 실패했습니다.`, result.error || '', runtimeLogSource);
+          push('error', `${runtimeLabel} 자동매매 엔진 중지에 실패했습니다.`, result.error || '', runtimeLogSource);
           pushToast({
             tone: 'error',
-            title: '엔진 중지 실패',
-            description: result.error || '엔진 상태와 서버 로그를 확인해 주세요.',
+            title: '자동매매 엔진 중지 실패',
+            description: result.error || '자동매매 엔진 상태와 서버 로그를 확인해 주세요.',
           });
           return;
         }
-        push('success', `${runtimeLabel} 엔진을 중지했습니다.`, undefined, runtimeLogSource);
+        push('success', `${runtimeLabel} 자동매매 엔진을 중지했습니다.`, undefined, runtimeLogSource);
         pushToast({
           tone: 'success',
-          title: '엔진 중지 완료',
+          title: '자동매매 엔진 중지 완료',
           description: '신규 평가와 자동 실행이 멈췄습니다.',
         });
       } else {
@@ -854,7 +854,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
           pushToast({
             tone: 'warning',
             title: '시장 선택 필요',
-            description: 'KOSPI 또는 NASDAQ을 최소 1개 선택해야 엔진을 시작할 수 있습니다.',
+            description: 'KOSPI 또는 NASDAQ을 최소 1개 선택해야 자동매매 엔진을 시작할 수 있습니다.',
           });
           return;
         }
@@ -873,18 +873,18 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
           },
         });
         if (!result.ok) {
-          push('error', `${runtimeLabel} 엔진 시작에 실패했습니다.`, result.error || '', runtimeLogSource);
+          push('error', `${runtimeLabel} 자동매매 엔진 시작에 실패했습니다.`, result.error || '', runtimeLogSource);
           pushToast({
             tone: 'error',
-            title: '엔진 시작 실패',
+            title: '자동매매 엔진 시작 실패',
             description: result.error || '설정값과 백엔드 상태를 확인해 주세요.',
           });
           return;
         }
-        push('success', `${runtimeLabel} 엔진을 시작했습니다.`, `시장: ${markets.join(', ')}`, runtimeLogSource);
+        push('success', `${runtimeLabel} 자동매매 엔진을 시작했습니다.`, `시장: ${markets.join(', ')}`, runtimeLogSource);
         pushToast({
           tone: 'success',
-          title: '엔진 시작 완료',
+          title: '자동매매 엔진 시작 완료',
           description: `시장 ${markets.join(', ')} 기준으로 자동 실행을 시작했습니다.`,
         });
       }
@@ -918,19 +918,19 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
     const result = await pauseEngine();
     try {
       if (!result.ok) {
-        push('error', `${runtimeLabel} 엔진 일시정지에 실패했습니다.`, result.error || '', runtimeLogSource);
+        push('error', `${runtimeLabel} 자동매매 엔진 일시정지에 실패했습니다.`, result.error || '', runtimeLogSource);
         pushToast({
           tone: 'error',
-          title: '엔진 일시정지 실패',
-          description: result.error || '현재 엔진 상태를 다시 확인해 주세요.',
+          title: '자동매매 엔진 일시정지 실패',
+          description: result.error || '현재 자동매매 엔진 상태를 다시 확인해 주세요.',
         });
         return;
       }
       await Promise.all([refreshEngineStatus(), refreshRuntimeLogs()]);
-      push('success', `${runtimeLabel} 엔진을 일시정지했습니다.`, undefined, runtimeLogSource);
+      push('success', `${runtimeLabel} 자동매매 엔진을 일시정지했습니다.`, undefined, runtimeLogSource);
       pushToast({
         tone: 'success',
-        title: '엔진 일시정지',
+        title: '자동매매 엔진 일시정지',
         description: '현재 포지션은 유지되고 신규 자동 실행만 멈춥니다.',
       });
     } finally {
@@ -944,19 +944,19 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
     const result = await resumeEngine();
     try {
       if (!result.ok) {
-        push('error', `${runtimeLabel} 엔진 재개에 실패했습니다.`, result.error || '', runtimeLogSource);
+        push('error', `${runtimeLabel} 자동매매 엔진 재개에 실패했습니다.`, result.error || '', runtimeLogSource);
         pushToast({
           tone: 'error',
-          title: '엔진 재개 실패',
-          description: result.error || '엔진 상태와 시장 선택을 다시 확인해 주세요.',
+          title: '자동매매 엔진 재개 실패',
+          description: result.error || '자동매매 엔진 상태와 시장 선택을 다시 확인해 주세요.',
         });
         return;
       }
       await Promise.all([refreshEngineStatus(), refreshRuntimeLogs()]);
-      push('success', `${runtimeLabel} 엔진을 재개했습니다.`, undefined, runtimeLogSource);
+      push('success', `${runtimeLabel} 자동매매 엔진을 재개했습니다.`, undefined, runtimeLogSource);
       pushToast({
         tone: 'success',
-        title: '엔진 재개 완료',
+        title: '자동매매 엔진 재개 완료',
         description: '자동 실행 루프를 다시 시작했습니다.',
       });
     } finally {
@@ -977,7 +977,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
         pushToast({
           tone: 'error',
           title: `${runtimeLabel} 초기화 실패`,
-          description: result.error || '초기 자금과 엔진 상태를 다시 확인해 주세요.',
+          description: result.error || '초기 자금과 자동매매 엔진 상태를 다시 확인해 주세요.',
         });
         return;
       }
@@ -1018,13 +1018,13 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       push(
         'success',
         '실행 로그를 정리했습니다.',
-        `삭제 건수: 주문 ${result.clear_count?.order_events || 0}건, Signal ${result.clear_count?.signal_snapshots || 0}건, 계좌 ${result.clear_count?.account_snapshots || 0}건, 엔진 ${result.clear_count?.engine_cycles || 0}건`,
+        `삭제 건수: 주문 ${result.clear_count?.order_events || 0}건, Signal ${result.clear_count?.signal_snapshots || 0}건, 계좌 ${result.clear_count?.account_snapshots || 0}건, 자동매매 엔진 ${result.clear_count?.engine_cycles || 0}건`,
         runtimeLogSource,
       );
       pushToast({
         tone: 'success',
         title: '최근 로그 정리 완료',
-        description: `주문/엔진/계좌/리스크 로그가 초기화되어 화면 목록이 초기화됩니다.`,
+        description: `주문/자동매매 엔진/계좌/리스크 로그가 초기화되어 화면 목록이 초기화됩니다.`,
       });
     } finally {
       setPendingAction(null);
@@ -1056,7 +1056,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       push(
         'success',
         '로그와 계좌 상태를 완전히 정리했습니다.',
-        `삭제 건수: 주문 ${result.clear_count?.order_events || 0}건, Signal ${result.clear_count?.signal_snapshots || 0}건, 계좌 ${result.clear_count?.account_snapshots || 0}건, 엔진 ${result.clear_count?.engine_cycles || 0}건`,
+        `삭제 건수: 주문 ${result.clear_count?.order_events || 0}건, Signal ${result.clear_count?.signal_snapshots || 0}건, 계좌 ${result.clear_count?.account_snapshots || 0}건, 자동매매 엔진 ${result.clear_count?.engine_cycles || 0}건`,
         runtimeLogSource,
       );
       pushToast({
@@ -1207,10 +1207,10 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
           const savedAt = saveSettings(settings);
           setSavedSettings(settings);
           setSettingsSavedAt(savedAt);
-          push('success', '모의투자 설정을 저장했습니다.', undefined, 'paper');
+          push('success', '모의계좌 설정을 저장했습니다.', undefined, 'paper');
           pushToast({
             tone: 'success',
-            title: '모의투자 설정 저장 완료',
+            title: '모의계좌 설정 저장 완료',
             description: '저장 필요 배지가 사라지고 최신 설정이 기준값으로 반영되었습니다.',
           });
           setSettingsSaving(false);
@@ -1336,7 +1336,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
             settingsSavedAt={settingsSavedAt}
             actions={[
               {
-                label: '엔진 시작',
+                label: '자동매매 엔진 시작',
                 onClick: () => { if (!engineState.running) { void handleStartStop(); } },
                 tone: 'primary',
                 disabled: engineState.running,
@@ -1362,7 +1362,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 busyLabel: '재개 중...',
               },
               {
-                label: '엔진 중지',
+                label: '자동매매 엔진 중지',
                 onClick: () => { if (engineState.running || engineState.engine_state === 'paused') { void handleStartStop(); } },
                 tone: 'danger',
                 disabled: !(engineState.running || engineState.engine_state === 'paused'),
@@ -1383,34 +1383,34 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 busy: pendingAction === 'history-clear',
                 busyLabel: '삭제 중...',
                 confirmTitle: '실행 로그를 삭제할까요?',
-                confirmMessage: '최근 체결 내역/리스크-액션 로그/엔진 로그를 제거합니다.',
+                confirmMessage: '최근 체결 내역/리스크-액션 로그/자동매매 엔진 로그를 제거합니다.',
                 confirmDetails: [
-                  '삭제 대상: 주문 이벤트, 신호 스냅샷, 계좌 스냅샷, 엔진 사이클 로그',
-                  '삭제 대상: 최근 체결 내역, 엔진 사이클, 리스크/액션 표시 데이터',
+                  '삭제 대상: 주문 이벤트, 신호 스냅샷, 계좌 스냅샷, 자동매매 엔진 사이클 로그',
+                  '삭제 대상: 최근 체결 내역, 자동매매 엔진 사이클, 리스크/액션 표시 데이터',
                   '이 작업은 되돌릴 수 없습니다.',
                 ],
               },
               {
-                label: runtimeMode === 'live' ? '실거래 초기화 불가' : '모의투자 초기화',
+                label: runtimeMode === 'live' ? '실계좌 초기화 불가' : '모의계좌 초기화',
                 onClick: () => { void handleReset(); },
                 tone: 'danger',
                 disabled: runtimeMode === 'live',
                 busy: pendingAction === 'reset',
                 busyLabel: '초기화 중...',
-                confirmTitle: runtimeMode === 'live' ? '실거래 계좌는 초기화할 수 없습니다' : UI_TEXT.confirm.resetRuntimeTitle,
-                confirmMessage: runtimeMode === 'live' ? '실거래 계좌 상태는 증권사 원장 기준이라 화면에서 reset하지 않습니다.' : UI_TEXT.confirm.resetRuntimeMessage,
+                confirmTitle: runtimeMode === 'live' ? '실계좌는 초기화할 수 없습니다' : UI_TEXT.confirm.resetRuntimeTitle,
+                confirmMessage: runtimeMode === 'live' ? '실계좌 상태는 증권사 원장 기준이라 화면에서 reset하지 않습니다.' : UI_TEXT.confirm.resetRuntimeMessage,
                 confirmDetails: ['계좌, 포지션, 주문/사이클 기준 데이터가 새 초기 자금으로 다시 설정됩니다.', '이 작업은 되돌릴 수 없습니다.'],
               },
               {
-                label: '계좌/엔진 히스토리 완전 정리',
+                label: '계좌/자동매매 엔진 히스토리 완전 정리',
                 onClick: () => { void handleClearRuntimeHistoryAndReset(); },
                 tone: 'danger',
                 busy: pendingAction === 'history-reset',
                 busyLabel: '완전 정리 중...',
                 confirmTitle: '로그/히스토리를 완전히 정리할까요?',
-                confirmMessage: '로그, 계좌 스냅샷, 엔진 실행 이력까지 초기 상태로 되돌립니다.',
+                confirmMessage: '로그, 계좌 스냅샷, 자동매매 엔진 실행 이력까지 초기 상태로 되돌립니다.',
                 confirmDetails: [
-                  '삭제 대상: 주문 이벤트, 신호 스냅샷, 계좌 스냅샷, 엔진 사이클 로그',
+                  '삭제 대상: 주문 이벤트, 신호 스냅샷, 계좌 스냅샷, 자동매매 엔진 사이클 로그',
                   '계좌/포지션/현금은 화면 설정의 초기 자금 기준으로 초기화됩니다.',
                   '이 작업은 되돌릴 수 없습니다.',
                 ],
@@ -1430,7 +1430,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
               <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-positions-section')}>보유 포지션으로</button>
               <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-workflow-section')}>실행 워크플로우로</button>
               <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-risk-action-section')}>리스크/액션 로그로</button>
-              <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-engine-panel-section')}>엔진 상태로</button>
+              <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-engine-panel-section')}>자동매매 엔진 상태로</button>
             </div>
             {repeatedCashRetries.length > 0 && (
               <div className="inline-warning-card" style={{ marginTop: 12 }}>
@@ -1455,7 +1455,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 <div className="summary-metric-detail">매수 체결 / 매도 체결 / 실패 주문</div>
               </div>
               <div className={`summary-metric-card ${trustTone === 'good' ? 'is-good' : trustTone === 'bad' ? 'is-bad' : ''}`}>
-                <div className="summary-metric-label">엔진 신뢰도</div>
+                <div className="summary-metric-label">자동매매 엔진 신뢰도</div>
                 <div className="summary-metric-value">{trustState} ({trustScore})</div>
                 <div className="summary-metric-detail">최근 오류 {engineState.last_error ? '있음' : '없음'} · 검증 게이트 {engineState.validation_policy?.validation_gate_enabled ? '활성' : '비활성'}</div>
               </div>
@@ -1732,7 +1732,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
 
           <div className="runtime-ops-summary-grid">
             <div id="runtime-engine-panel-section" className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>엔진 상태 패널</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>자동매매 엔진 상태 패널</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
                 <div>상태: {engineStateLabel(engineState.engine_state, engineState.running)}</div>
                 <div>상태 사유: {engineState.last_error ? '최근 오류 발생' : (engineState.running ? '정상 실행 중' : engineState.engine_state === 'paused' ? '일시정지' : '대기 중')}</div>
@@ -1821,7 +1821,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
             </div>
 
             <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 엔진 이벤트 로그</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 자동매매 엔진 이벤트 로그</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                 {Object.entries(skipReasonCounts).slice(0, 6).map(([reason, count]) => (
                   <div key={reason} style={{ fontSize: 15, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
@@ -1989,7 +1989,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   </article>
                 );
               })}
-              {visibleWorkflowItems.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>아직 워크플로우 이벤트가 없다. 엔진을 한 번 돌리면 탐색부터 주문까지 누적된다.</div>}
+              {visibleWorkflowItems.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>아직 워크플로우 이벤트가 없다. 자동매매 엔진을 한 번 돌리면 탐색부터 주문까지 누적된다.</div>}
             </div>
           </div>
 
@@ -2066,7 +2066,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   {signalRiskActionLogs.length === 0 && (
                     <tr>
                       <td colSpan={8} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>
-                        아직 기록된 신호 스냅샷이 없습니다. 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.
+                        아직 기록된 신호 스냅샷이 없습니다. 자동매매 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.
                       </td>
                     </tr>
                   )}
@@ -2095,7 +2095,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   </div>
                 </article>
               ))}
-              {signalRiskActionLogs.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>아직 기록된 신호 스냅샷이 없습니다. 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.</div>}
+              {signalRiskActionLogs.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>아직 기록된 신호 스냅샷이 없습니다. 자동매매 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.</div>}
             </div>
           </div>
 

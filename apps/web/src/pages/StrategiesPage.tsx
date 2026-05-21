@@ -244,7 +244,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
         <div className="content-shell console-page-shell strategies-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="전략 프리셋"
-            subtitle="실시간 엔진은 승인된 전략 레지스트리만 읽습니다. 승인 상태, 활성화 상태, 유니버스 규칙, 스캔 주기를 여기서 분리해서 관리합니다."
+            subtitle="자동매매 엔진은 승인된 전략 레지스트리만 읽습니다. 승인 상태, 활성화 상태, 유니버스 규칙, 스캔 주기를 여기서 분리해서 관리합니다."
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
