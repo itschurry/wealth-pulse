@@ -87,6 +87,97 @@ npm run dev
 - API: `http://localhost:8001`
 - Health: `http://localhost:8001/health`
 
+## 코드 수정 후 운영 반영
+
+코드 수정 후에는 로컬 실행 상태를 믿지 말고 Docker 이미지와 컨테이너를 새로 만든다.
+
+1. 변경 확인
+
+```bash
+cd ~/wealth-pulse
+git status --short
+git diff --check
+```
+
+2. 빠른 빌드 검증
+
+```bash
+python -m compileall -q apps/api
+cd apps/web && npm run build && cd ../..
+```
+
+3. Docker 재빌드
+
+```bash
+docker compose build api web
+```
+
+4. 컨테이너 재배포
+
+```bash
+docker compose up -d --force-recreate api web
+```
+
+5. 반영 확인
+
+```bash
+docker compose ps
+curl -fsS http://127.0.0.1:8001/health
+curl -fsS http://127.0.0.1:8081 >/dev/null
+
+docker inspect -f '{{.Image}} {{.Config.Image}}' wealth-pulse-api-1
+docker inspect -f '{{.Image}} {{.Config.Image}}' wealth-pulse-web-1
+```
+
+6. 자동매매 엔진 시작
+
+현재 설정을 그대로 사용해서 엔진을 시작한다. `current_config`가 없으면 시작하지 말고 설정부터 고친다.
+
+```bash
+python3 - <<'PY'
+import json
+import urllib.request
+
+base = 'http://127.0.0.1:8001'
+
+def get(path):
+    return json.load(urllib.request.urlopen(base + path))
+
+def post(path, payload):
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        base + path,
+        data=body,
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    return json.load(urllib.request.urlopen(req))
+
+status = get('/api/runtime/engine/status')
+state = status.get('data', status).get('state') or {}
+config = state.get('current_config')
+if not config:
+    raise SystemExit('current_config 없음. 엔진 설정 먼저 확인해.')
+
+started = post('/api/runtime/engine/start', config)
+started_state = started.get('data', started).get('state') or {}
+print(json.dumps({
+    'engine_state': started_state.get('engine_state'),
+    'running': started_state.get('running'),
+    'execution_mode': started_state.get('execution_mode'),
+    'started_at': started_state.get('started_at'),
+    'next_run_at': started_state.get('next_run_at'),
+    'last_error': started_state.get('last_error'),
+}, ensure_ascii=False, indent=2))
+PY
+```
+
+7. 엔진 상태 최종 확인
+
+```bash
+curl -fsS http://127.0.0.1:8001/api/runtime/engine/status
+```
+
 ## 운영 흐름
 
 1. Candidate Monitor가 후보를 만들고 우량주 여부를 붙인다.
