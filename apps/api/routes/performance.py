@@ -57,6 +57,27 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
+def _position_cost_krw(position: dict[str, Any]) -> float:
+    quantity = _safe_float(position.get("quantity"))
+    if quantity <= 0:
+        return 0.0
+    unit_cost = _safe_float(position.get("avg_price_krw"))
+    if unit_cost <= 0 and str(position.get("currency") or "").upper() != "USD":
+        unit_cost = _safe_float(position.get("avg_price_local"))
+    return unit_cost * quantity
+
+
+def _position_cost_local(position: dict[str, Any]) -> float:
+    quantity = _safe_float(position.get("quantity"))
+    if quantity <= 0:
+        return 0.0
+    return _safe_float(position.get("avg_price_local")) * quantity
+
+
+def _return_pct(pnl: float, cost: float) -> float | None:
+    return (pnl / cost) * 100 if cost > 0 else None
+
+
 def _baseline_account_key(account: dict[str, Any]) -> str:
     mode = str(account.get("mode") or "unknown").strip().lower()
     product = str(account.get("account_product_code") or "").strip()
@@ -249,27 +270,23 @@ def handle_performance_summary() -> tuple[int, dict]:
             positions = [item for item in positions_raw.values() if isinstance(item, dict)]
         else:
             positions = [item for item in positions_raw if isinstance(item, dict)]
+        krw_positions = [p for p in positions if str(p.get("currency") or "").upper() != "USD"]
+        usd_positions = [p for p in positions if str(p.get("currency") or "").upper() == "USD"]
         unrealized_pnl = sum(_safe_float(p.get("unrealized_pnl_krw")) for p in positions)
-        unrealized_pnl_usd = sum(
-            _safe_float(p.get("unrealized_pnl_local"))
-            for p in positions
-            if str(p.get("currency") or "").upper() == "USD"
-        )
-        kospi_market_value_krw = sum(
-            _safe_float(p.get("market_value_krw"))
-            for p in positions
-            if str(p.get("currency") or "").upper() != "USD"
-        )
-        us_market_value_usd = sum(
-            _safe_float(p.get("market_value_usd"))
-            for p in positions
-            if str(p.get("currency") or "").upper() == "USD"
-        )
-        us_market_value_krw = sum(
-            _safe_float(p.get("market_value_krw"))
-            for p in positions
-            if str(p.get("currency") or "").upper() == "USD"
-        )
+        unrealized_pnl_krw_only = sum(_safe_float(p.get("unrealized_pnl_krw")) for p in krw_positions)
+        unrealized_pnl_usd = sum(_safe_float(p.get("unrealized_pnl_local")) for p in usd_positions)
+        kospi_market_value_krw = sum(_safe_float(p.get("market_value_krw")) for p in krw_positions)
+        us_market_value_usd = sum(_safe_float(p.get("market_value_usd")) for p in usd_positions)
+        us_market_value_krw = sum(_safe_float(p.get("market_value_krw")) for p in usd_positions)
+        position_cost_krw_only = sum(_position_cost_krw(p) for p in krw_positions)
+        position_cost_usd = sum(_position_cost_local(p) for p in usd_positions)
+        position_cost_usd_krw = sum(_position_cost_krw(p) for p in usd_positions)
+        position_cost_krw = position_cost_krw_only + position_cost_usd_krw
+        position_market_value_krw = kospi_market_value_krw + us_market_value_krw
+        position_unrealized_pnl_krw = unrealized_pnl
+        position_return_pct = _return_pct(position_unrealized_pnl_krw, position_cost_krw)
+        position_return_pct_krw = _return_pct(unrealized_pnl_krw_only, position_cost_krw_only)
+        position_return_pct_usd = _return_pct(unrealized_pnl_usd, position_cost_usd)
 
         live_baseline = _resolve_live_performance_baseline(
             account,
@@ -322,10 +339,24 @@ def handle_performance_summary() -> tuple[int, dict]:
             "equity_krw": equity_krw,
             "starting_equity_krw": starting_equity_krw,
             "fx_rate": fx_rate,
-            "market_value_krw": kospi_market_value_krw + us_market_value_krw,
+            "market_value_krw": position_market_value_krw,
             "market_value_usd": us_market_value_usd,
             "market_value_krw_only": kospi_market_value_krw,
             "market_value_usd_krw": us_market_value_krw,
+            "position_cost_krw": position_cost_krw,
+            "position_market_value_krw": position_market_value_krw,
+            "position_unrealized_pnl_krw": position_unrealized_pnl_krw,
+            "position_return_pct": position_return_pct,
+            "position_cost_krw_only": position_cost_krw_only,
+            "position_market_value_krw_only": kospi_market_value_krw,
+            "position_unrealized_pnl_krw_only": unrealized_pnl_krw_only,
+            "position_return_pct_krw": position_return_pct_krw,
+            "position_cost_usd": position_cost_usd,
+            "position_cost_usd_krw": position_cost_usd_krw,
+            "position_market_value_usd": us_market_value_usd,
+            "position_market_value_usd_krw": us_market_value_krw,
+            "position_unrealized_pnl_usd": unrealized_pnl_usd,
+            "position_return_pct_usd": position_return_pct_usd,
             "avg_notional_krw": avg_notional,
             "positions": len(positions),
             "order_history": order_history,

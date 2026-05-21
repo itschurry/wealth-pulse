@@ -136,6 +136,9 @@ export interface RuntimeViewModel {
   unrealizedPnlKrw: number;
   realizedPnlKrw: number;
   positionCount: number;
+  positionCostKrw: number;
+  positionMarketValueKrw: number;
+  positionReturnPct: number | null;
 }
 
 export interface BacktestViewModel {

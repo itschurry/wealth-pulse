@@ -144,6 +144,16 @@ function formatLocalPriceWithKrw(localValue: number | null | undefined, krwValue
   return formatLocalAmountWithKRW(localValue, krwValue, marketCurrency(market));
 }
 
+function positionCostKrw(position: { quantity?: unknown; avg_price_krw?: unknown; avg_price_local?: unknown; currency?: unknown }): number {
+  const quantity = toNumber(position.quantity);
+  if (quantity <= 0) return 0;
+  let unitCost = toNumber(position.avg_price_krw);
+  if (unitCost <= 0 && String(position.currency || '').toUpperCase() !== 'USD') {
+    unitCost = toNumber(position.avg_price_local);
+  }
+  return unitCost * quantity;
+}
+
 function normalizePortfolioMarket(value: unknown): 'KOSPI' | 'NASDAQ' {
   return marketCurrency(value) === 'USD' ? 'NASDAQ' : 'KOSPI';
 }
@@ -740,6 +750,8 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
 
   const vm = useMemo<RuntimeViewModel>(() => {
     const unrealized = positions.reduce((sum, item) => sum + toNumber(item.unrealized_pnl_krw), 0);
+    const positionCost = positions.reduce((sum, item) => sum + positionCostKrw(item), 0);
+    const positionMarketValue = positions.reduce((sum, item) => sum + toNumber(item.market_value_krw), 0);
     return {
       totalEquityKrw: toNumber(account.equity_krw),
       cashKrw: toNumber(account.cash_krw),
@@ -747,6 +759,9 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       unrealizedPnlKrw: unrealized,
       realizedPnlKrw: toNumber(account.realized_pnl_krw),
       positionCount: positions.length,
+      positionCostKrw: positionCost,
+      positionMarketValueKrw: positionMarketValue,
+      positionReturnPct: positionCost > 0 ? (unrealized / positionCost) * 100 : null,
     };
   }, [account.cash_krw, account.cash_usd, account.equity_krw, account.realized_pnl_krw, positions]);
 
@@ -1454,6 +1469,11 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 <div className="summary-metric-value">{todayBuyCount} / {todaySellCount} / {todayFailCount}</div>
                 <div className="summary-metric-detail">매수 체결 / 매도 체결 / 실패 주문</div>
               </div>
+              <div className={`summary-metric-card ${vm.positionReturnPct == null ? '' : vm.positionReturnPct >= 0 ? 'is-good' : 'is-bad'}`}>
+                <div className="summary-metric-label">보유 종목 총 수익률</div>
+                <div className="summary-metric-value">{vm.positionReturnPct != null ? formatPercent(vm.positionReturnPct, 2) : '-'}</div>
+                <div className="summary-metric-detail">투자금 {formatKRW(vm.positionCostKrw, true)} → 평가 {formatKRW(vm.positionMarketValueKrw, true)}</div>
+              </div>
               <div className={`summary-metric-card ${trustTone === 'good' ? 'is-good' : trustTone === 'bad' ? 'is-bad' : ''}`}>
                 <div className="summary-metric-label">자동매매 엔진 신뢰도</div>
                 <div className="summary-metric-value">{trustState} ({trustScore})</div>
@@ -1496,6 +1516,8 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 <div>총자산(원화환산): {formatKRW(vm.totalEquityKrw, true)}</div>
                 <div>원화 현금: {formatKRW(vm.cashKrw, true)}</div>
                 <div>달러 현금: {formatUSD(vm.cashUsd, true)}</div>
+                <div>보유 투자금 / 평가금액: {formatKRW(vm.positionCostKrw, true)} / {formatKRW(vm.positionMarketValueKrw, true)}</div>
+                <div>보유 종목 총 수익률: {vm.positionReturnPct != null ? formatPercent(vm.positionReturnPct, 2) : '-'}</div>
                 <div>평가손익 / 실현손익: {formatKRW(vm.unrealizedPnlKrw, true)} / {formatKRW(vm.realizedPnlKrw, true)}</div>
               </div>
             </div>

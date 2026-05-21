@@ -640,6 +640,20 @@ export interface PerformanceSummaryResponse {
     market_value_usd?: number;
     market_value_krw_only?: number;
     market_value_usd_krw?: number;
+    position_cost_krw?: number;
+    position_market_value_krw?: number;
+    position_unrealized_pnl_krw?: number;
+    position_return_pct?: number | null;
+    position_cost_krw_only?: number;
+    position_market_value_krw_only?: number;
+    position_unrealized_pnl_krw_only?: number;
+    position_return_pct_krw?: number | null;
+    position_cost_usd?: number;
+    position_cost_usd_krw?: number;
+    position_market_value_usd?: number;
+    position_market_value_usd_krw?: number;
+    position_unrealized_pnl_usd?: number;
+    position_return_pct_usd?: number | null;
     avg_notional_krw?: number;
     positions?: number;
     order_history?: Array<{

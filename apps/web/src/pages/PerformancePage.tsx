@@ -3,7 +3,7 @@ import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import type { PerformanceSummaryResponse } from '../types/domain';
 import type { ConsoleSnapshot } from '../types/consoleView';
-import { formatDateTime, formatKRW, formatLocalAmountWithKRW, formatNumber, formatPercent, formatSymbol, formatUSD, formatUSDWithKRW } from '../utils/format';
+import { formatDateTime, formatKRW, formatLocalAmountWithKRW, formatNumber, formatPercent, formatSymbol, formatUSDWithKRW } from '../utils/format';
 
 interface PerformancePageProps {
   snapshot: ConsoleSnapshot;
@@ -48,6 +48,9 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
   const [marketView, setMarketView] = useState<MarketView>('ALL');
 
   const totalReturn = live.total_return_pct;
+  const positionReturn = live.position_return_pct;
+  const krwPositionReturn = live.position_return_pct_krw;
+  const usdPositionReturn = live.position_return_pct_usd;
   const returnTone = totalReturn == null
     ? 'neutral' as const
     : totalReturn >= 0 ? 'good' as const : 'bad' as const;
@@ -72,7 +75,8 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
     { label: '오늘 거절', value: `${live.today_reject_count ?? 0}건`, tone: (live.today_reject_count ?? 0) > 0 ? 'bad' as const : 'neutral' as const },
     { label: '사전 차단', value: `${live.today_screened_block_count ?? 0}건`, tone: 'neutral' as const },
     { label: '통합 수익률', value: totalReturn != null ? formatPercent(totalReturn, 2) : '-', tone: returnTone },
-  ]), [live, returnTone, totalReturn]);
+    { label: '보유 총 수익률', value: positionReturn != null ? formatPercent(positionReturn, 2) : '-', tone: positionReturn == null ? 'neutral' as const : positionReturn >= 0 ? 'good' as const : 'bad' as const },
+  ]), [live, positionReturn, returnTone, totalReturn]);
 
   const handleRefresh = useCallback(() => {
     onRefresh();
@@ -120,7 +124,15 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{totalReturn != null ? formatPercent(totalReturn, 2) : '-'}</div>
               </div>
               <div>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>누적 주문 / 체결</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 종목 총 수익률</div>
+                <div style={{ marginTop: 6, fontWeight: 700 }}>{positionReturn != null ? formatPercent(positionReturn, 2) : '-'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 투자금 / 평가금액</div>
+                <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.position_cost_krw, true)} / {formatKRW(live.position_market_value_krw, true)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>누적 주문 / 체결확정</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{live.total_order_count ?? 0}건 / {live.total_filled_count ?? 0}건</div>
               </div>
             </div>
@@ -130,29 +142,29 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
             <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">원화 계정 성과</div>
-                  <div className="section-copy">한국장 기준 현금/평가금액/실현 손익을 따로 봐. 지금처럼 KRW와 USD를 같이 쓰는 계좌면 이 구분이 훨씬 덜 헷갈려.</div>
+                  <div className="section-title">원화 보유 종목 성과</div>
+                  <div className="section-copy">한국장 보유 종목만 봐. 현금은 빼고 매입 투자금, 보유 평가금, 평가손익, 수익률만 보여줘.</div>
                 </div>
                 <div className="section-toolbar">
-                  <span className="inline-badge">초기 {formatKRW(live.initial_cash_krw, true)}</span>
+                  <span className={`inline-badge ${krwPositionReturn != null && krwPositionReturn >= 0 ? 'is-success' : krwPositionReturn != null ? 'is-danger' : ''}`}>수익률 {krwPositionReturn != null ? formatPercent(krwPositionReturn, 2) : '-'}</span>
                 </div>
               </div>
               <div className="console-metric-grid">
                 <div>
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>초기 자금</div>
-                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.initial_cash_krw, true)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>투자금</div>
+                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.position_cost_krw_only, true)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>현재 현금</div>
-                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.cash_krw, true)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 평가금</div>
+                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.position_market_value_krw_only, true)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 평가금액</div>
-                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.market_value_krw_only, true)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>평가손익</div>
+                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.position_unrealized_pnl_krw_only, true)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>실현 손익</div>
-                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.realized_pnl_krw, true)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>수익률</div>
+                  <div style={{ marginTop: 6, fontWeight: 700 }}>{krwPositionReturn != null ? formatPercent(krwPositionReturn, 2) : '-'}</div>
                 </div>
               </div>
             </section>
@@ -160,29 +172,29 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
             <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">달러 계정 성과</div>
-                  <div className="section-copy">미국장은 달러 기준 수치가 먼저 보여야 두 번 계산 안 하게 돼. 괄호엔 원화 환산 금액을 같이 붙였어.</div>
+                  <div className="section-title">달러 보유 종목 성과</div>
+                  <div className="section-copy">미국장 보유 종목만 봐. 달러 기준 투자금, 보유 평가금, 평가손익, 수익률이 핵심이야.</div>
                 </div>
                 <div className="section-toolbar">
-                  <span className="inline-badge">초기 {formatUSD(live.initial_cash_usd, true)}</span>
+                  <span className={`inline-badge ${usdPositionReturn != null && usdPositionReturn >= 0 ? 'is-success' : usdPositionReturn != null ? 'is-danger' : ''}`}>수익률 {usdPositionReturn != null ? formatPercent(usdPositionReturn, 2) : '-'}</span>
                 </div>
               </div>
               <div className="console-metric-grid">
                 <div>
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>초기 자금</div>
-                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatUSDWithKRW(live.initial_cash_usd, live.initial_cash_usd && live.fx_rate ? live.initial_cash_usd * live.fx_rate : null)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>투자금</div>
+                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatUSDWithKRW(live.position_cost_usd, live.position_cost_usd_krw)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>현재 현금</div>
-                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatUSDWithKRW(live.cash_usd, live.cash_usd && live.fx_rate ? live.cash_usd * live.fx_rate : null)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 평가금</div>
+                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatUSDWithKRW(live.position_market_value_usd, live.position_market_value_usd_krw)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 평가금액</div>
-                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatUSDWithKRW(live.market_value_usd, live.market_value_usd_krw)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>평가손익</div>
+                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatUSDWithKRW(live.position_unrealized_pnl_usd, live.position_unrealized_pnl_usd && live.fx_rate ? live.position_unrealized_pnl_usd * live.fx_rate : null)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>실현 손익</div>
-                  <div style={{ marginTop: 6, fontWeight: 700 }}>{formatUSDWithKRW(live.realized_pnl_usd, live.realized_pnl_usd && live.fx_rate ? live.realized_pnl_usd * live.fx_rate : null)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>수익률</div>
+                  <div style={{ marginTop: 6, fontWeight: 700 }}>{usdPositionReturn != null ? formatPercent(usdPositionReturn, 2) : '-'}</div>
                 </div>
               </div>
             </section>
