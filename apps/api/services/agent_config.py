@@ -10,10 +10,16 @@ from config.settings import CONFIG_STATE_DIR, KIS_ACCOUNT_ACNT_PRDT_CD, KIS_ACCO
 DEFAULT_RISK_CONFIG_PATH = CONFIG_STATE_DIR / "agent_risk_config.json"
 
 _DEFAULT_CONFIG: dict[str, Any] = {
+    "allocation_mode": "diversified",
     "min_confidence": 0.7,
     "min_reward_risk_ratio": 1.3,
     "max_symbol_position_ratio": 0.10,
     "allow_additional_buy": False,
+    "bluechip_top_n_kospi": 20,
+    "bluechip_top_n_us": 20,
+    "bluechip_max_symbol_position_ratio": 0.40,
+    "bluechip_risk_per_trade_pct": 1.5,
+    "bluechip_allow_additional_buy": True,
     "cooldown_minutes": 30,
     "daily_loss_limit_pct": 3.0,
     "max_daily_orders": 20,
@@ -52,10 +58,17 @@ def _sanitize_config(raw: dict[str, Any]) -> dict[str, Any]:
     for key in _ALLOWED_KEYS:
         if key in raw:
             config[key] = raw[key]
+    allocation_mode = str(config.get("allocation_mode") or _DEFAULT_CONFIG["allocation_mode"]).strip().lower()
+    config["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "diversified"
     config["min_confidence"] = max(0.0, min(1.0, _to_float(config.get("min_confidence"), _DEFAULT_CONFIG["min_confidence"])))
     config["min_reward_risk_ratio"] = max(0.0, _to_float(config.get("min_reward_risk_ratio"), _DEFAULT_CONFIG["min_reward_risk_ratio"]))
-    config["max_symbol_position_ratio"] = max(0.0, min(0.10, _to_float(config.get("max_symbol_position_ratio"), _DEFAULT_CONFIG["max_symbol_position_ratio"])))
+    config["max_symbol_position_ratio"] = max(0.0, min(1.0, _to_float(config.get("max_symbol_position_ratio"), _DEFAULT_CONFIG["max_symbol_position_ratio"])))
     config["allow_additional_buy"] = _to_bool(config.get("allow_additional_buy"), False)
+    config["bluechip_top_n_kospi"] = max(1, min(100, _to_int(config.get("bluechip_top_n_kospi"), _DEFAULT_CONFIG["bluechip_top_n_kospi"])))
+    config["bluechip_top_n_us"] = max(1, min(100, _to_int(config.get("bluechip_top_n_us"), _DEFAULT_CONFIG["bluechip_top_n_us"])))
+    config["bluechip_max_symbol_position_ratio"] = max(0.0, min(1.0, _to_float(config.get("bluechip_max_symbol_position_ratio"), _DEFAULT_CONFIG["bluechip_max_symbol_position_ratio"])))
+    config["bluechip_risk_per_trade_pct"] = max(0.05, min(5.0, _to_float(config.get("bluechip_risk_per_trade_pct"), _DEFAULT_CONFIG["bluechip_risk_per_trade_pct"])))
+    config["bluechip_allow_additional_buy"] = _to_bool(config.get("bluechip_allow_additional_buy"), True)
     config["cooldown_minutes"] = max(0, _to_int(config.get("cooldown_minutes"), _DEFAULT_CONFIG["cooldown_minutes"]))
     config["daily_loss_limit_pct"] = max(0.0, _to_float(config.get("daily_loss_limit_pct"), _DEFAULT_CONFIG["daily_loss_limit_pct"]))
     config["max_daily_orders"] = max(0, _to_int(config.get("max_daily_orders"), _DEFAULT_CONFIG["max_daily_orders"]))

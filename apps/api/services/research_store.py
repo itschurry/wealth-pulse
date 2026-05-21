@@ -657,6 +657,42 @@ def ingest_research_snapshots(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def record_research_run_status(payload: dict[str, Any]) -> dict[str, Any]:
+    provider = _normalize_provider(payload.get("provider"))
+    selected_count = int(payload.get("selected_count") or 0)
+    success_count = int(payload.get("success_count") or payload.get("agent_success_count") or 0)
+    failure_count = int(payload.get("failure_count") or payload.get("agent_error_count") or 0)
+    partial_failure = bool(payload.get("partial_failure", success_count > 0 and failure_count > 0))
+    if failure_count > 0 and success_count <= 0:
+        run_status = "failed"
+    elif partial_failure:
+        run_status = "partial_failure"
+    elif success_count > 0:
+        run_status = "success"
+    else:
+        run_status = str(payload.get("last_run_status") or payload.get("status") or "noop")
+    recent_errors = payload.get("recent_errors") if isinstance(payload.get("recent_errors"), list) else payload.get("errors")
+    if not isinstance(recent_errors, list):
+        recent_errors = []
+    run_payload = {
+        "last_run_status": run_status,
+        "partial_failure": partial_failure,
+        "selected_count": selected_count,
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "recent_errors": [dict(item) for item in recent_errors if isinstance(item, dict)][:10],
+        "updated_at": _now_iso(),
+    }
+
+    state_payload = _read_json(RESEARCH_PROVIDER_STATE_PATH, {"providers": {}})
+    providers = state_payload.get("providers") if isinstance(state_payload.get("providers"), dict) else {}
+    current = providers.get(provider) if isinstance(providers.get(provider), dict) else {"provider": provider}
+    current["last_run_summary"] = run_payload
+    providers[provider] = current
+    _write_json(RESEARCH_PROVIDER_STATE_PATH, {"providers": providers})
+    return {"ok": run_status == "success", "provider": provider, **run_payload}
+
+
 def _resolve_market_aliases(market: str) -> list[str]:
     normalized = _normalize_market_input(market)
     raw = str(market or "").strip().upper()
@@ -696,6 +732,8 @@ def load_provider_status(provider: str = DEFAULT_RESEARCH_PROVIDER) -> dict[str,
             if isinstance(alias_state, dict):
                 state = alias_state
                 break
+    if not isinstance(state, dict):
+        state = {}
 
     latest_snapshot_candidates_map: dict[str, dict[str, Any]] = {}
     for path in RESEARCH_LATEST_DIR.glob("*.json"):
@@ -741,6 +779,7 @@ def load_provider_status(provider: str = DEFAULT_RESEARCH_PROVIDER) -> dict[str,
             "stale_symbol_count": 0,
             "latest_bucket_ts": "",
             "accept_ratio": 0.0,
+            **(state.get("last_run_summary") if isinstance(state.get("last_run_summary"), dict) else {}),
         }
 
     stale_symbol_count = 0
@@ -796,6 +835,7 @@ def load_provider_status(provider: str = DEFAULT_RESEARCH_PROVIDER) -> dict[str,
         "stale_symbol_count": stale_symbol_count,
         "latest_bucket_ts": latest_bucket_dt.isoformat() if latest_bucket_dt else "",
         "accept_ratio": round(accept_ratio, 4),
+        **(state.get("last_run_summary") if isinstance(state, dict) and isinstance(state.get("last_run_summary"), dict) else {}),
     }
 
 

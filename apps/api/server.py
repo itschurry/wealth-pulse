@@ -33,7 +33,7 @@ from routes.quant_ops import (
     handle_quant_ops_save_candidate,
     handle_quant_ops_save_policy,
 )
-from routes.research import handle_research_ingest_bulk, handle_research_latest_snapshot, handle_research_status
+from routes.research import handle_research_ingest_bulk, handle_research_latest_snapshot, handle_research_run_status_save, handle_research_status
 from routes.research import handle_research_snapshots
 from routes.risk import handle_risk_config_get, handle_risk_config_save
 from routes.reports import (
@@ -222,6 +222,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route("/api/strategies/delete", lambda _path, payload: handle_strategy_delete(payload)),
     Route("/api/strategies/seed-defaults", lambda _path, payload: handle_strategy_seed_defaults(payload)),
     Route("/api/research/ingest/bulk", lambda _path, payload: handle_research_ingest_bulk(payload)),
+    Route("/api/research/run-status", lambda _path, payload: handle_research_run_status_save(payload)),
     Route("/api/run-optimization", lambda _path, _payload: handle_run_optimization(_payload)),
     Route("/api/validation/settings/save", lambda _path, payload: handle_validation_settings_save(payload)),
     Route("/api/validation/settings/reset", lambda _path, _payload: handle_validation_settings_reset()),

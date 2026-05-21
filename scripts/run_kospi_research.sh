@@ -30,10 +30,11 @@ printf '[%s] wealthpulse-kospi-research python_bin=%s\n' "$(date --iso-8601=seco
 args=(
   "$PYTHON_BIN" apps/api/scripts/hermes_research_runner.py
   --market KOSPI
-  --limit "${WEALTHPULSE_KOSPI_RESEARCH_LIMIT:-5}"
+  --limit "${WEALTHPULSE_KOSPI_RESEARCH_LIMIT:-9}"
   --mode "${WEALTHPULSE_KOSPI_RESEARCH_MODE:-missing_or_stale}"
   --api-base-url "$WEALTHPULSE_API_BASE_URL"
   --timeout "${WEALTHPULSE_KOSPI_RESEARCH_TIMEOUT:-300}"
+  --concurrency "${WEALTHPULSE_KOSPI_RESEARCH_CONCURRENCY:-3}"
 )
 
 if [[ "${WEALTHPULSE_KOSPI_RESEARCH_DRY_RUN:-0}" == "1" ]]; then

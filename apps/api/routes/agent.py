@@ -8,8 +8,10 @@ from routes.candidate_monitor import handle_candidate_monitor_watchlist
 from routes.research import handle_research_latest_snapshot
 from routes.trading import handle_runtime_order, handle_runtime_account
 from services.agent_decision_provider import call_hermes_trade_decision, research_analysis_to_trade_decision
+from services.agent_config import default_risk_config_store
 from services.agent_runner import run_agent_once
 from services.agent_store import default_store
+from services.bluechip_universe import bluechip_meta
 from services.runtime_store import read_engine_cycles
 
 
@@ -82,7 +84,18 @@ def _collect_monitor_candidates(payload: dict[str, Any]) -> list[dict[str, Any]]
     pending_items = result.get("pending_items")
     if not isinstance(pending_items, list):
         pending_items = result.get("items") if isinstance(result.get("items"), list) else []
-    return [dict(item) for item in pending_items if isinstance(item, dict)]
+    risk_config = default_risk_config_store().load()
+    rows: list[dict[str, Any]] = []
+    for item in pending_items:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        market = str(row.get("market") or "").strip().upper()
+        symbol = _symbol(row)
+        row.update(bluechip_meta(symbol, market, risk_config))
+        row["allocation_mode"] = str(risk_config.get("allocation_mode") or "diversified")
+        rows.append(row)
+    return rows
 
 
 def _latest_research_evidence(symbol: str, market: str, provider: str) -> list[dict[str, Any]]:
@@ -123,38 +136,20 @@ def _decision_provider_from_payload(payload: dict[str, Any]):
     def _provider(candidate: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[str, Any] | str:
         symbol = _symbol(candidate)
         if decision_source == "hermes":
-            try:
-                return call_hermes_trade_decision(
-                    candidate,
-                    evidence,
-                    agent_command=payload.get("agent_command"),
-                    timeout=int(payload.get("timeout") or 300),
-                )
-            except Exception as exc:
-                return {
-                    "action": "HOLD",
-                    "symbol": symbol,
-                    "market": str(candidate.get("market") or "").strip().upper(),
-                    "confidence": 0.0,
-                    "reason_summary": f"Hermes decision failed; treated as HOLD: {exc}",
-                    "evidence": [],
-                    "risk": {"entry_price": 0, "stop_loss": 0, "take_profit": 0, "max_position_ratio": 0},
-                }
+            return call_hermes_trade_decision(
+                candidate,
+                evidence,
+                agent_command=payload.get("agent_command"),
+                timeout=int(payload.get("timeout") or 300),
+            )
         if decision_source == "research_snapshot":
             snapshot = next((item.get("payload") for item in evidence if isinstance(item, dict) and item.get("type") == "research_snapshot" and isinstance(item.get("payload"), dict)), None)
             if isinstance(snapshot, dict):
                 return research_analysis_to_trade_decision(snapshot, candidate)
+            raise RuntimeError(f"research_snapshot_required:{symbol}")
         value = decisions_by_symbol.get(symbol) or default_decision
         if value is None:
-            return {
-                "action": "HOLD",
-                "symbol": symbol,
-                "market": str(candidate.get("market") or "").strip().upper(),
-                "confidence": 0.0,
-                "reason_summary": "No decision supplied for manual Agent Run.",
-                "evidence": [],
-                "risk": {"entry_price": 0, "stop_loss": 0, "take_profit": 0, "max_position_ratio": 0},
-            }
+            raise RuntimeError(f"manual_decision_required:{symbol}")
         return value
 
     return _provider
@@ -184,14 +179,11 @@ def _account_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     account = payload.get("account") if isinstance(payload.get("account"), dict) else None
     if account is not None:
         return account
-    try:
-        status, result = handle_runtime_account(False)
-        if status == 200 and isinstance(result, dict):
-            nested = result.get("account")
-            return nested if isinstance(nested, dict) else result
-    except Exception:
-        pass
-    return {"cash_krw": 0, "equity_krw": 1, "positions": [], "orders": []}
+    status, result = handle_runtime_account(False)
+    if status != 200 or not isinstance(result, dict):
+        raise RuntimeError("runtime_account_unavailable")
+    nested = result.get("account")
+    return nested if isinstance(nested, dict) else result
 
 
 def handle_agent_run(payload: dict) -> tuple[int, dict]:
@@ -201,20 +193,33 @@ def handle_agent_run(payload: dict) -> tuple[int, dict]:
     if not candidates or str(payload.get("candidate_source") or "").strip().lower() == "monitor_watchlist":
         candidates = _collect_monitor_candidates(payload)
     evidence_by_symbol = _evidence_from_payload(payload, candidates)
+    saved_risk_config = default_risk_config_store().load()
     risk_config = payload.get("risk_config") if isinstance(payload.get("risk_config"), dict) else {}
+    risk_config = {**saved_risk_config, **risk_config}
+    for candidate in candidates:
+        market = str(candidate.get("market") or "").strip().upper()
+        symbol = _symbol(candidate)
+        candidate.update(bluechip_meta(symbol, market, risk_config))
+        candidate["allocation_mode"] = str(risk_config.get("allocation_mode") or "diversified")
     config = {"execution_channel": "runtime", **risk_config}
-    account = _account_from_payload(payload)
+    try:
+        account = _account_from_payload(payload)
+    except Exception as exc:
+        return 503, {"ok": False, "error": str(exc), "error_code": "runtime_account_unavailable"}
 
-    result = run_agent_once(
-        candidates=candidates,
-        evidence_by_symbol=evidence_by_symbol,
-        decision_provider=_decision_provider_from_payload(payload),
-        account_provider=lambda: account,
-        order_executor=_runtime_order_executor,
-        config=config,
-        store=default_store(),
-        trigger=str(payload.get("trigger") or "manual"),
-    )
+    try:
+        result = run_agent_once(
+            candidates=candidates,
+            evidence_by_symbol=evidence_by_symbol,
+            decision_provider=_decision_provider_from_payload(payload),
+            account_provider=lambda: account,
+            order_executor=_runtime_order_executor,
+            config=config,
+            store=default_store(),
+            trigger=str(payload.get("trigger") or "manual"),
+        )
+    except Exception as exc:
+        return 500, {"ok": False, "error": str(exc), "error_code": "agent_run_failed"}
     result["candidate_source"] = str(payload.get("candidate_source") or ("manual" if payload.get("candidates") else "monitor_watchlist"))
     result["decision_source"] = str(payload.get("decision_source") or "manual")
     return 200, result

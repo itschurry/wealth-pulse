@@ -35,6 +35,8 @@ def recommend_position_size(
     cfg: dict[str, Any],
     symbol_key: str,
     sector: str,
+    allocation_mode: str = "diversified",
+    bluechip: bool = False,
 ) -> dict[str, Any]:
     if unit_price_local <= 0:
         return {"quantity": 0, "reason": "invalid_unit_price"}
@@ -47,7 +49,12 @@ def recommend_position_size(
     unit_price_krw = unit_price_local * fx_rate
     equity_krw = max(_to_float(account.get("equity_krw")), 1.0)
 
+    concentrated_bluechip = str(allocation_mode or "").lower() == "concentrated" and bool(bluechip)
     risk_per_trade_pct = max(0.05, _to_float(cfg.get("risk_per_trade_pct"), 0.35))
+    cap_source = "default_caps"
+    if concentrated_bluechip:
+        risk_per_trade_pct = max(risk_per_trade_pct, _to_float(cfg.get("bluechip_risk_per_trade_pct"), 1.5))
+        cap_source = "concentrated_bluechip"
     risk_budget_krw = equity_krw * (risk_per_trade_pct / 100.0)
 
     ev_scale = max(0.35, min(1.9, 1.0 + (expected_value / 9.0)))
@@ -72,6 +79,12 @@ def recommend_position_size(
     max_symbol_weight_pct = _to_float(caps.get("max_symbol_weight_pct"), 20.0)
     max_sector_weight_pct = _to_float(caps.get("max_sector_weight_pct"), 35.0)
     max_market_exposure_pct = _to_float(caps.get("max_market_exposure_pct"), 70.0)
+    if concentrated_bluechip:
+        max_symbol_weight_pct = _to_float(cfg.get("bluechip_max_symbol_weight_pct") or cfg.get("bluechip_max_symbol_position_ratio"), 40.0)
+        if max_symbol_weight_pct <= 1.0:
+            max_symbol_weight_pct *= 100.0
+        max_sector_weight_pct = 100.0
+        max_market_exposure_pct = max(max_market_exposure_pct, 95.0)
 
     symbol_room_krw = max(0.0, equity_krw * (max_symbol_weight_pct - symbol_pct) / 100.0)
     sector_room_krw = max(0.0, equity_krw * (max_sector_weight_pct - sector_pct) / 100.0)
@@ -97,6 +110,9 @@ def recommend_position_size(
             "qty_by_risk": qty_by_risk,
             "qty_by_cash": qty_by_cash,
             "qty_by_caps": qty_by_caps,
+            "allocation_mode": allocation_mode,
+            "bluechip": bool(bluechip),
+            "cap_source": cap_source,
         }
 
     return {
@@ -107,4 +123,7 @@ def recommend_position_size(
         "qty_by_caps": qty_by_caps,
         "unit_price_krw": round(unit_price_krw, 2),
         "stop_distance_krw": round(stop_distance_krw, 2),
+        "allocation_mode": allocation_mode,
+        "bluechip": bool(bluechip),
+        "cap_source": cap_source,
     }

@@ -8,6 +8,8 @@ from typing import Any
 from config.settings import CACHE_DIR, CONFIG_STATE_DIR
 from market_utils import lookup_company_listing
 from services import candidate_monitor_store as store
+from services.agent_config import default_risk_config_store
+from services.bluechip_universe import bluechip_meta
 from services.research_store import DEFAULT_RESEARCH_PROVIDER, load_latest_research_snapshot
 from services.runtime_store import list_strategy_scans
 
@@ -216,6 +218,8 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
     change_pct = _first_number(candidate, technical, "change_pct", "change_rate", "fluctuation_rate")
     snapshot = _load_latest_research_snapshot(symbol, market) if symbol and market else {}
     news_score = _news_surge_score(candidate, snapshot)
+    risk_config = default_risk_config_store().load()
+    bluechip = bluechip_meta(symbol, market, risk_config)
     sources: list[str] = []
     if trading_value > 0:
         sources.append("trading_value_top")
@@ -240,6 +244,8 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
         "news_surge_score": news_score,
         "candidate_sources": sources,
         "technical_snapshot": technical or candidate.get("technical_snapshot"),
+        "allocation_mode": str(risk_config.get("allocation_mode") or "diversified"),
+        **bluechip,
     }
 
 

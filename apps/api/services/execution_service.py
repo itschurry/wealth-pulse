@@ -1532,6 +1532,12 @@ def _default_auto_trader_config() -> dict:
         "daily_buy_limit": 100,
         "daily_sell_limit": 100,
         "max_orders_per_symbol_per_day": 3,
+        "allocation_mode": "diversified",
+        "bluechip_top_n_kospi": 20,
+        "bluechip_top_n_us": 20,
+        "bluechip_max_symbol_position_ratio": 0.40,
+        "bluechip_risk_per_trade_pct": 1.5,
+        "bluechip_allow_additional_buy": True,
         "rsi_min": primary["rsi_min"],
         "rsi_max": primary["rsi_max"],
         "volume_ratio_min": primary["volume_ratio_min"],
@@ -1689,6 +1695,13 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     cfg["max_symbol_weight_pct"] = max(30.0, _to_float(cfg.get("max_symbol_weight_pct"), 30.0))
     cfg["max_sector_weight_pct"] = max(50.0, _to_float(cfg.get("max_sector_weight_pct"), 50.0))
     cfg["max_market_exposure_pct"] = max(95.0, _to_float(cfg.get("max_market_exposure_pct"), 95.0))
+    allocation_mode = str(cfg.get("allocation_mode") or "diversified").strip().lower()
+    cfg["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "diversified"
+    cfg["bluechip_top_n_kospi"] = max(1, int(_to_float(cfg.get("bluechip_top_n_kospi"), 20)))
+    cfg["bluechip_top_n_us"] = max(1, int(_to_float(cfg.get("bluechip_top_n_us"), 20)))
+    cfg["bluechip_max_symbol_position_ratio"] = max(0.0, min(1.0, _to_float(cfg.get("bluechip_max_symbol_position_ratio"), 0.40)))
+    cfg["bluechip_risk_per_trade_pct"] = max(0.05, min(5.0, _to_float(cfg.get("bluechip_risk_per_trade_pct"), 1.5)))
+    cfg["bluechip_allow_additional_buy"] = _coerce_bool(cfg.get("bluechip_allow_additional_buy"), True)
     rotation_raw = cfg.get("rotation") if isinstance(cfg.get("rotation"), dict) else {}
     cfg["rotation"] = {
         "enabled": bool(rotation_raw.get("enabled", True)),
@@ -3192,6 +3205,18 @@ def _start_auto_trader(config: dict) -> dict:
             1, min(200, int(merged.get("daily_sell_limit") or 20)))
         merged["max_orders_per_symbol_per_day"] = max(
             1, min(10, int(merged.get("max_orders_per_symbol_per_day") or 1)))
+        allocation_mode = str(merged.get("allocation_mode") or "diversified").strip().lower()
+        merged["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "diversified"
+        merged["bluechip_top_n_kospi"] = max(
+            1, min(100, int(merged.get("bluechip_top_n_kospi") or 20)))
+        merged["bluechip_top_n_us"] = max(
+            1, min(100, int(merged.get("bluechip_top_n_us") or 20)))
+        merged["bluechip_max_symbol_position_ratio"] = max(
+            0.0, min(1.0, float(merged.get("bluechip_max_symbol_position_ratio") or 0.40)))
+        merged["bluechip_risk_per_trade_pct"] = max(
+            0.05, min(5.0, float(merged.get("bluechip_risk_per_trade_pct") or 1.5)))
+        merged["bluechip_allow_additional_buy"] = _coerce_bool(
+            merged.get("bluechip_allow_additional_buy"), True)
         merged["min_score"] = max(
             0.0, min(100.0, float(merged.get("min_score") or 50.0)))
         merged["risk_per_trade_pct"] = max(

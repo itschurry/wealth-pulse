@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime as dt
 import json
 import os
@@ -21,7 +22,7 @@ DEFAULT_AGENT_COMMAND = "hermes --oneshot"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
 DEFAULT_RESEARCH_PROVIDER = "default"
 DEFAULT_AGENT_TTL_MINUTES = 180
-MAX_AGENT_SIZE_INTENT_PCT = 5.0
+MAX_AGENT_SIZE_INTENT_PCT = 40.0
 ALLOWED_AGENT_RATINGS = {"strong_buy", "overweight", "hold", "underweight", "sell"}
 ALLOWED_AGENT_ACTIONS = {"buy", "buy_watch", "hold", "reduce", "sell", "block"}
 BUY_RATINGS = {"strong_buy", "overweight"}
@@ -100,22 +101,23 @@ def _use_direct_routes(base_url: str | None = None) -> bool:
 
 def handle_candidate_monitor_watchlist(query: dict[str, list[str]], *, base_url: str | None = None) -> tuple[int, dict[str, Any]]:
     if _use_direct_routes(base_url):
-        try:
-            from routes.candidate_monitor import handle_candidate_monitor_watchlist as route_handler  # type: ignore
-            return route_handler(query)
-        except Exception:
-            pass
+        from routes.candidate_monitor import handle_candidate_monitor_watchlist as route_handler  # type: ignore
+        return route_handler(query)
     return _http_json("GET", "/api/monitor/watchlist", base_url=base_url, query=query)
 
 
 def handle_research_ingest_bulk(payload: dict[str, Any], *, base_url: str | None = None) -> tuple[int, dict[str, Any]]:
     if _use_direct_routes(base_url):
-        try:
-            from routes.research import handle_research_ingest_bulk as route_handler  # type: ignore
-            return route_handler(payload)
-        except Exception:
-            pass
+        from routes.research import handle_research_ingest_bulk as route_handler  # type: ignore
+        return route_handler(payload)
     return _http_json("POST", "/api/research/ingest/bulk", base_url=base_url, payload=payload)
+
+
+def handle_research_run_status_save(payload: dict[str, Any], *, base_url: str | None = None) -> tuple[int, dict[str, Any]]:
+    if _use_direct_routes(base_url):
+        from routes.research import handle_research_run_status_save as route_handler  # type: ignore
+        return route_handler(payload)
+    return _http_json("POST", "/api/research/run-status", base_url=base_url, payload=payload)
 
 
 def _market_query(markets: list[str], *, limit: int, mode: str) -> dict[str, list[str]]:
@@ -311,6 +313,7 @@ def run(
     dry_run: bool = False,
     agent_command: list[str] | str | None = None,
     timeout: int = 300,
+    concurrency: int = 1,
     api_base_url: str | None = None,
     progress: bool = True,
 ) -> tuple[int, dict[str, Any]]:
@@ -366,8 +369,10 @@ def run(
     ingest_results: list[dict[str, Any]] = []
     total = len(prompt_rows)
     command_preview = " ".join(shlex.quote(part) for part in _command_list(agent_command))
-    _log(f"[hermes] command={command_preview} timeout={max(1, int(timeout))}s", enabled=progress)
-    for index, (target, prompt_row) in enumerate(zip(target_items, prompt_rows), start=1):
+    worker_count = max(1, min(int(concurrency or 1), total))
+    _log(f"[hermes] command={command_preview} timeout={max(1, int(timeout))}s concurrency={worker_count}", enabled=progress)
+
+    def _process_one(index: int, target: dict[str, Any], prompt_row: dict[str, Any]) -> dict[str, Any]:
         symbol = str(prompt_row.get("symbol") or "")
         market = str(prompt_row.get("market") or "")
         try:
@@ -377,20 +382,49 @@ def run(
             ingest_payload = build_agent_research_ingest_payload({"items": [analysis]})
             ingest_status, ingest_result = handle_research_ingest_bulk(ingest_payload, base_url=api_base_url)
             accepted = int(ingest_result.get("accepted") or 0) if isinstance(ingest_result, dict) else 0
-            ingest_results.append({
+            ingest_row = {
                 "symbol": symbol,
                 "market": market,
                 "status_code": ingest_status,
                 "accepted": accepted,
                 "result": ingest_result,
-            })
+            }
             if not (200 <= ingest_status < 300) or accepted <= 0:
                 raise RuntimeError(f"ingest_failed:{ingest_status}:accepted={accepted}")
-            analyses.append(analysis)
             _log(f"[hermes] {index}/{total} ok {market}:{symbol} ingest_status={ingest_status} accepted={accepted}", enabled=progress)
+            return {"ok": True, "analysis": analysis, "ingest_result": ingest_row, "symbol": symbol, "market": market}
         except Exception as exc:
-            errors.append({"symbol": symbol, "market": market, "error": str(exc)})
             _log(f"[hermes] {index}/{total} failed {market}:{symbol} error={exc}", enabled=progress)
+            return {"ok": False, "error": {"symbol": symbol, "market": market, "error": str(exc)}, "symbol": symbol, "market": market}
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(_process_one, index, target, prompt_row)
+            for index, (target, prompt_row) in enumerate(zip(target_items, prompt_rows), start=1)
+        ]
+        for future in as_completed(futures):
+            result = future.result()
+            if result.get("ok"):
+                analysis = result.get("analysis")
+                if isinstance(analysis, dict):
+                    analyses.append(analysis)
+                ingest = result.get("ingest_result")
+                if isinstance(ingest, dict):
+                    ingest_results.append(ingest)
+            else:
+                error_row = result.get("error")
+                if isinstance(error_row, dict):
+                    errors.append(error_row)
+
+    run_status_payload = {
+        "provider": DEFAULT_RESEARCH_PROVIDER,
+        "selected_count": len(target_items),
+        "success_count": len(analyses),
+        "failure_count": len(errors),
+        "partial_failure": bool(analyses and errors),
+        "errors": errors,
+    }
+    handle_research_run_status_save(run_status_payload, base_url=api_base_url)
 
     if not analyses:
         _log(f"[hermes] all Hermes calls or ingests failed errors={len(errors)}", enabled=progress)
@@ -400,6 +434,21 @@ def run(
             "markets": markets,
             "mode": mode,
             "selected_count": len(target_items),
+            "errors": errors,
+            "ingest_results": ingest_results,
+        }
+
+    if errors:
+        return 207, {
+            "ok": False,
+            "stage": "partial_failure",
+            "markets": markets,
+            "mode": mode,
+            "selected_count": len(target_items),
+            "agent_success_count": len(analyses),
+            "agent_error_count": len(errors),
+            "accepted_count": sum(int(item.get("accepted") or 0) for item in ingest_results),
+            "partial_failure": True,
             "errors": errors,
             "ingest_results": ingest_results,
         }
@@ -427,6 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-command", default=None, help="Command prefix used to call Hermes, default: env WEALTHPULSE_HERMES_RESEARCH_COMMAND or 'hermes --oneshot'")
     parser.add_argument("--api-base-url", default=None, help="WealthPulse API base URL for host-side execution, default: env WEALTHPULSE_API_BASE_URL or http://127.0.0.1:8001")
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--no-progress", action="store_true", help="Do not print progress logs to stderr")
     return parser
 
@@ -440,10 +490,13 @@ def main() -> int:
         dry_run=bool(args.dry_run),
         agent_command=args.agent_command,
         timeout=max(1, int(args.timeout)),
+        concurrency=max(1, int(args.concurrency)),
         api_base_url=args.api_base_url,
         progress=not bool(args.no_progress),
     )
     print(json.dumps({"status_code": status_code, **payload}, ensure_ascii=False, indent=2))
+    if status_code == 207 or payload.get("partial_failure"):
+        return 2
     return 0 if 200 <= status_code < 300 else 1
 
 

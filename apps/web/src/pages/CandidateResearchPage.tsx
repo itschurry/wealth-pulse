@@ -127,6 +127,11 @@ function candidateActionBadge(item: CandidateMonitorSlot): { label: string; tone
   return { label: action || '-', tone: 'inline-badge' };
 }
 
+function bluechipBadge(item: CandidateMonitorSlot): { label: string; tone: string } | null {
+  if (!item.bluechip) return null;
+  return { label: '우량주', tone: 'inline-badge is-success' };
+}
+
 function slotTypeBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
   const slotType = String(item.slot_type || '').toLowerCase();
   if (slotType === 'held') return { label: '보유 추적', tone: 'inline-badge is-success' };
@@ -307,6 +312,7 @@ function MonitorSlotSection({
                   const action = candidateActionBadge(item);
                   const slot = slotTypeBadge(item);
                   const grade = validationBadge(item);
+                  const bluechip = bluechipBadge(item);
                   const market = item.market || 'KOSPI';
                   const symbol = item.symbol || item.code || '';
                   return (
@@ -327,6 +333,7 @@ function MonitorSlotSection({
                         <div className="workspace-chip-row">
                           <span className={status.tone}>{status.label}</span>
                           {grade ? <span className={grade.tone}>{grade.label}</span> : null}
+                          {bluechip ? <span className={bluechip.tone}>{bluechip.label}</span> : null}
                           {highlightPending ? <span className={pending.tone}>{pending.label}</span> : null}
                         </div>
                       </td>
@@ -346,6 +353,7 @@ function MonitorSlotSection({
               const action = candidateActionBadge(item);
               const slot = slotTypeBadge(item);
               const grade = validationBadge(item);
+              const bluechip = bluechipBadge(item);
               const market = item.market || 'KOSPI';
               const symbol = item.symbol || item.code || '';
               return (
@@ -367,6 +375,7 @@ function MonitorSlotSection({
                     <span className={slot.tone}>{slot.label}</span>
                     <span className={status.tone}>{status.label}</span>
                     {grade ? <span className={grade.tone}>{grade.label}</span> : null}
+                    {bluechip ? <span className={bluechip.tone}>{bluechip.label}</span> : null}
                     {highlightPending ? <span className={pending.tone}>{pending.label}</span> : null}
                   </div>
                   <div className="responsive-card-grid">
@@ -688,11 +697,17 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
     : researchStatus.status === 'missing'
       ? 'neutral'
       : 'bad';
+  const runStatusTone = researchStatus.partial_failure || researchStatus.last_run_status === 'failed'
+    ? 'bad'
+    : researchStatus.last_run_status === 'success'
+      ? 'good'
+      : 'neutral';
 
   const topStatusItems = [
     { label: '감시 슬롯', value: `${totalActiveCount || activeSlots.length}개`, tone: (totalActiveCount || activeSlots.length) > 0 ? 'good' as const : 'neutral' as const },
     { label: '지금 리서치 필요', value: `${pendingTargets.length}개`, tone: pendingTargets.length > 0 ? 'bad' as const : 'good' as const },
     { label: '저장소 상태', value: storageStatusLabel, tone: storageStatusTone as 'good' | 'neutral' | 'bad' },
+    { label: '최근 Hermes', value: researchStatus.last_run_status || '대기', tone: runStatusTone as 'good' | 'neutral' | 'bad' },
   ];
 
   return (
@@ -782,7 +797,17 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                 <div className="workspace-mini-metric"><span>저장소 fresh</span><strong>{researchStatus.fresh_symbol_count ?? 0}개</strong></div>
                 <div className="workspace-mini-metric"><span>즉시 리서치 대상</span><strong>{pendingTargets.length}개</strong></div>
                 <div className="workspace-mini-metric"><span>마지막 적재</span><strong>{researchStatus.last_generated_at ? formatDateTime(researchStatus.last_generated_at) : '대기'}</strong></div>
+                <div className="workspace-mini-metric"><span>Hermes 성공/실패</span><strong>{researchStatus.success_count ?? 0}/{researchStatus.failure_count ?? 0}</strong></div>
+                <div className="workspace-mini-metric"><span>부분 실패</span><strong>{researchStatus.partial_failure ? '있음' : '없음'}</strong></div>
               </div>
+              {researchStatus.partial_failure && Array.isArray(researchStatus.recent_errors) && researchStatus.recent_errors.length > 0 ? (
+                <div className="workspace-summary-card" style={{ marginTop: 12 }}>
+                  <div className="workspace-summary-title">최근 Hermes 실패</div>
+                  <div className="workspace-summary-copy">
+                    {researchStatus.recent_errors.slice(0, 3).map((item) => `${item.market || '-'}:${item.symbol || '-'} ${item.error || ''}`).join(' / ')}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </section>
 

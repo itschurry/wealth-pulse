@@ -462,6 +462,9 @@ export interface CandidateResearchSnapshot {
     notes?: string[];
     exclusion_reason?: string | null;
   };
+  bluechip?: boolean;
+  bluechip_reason?: string;
+  allocation_mode?: string;
 }
 
 export interface CandidateResearchHistoryResponse {
@@ -499,6 +502,10 @@ export interface CandidateMonitorSlot {
   slot_type?: 'held' | 'core' | 'promotion' | string;
   priority?: number;
   reason?: string;
+  bluechip?: boolean;
+  bluechip_reason?: string;
+  allocation_mode?: string;
+  cap_source?: string;
 }
 
 export interface CandidateMonitorPromotionEvent {
@@ -609,6 +616,12 @@ export interface ResearchStatusResponse {
   stale_symbol_count?: number;
   latest_bucket_ts?: string;
   accept_ratio?: number;
+  last_run_status?: string;
+  partial_failure?: boolean;
+  selected_count?: number;
+  success_count?: number;
+  failure_count?: number;
+  recent_errors?: Array<{ symbol?: string; market?: string; error?: string }>;
   error?: string;
 }
 
@@ -1517,6 +1530,12 @@ export interface AgentRiskConfigResponse {
     min_reward_risk_ratio?: number;
     max_symbol_position_ratio?: number;
     allow_additional_buy?: boolean;
+    allocation_mode?: 'diversified' | 'concentrated' | string;
+    bluechip_top_n_kospi?: number;
+    bluechip_top_n_us?: number;
+    bluechip_max_symbol_position_ratio?: number;
+    bluechip_risk_per_trade_pct?: number;
+    bluechip_allow_additional_buy?: boolean;
     cooldown_minutes?: number;
     daily_loss_limit_pct?: number;
     max_daily_orders?: number;

@@ -155,6 +155,7 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
   }
 
   const riskConfig = state.riskConfig || {};
+  const allocationMode = String(riskConfig.allocation_mode || 'diversified');
   const broker = state.broker;
   const combinedLoading = loading || state.loading || running;
   const visibleError = state.error || errorMessage;
@@ -172,6 +173,7 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
         statusItems={[
           { label: '관제 상태', value: running ? '실행 중' : '대기', tone: running ? 'good' : 'neutral' },
           { label: 'Risk Gate', value: `${formatNumber(Number(riskConfig.min_confidence ?? 0), 2)}+`, tone: 'neutral' },
+          { label: '투자 모드', value: allocationMode === 'concentrated' ? '집중' : '분산', tone: allocationMode === 'concentrated' ? 'good' : 'neutral' },
           { label: 'KIS 설정', value: broker?.configured ? '준비' : '미설정', tone: broker?.configured ? 'good' : 'neutral' },
           { label: '계좌', value: broker?.account_configured ? '준비' : '미설정', tone: broker?.account_configured ? 'good' : 'neutral' },
         ]}
@@ -214,9 +216,11 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           <div className="workspace-summary-card">
             <div className="workspace-summary-title">Risk Gate</div>
+            <div className="workspace-summary-copy">투자 모드 {allocationMode === 'concentrated' ? '집중투자' : '분산투자'}</div>
             <div className="workspace-summary-copy">최소 신뢰도 {formatNumber(Number(riskConfig.min_confidence ?? 0), 2)}</div>
             <div className="workspace-summary-copy">손익비 {formatNumber(Number(riskConfig.min_reward_risk_ratio ?? 0), 2)} 이상</div>
             <div className="workspace-summary-copy">종목당 한도 {formatNumber(Number(riskConfig.max_symbol_position_ratio ?? 0) * 100, 1)}%</div>
+            <div className="workspace-summary-copy">우량주 한도 {formatNumber(Number(riskConfig.bluechip_max_symbol_position_ratio ?? 0) * 100, 1)}% · 추가매수 {riskConfig.bluechip_allow_additional_buy ? '허용' : '차단'}</div>
           </div>
           <div className="workspace-summary-card">
             <div className="workspace-summary-title">KIS Broker</div>

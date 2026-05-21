@@ -7,6 +7,7 @@ from services.research_store import (
     load_latest_research_snapshot,
     load_provider_status,
     load_research_snapshots,
+    record_research_run_status,
 )
 
 
@@ -119,6 +120,14 @@ def handle_research_ingest_bulk(payload: dict) -> tuple[int, dict]:
         return 500, {"ok": False, "error": str(exc)}
     status_code = 200 if result.get("accepted", 0) > 0 or result.get("rejected", 0) == 0 else 400
     return status_code, result
+
+
+def handle_research_run_status_save(payload: dict) -> tuple[int, dict]:
+    try:
+        result = record_research_run_status(payload if isinstance(payload, dict) else {})
+    except Exception as exc:
+        return 500, {"ok": False, "error": str(exc)}
+    return 200 if result.get("ok") else 207, result
 
 
 def handle_research_status(query: dict[str, list[str]]) -> tuple[int, dict]:

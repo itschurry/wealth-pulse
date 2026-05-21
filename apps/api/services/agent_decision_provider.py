@@ -85,7 +85,10 @@ def research_analysis_to_trade_decision(analysis: dict[str, Any], candidate: dic
     stop_loss = _risk_value(trade_plan, "stop_loss", "stop") or _risk_value(invalidation, "stop_loss", "price")
     take_profit = _risk_value(trade_plan, "take_profit", "target_price", "target")
     size_pct = _to_float(trade_plan.get("size_intent_pct"), 0.0)
-    max_position_ratio = _clamp(size_pct / 100.0 if size_pct > 1 else size_pct, 0.0, 0.10)
+    allocation_mode = str(candidate.get("allocation_mode") or analysis.get("allocation_mode") or "diversified").strip().lower()
+    bluechip = bool(candidate.get("bluechip") or analysis.get("bluechip"))
+    max_allowed_ratio = 0.40 if allocation_mode == "concentrated" and bluechip else 0.10
+    max_position_ratio = _clamp(size_pct / 100.0 if size_pct > 1 else size_pct, 0.0, max_allowed_ratio)
 
     evidence = [
         *_text_list(analysis.get("evidence")),
@@ -98,6 +101,9 @@ def research_analysis_to_trade_decision(analysis: dict[str, Any], candidate: dic
         "action": action,
         "symbol": symbol,
         "market": market,
+        "allocation_mode": allocation_mode,
+        "bluechip": bluechip,
+        "bluechip_reason": str(candidate.get("bluechip_reason") or analysis.get("bluechip_reason") or "").strip(),
         "confidence": confidence,
         "reason_summary": str(analysis.get("summary") or analysis.get("reason_summary") or "").strip(),
         "evidence": evidence,
@@ -126,7 +132,7 @@ def build_trade_decision_prompt(candidate: dict[str, Any], evidence: list[dict[s
                     "entry_price": "number; required for BUY/SELL",
                     "stop_loss": "number; required for BUY/SELL",
                     "take_profit": "number; required for BUY",
-                    "max_position_ratio": "number 0..0.10; intent only",
+                    "max_position_ratio": "number 0..0.40 for concentrated bluechip, otherwise 0..0.10; intent only",
                 },
             },
             "safety": {

@@ -9,6 +9,8 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Any
 
+from services.bluechip_universe import bluechip_meta
+
 
 def _to_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -85,8 +87,15 @@ def evaluate_agent_decision_risk(
 
     action = str(decision.get("action") or "HOLD").strip().upper()
     symbol = str(decision.get("symbol") or "").strip().upper()
+    market = str(decision.get("market") or "").strip().upper()
     risk = decision.get("risk") if isinstance(decision.get("risk"), dict) else {}
     checks: list[dict[str, Any]] = []
+    allocation_mode = str(config.get("allocation_mode") or decision.get("allocation_mode") or "diversified").strip().lower()
+    if allocation_mode not in {"diversified", "concentrated"}:
+        allocation_mode = "diversified"
+    meta = bluechip_meta(symbol, market, config)
+    bluechip = bool(decision.get("bluechip") or meta.get("bluechip"))
+    bluechip_reason = str(decision.get("bluechip_reason") or meta.get("bluechip_reason") or "").strip()
 
     if action == "HOLD":
         return _reject("hold_decision", final_action="HOLD", checks=checks)
@@ -116,7 +125,10 @@ def evaluate_agent_decision_risk(
             return _reject("reward_risk_below_minimum", final_action=action, checks=checks)
 
         existing_position = next((p for p in positions if isinstance(p, dict) and _position_matches(p, symbol)), None)
-        if existing_position and not bool(config.get("allow_additional_buy", False)):
+        additional_buy_allowed = bool(config.get("allow_additional_buy", False))
+        if allocation_mode == "concentrated" and bluechip:
+            additional_buy_allowed = bool(config.get("bluechip_allow_additional_buy", True))
+        if existing_position and not additional_buy_allowed:
             checks.append({"id": "additional_buy", "passed": False})
             return _reject("additional_buy_blocked", final_action=action, checks=checks)
 
@@ -129,6 +141,10 @@ def evaluate_agent_decision_risk(
         cash = _cash_krw(account)
         requested_ratio = _to_float(risk.get("max_position_ratio"), 0.0)
         max_ratio = _to_float(config.get("max_symbol_position_ratio"), 0.1)
+        cap_source = "default_symbol_cap"
+        if allocation_mode == "concentrated" and bluechip:
+            max_ratio = _to_float(config.get("bluechip_max_symbol_position_ratio"), 0.4)
+            cap_source = "concentrated_bluechip_cap"
         target_ratio = requested_ratio if requested_ratio > 0 else max_ratio
         target_ratio = min(target_ratio, max_ratio)
         budget = max(0.0, equity * target_ratio)
@@ -151,6 +167,11 @@ def evaluate_agent_decision_risk(
                 "estimated_price": entry_price,
                 "estimated_amount_krw": quantity * entry_price,
                 "reward_risk_ratio": round(reward_risk, 4),
+                "allocation_mode": allocation_mode,
+                "bluechip": bluechip,
+                "bluechip_reason": bluechip_reason,
+                "cap_source": cap_source,
+                "target_position_ratio": round(target_ratio, 4),
             },
         }
 

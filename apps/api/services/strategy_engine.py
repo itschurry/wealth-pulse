@@ -19,6 +19,7 @@ from services.research_store import DEFAULT_RESEARCH_PROVIDER, load_latest_resea
 from services.signal_service import collect_pick_candidates
 from services.sizing_service import recommend_position_size
 from services.trade_workflow import enrich_signal_payload
+from services.bluechip_universe import bluechip_meta
 
 
 DEFAULT_SIGNAL_MARKETS = ("KOSPI", "NASDAQ")
@@ -67,6 +68,10 @@ def _with_live_technical_snapshot(candidate: dict[str, Any], market: str) -> dic
     except Exception as exc:
         technical["quote_error"] = str(exc)
         row["technical_snapshot"] = technical
+        row["gate_status"] = "quote_unavailable"
+        row["gate_reasons"] = [*[str(item) for item in (row.get("gate_reasons") or []) if str(item)], "quote_unavailable"]
+        row["signal_state"] = "watch"
+        row["final_action"] = "blocked"
         return row
     current_price = quote.get("price")
     if current_price not in (None, ""):
@@ -133,6 +138,9 @@ def _monitor_active_slot_candidates(market: str, *, cfg: dict[str, Any]) -> list
                 f"research:{'fresh' if fresh else 'missing_or_stale'}",
             ],
         }
+        bluechip = bluechip_meta(code, normalized_market, cfg)
+        row.update(bluechip)
+        row["allocation_mode"] = str(cfg.get("allocation_mode") or "diversified")
         candidates.append(_with_live_technical_snapshot(row, normalized_market))
     candidates.sort(
         key=lambda row: (
@@ -165,6 +173,8 @@ def build_risk_guard_state(*, candidate: dict[str, Any], cfg: dict[str, Any], ac
     account_payload = account_payload if isinstance(account_payload, dict) else {}
     regime, risk_level = _context_snapshot()
     try:
+        allocation_mode = str(config.get("allocation_mode") or "diversified").strip().lower()
+        candidate_bluechip = bool(candidate.get("bluechip"))
         normalized_cfg = {
             "daily_loss_limit_pct": _normalize_threshold(config.get("daily_loss_limit_pct"), 2.0),
             "max_symbol_weight_pct": _normalize_threshold(config.get("max_symbol_weight_pct", 20.0), 20.0),
@@ -175,14 +185,24 @@ def build_risk_guard_state(*, candidate: dict[str, Any], cfg: dict[str, Any], ac
             "max_consecutive_loss": max(1, int(config.get("max_consecutive_loss") or 3)),
             "cooldown_minutes": max(5, int(config.get("cooldown_minutes") or 120)),
         }
+        if allocation_mode == "concentrated" and candidate_bluechip:
+            max_symbol = _normalize_threshold(config.get("bluechip_max_symbol_weight_pct") or config.get("bluechip_max_symbol_position_ratio"), 40.0)
+            normalized_cfg["max_symbol_weight_pct"] = max(normalized_cfg["max_symbol_weight_pct"], max_symbol)
+            normalized_cfg["max_sector_weight_pct"] = 100.0
+            normalized_cfg["max_market_exposure_pct"] = max(normalized_cfg["max_market_exposure_pct"], 95.0)
         return _build_account_risk_guard_state(
             account=account_payload,
             cfg=normalized_cfg,
             regime=regime,
             risk_level=risk_level,
         )
-    except Exception:
-        return {"entry_allowed": True, "reasons": []}
+    except Exception as exc:
+        return {
+            "entry_allowed": False,
+            "reasons": ["risk_guard_failed"],
+            "error_code": "risk_guard_failed",
+            "error": str(exc),
+        }
 
 
 def _normalize_threshold(value: Any, default: float) -> float:
@@ -302,11 +322,14 @@ def _build_signal_from_candidate(
     account: dict[str, Any],
     optimized_payload: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    normalized_market = str(candidate.get("market") or market).upper()
+    code = str(candidate.get("code") or candidate.get("symbol") or "").upper()
+    bluechip = bluechip_meta(code, normalized_market, cfg)
+    candidate = {**candidate, **bluechip, "allocation_mode": str(cfg.get("allocation_mode") or candidate.get("allocation_mode") or "diversified")}
     validation_snapshot = _validation_snapshot_for_candidate(candidate, optimized_payload)
     risk_inputs = _risk_inputs_for_candidate(candidate, optimized_payload, cfg)
     risk_guard_state = build_risk_guard_state(candidate=candidate, cfg=cfg, account=account)
     ev_metrics = compute_ev_metrics(candidate=candidate, validation_snapshot=validation_snapshot, cfg=cfg)
-    normalized_market = str(candidate.get("market") or market).upper()
     technical_snapshot = candidate.get("technical_snapshot") if isinstance(candidate.get("technical_snapshot"), dict) else {}
     reasons = [str(item) for item in (candidate.get("reasons") or []) if str(item)]
     signal_state = str(candidate.get("signal_state") or "entry")
@@ -330,6 +353,8 @@ def _build_signal_from_candidate(
         cfg=cfg,
         symbol_key=f"{normalized_market}:{str(candidate.get('code') or '').upper()}",
         sector=str(candidate.get("sector") or "미분류"),
+        allocation_mode=str(candidate.get("allocation_mode") or "diversified"),
+        bluechip=bool(candidate.get("bluechip")),
     )
     gate_passed = str(candidate.get("gate_status") or "passed") == "passed"
     entry_allowed = bool(risk_guard_state.get("entry_allowed", True)) and gate_passed
@@ -400,6 +425,10 @@ def _build_signal_from_candidate(
         "strategy_role": "auxiliary",
         "candidate_primary_source": "common_candidate_pool",
         "allocation": allocator_weight(candidate=candidate, cfg=cfg, account=account),
+        "allocation_mode": str(candidate.get("allocation_mode") or "diversified"),
+        "bluechip": bool(candidate.get("bluechip")),
+        "bluechip_reason": str(candidate.get("bluechip_reason") or ""),
+        "cap_source": str(size_recommendation.get("cap_source") or ""),
         "ev_metrics": ev_metrics,
         "size_recommendation": size_recommendation,
         "execution_realism": {
