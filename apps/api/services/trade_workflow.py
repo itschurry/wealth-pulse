@@ -97,7 +97,7 @@ def _extract_quote_quality(payload: dict[str, Any]) -> dict[str, Any]:
     if not grade:
         grade = "B" if freshness == "fresh" and quote_source else "C" if quote_source else "D"
     exclusion_reason = str(quote_validation.get("exclusion_reason") or "").strip() or ("current price unavailable" if grade == "D" else None)
-    reason = str(quote_validation.get("reason") or ("quote_missing" if grade == "D" else "quote_fallback" if freshness != "fresh" else "quote_live_fetch"))
+    reason = str(quote_validation.get("reason") or ("quote_missing" if grade == "D" else "quote_not_fresh" if freshness != "fresh" else "quote_live_fetch"))
     return {
         "quote_source": quote_source,
         "quote_fetched_at": quote_fetched_at,

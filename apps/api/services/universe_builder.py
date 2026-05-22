@@ -223,7 +223,10 @@ def _normalize_snapshot_symbol(row: dict[str, Any]) -> dict[str, Any] | None:
 
 def _normalize_snapshot(payload: dict[str, Any], *, market: str | None = None) -> dict[str, Any]:
     normalized_rule = _normalize_rule(str(payload.get("rule_name") or payload.get("universe") or "kospi"))
-    normalized_market = normalize_market(market or str(payload.get("market") or "").strip())
+    explicit_market = str(market or "").strip()
+    normalized_market = normalize_market(explicit_market)
+    if not normalized_market and normalized_rule != "sp500":
+        normalized_market = normalize_market(str(payload.get("market") or "").strip())
     symbols: list[dict[str, Any]] = []
     seen_symbols: set[str] = set()
 

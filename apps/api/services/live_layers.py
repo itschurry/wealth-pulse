@@ -196,12 +196,14 @@ def build_layer_d_snapshot(*, risk_check: dict[str, Any], size_recommendation: d
 def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: dict[str, Any], risk: dict[str, Any], timestamp: str, source_context: dict[str, Any]) -> dict[str, Any]:
     normalized_quant = _as_float(quant_score, 0.0) / 100.0
     research_score = research.get("research_score")
-    warnings = [str(item) for item in (research.get("warnings") or []) if str(item) != "research_unavailable"]
+    warnings = [str(item) for item in (research.get("warnings") or []) if str(item)]
     blocked = bool(risk.get("blocked"))
     execution_mode = _normalized_execution_mode(source_context)
 
     research_score_num = _as_float(research_score, -1.0) if research_score is not None else None
-    quant_entry_ready = signal_state == "entry" and normalized_quant >= 0.5 and (research_score_num is None or research_score_num >= 0.45) and not warnings
+    research_freshness = str(research.get("freshness") or "").strip().lower()
+    research_available = not bool(research.get("research_unavailable")) and research_score_num is not None and research_freshness in {"fresh", "healthy", "derived"}
+    quant_entry_ready = signal_state == "entry" and normalized_quant >= 0.5 and research_available and research_score_num >= 0.45 and not warnings
     if signal_state == "exit":
         quant_decision = {"decision": "exit_signal", "order_ready": False, "reason": "exit_signal", "score": round(normalized_quant, 4)}
     elif quant_entry_ready:
@@ -258,7 +260,10 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     else:
         agent_decision = {"decision": "agent_neutral", "order_ready": False, "reason": "no_buy_intent", "rating": rating, "action": action}
 
-    if blocked:
+    if signal_state == "entry" and not research_available:
+        final_action = "blocked"
+        decision_reason = "research_required"
+    elif blocked:
         final_action = "blocked"
         decision_reason = "risk_veto"
     elif agent_decision.get("decision") == "agent_exit_or_block":

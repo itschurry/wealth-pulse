@@ -6,43 +6,43 @@ export const UI_TEXT = {
     analysis: '분석',
   },
   operationsTabs: {
-    overview: '운영 개요',
-    scanner: '장중 스캐너',
-    watchDecision: '관심 시나리오',
+    overview: '요약',
+    scanner: '신호',
+    watchDecision: '관심',
     performance: '성과',
   },
   labTabs: {
-    strategies: '전략 프리셋',
-    validation: '전략 검증 랩',
+    strategies: '전략',
+    validation: '검증',
     universe: '유니버스',
   },
   analysisTabs: {
-    watchlist: '관심 종목',
-    research: '후보 리서치',
+    watchlist: '관심',
+    research: '리서치',
   },
   common: {
     refresh: '새로고침',
-    loading: '데이터를 불러오는 중입니다.',
-    noData: '표시할 데이터가 없습니다.',
-    unknown: '알 수 없음',
+    loading: '불러오는 중',
+    noData: '없음',
+    unknown: '미확인',
     yes: '예',
     no: '아니오',
   },
   empty: {
-    signalsNoMatches: '오늘 조건을 만족한 신호가 없습니다.',
-    signalsMissingData: '신호 데이터가 비어 있습니다. 최신 수집 상태와 로그를 확인하세요.',
-    reportNotReady: '아직 오늘 투자 브리프가 생성되지 않았습니다.',
-    reportInsufficientData: '오늘 투자 브리프에 사용할 데이터가 충분하지 않아 판단을 보류했습니다.',
-    reportNextStep: '리서치 브리프 생성 후 시장 요약과 실행 포인트가 여기에 표시됩니다.',
-    noPositions: '현재 보유 종목이 없습니다.',
-    noTrades: '아직 실행된 거래가 없어 성과를 계산하지 않았습니다.',
-    noLogs: '아직 기록된 로그가 없습니다. 새로고침 후 다시 확인하거나 작업을 실행하세요.',
-    noSkipReasons: '최근 실행에서 기록된 스킵 사유가 없습니다.',
-    noRunHistory: '아직 실행 이력이 없습니다. 백테스트를 실행하면 기록이 쌓입니다.',
-    noOptimizationHistory: '아직 최적화 이력이 없습니다.',
-    noSaveHistory: '아직 저장된 설정 이력이 없습니다.',
-    noReasonBreakdown: '사유별 성과를 계산할 거래 데이터가 아직 없습니다.',
-    noOptimizedParams: '최적화 결과가 아직 없습니다. 최적화 실행 후 여기에 표시됩니다.',
+    signalsNoMatches: '신호 없음',
+    signalsMissingData: '신호 없음',
+    reportNotReady: '브리프 없음',
+    reportInsufficientData: '데이터 부족',
+    reportNextStep: '대기 중',
+    noPositions: '보유 없음',
+    noTrades: '거래 없음',
+    noLogs: '로그 없음',
+    noSkipReasons: '사유 없음',
+    noRunHistory: '이력 없음',
+    noOptimizationHistory: '최적화 없음',
+    noSaveHistory: '저장 없음',
+    noReasonBreakdown: '데이터 없음',
+    noOptimizedParams: '결과 없음',
   },
   confirm: {
     defaultTitle: '작업을 진행하시겠습니까?',
@@ -61,9 +61,9 @@ export const UI_TEXT = {
     cancelAction: '취소',
   },
   errors: {
-    loadFailed: '데이터를 불러오지 못했습니다.',
-    partialLoadFailed: '일부 데이터를 불러오지 못했습니다.',
-    symbolNameMissing: '종목명 매핑 미완성',
+    loadFailed: '로드 실패',
+    partialLoadFailed: '일부 실패',
+    symbolNameMissing: '종목명 없음',
   },
   status: {
     running: '실행 중',
@@ -130,7 +130,7 @@ export const REASON_CODE_KR: Record<string, string> = {
   account_unavailable: '계좌 정보 없음',
   size_zero: '권장 수량 0',
   invalid_unit_price: '유효하지 않은 가격',
-  research_unavailable: 'Hermes 리서치 미사용/일시 불가',
+  research_unavailable: '리서치 AI 미사용/일시 불가',
   headline_stronger_than_body: '헤드라인 강도 대비 본문 근거 약함',
   already_extended_intraday: '장중 과열로 추격 주의',
   low_evidence_density: '근거 밀도 낮음',
@@ -144,7 +144,7 @@ export const REASON_CODE_KR: Record<string, string> = {
 export function reasonCodeToKorean(code: string): string {
   if (code.startsWith('research_warning:')) {
     const warning = code.replace('research_warning:', '');
-    return `Hermes 경고 · ${REASON_CODE_KR[warning] || warning}`;
+    return `리서치 AI 경고 · ${REASON_CODE_KR[warning] || warning}`;
   }
   return REASON_CODE_KR[code] || code;
 }

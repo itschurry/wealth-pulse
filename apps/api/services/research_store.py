@@ -683,6 +683,9 @@ def record_research_run_status(payload: dict[str, Any]) -> dict[str, Any]:
         "recent_errors": [dict(item) for item in recent_errors if isinstance(item, dict)][:10],
         "updated_at": _now_iso(),
     }
+    for key in ("duration_seconds", "avg_seconds_per_success", "concurrency"):
+        if payload.get(key) not in (None, ""):
+            run_payload[key] = payload.get(key)
 
     state_payload = _read_json(RESEARCH_PROVIDER_STATE_PATH, {"providers": {}})
     providers = state_payload.get("providers") if isinstance(state_payload.get("providers"), dict) else {}

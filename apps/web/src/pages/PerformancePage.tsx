@@ -80,7 +80,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
 
   const handleRefresh = useCallback(() => {
     onRefresh();
-    push('info', '운용 성과를 다시 불러왔습니다.', undefined, 'refresh');
+    push('info', '성과 갱신', undefined, 'refresh');
   }, [onRefresh, push]);
 
   return (
@@ -89,7 +89,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
         <div className="content-shell console-page-shell performance-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
             title="성과"
-            subtitle="주문 접수와 실제 체결을 분리해서 봐. 접수만 된 주문은 체결 성과에 섞지 않게 정리했어."
+            subtitle=""
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
@@ -102,37 +102,37 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
             <div className="section-head-row">
               <div>
-                <div className="section-title">통합 운용 성과</div>
+                <div className="section-title">통합</div>
                 <div className="section-copy">원화와 달러를 따로 설정한 계좌라서, 이 값은 원화 환산 기준의 통합 결과야. 시작 자산은 첫 실계좌 스냅샷 기준으로 고정했어.</div>
               </div>
               <div className="section-toolbar">
-                <span className={`inline-badge ${totalReturn != null && totalReturn >= 0 ? 'is-success' : totalReturn != null ? 'is-danger' : ''}`}>통합 수익률 {totalReturn != null ? formatPercent(totalReturn, 2) : '-'}</span>
+                <span className={`inline-badge ${totalReturn != null && totalReturn >= 0 ? 'is-success' : totalReturn != null ? 'is-danger' : ''}`}>{totalReturn != null ? formatPercent(totalReturn, 2) : '-'}</span>
                 <span className="inline-badge">환율 {live.fx_rate ? formatKRW(live.fx_rate) : '-'}</span>
               </div>
             </div>
             <div className="console-metric-grid">
               <div>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>시작 총자산(원화환산)</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>시작</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.starting_equity_krw, true)}</div>
               </div>
               <div>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>현재 총자산(원화환산)</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>현재</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.equity_krw, true)}</div>
               </div>
               <div>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>통합 수익률</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>수익률</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{totalReturn != null ? formatPercent(totalReturn, 2) : '-'}</div>
               </div>
               <div>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 종목 총 수익률</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{positionReturn != null ? formatPercent(positionReturn, 2) : '-'}</div>
               </div>
               <div>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 투자금 / 평가금액</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>투자 / 평가</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{formatKRW(live.position_cost_krw, true)} / {formatKRW(live.position_market_value_krw, true)}</div>
               </div>
               <div>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>누적 주문 / 체결확정</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>주문 / 체결</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{live.total_order_count ?? 0}건 / {live.total_filled_count ?? 0}건</div>
               </div>
             </div>
@@ -142,7 +142,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
             <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">원화 보유 종목 성과</div>
+                  <div className="section-title">원화</div>
                   <div className="section-copy">한국장 보유 종목만 봐. 현금은 빼고 매입 투자금, 보유 평가금, 평가손익, 수익률만 보여줘.</div>
                 </div>
                 <div className="section-toolbar">
@@ -172,7 +172,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
             <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">달러 보유 종목 성과</div>
+                  <div className="section-title">달러</div>
                   <div className="section-copy">미국장 보유 종목만 봐. 달러 기준 투자금, 보유 평가금, 평가손익, 수익률이 핵심이야.</div>
                 </div>
                 <div className="section-toolbar">
@@ -204,7 +204,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
             <div style={{ padding: 16, display: 'grid', gap: 10 }}>
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">주문 / 체결 내역</div>
+                  <div className="section-title">주문</div>
                   <div className="section-copy">체결 완료와 주문 접수를 분리해서 보여줘. 체결 전 단계면 수량/단가 대신 상태를 먼저 보면 돼.</div>
                 </div>
                 <div className="section-filter-row">
@@ -263,7 +263,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
                   {filteredHistory.length === 0 && (
                     <tr>
                       <td colSpan={8} style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>
-                        {marketView === 'ALL' ? '주문/체결 내역이 없습니다.' : `${marketView} 주문/체결 내역이 없습니다.`}
+                        없음
                       </td>
                     </tr>
                   )}
@@ -294,7 +294,7 @@ export function PerformancePage({ snapshot, loading, errorMessage, onRefresh }: 
                   </article>
                 );
               })}
-              {filteredHistory.length === 0 && <div style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>{marketView === 'ALL' ? '주문/체결 내역이 없습니다.' : `${marketView} 주문/체결 내역이 없습니다.`}</div>}
+              {filteredHistory.length === 0 && <div style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
             </div>
           </section>
         </div>

@@ -35,7 +35,6 @@ class CandidateSelectionConfig:
     theme_min_score: float = 2.5
     theme_min_news: int = 1
     theme_priority_bonus: float = 2.0
-    allow_recommendation_fallback: bool = True
 
 
 def normalize_candidate_selection_config(raw: Mapping[str, Any] | None = None) -> CandidateSelectionConfig:
@@ -63,7 +62,6 @@ def normalize_candidate_selection_config(raw: Mapping[str, Any] | None = None) -
         theme_min_score=max(0.0, min(30.0, theme_min_score)),
         theme_min_news=max(0, min(10, theme_min_news)),
         theme_priority_bonus=max(0.0, min(10.0, theme_priority_bonus)),
-        allow_recommendation_fallback=_to_bool(payload.get("allow_recommendation_fallback"), True),
     )
 
 
@@ -76,13 +74,11 @@ def select_market_candidates(
     market: str,
     cfg: CandidateSelectionConfig,
     today_picks: Mapping[str, Any] | None = None,
-    recommendations: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     candidates, _ = _select_market_candidates_with_source(
         market=market,
         cfg=cfg,
         today_picks=today_picks,
-        recommendations=recommendations,
     )
     return candidates
 
@@ -92,7 +88,6 @@ def _select_market_candidates_with_source(
     market: str,
     cfg: CandidateSelectionConfig,
     today_picks: Mapping[str, Any] | None = None,
-    recommendations: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     normalized_market = normalize_strategy_market(market)
     allowed_signals = {"추천", "buy", "BUY"}
@@ -107,16 +102,8 @@ def _select_market_candidates_with_source(
     if prepared:
         return _sort_candidates(prepared, cfg), "today_picks"
 
-    if cfg.allow_recommendation_fallback:
-        recommendation_payload = recommendations if isinstance(recommendations, Mapping) else {}
-        raw_recommendations = recommendation_payload.get("recommendations", [])
-        prepared = _prepare_recommendation_candidates(raw_recommendations, normalized_market, allowed_signals, cfg)
-        if prepared:
-            return _sort_candidates(prepared, cfg), "recommendations"
     if today_picks:
         return [], "today_picks"
-    if recommendations:
-        return [], "recommendations"
     return [], "none"
 
 
@@ -130,16 +117,13 @@ def load_historical_candidates(
     if report_dir is None:
         # Production path: read from SQLite DB.
         today_picks = _load_report_sqlite(date, "today_picks")
-        recommendations = _load_report_sqlite(date, "recommendations")
     else:
         # Test / override path: read from JSON files in the given directory.
         today_picks = _load_report_json(report_dir, date, "today_picks")
-        recommendations = _load_report_json(report_dir, date, "recommendations")
     candidates, source = _select_market_candidates_with_source(
         market=market,
         cfg=cfg,
         today_picks=today_picks,
-        recommendations=recommendations,
     )
     return {
         "date": date,
@@ -200,57 +184,6 @@ def _prepare_today_pick_candidates(
                 "technical_view": item.get("technical_view"),
                 "setup_quality": item.get("setup_quality"),
                 "source": "today_picks",
-            }
-        )
-    return prepared
-
-
-def _prepare_recommendation_candidates(
-    items: list[Any],
-    market: str,
-    allowed_signals: set[str],
-    cfg: CandidateSelectionConfig,
-) -> list[dict[str, Any]]:
-    prepared: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, Mapping):
-            continue
-        ticker = str(item.get("ticker") or "").strip().upper()
-        code = ticker.split(".")[0] or str(item.get("code") or "").strip().upper()
-        if not code:
-            continue
-        item_market = normalize_strategy_market(str(item.get("market") or ""))
-        signal = str(item.get("signal") or "")
-        score = _to_float(item.get("score"), default=0.0)
-        gate_status = str(item.get("gate_status") or "passed")
-        if item_market != market or signal not in allowed_signals or score < cfg.min_score or gate_status == "blocked":
-            continue
-        prepared.append(
-            {
-                "code": code,
-                "name": item.get("name") or code,
-                "market": item_market,
-                "sector": item.get("sector"),
-                "score": score,
-                "signal": signal,
-                "confidence": item.get("confidence"),
-                "gate_status": gate_status,
-                "gate_reasons": item.get("gate_reasons", []),
-                "theme_score": _to_float(item.get("theme_score"), default=0.0),
-                "matched_themes": item.get("matched_themes", []),
-                "keyword_gate_passed": bool(item.get("keyword_gate_passed", False)),
-                "related_news": item.get("related_news", []),
-                "theme_news_count": _pick_theme_news_count(item),
-                "reasons": item.get("reasons", []),
-                "risks": item.get("risks", []),
-                "ai_thesis": item.get("ai_thesis") or item.get("summary"),
-                "price": item.get("price"),
-                "current_price": item.get("current_price"),
-                "last_price_local": item.get("last_price_local"),
-                "technical_snapshot": item.get("technical_snapshot"),
-                "technical_view": item.get("technical_view"),
-                "setup_quality": item.get("setup_quality"),
-                "source": "recommendations",
             }
         )
     return prepared

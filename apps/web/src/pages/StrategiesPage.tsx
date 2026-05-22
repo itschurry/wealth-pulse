@@ -243,8 +243,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
       <div className="page-frame">
         <div className="content-shell console-page-shell strategies-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
-            title="전략 프리셋"
-            subtitle="자동매매 엔진은 승인된 전략 레지스트리만 읽습니다. 승인 상태, 활성화 상태, 유니버스 규칙, 스캔 주기를 여기서 분리해서 관리합니다."
+            title="전략"
+            subtitle=""
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage}
@@ -254,14 +254,14 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
             onClearLogs={clear}
             actions={[
               {
-                label: '기본 전략 추가',
+                label: '기본 추가',
                 onClick: () => { void handleSeedDefaults(); },
                 tone: 'default',
                 busy: pendingId === 'seed',
                 busyLabel: '추가 중...',
               },
               {
-                label: '새 프리셋 추가',
+                label: '새 전략',
                 onClick: () => { void handleCreatePreset(); },
                 tone: 'primary',
                 busy: pendingId === 'create',
@@ -279,9 +279,9 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                     <th style={{ padding: 12, fontSize: 15 }}>상태</th>
                     <th style={{ padding: 12, fontSize: 15 }}>시장</th>
                     <th style={{ padding: 12, fontSize: 15 }}>유니버스</th>
-                    <th style={{ padding: 12, fontSize: 15 }}>스캔 주기</th>
-                    <th style={{ padding: 12, fontSize: 15 }}>연구 성과</th>
-                    <th style={{ padding: 12, fontSize: 15 }}>활성화 일시</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>주기</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>성과</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>활성</th>
                     <th style={{ padding: 12, fontSize: 15 }}>액션</th>
                   </tr>
                 </thead>
@@ -309,7 +309,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{item.universe_rule || '-'}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{item.scan_cycle || '-'}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>
-                          <div>수익률 {formatPercent(research.backtest_return_pct, 1)}</div>
+                          <div>{formatPercent(research.backtest_return_pct, 1)}</div>
                           <div className="signal-cell-copy">WF {formatPercent(research.walk_forward_return_pct, 1)} · Sharpe {research.sharpe ?? '-'}</div>
                         </td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{formatDateTime(item.enabled_at)}</td>
@@ -320,7 +320,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                               onClick={() => setSelectedStrategyId(strategyId)}
                               disabled={!strategyId}
                             >
-                              상세 보기
+                              상세
                             </button>
                             <button
                               className="ghost-button"
@@ -336,7 +336,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                   })}
                   {items.length === 0 && (
                     <tr>
-                      <td colSpan={8} style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>표시할 전략이 없습니다.</td>
+                      <td colSpan={8} style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>없음</td>
                     </tr>
                   )}
                 </tbody>
@@ -361,9 +361,9 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                       <div><div className="responsive-card-label">상태</div><div className="responsive-card-value" style={{ marginTop: 4 }}><span className={lifecycleBadge(item).className}>{lifecycleBadge(item).label}</span></div></div>
                       <div><div className="responsive-card-label">시장</div><div className="responsive-card-value">{item.market || '-'}</div></div>
                       <div><div className="responsive-card-label">유니버스</div><div className="responsive-card-value">{item.universe_rule || '-'}</div></div>
-                      <div><div className="responsive-card-label">스캔 주기</div><div className="responsive-card-value">{item.scan_cycle || '-'}</div></div>
-                      <div><div className="responsive-card-label">연구 성과</div><div className="responsive-card-value">수익률 {formatPercent(research.backtest_return_pct, 1)} · WF {formatPercent(research.walk_forward_return_pct, 1)}</div></div>
-                      <div><div className="responsive-card-label">활성화 일시</div><div className="responsive-card-value">{formatDateTime(item.enabled_at)}</div></div>
+                      <div><div className="responsive-card-label">주기</div><div className="responsive-card-value">{item.scan_cycle || '-'}</div></div>
+                      <div><div className="responsive-card-label">성과</div><div className="responsive-card-value">{formatPercent(research.backtest_return_pct, 1)} · WF {formatPercent(research.walk_forward_return_pct, 1)}</div></div>
+                      <div><div className="responsive-card-label">활성</div><div className="responsive-card-value">{formatDateTime(item.enabled_at)}</div></div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       <button
@@ -371,7 +371,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                         onClick={() => setSelectedStrategyId(strategyId)}
                         disabled={!strategyId}
                       >
-                        상세 보기
+                        상세
                       </button>
                       <button
                         className="ghost-button"
@@ -384,7 +384,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                   </article>
                 );
               })}
-              {items.length === 0 && <div style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>표시할 전략이 없습니다.</div>}
+              {items.length === 0 && <div style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
             </div>
           </div>
 
@@ -392,23 +392,23 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
             <section className="page-section strategy-detail-panel" style={{ display: 'grid', gap: 14 }}>
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">전략 상세</div>
+                  <div className="section-title">상세</div>
                   <div className="section-copy">전략 관리와 전략 검증 랩 사이를 이어주는 현재 저장값 요약이야. 여기서 전략 정체성과 현재 프리셋을 먼저 보고, 검증 랩에서 백테스트/최적화 흐름으로 넘어가면 돼.</div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <span className={lifecycleBadge(selectedStrategy).className}>{lifecycleBadge(selectedStrategy).label}</span>
                   <>
                     <button className="ghost-button" onClick={() => { void handleClonePreset(); }} disabled={!selectedStrategy.strategy_id}>
-                      현재 전략 복제
+                      복제
                     </button>
                     <button className="ghost-button" onClick={() => {
                       localStorage.setItem(VALIDATION_TRANSFER_STORAGE_KEY, JSON.stringify(selectedStrategy));
                       window.location.href = '/lab/validation';
                     }}>
-                      전략 검증 랩 열기
+                      검증
                     </button>
                     <button className="ghost-button" onClick={() => { void handleDeletePreset(); }} disabled={!selectedStrategy.strategy_id || pendingId === String(selectedStrategy.strategy_id)}>
-                      프리셋 삭제
+                      삭제
                     </button>
                   </>
                 </div>
@@ -468,7 +468,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
               <div className="page-section" style={{ padding: 16 }}>
                 <div className="section-head-row">
                   <div>
-                    <div className="section-title">현재 저장된 파라미터 프리셋</div>
+                    <div className="section-title">파라미터</div>
                     <div className="section-copy">
                       여기 값은 현재 전략 레지스트리에 저장된 프리셋이야. 실험용으로 값을 바꿔보는 건 검증 랩에서 하는 게 맞아.
                     </div>
@@ -481,7 +481,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                       <div className="summary-metric-value">{formatParamValue(value)}</div>
                     </div>
                   ))}
-                  {selectedParams.length === 0 && <div style={{ fontSize: 15, color: 'var(--text-4)' }}>표시할 파라미터가 없습니다.</div>}
+                  {selectedParams.length === 0 && <div style={{ fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
                 </div>
               </div>
             </section>

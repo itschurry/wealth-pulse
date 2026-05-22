@@ -1,124 +1,147 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   fetchAgentBrokerStatus,
-  fetchAgentDecisions,
-  fetchAgentOrders,
   fetchAgentRiskConfig,
-  fetchAgentRuns,
-  runAgent,
 } from '../api/domain';
-import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { SymbolIdentity } from '../components/SymbolIdentity';
+import type { ConsoleSnapshot } from '../types/consoleView';
 import type {
   AgentBrokerStatusResponse,
-  AgentDecisionItem,
-  AgentOrderItem,
   AgentRiskConfigResponse,
-  AgentRunItem,
-  AgentRunResponse,
 } from '../types/domain';
-import { formatDateTime, formatNumber } from '../utils/format';
+import {
+  formatDateTime,
+  formatDateTimeWithAge,
+  formatKRW,
+  formatNumber,
+  formatPercent,
+  formatUSD,
+} from '../utils/format';
 
 interface AgentDashboardPageProps {
+  snapshot: ConsoleSnapshot;
   loading: boolean;
   errorMessage: string;
   onRefresh: () => void;
 }
 
-interface AgentDashboardState {
-  runs: AgentRunItem[];
-  decisions: AgentDecisionItem[];
-  orders: AgentOrderItem[];
+interface DashboardState {
   riskConfig: AgentRiskConfigResponse['config'];
   broker: AgentBrokerStatusResponse | null;
-  lastRun: AgentRunResponse | null;
   loading: boolean;
   error: string;
   updatedAt: string;
 }
 
-function emptyState(): AgentDashboardState {
+interface PositionView {
+  key: string;
+  code: string;
+  name: string;
+  market: string;
+  quantity: number;
+  valueKrw: number;
+  pnlKrw: number;
+  pnlPct: number | null;
+}
+
+function emptyState(): DashboardState {
   return {
-    runs: [],
-    decisions: [],
-    orders: [],
     riskConfig: undefined,
     broker: null,
-    lastRun: null,
     loading: true,
     error: '',
     updatedAt: new Date().toISOString(),
   };
 }
 
-function statusBadge(value: string | undefined): { label: string; tone: string } {
-  const normalized = String(value || '').toLowerCase();
-  if (['completed', 'submitted', 'approved', 'buy'].includes(normalized)) return { label: value || '-', tone: 'inline-badge is-success' };
-  if (['failed', 'rejected', 'blocked', 'sell'].includes(normalized)) return { label: value || '-', tone: 'inline-badge is-danger' };
-  if (['running', 'hold', 'skipped'].includes(normalized)) return { label: value || '-', tone: 'inline-badge' };
-  return { label: value || '-', tone: 'inline-badge' };
+function toNumber(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function executionChannelLabel(value: string | undefined): string {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return 'runtime';
-  return normalized;
+function toOptionalNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
-function payloadText(item: { payload?: Record<string, unknown> } | null | undefined, key: string): string {
-  const payload = item?.payload;
-  return String(payload && payload[key] ? payload[key] : '').trim();
+function signedKRW(value: number): string {
+  const prefix = value > 0 ? '+' : '';
+  return `${prefix}${formatKRW(value, true)}`;
 }
 
-function itemName(item: { name?: string; payload?: Record<string, unknown> } | null | undefined): string {
-  return String(item?.name || payloadText(item, 'name')).trim();
+function signedPercent(value: number | null): string {
+  if (value == null) return '-';
+  const prefix = value > 0 ? '+' : '';
+  return `${prefix}${formatPercent(value, 2)}`;
 }
 
-function itemMarket(item: { market?: string; payload?: Record<string, unknown> } | null | undefined): string {
-  return String(item?.market || payloadText(item, 'market')).trim().toUpperCase();
+function toneFor(value: number | null | undefined): string {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric === 0) return 'is-neutral';
+  return numeric > 0 ? 'is-up' : 'is-down';
 }
 
-function StatCard({ label, value, copy }: { label: string; value: string | number; copy?: string }) {
-  return (
-    <div className="page-section" style={{ padding: 16 }}>
-      <div className="section-copy">{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>{value}</div>
-      {copy && <div className="section-copy" style={{ marginTop: 6 }}>{copy}</div>}
-    </div>
-  );
+function clampRatio(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
 }
 
-function safeSummaryValue(item: AgentRunItem | null | undefined, key: keyof NonNullable<AgentRunItem['summary']>): number {
-  const value = item?.summary?.[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+function sharePct(value: number, total: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0;
+  return clampRatio((value / total) * 100);
 }
 
-export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDashboardPageProps) {
-  const [state, setState] = useState<AgentDashboardState>(() => emptyState());
-  const [running, setRunning] = useState(false);
-  const latestRun = state.runs[0] || null;
-  const latestDecision = state.decisions[0] || null;
-  const latestOrder = state.orders[0] || null;
+function normalizePositions(raw: unknown): PositionView[] {
+  const items = Array.isArray(raw)
+    ? raw as Array<Record<string, unknown>>
+    : raw && typeof raw === 'object'
+      ? Object.values(raw as Record<string, unknown>).filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+      : [];
+
+  return items
+    .map((item, index) => {
+      const quantity = toNumber(item.quantity);
+      const valueKrw = toNumber(item.market_value_krw) || toNumber(item.last_price_krw) * quantity;
+      return {
+        key: `${String(item.market || '-')}:${String(item.code || index)}`,
+        code: String(item.code || ''),
+        name: String(item.name || ''),
+        market: String(item.market || '-').toUpperCase(),
+        quantity,
+        valueKrw,
+        pnlKrw: toNumber(item.unrealized_pnl_krw),
+        pnlPct: toOptionalNumber(item.unrealized_pnl_pct),
+      };
+    })
+    .sort((left, right) => right.valueKrw - left.valueKrw);
+}
+
+function researchStatusLabel(status: string | undefined, partialFailure?: boolean): { label: string; tone: 'good' | 'neutral' | 'bad' } {
+  if (partialFailure) return { label: '일부 실패', tone: 'bad' };
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'healthy') return { label: '정상', tone: 'good' };
+  if (normalized === 'missing') return { label: '없음', tone: 'neutral' };
+  if (normalized === 'stale') return { label: '지연', tone: 'bad' };
+  if (normalized === 'invalid') return { label: '무효', tone: 'bad' };
+  return { label: normalized || '대기', tone: 'neutral' };
+}
+
+export function AgentDashboardPage({ snapshot, loading, errorMessage, onRefresh }: AgentDashboardPageProps) {
+  const [state, setState] = useState<DashboardState>(() => emptyState());
 
   const refresh = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: '' }));
     try {
-      const [runs, decisions, orders, riskConfig, broker] = await Promise.all([
-        fetchAgentRuns(20),
-        fetchAgentDecisions(50),
-        fetchAgentOrders(50),
+      const [riskConfig, broker] = await Promise.all([
         fetchAgentRiskConfig(),
         fetchAgentBrokerStatus(),
       ]);
       setState((prev) => ({
         ...prev,
-        runs: runs.items || [],
-        decisions: decisions.items || [],
-        orders: orders.items || [],
         riskConfig: riskConfig.config,
         broker,
         loading: false,
-        error: runs.error || decisions.error || orders.error || riskConfig.error || broker.error || '',
+        error: riskConfig.error || broker.error || '',
         updatedAt: new Date().toISOString(),
       }));
     } catch (error) {
@@ -130,164 +153,154 @@ export function AgentDashboardPage({ loading, errorMessage, onRefresh }: AgentDa
     refresh();
   }, [refresh]);
 
-  const summaryCards = useMemo(() => {
-    return [
-      { label: '최근 후보', value: safeSummaryValue(latestRun, 'candidate_count'), copy: 'Agent Run 입력 후보 수' },
-      { label: '판단', value: safeSummaryValue(latestRun, 'decisions'), copy: 'Hermes/스냅샷 BUY·SELL·HOLD 판단' },
-      { label: 'Risk 승인', value: safeSummaryValue(latestRun, 'risk_approved'), copy: '결정적 Risk Gate 통과' },
-      { label: '주문 기록', value: safeSummaryValue(latestRun, 'orders_submitted'), copy: 'Executor가 남긴 주문/실행 기록' },
-    ];
-  }, [latestRun]);
+  const engineState = snapshot.engine.execution?.state || {};
+  const engineAccount = snapshot.engine.execution?.account || {};
+  const portfolioAccount = snapshot.portfolio.account || {};
+  const performance = snapshot.performance.live || {};
+  const account = Object.keys(portfolioAccount).length > 0 ? portfolioAccount : engineAccount;
+  const positions = normalizePositions(account.positions || engineAccount.positions);
 
-  async function handleRunAgent() {
-    setRunning(true);
-    setState((prev) => ({ ...prev, error: '' }));
-    try {
-      const result = await runAgent({ limit: 5 });
-      setState((prev) => ({ ...prev, lastRun: result }));
-      await refresh();
-      onRefresh();
-    } catch (error) {
-      setState((prev) => ({ ...prev, error: error instanceof Error ? error.message : String(error) }));
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  const riskConfig = state.riskConfig || {};
-  const allocationMode = String(riskConfig.allocation_mode || 'diversified');
-  const broker = state.broker;
-  const combinedLoading = loading || state.loading || running;
+  const equityKrw = toNumber(account.equity_krw) || toNumber(performance.equity_krw) || toNumber(engineState.current_equity);
+  const cashKrw = toNumber(account.cash_krw) || toNumber(performance.cash_krw);
+  const cashUsd = toNumber(account.cash_usd) || toNumber(performance.cash_usd);
+  const marketValueKrw = positions.reduce((sum, item) => sum + item.valueKrw, 0) || toNumber(performance.market_value_krw);
+  const unrealizedPnlKrw = positions.reduce((sum, item) => sum + item.pnlKrw, 0) || toNumber(performance.unrealized_pnl_krw);
+  const realizedPnlKrw = toNumber(performance.realized_pnl_krw) || toNumber(engineState.today_realized_pnl);
+  const totalReturnPct = toOptionalNumber(performance.total_return_pct);
+  const positionReturnPct = toOptionalNumber(performance.position_return_pct);
+  const research = snapshot.research || {};
+  const researchStatus = researchStatusLabel(research.status, research.partial_failure);
+  const brokerReady = Boolean(state.broker?.configured && state.broker?.account_configured);
+  const allocationMode = String(state.riskConfig?.allocation_mode || 'diversified') === 'concentrated' ? '집중투자' : '분산투자';
   const visibleError = state.error || errorMessage;
-  const latestOrderStatus = statusBadge(latestOrder?.status);
-  const latestDecisionStatus = statusBadge(latestDecision?.action);
+  const investedPct = sharePct(marketValueKrw, equityKrw || marketValueKrw + cashKrw);
+  const cashPct = sharePct(cashKrw, equityKrw || marketValueKrw + cashKrw);
+  const researchSuccess = toNumber(research.success_count);
+  const researchFailure = toNumber(research.failure_count);
+  const researchTotal = Math.max(researchSuccess + researchFailure, 1);
+  const researchSuccessPct = sharePct(researchSuccess, researchTotal);
+  const researchFailurePct = sharePct(researchFailure, researchTotal);
 
   return (
-    <div className="content-shell workspace-grid">
-      <ConsoleActionBar
-        title="Agent 자동거래 관제"
-        subtitle="Hermes 판단, Risk Gate, Executor 기록을 자동매매 엔진 모드와 분리해서 관제합니다."
-        lastUpdated={state.updatedAt}
-        loading={combinedLoading}
-        errorMessage={visibleError}
-        statusItems={[
-          { label: '관제 상태', value: running ? '실행 중' : '대기', tone: running ? 'good' : 'neutral' },
-          { label: 'Risk Gate', value: `${formatNumber(Number(riskConfig.min_confidence ?? 0), 2)}+`, tone: 'neutral' },
-          { label: '투자 모드', value: allocationMode === 'concentrated' ? '집중' : '분산', tone: allocationMode === 'concentrated' ? 'good' : 'neutral' },
-          { label: 'KIS 설정', value: broker?.configured ? '준비' : '미설정', tone: broker?.configured ? 'good' : 'neutral' },
-          { label: '계좌', value: broker?.account_configured ? '준비' : '미설정', tone: broker?.account_configured ? 'good' : 'neutral' },
-        ]}
-        onRefresh={refresh}
-        actions={[
-          { label: running ? 'Agent 실행 중' : 'Agent 1회 실행', onClick: handleRunAgent, tone: 'primary', disabled: running },
-        ]}
-        logs={[]}
-        onClearLogs={() => undefined}
-      />
-
-      <section className="page-section" style={{ padding: 16 }}>
-        <div className="section-title">종목 선정 1차 기준</div>
-        <div className="section-copy" style={{ marginTop: 6 }}>
-          거래대금 상위 · 등락률 상위 · 뉴스 급증 종목 · 보유 종목 · 관심 종목을 표준 입력원으로 모아 중복 제거 후 Hermes/Risk Gate로 넘깁니다. 뉴스 급증은 가장 높은 우선순위 보너스를 받습니다.
+    <div className="content-shell portfolio-dashboard">
+      <div className="portfolio-topbar">
+        <div className="portfolio-status-row">
+          <span className={engineState.running ? 'portfolio-dot is-good' : 'portfolio-dot'} />
+          <span>{engineState.running ? '실행' : '중지'}</span>
+          <span className={researchStatus.tone === 'good' ? 'portfolio-dot is-good' : researchStatus.tone === 'bad' ? 'portfolio-dot is-bad' : 'portfolio-dot'} />
+          <span>리서치 {researchStatus.label}</span>
+          <span className={brokerReady ? 'portfolio-dot is-good' : 'portfolio-dot'} />
+          <span>{brokerReady ? '계좌' : '계좌 미설정'}</span>
         </div>
-      </section>
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={loading || state.loading}
+          onClick={() => {
+            onRefresh();
+            void refresh();
+          }}
+        >
+          갱신
+        </button>
+      </div>
+      {visibleError ? <div className="console-error-line">{visibleError}</div> : null}
 
-      {visibleError && <div className="page-section workspace-empty-state">Agent Dashboard 오류: {visibleError}</div>}
-      {state.lastRun && (
-        <section className="page-section" style={{ padding: 16 }}>
-          <div className="section-title">방금 실행 결과</div>
-          <div className="section-copy" style={{ marginTop: 6 }}>
-            Run #{state.lastRun.run_id || '-'} · 후보 {formatNumber(state.lastRun.summary?.candidate_count || 0)}개 · 주문 {formatNumber(state.lastRun.summary?.orders_submitted || 0)}건 · {state.lastRun.ok ? '정상 완료' : state.lastRun.error || '확인 필요'}
+      <section className="portfolio-hero-simple">
+        <div>
+          <div className="portfolio-label">자산</div>
+          <div className="portfolio-equity">{formatKRW(equityKrw, true)}</div>
+          <div className="portfolio-allocation">
+            <div className="portfolio-allocation-track">
+              <div className="portfolio-allocation-invested" style={{ width: `${investedPct}%` }} />
+              <div className="portfolio-allocation-cash" style={{ width: `${cashPct}%` }} />
+            </div>
+            <div className="portfolio-subline">
+              <span>투자 {formatKRW(marketValueKrw, true)}</span>
+              <span>현금 {formatKRW(cashKrw, true)}</span>
+              <span>USD {formatUSD(cashUsd, true)}</span>
+              <span>{formatNumber(positions.length, 0)}종목</span>
+            </div>
           </div>
-        </section>
-      )}
-
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-        {summaryCards.map((card) => <StatCard key={card.label} {...card} />)}
-      </section>
-
-      <section className="page-section" style={{ padding: 16 }}>
-        <div className="workspace-card-head" style={{ marginBottom: 12 }}>
+        </div>
+        <div className="portfolio-pnl-grid">
           <div>
-            <div className="section-title">안전 설정 / 브로커 상태</div>
-            <div className="section-copy">민감 정보는 서버에서 [REDACTED]로만 노출하고, 이 화면은 실계좌 연결 테스트를 수행하지 않습니다.</div>
+            <span>평가</span>
+            <strong className={toneFor(unrealizedPnlKrw)}>{signedKRW(unrealizedPnlKrw)}</strong>
           </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-          <div className="workspace-summary-card">
-            <div className="workspace-summary-title">Risk Gate</div>
-            <div className="workspace-summary-copy">투자 모드 {allocationMode === 'concentrated' ? '집중투자' : '분산투자'}</div>
-            <div className="workspace-summary-copy">최소 신뢰도 {formatNumber(Number(riskConfig.min_confidence ?? 0), 2)}</div>
-            <div className="workspace-summary-copy">손익비 {formatNumber(Number(riskConfig.min_reward_risk_ratio ?? 0), 2)} 이상</div>
-            <div className="workspace-summary-copy">종목당 한도 {formatNumber(Number(riskConfig.max_symbol_position_ratio ?? 0) * 100, 1)}%</div>
-            <div className="workspace-summary-copy">우량주 한도 {formatNumber(Number(riskConfig.bluechip_max_symbol_position_ratio ?? 0) * 100, 1)}% · 추가매수 {riskConfig.bluechip_allow_additional_buy ? '허용' : '차단'}</div>
-          </div>
-          <div className="workspace-summary-card">
-            <div className="workspace-summary-title">KIS Broker</div>
-            <div className="workspace-summary-copy">API 키 {broker?.configured ? '설정됨' : '미설정'} · 계좌 {broker?.account_configured ? '설정됨' : '미설정'}</div>
-            <div className="workspace-summary-copy">Base URL {broker?.base_url || '-'}</div>
-            <div className="workspace-summary-copy">주문 실행은 자동매매 엔진에서 결정</div>
-          </div>
-        </div>
-      </section>
-
-      <section className="page-section workspace-table-section">
-        <div className="workspace-section-head" style={{ padding: '16px 16px 0' }}>
           <div>
-            <div className="section-title">최근 Agent Runs</div>
-            <div className="section-copy">후보 수, 판단 수, Risk 승인/거절, 주문 기록 수를 한 줄로 확인합니다.</div>
+            <span>실현</span>
+            <strong className={toneFor(realizedPnlKrw)}>{signedKRW(realizedPnlKrw)}</strong>
           </div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="workspace-table">
-            <thead>
-              <tr><th>Run</th><th>상태</th><th>채널</th><th>후보</th><th>판단</th><th>승인/거절</th><th>주문</th><th>시각</th></tr>
-            </thead>
-            <tbody>
-              {state.runs.length === 0 && <tr><td colSpan={8}>아직 Agent Run 기록이 없습니다.</td></tr>}
-              {state.runs.map((item) => {
-                const badge = statusBadge(item.status);
-                const runId = item.id ?? item.run_id ?? '-';
-                return (
-                  <tr key={String(runId)}>
-                    <td>#{String(runId)}</td>
-                    <td><span className={badge.tone}>{badge.label}</span></td>
-                    <td>{executionChannelLabel(item.execution_channel)}</td>
-                    <td>{formatNumber(item.summary?.candidate_count || 0)}</td>
-                    <td>{formatNumber(item.summary?.decisions || 0)}</td>
-                    <td>{formatNumber(item.summary?.risk_approved || 0)} / {formatNumber(item.summary?.risk_rejected || 0)}</td>
-                    <td>{formatNumber(item.summary?.orders_submitted || 0)} 제출 · {formatNumber(item.summary?.orders_skipped || 0)} 스킵</td>
-                    <td>{formatDateTime(item.finished_at || item.started_at || item.created_at)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div>
+            <span>총률</span>
+            <strong className={toneFor(totalReturnPct)}>{signedPercent(totalReturnPct)}</strong>
+          </div>
+          <div>
+            <span>보유률</span>
+            <strong className={toneFor(positionReturnPct)}>{signedPercent(positionReturnPct)}</strong>
+          </div>
         </div>
       </section>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-        <div className="page-section" style={{ padding: 16 }}>
-          <div className="section-title">최근 판단</div>
-          <div className="workspace-chip-row" style={{ marginTop: 10 }}>
-            <span className={latestDecisionStatus.tone}>{latestDecisionStatus.label}</span>
-            <span className="inline-badge">
-              <SymbolIdentity code={latestDecision?.symbol} name={itemName(latestDecision)} market={itemMarket(latestDecision)} compact />
-            </span>
-            <span className="inline-badge">신뢰도 {formatNumber(Number(latestDecision?.confidence || 0), 2)}</span>
+      <section className="portfolio-main-grid">
+        <div className="page-section portfolio-panel">
+          <div className="portfolio-panel-head">
+            <div className="section-title">보유</div>
+            <div className="inline-badge">{formatKRW(marketValueKrw, true)}</div>
           </div>
-          <div className="section-copy" style={{ marginTop: 10 }}>{formatDateTime(latestDecision?.created_at)}</div>
+          <div className="holding-list">
+            {positions.slice(0, 8).map((position) => (
+              <div key={position.key} className="holding-row">
+                <div>
+                  <SymbolIdentity code={position.code} name={position.name} market={position.market} compact />
+                  <div className="holding-weight-track">
+                    <div style={{ width: `${sharePct(position.valueKrw, marketValueKrw)}%` }} />
+                  </div>
+                </div>
+                <div className="holding-row-number">
+                  <strong>{formatKRW(position.valueKrw, true)}</strong>
+                  <span>{formatNumber(position.quantity, 0)}주</span>
+                </div>
+                <div className={`holding-row-pnl ${toneFor(position.pnlKrw)}`}>
+                  <strong>{signedKRW(position.pnlKrw)}</strong>
+                  <span>{signedPercent(position.pnlPct)}</span>
+                </div>
+              </div>
+            ))}
+            {positions.length === 0 && <div className="workspace-empty-state">현재 보유종목이 없어.</div>}
+          </div>
         </div>
-        <div className="page-section" style={{ padding: 16 }}>
-          <div className="section-title">최근 주문 기록</div>
-          <div className="workspace-chip-row" style={{ marginTop: 10 }}>
-            <span className={latestOrderStatus.tone}>{latestOrderStatus.label}</span>
-            <span className="inline-badge">{executionChannelLabel(latestOrder?.execution_channel)}</span>
-            <span className="inline-badge">
-              <SymbolIdentity code={latestOrder?.symbol} name={itemName(latestOrder)} market={itemMarket(latestOrder)} compact />
+
+        <div className="page-section portfolio-panel">
+          <div className="portfolio-panel-head">
+            <div className="section-title">리서치</div>
+            <span className={researchStatus.tone === 'good' ? 'inline-badge is-success' : researchStatus.tone === 'bad' ? 'inline-badge is-danger' : 'inline-badge'}>
+              {researchStatus.label}
             </span>
           </div>
-          <div className="section-copy" style={{ marginTop: 10 }}>Executor가 남긴 최신 주문/실행 기록입니다.</div>
+          <div className="research-health-bar">
+            <div className="is-good" style={{ width: `${researchSuccessPct}%` }} />
+            <div className="is-bad" style={{ width: `${researchFailurePct}%` }} />
+          </div>
+          <div className="research-simple-grid">
+            <div><span>상태</span><strong>{research.last_run_status || '대기'}</strong></div>
+            <div><span>대상</span><strong>{formatNumber(research.selected_count, 0)}</strong></div>
+            <div><span>성공</span><strong>{formatNumber(research.success_count, 0)}</strong></div>
+            <div><span>실패</span><strong>{formatNumber(research.failure_count, 0)}</strong></div>
+            <div><span>최신</span><strong>{formatNumber(research.fresh_symbol_count, 0)}</strong></div>
+            <div><span>지연</span><strong>{formatNumber(research.stale_symbol_count, 0)}</strong></div>
+          </div>
+          {research.partial_failure && Array.isArray(research.recent_errors) && research.recent_errors.length > 0 && (
+            <div className="research-error-line">
+              {research.recent_errors.slice(0, 3).map((item) => `${item.market || '-'}:${item.symbol || '-'} ${item.error || ''}`).join(' / ')}
+            </div>
+          )}
+          <div className="portfolio-meta-list">
+            <div>{formatDateTimeWithAge(research.last_generated_at || research.latest_bucket_ts)}</div>
+            <div>{allocationMode} · {brokerReady ? '계좌 준비' : '계좌 미설정'}</div>
+            <div>{formatDateTime(engineState.next_run_at)}</div>
+          </div>
         </div>
       </section>
     </div>

@@ -90,9 +90,9 @@ def evaluate_agent_decision_risk(
     market = str(decision.get("market") or "").strip().upper()
     risk = decision.get("risk") if isinstance(decision.get("risk"), dict) else {}
     checks: list[dict[str, Any]] = []
-    allocation_mode = str(config.get("allocation_mode") or decision.get("allocation_mode") or "diversified").strip().lower()
+    allocation_mode = str(config.get("allocation_mode") or decision.get("allocation_mode") or "concentrated").strip().lower()
     if allocation_mode not in {"diversified", "concentrated"}:
-        allocation_mode = "diversified"
+        allocation_mode = "concentrated"
     meta = bluechip_meta(symbol, market, config)
     bluechip = bool(decision.get("bluechip") or meta.get("bluechip"))
     bluechip_reason = str(decision.get("bluechip_reason") or meta.get("bluechip_reason") or "").strip()

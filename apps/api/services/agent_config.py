@@ -10,10 +10,10 @@ from config.settings import CONFIG_STATE_DIR, KIS_ACCOUNT_ACNT_PRDT_CD, KIS_ACCO
 DEFAULT_RISK_CONFIG_PATH = CONFIG_STATE_DIR / "agent_risk_config.json"
 
 _DEFAULT_CONFIG: dict[str, Any] = {
-    "allocation_mode": "diversified",
-    "min_confidence": 0.7,
+    "allocation_mode": "concentrated",
+    "min_confidence": 0.65,
     "min_reward_risk_ratio": 1.3,
-    "max_symbol_position_ratio": 0.10,
+    "max_symbol_position_ratio": 0.20,
     "allow_additional_buy": False,
     "bluechip_top_n_kospi": 20,
     "bluechip_top_n_us": 20,
@@ -59,7 +59,7 @@ def _sanitize_config(raw: dict[str, Any]) -> dict[str, Any]:
         if key in raw:
             config[key] = raw[key]
     allocation_mode = str(config.get("allocation_mode") or _DEFAULT_CONFIG["allocation_mode"]).strip().lower()
-    config["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "diversified"
+    config["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else _DEFAULT_CONFIG["allocation_mode"]
     config["min_confidence"] = max(0.0, min(1.0, _to_float(config.get("min_confidence"), _DEFAULT_CONFIG["min_confidence"])))
     config["min_reward_risk_ratio"] = max(0.0, _to_float(config.get("min_reward_risk_ratio"), _DEFAULT_CONFIG["min_reward_risk_ratio"]))
     config["max_symbol_position_ratio"] = max(0.0, min(1.0, _to_float(config.get("max_symbol_position_ratio"), _DEFAULT_CONFIG["max_symbol_position_ratio"])))

@@ -13,10 +13,11 @@ from services.bluechip_universe import bluechip_meta
 from services.research_store import DEFAULT_RESEARCH_PROVIDER, load_latest_research_snapshot
 from services.runtime_store import list_strategy_scans
 
-DEFAULT_POOL_LIMIT = 40
-DEFAULT_CORE_LIMIT = 12
-DEFAULT_PROMOTION_LIMIT = 3
+DEFAULT_POOL_LIMIT = 100
+DEFAULT_CORE_LIMIT = 20
+DEFAULT_PROMOTION_LIMIT = 4
 DEFAULT_PROMOTION_EVENT_LIMIT = 50
+_US_MARKET_GROUP = {"NASDAQ", "NYSE", "AMEX", "US", "USA"}
 
 _ACTION_WEIGHT = {
     "review_for_entry": 1000.0,
@@ -46,6 +47,10 @@ def _normalize_market(value: Any) -> str:
 
 def _normalize_symbol(value: Any) -> str:
     return str(value or "").strip().upper()
+
+
+def _is_us_market(value: Any) -> bool:
+    return _normalize_market(value) in _US_MARKET_GROUP
 
 
 def _normalize_candidate_rank(value: Any) -> int | None:
@@ -112,6 +117,13 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalized_research_score(value: Any) -> float:
+    score = _to_float(value, 0.0)
+    if score > 1.0:
+        score = score / 100.0
+    return max(0.0, min(score, 1.0))
 
 
 def _read_json(path: Path) -> Any:
@@ -205,6 +217,19 @@ def _news_surge_score(candidate: dict[str, Any], snapshot: dict[str, Any]) -> fl
     return score
 
 
+def _snapshot_research_score(candidate: dict[str, Any], snapshot: dict[str, Any]) -> float:
+    for source in (
+        candidate.get("snapshot_research_score"),
+        candidate.get("research_score"),
+        snapshot.get("research_score"),
+    ):
+        score = _normalized_research_score(source)
+        if score > 0:
+            return score
+    layer_c = candidate.get("layer_c") if isinstance(candidate.get("layer_c"), dict) else {}
+    return _normalized_research_score(layer_c.get("research_score"))
+
+
 def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], interest_symbols: set[str]) -> dict[str, Any]:
     symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
     market = _normalize_market(candidate.get("market"))
@@ -218,9 +243,14 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
     change_pct = _first_number(candidate, technical, "change_pct", "change_rate", "fluctuation_rate")
     snapshot = _load_latest_research_snapshot(symbol, market) if symbol and market else {}
     news_score = _news_surge_score(candidate, snapshot)
+    research_score = _snapshot_research_score(candidate, snapshot)
     risk_config = default_risk_config_store().load()
     bluechip = bluechip_meta(symbol, market, risk_config)
     sources: list[str] = []
+    if bluechip.get("bluechip"):
+        sources.append("bluechip_core")
+    if research_score >= 0.65:
+        sources.append("research_high_score")
     if trading_value > 0:
         sources.append("trading_value_top")
     if change_pct > 0:
@@ -230,9 +260,9 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
     source_hint = str(candidate.get("candidate_source") or "").strip()
     if source_hint and source_hint not in sources:
         sources.append(source_hint)
-    if symbol in held_symbols:
+    if symbol in held_symbols and "held_position" not in sources:
         sources.append("held_position")
-    if symbol in interest_symbols:
+    if symbol in interest_symbols and "user_watchlist" not in sources:
         sources.append("user_watchlist")
     return {
         "symbol": symbol,
@@ -242,23 +272,25 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
         "trading_value": trading_value,
         "change_pct": change_pct,
         "news_surge_score": news_score,
+        "snapshot_research_score": research_score,
         "candidate_sources": sources,
         "technical_snapshot": technical or candidate.get("technical_snapshot"),
-        "allocation_mode": str(risk_config.get("allocation_mode") or "diversified"),
+        "allocation_mode": str(risk_config.get("allocation_mode") or "concentrated"),
         **bluechip,
     }
 
 
 def _universe_rule_for_market(market: str) -> str:
     normalized_market = _normalize_market(market)
-    return "sp500" if normalized_market in {"NASDAQ", "NYSE", "US"} else "kospi"
+    return "sp500" if _is_us_market(normalized_market) else "kospi"
 
 
 def _configured_universe_candidates(market: str) -> list[dict[str, Any]]:
     normalized_market = _normalize_market(market)
     from services.universe_builder import get_configured_universe_snapshot
 
-    universe = get_configured_universe_snapshot(_universe_rule_for_market(normalized_market), market=normalized_market)
+    snapshot_market = None if _is_us_market(normalized_market) else normalized_market
+    universe = get_configured_universe_snapshot(_universe_rule_for_market(normalized_market), market=snapshot_market)
 
     rows = universe.get("symbols") if isinstance(universe, dict) else []
     result: list[dict[str, Any]] = []
@@ -319,6 +351,13 @@ def _candidate_priority(candidate: dict[str, Any], *, held_symbols: set[str], in
     signal_state = str(candidate.get("signal_state") or "watch").strip().lower()
     rank = _rank_sort_value(candidate.get("candidate_rank"))
     score = _to_float(candidate.get("score"), 0.0)
+    research_score = _normalized_research_score(candidate.get("snapshot_research_score") or candidate.get("research_score"))
+    trading_value = _to_float(candidate.get("trading_value"), 0.0)
+    change_pct = _to_float(candidate.get("change_pct"), 0.0)
+    news_score = _to_float(candidate.get("news_surge_score"), 0.0)
+    is_bluechip = bool(candidate.get("bluechip"))
+    allocation_mode = str(candidate.get("allocation_mode") or "").strip().lower()
+    source_hint = str(candidate.get("candidate_source") or "").strip().lower()
     fresh, freshness = _extract_candidate_freshness(candidate)
     bonus = 0.0
     if symbol in held_symbols:
@@ -332,12 +371,25 @@ def _candidate_priority(candidate: dict[str, Any], *, held_symbols: set[str], in
     elif freshness in {"missing", "research_unavailable"}:
         bonus -= 80.0
     sources = candidate.get("candidate_sources") if isinstance(candidate.get("candidate_sources"), list) else []
+    if is_bluechip:
+        bonus += 760.0 if allocation_mode == "concentrated" else 320.0
+    if research_score >= 0.75:
+        bonus += 760.0
+    elif research_score >= 0.65:
+        bonus += 520.0
+    elif research_score > 0:
+        bonus += research_score * 260.0
     if "news_surge" in sources:
-        bonus += 1150.0 + min(_to_float(candidate.get("news_surge_score"), 0.0), 300.0)
+        bonus += 1400.0 + min(news_score, 360.0)
     if "trading_value_top" in sources:
-        bonus += 420.0
+        bonus += 620.0
     if "change_rate_top" in sources:
-        bonus += 260.0 + max(0.0, min(_to_float(candidate.get("change_pct"), 0.0), 30.0)) * 6.0
+        bonus += 420.0 + max(0.0, min(change_pct, 30.0)) * 10.0
+    if change_pct < 0:
+        bonus -= min(abs(change_pct), 20.0) * 8.0
+    has_market_evidence = trading_value > 0 or change_pct != 0.0 or news_score > 0.0
+    if source_hint == "config_universe" and not is_bluechip and not fresh and not has_market_evidence and research_score <= 0:
+        bonus -= 220.0
     return (
         _ACTION_WEIGHT.get(action, 200.0)
         + _SIGNAL_STATE_WEIGHT.get(signal_state, 50.0)
@@ -377,14 +429,24 @@ def _annotate_standard_sources(rows: list[dict[str, Any]], *, held_symbols: set[
                 row[key] = value
             elif value not in (None, "", [], {}):
                 row[key] = value
-    def _ranked(items: list[dict[str, Any]], key: str, limit: int, *, positive_only: bool = True) -> list[dict[str, Any]]:
+    def _ranked(
+        items: list[dict[str, Any]],
+        key: str,
+        limit: int,
+        *,
+        positive_only: bool = True,
+        min_value: float | None = None,
+    ) -> list[dict[str, Any]]:
         filtered = [item for item in items if (not positive_only or _to_float(item.get(key), 0.0) > 0)]
+        if min_value is not None:
+            filtered = [item for item in filtered if _to_float(item.get(key), 0.0) >= min_value]
         filtered.sort(key=lambda item: (_to_float(item.get(key), 0.0), _to_float(item.get("score"), 0.0)), reverse=True)
         return filtered[:limit]
     source_rankings = {
-        "news_surge": _ranked(rows, "news_surge_score", 14),
-        "trading_value_top": _ranked(rows, "trading_value", 14),
-        "change_rate_top": _ranked(rows, "change_pct", 12),
+        "news_surge": _ranked(rows, "news_surge_score", 24),
+        "trading_value_top": _ranked(rows, "trading_value", 28),
+        "change_rate_top": _ranked(rows, "change_pct", 24),
+        "research_high_score": _ranked(rows, "snapshot_research_score", 24, min_value=0.65),
     }
     for source, ranked_rows in source_rankings.items():
         for idx, item in enumerate(ranked_rows, start=1):
@@ -565,6 +627,8 @@ def build_market_watchlist(
             "promotion_selected": promotion_selected,
             "held_symbols": sorted(held_symbols),
             "standard_candidate_sources": [
+                "bluechip_core",
+                "research_high_score",
                 "trading_value_top",
                 "change_rate_top",
                 "news_surge",

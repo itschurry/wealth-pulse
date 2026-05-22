@@ -577,10 +577,10 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
     try {
       const response = await saveStrategyPreset(payload);
       if (!response.ok) {
-        push('error', '프리셋 저장에 실패했습니다.', '', 'settings');
+        push('error', '저장 실패', '', 'settings');
         return;
       }
-      push('success', `프리셋 "${name}" 을 저장했습니다.`, '전략 관리에서 상태를 확인하고 활성화할 수 있습니다.', 'settings');
+      push('success', `저장 완료 · ${name}`, '', 'settings');
     } finally {
       setPresetSaving(false);
     }
@@ -588,21 +588,21 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
 
   const actions = useMemo<ActionBarAction[]>(() => ([
     {
-      label: '설정 저장',
+      label: '저장',
       tone: 'default',
       onClick: handleSave,
       disabled: validationStore.syncStatus === 'saving',
       busy: validationStore.syncStatus === 'saving',
     },
     {
-      label: '백테스트 실행',
+      label: '백테스트',
       tone: 'primary',
       onClick: handleRunBacktest,
       disabled: status === 'loading',
       busy: status === 'loading',
     },
     {
-      label: '워크포워드 검증',
+      label: '워크포워드',
       tone: 'default',
       onClick: handleRunWalkForward,
       disabled: wfStatus === 'loading',
@@ -610,7 +610,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       busyLabel: '검증 중...',
     },
     {
-      label: '강건성 검증',
+      label: '강건성',
       tone: 'default',
       onClick: handleRunOptimization,
       disabled: optimizationRunning,
@@ -618,7 +618,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       busyLabel: '실행 중...',
     },
     {
-      label: '운영후보 재검증',
+      label: '재검증',
       tone: 'default',
       onClick: handleQuantOpsRevalidate,
       disabled: quantOpsBusyAction !== null,
@@ -626,7 +626,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       busyLabel: '재검증 중...',
     },
     {
-      label: '설정 초기화',
+      label: '초기화',
       tone: 'danger' as const,
       onClick: handleReset,
       busy: validationStore.syncStatus === 'resetting',
@@ -663,8 +663,8 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
       <div className="page-frame">
         <div className="content-shell console-page-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
-            title="전략 검증"
-            subtitle="전략 종류를 먼저 선택하고, 장세 모드/리스크/포트폴리오 제약을 정한 뒤 전략별 파라미터를 조정합니다. 몬테카를로는 최적값 발굴기가 아니라 전략별 강건성 검증기로 취급합니다."
+            title="검증"
+            subtitle=""
             lastUpdated={snapshot.fetchedAt}
             loading={loading || metadataLoading}
             errorMessage={errorMessage || lastError}
@@ -884,32 +884,32 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
             {status === 'ok' && !displayedResult.error && (
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 15, color: 'var(--text-4)', flex: 1, minWidth: 180 }}>
-                  백테스트 완료 · 이 파라미터를 전략 레지스트리에 저장하면 전략 관리에서 활성화할 수 있습니다.
+                  완료
                 </div>
                 <button
                   className="ghost-button"
                   onClick={() => { void handleSaveAsPreset(); }}
                   disabled={presetSaving}
                 >
-                  {presetSaving ? '저장 중...' : '이 결과로 프리셋 저장'}
+                  {presetSaving ? '저장 중...' : '프리셋 저장'}
                 </button>
                 <button
                   className="ghost-button"
                   onClick={() => { window.location.href = '/lab/strategies'; }}
                 >
-                  전략 프리셋으로 이동
+                  전략
                 </button>
               </div>
             )}
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 17, fontWeight: 700 }}>워크포워드 검증 결과</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>워크포워드</div>
             {wfStatus === 'error' && (
               <div style={{ fontSize: 15, color: 'var(--tone-bad)' }}>{wfLastError}</div>
             )}
             {wfStatus === 'idle' && (
-              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>워크포워드 검증 버튼을 눌러 결과를 확인하세요. 학습·검증 구간을 슬라이딩하며 OOS 신뢰도를 측정합니다.</div>
+              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>대기</div>
             )}
             {(wfStatus === 'ok' || wfStatus === 'loading') && (
               <>
@@ -917,20 +917,20 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   <FreshnessBadge value={String(wfData.freshness || 'missing')} />
                   <GradeBadge value={String(wfData.validation?.grade || '-')} />
                   {wfData.validation?.reason ? <span className="inline-badge">{reasonCodeToKorean(String(wfData.validation.reason))}</span> : null}
-                  {wfData.source ? <span className="inline-badge">출처 {providerSourceToKorean(String(wfData.source))}</span> : null}
+                  {wfData.source ? <span className="inline-badge">{providerSourceToKorean(String(wfData.source))}</span> : null}
                 </div>
                 {wfData.validation?.exclusion_reason ? (
-                  <div style={{ fontSize: 15, color: 'var(--tone-bad)' }}>검증 숫자는 신뢰도 부족 상태야: {String(wfData.validation.exclusion_reason)}</div>
+                  <div style={{ fontSize: 15, color: 'var(--tone-bad)' }}>{String(wfData.validation.exclusion_reason)}</div>
                 ) : null}
                 <div className="console-metric-grid">
-                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>윈도우 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(wfData.summary?.windows, '개')}</div></div>
-                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>양호 비율</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(wfData.summary?.positive_window_ratio, 1, true)}</div></div>
-                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>OOS 신뢰도</div><div style={{ marginTop: 6, fontWeight: 700 }}>{wfData.summary?.oos_reliability || '-'}</div></div>
-                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>Composite Score</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(wfData.summary?.composite_score, 2)}</div></div>
+                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>윈도우</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(wfData.summary?.windows, '개')}</div></div>
+                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>양호</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatPercent(wfData.summary?.positive_window_ratio, 1, true)}</div></div>
+                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>OOS</div><div style={{ marginTop: 6, fontWeight: 700 }}>{wfData.summary?.oos_reliability || '-'}</div></div>
+                  <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>Score</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatNumber(wfData.summary?.composite_score, 2)}</div></div>
                 </div>
                 {wfData.segments && (
                   <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700 }}>구간별 지표</div>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>구간</div>
                     <div className="console-metric-grid">
                       {(['train', 'validation', 'oos'] as const).map((seg) => {
                         const s = wfData.segments?.[seg];
@@ -956,7 +956,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                                 ))}
                               </>
                             ) : (
-                              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>데이터 없음</div>
+                              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>없음</div>
                             )}
                           </div>
                         );
@@ -969,9 +969,9 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           </section>
 
           <section className="page-section console-data-section" style={{ padding: 0 }}>
-            <div style={{ padding: 16, fontSize: 17, fontWeight: 700 }}>입력 파라미터 구간</div>
+            <div style={{ padding: 16, fontSize: 17, fontWeight: 700 }}>파라미터</div>
             <div style={{ padding: '0 16px 16px', display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{displayedResult.parameter_band?.summary || '현재 입력 파라미터가 전략 허용 범위 안에서 어디에 있는지 보여줍니다.'}</div>
+              <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{displayedResult.parameter_band?.summary || ''}</div>
               {Object.entries(displayedResult.parameter_band?.parameter_bands || {}).length > 0 ? (
                 <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -993,20 +993,20 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     </tbody>
                   </table>
                 </div>
-              ) : <div style={{ padding: 12, fontSize: 15, color: 'var(--text-4)' }}>표시할 밴드가 없습니다.</div>}
+              ) : <div style={{ padding: 12, fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
             </div>
           </section>
 
           <section className="page-section console-data-section" style={{ padding: 0 }}>
-            <div style={{ padding: 16, fontSize: 17, fontWeight: 700 }}>장세별 분해</div>
+            <div style={{ padding: 16, fontSize: 17, fontWeight: 700 }}>장세</div>
             <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
                     <th style={{ padding: 12, fontSize: 15 }}>장세</th>
-                    <th style={{ padding: 12, fontSize: 15 }}>거래 수</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>거래</th>
                     <th style={{ padding: 12, fontSize: 15 }}>승률</th>
-                    <th style={{ padding: 12, fontSize: 15 }}>평균 수익</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>평균</th>
                     <th style={{ padding: 12, fontSize: 15 }}>손익비</th>
                     <th style={{ padding: 12, fontSize: 15 }}>전략</th>
                   </tr>
@@ -1023,7 +1023,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     </tr>
                   ))}
                   {(!displayedResult.regime_breakdown || displayedResult.regime_breakdown.length === 0) && (
-                    <tr><td colSpan={6} style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>아직 장세별 결과가 없습니다.</td></tr>
+                    <tr><td colSpan={6} style={{ padding: 14, fontSize: 15, color: 'var(--text-4)' }}>없음</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1031,7 +1031,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 17, fontWeight: 700 }}>취약 구간 / 실패 원인</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>실패</div>
             {(displayedResult.failure_modes || []).length > 0 ? (
               <div className="console-metric-grid">
                 {(displayedResult.failure_modes || []).map((row) => (
@@ -1041,24 +1041,24 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   </div>
                 ))}
               </div>
-            ) : <div style={{ fontSize: 15, color: 'var(--text-4)' }}>아직 표시할 실패 원인이 없습니다.</div>}
+            ) : <div style={{ fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
           </section>
 
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 17, fontWeight: 700 }}>몬테카를로 강건성 검증</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>강건성</div>
             <div style={{ fontSize: 15, color: 'var(--text-4)' }}>
-              {optimizationMessage || '전략별 파라미터 격자를 분리해서 안정 구간 중심으로 결과를 확인합니다.'}
+              {optimizationMessage || ''}
             </div>
             <div className="console-metric-grid">
               <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>전략</div><div style={{ marginTop: 6, fontWeight: 700 }}>{strategyLabel(String(searchContext?.strategy_kind || validationStore.draftQuery.strategy_kind))}</div></div>
               <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>상태</div><div style={{ marginTop: 6, fontWeight: 700 }}>{optimizationRunning ? '실행 중' : optimizationPayload?.status === 'ok' ? '결과 있음' : '대기'}</div></div>
-              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>최적화 종목 수</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_symbols_optimized || 0), '개')}</div></div>
-              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>신뢰 통과</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_reliable || 0), '개')}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>종목</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_symbols_optimized || 0), '개')}</div></div>
+              <div><div style={{ fontSize: 15, color: 'var(--text-4)' }}>통과</div><div style={{ marginTop: 6, fontWeight: 700 }}>{formatCount(Number((optimizationPayload?.meta as Record<string, unknown> | undefined)?.n_reliable || 0), '개')}</div></div>
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>공통 안정 구간</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>안정 구간</div>
               <div style={{ fontSize: 15, color: 'var(--text-4)' }}>
-                {optimizerAggregateRobustZone?.summary || '최적화 결과가 있으면 종목별 안정 구간의 공통 영역을 보여줍니다.'}
+                {optimizerAggregateRobustZone?.summary || ''}
               </div>
               {Object.entries(optimizerAggregateRobustZone?.parameter_bands || {}).length > 0 ? (
                 <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
@@ -1081,16 +1081,16 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                     </tbody>
                   </table>
                 </div>
-              ) : <div style={{ fontSize: 15, color: 'var(--text-4)' }}>표시할 안정 구간이 없습니다.</div>}
+              ) : <div style={{ fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>전역 파라미터 패치</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>전역</div>
               <div style={{ display: 'grid', gap: 6 }}>
                 {Object.entries((optimizationPayload?.global_params || {}) as Record<string, unknown>).slice(0, 8).map(([key, value]) => (
                   <div key={key} style={{ fontSize: 15 }}>{key}: {String(value)}</div>
                 ))}
                 {Object.keys((optimizationPayload?.global_params || {}) as Record<string, unknown>).length === 0 && (
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>아직 최적화 전역 파라미터가 없습니다.</div>
+                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>없음</div>
                 )}
               </div>
             </div>
@@ -1099,14 +1099,14 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
           <section className="page-section console-card-section" style={{ display: 'grid', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontSize: 17, fontWeight: 700 }}>운영 반영 워크플로우</div>
+                <div style={{ fontSize: 17, fontWeight: 700 }}>운영 반영</div>
                 <div style={{ marginTop: 4, fontSize: 15, color: 'var(--text-4)' }}>
-                  검증 랩 결과를 최신 후보 → 저장 후보 → 자동매매 엔진 반영 순서로 넘겨야 자동매매 엔진에 반영됩니다.
+
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button className="ghost-button" onClick={() => { void handleQuantOpsRevalidate(); }} disabled={quantOpsBusyAction !== null}>
-                  {quantOpsBusyAction === 'revalidate' ? '재검증 중...' : '현재 설정으로 재검증'}
+                  {quantOpsBusyAction === 'revalidate' ? '재검증 중...' : '재검증'}
                 </button>
                 <button
                   className="ghost-button"
@@ -1114,7 +1114,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   disabled={quantOpsBusyAction !== null || !latestCandidate || latestCandidate?.guardrails?.can_save === false}
                   title={!latestCandidate ? '최신 후보가 없어서 저장할 수 없습니다.' : latestCandidate?.guardrails?.can_save === false ? (latestCandidate.guardrails?.reasons || []).join(', ') : ''}
                 >
-                  {quantOpsBusyAction === 'save' ? '저장 중...' : '최신 후보 저장'}
+                  {quantOpsBusyAction === 'save' ? '저장 중...' : '후보 저장'}
                 </button>
                 <button
                   className="ghost-button"
@@ -1122,7 +1122,7 @@ export function BacktestValidationPage({ snapshot, loading, errorMessage, onRefr
                   disabled={quantOpsBusyAction !== null || !savedCandidate || savedCandidate?.guardrails?.can_apply === false}
                   title={!savedCandidate ? '저장 후보가 없어서 반영할 수 없습니다.' : savedCandidate?.guardrails?.can_apply === false ? (savedCandidate.guardrails?.reasons || []).join(', ') : ''}
                 >
-                  {quantOpsBusyAction === 'apply' ? '반영 중...' : '저장 후보 자동매매 엔진 반영'}
+                  {quantOpsBusyAction === 'apply' ? '반영 중...' : '엔진 반영'}
                 </button>
               </div>
             </div>

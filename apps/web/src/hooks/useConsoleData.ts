@@ -65,7 +65,7 @@ function emptySnapshot(): ConsoleSnapshot {
 }
 
 function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
-  if (route.page === 'operations-dashboard') {
+  if (route.page === 'agent-dashboard') {
     return {
       signalLimit: 80,
       initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'marketContext', 'validation', 'reports', 'universe', 'performance'],
@@ -96,7 +96,7 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.page === 'orders-execution' || route.page === 'agent-dashboard') {
+  if (route.page === 'orders-execution') {
     return {
       signalLimit: 0,
       initialTargets: ['engine', 'research', 'portfolio'],

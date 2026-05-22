@@ -85,7 +85,7 @@ def research_analysis_to_trade_decision(analysis: dict[str, Any], candidate: dic
     stop_loss = _risk_value(trade_plan, "stop_loss", "stop") or _risk_value(invalidation, "stop_loss", "price")
     take_profit = _risk_value(trade_plan, "take_profit", "target_price", "target")
     size_pct = _to_float(trade_plan.get("size_intent_pct"), 0.0)
-    allocation_mode = str(candidate.get("allocation_mode") or analysis.get("allocation_mode") or "diversified").strip().lower()
+    allocation_mode = str(candidate.get("allocation_mode") or analysis.get("allocation_mode") or "concentrated").strip().lower()
     bluechip = bool(candidate.get("bluechip") or analysis.get("bluechip"))
     max_allowed_ratio = 0.40 if allocation_mode == "concentrated" and bluechip else 0.10
     max_position_ratio = _clamp(size_pct / 100.0 if size_pct > 1 else size_pct, 0.0, max_allowed_ratio)

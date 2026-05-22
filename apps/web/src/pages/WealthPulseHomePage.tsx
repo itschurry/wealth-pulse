@@ -109,18 +109,14 @@ function toneForNumber(value: number | undefined): string {
   return value > 0 ? 'is-up' : 'is-down';
 }
 
-function formatKRWCompact(value: number): string {
+function formatKRWExact(value: number): string {
   if (!Number.isFinite(value)) return '-';
-  const sign = value < 0 ? '-' : '';
-  const abs = Math.abs(value);
-  if (abs >= 100_000_000) return `${sign}${formatNumber(abs / 100_000_000, 1)}억`;
-  if (abs >= 10_000) return `${sign}${formatNumber(abs / 10_000, 0)}만`;
-  return formatKRW(value, true);
+  return formatKRW(Math.round(value), true);
 }
 
-function formatSignedKRW(value: number): string {
+function formatSignedKRWExact(value: number): string {
   const prefix = value > 0 ? '+' : '';
-  return `${prefix}${formatKRWCompact(value)}`;
+  return `${prefix}${formatKRWExact(value)}`;
 }
 
 function sessionTone(status: string | undefined): string {
@@ -364,9 +360,9 @@ export function WealthPulseHomePage({
             <div className="wealth-hero-grid">
               <div>
                 <div className="wealth-kpi-label">TOTAL EQUITY</div>
-                <div className="wealth-hero-number">{formatKRWCompact(totalEquityKrw)}</div>
+                <div className="wealth-hero-number">{formatKRWExact(totalEquityKrw)}</div>
                 <div className="wealth-hero-subline">
-                  <span>Cash {formatKRWCompact(cashKrw)}</span>
+                  <span>Cash {formatKRWExact(cashKrw)}</span>
                   <span>USD {formatUSD(cashUsd, true)}</span>
                   <span>{formatDateTimeWithAge(snapshot.fetchedAt)}</span>
                 </div>
@@ -374,11 +370,11 @@ export function WealthPulseHomePage({
               <div className="wealth-hero-metrics">
                 <div>
                   <span>Today P/L</span>
-                  <strong className={toneForNumber(todayRealizedPnlKrw)}>{formatSignedKRW(todayRealizedPnlKrw)}</strong>
+                  <strong className={toneForNumber(todayRealizedPnlKrw)}>{formatSignedKRWExact(todayRealizedPnlKrw)}</strong>
                 </div>
                 <div>
                   <span>Unrealized</span>
-                  <strong className={toneForNumber(totalUnrealizedPnlKrw)}>{formatSignedKRW(totalUnrealizedPnlKrw)}</strong>
+                  <strong className={toneForNumber(totalUnrealizedPnlKrw)}>{formatSignedKRWExact(totalUnrealizedPnlKrw)}</strong>
                 </div>
                 <div>
                   <span>Risk Gate</span>
@@ -427,7 +423,7 @@ export function WealthPulseHomePage({
               <div className="section-head-row">
                 <div>
                   <div className="section-title">Portfolio</div>
-                  <div className="section-copy">positions {formatNumber(positions.length, 0)} · market {formatKRWCompact(totalMarketValueKrw)}</div>
+                  <div className="section-copy">positions {formatNumber(positions.length, 0)} · market {formatKRWExact(totalMarketValueKrw)}</div>
                 </div>
               </div>
               <div className="wealth-chart-body">
@@ -602,9 +598,9 @@ export function WealthPulseHomePage({
                   <span><strong>{position.symbol}</strong></span>
                   <span>{position.market}</span>
                   <span>{formatNumber(position.quantity, 0)}</span>
-                  <span>{formatKRWCompact(position.marketValueKrw)}</span>
+                  <span>{formatKRWExact(position.marketValueKrw)}</span>
                   <span className={toneForNumber(position.unrealizedPnlKrw)}>
-                    {formatSignedKRW(position.unrealizedPnlKrw)}
+                    {formatSignedKRWExact(position.unrealizedPnlKrw)}
                     {position.unrealizedPnlPct == null ? '' : ` · ${safePct(position.unrealizedPnlPct)}`}
                   </span>
                 </div>

@@ -30,10 +30,10 @@ function normalizeItems(items: WatchlistItem[]) {
 
 function displayMetric(value: number | undefined, kind: 'price' | 'pct' | 'analysis' | 'volume', market?: string) {
   if (value == null || Number.isNaN(Number(value))) {
-    if (kind === 'price') return '시세 대기';
-    if (kind === 'analysis') return '분석 전';
-    if (kind === 'volume') return '집계 대기';
-    return '변동 대기';
+    if (kind === 'price') return '대기';
+    if (kind === 'analysis') return '-';
+    if (kind === 'volume') return '-';
+    return '-';
   }
   if (kind === 'price') return isKospi(String(market || '')) ? formatKRW(value) : `$${formatNumber(value, 2)}`;
   if (kind === 'pct') return `${value >= 0 ? '▲' : '▼'}${Math.abs(value).toFixed(2)}%`;
@@ -160,7 +160,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
       }
       setSavedItems(items);
       clearAnalysisState(setActionItems, setActions, setActionsGeneratedAt);
-      push('success', '관심 종목 저장 완료', undefined, 'watchlist');
+      push('success', '저장 완료', undefined, 'watchlist');
     } catch {
       push('error', '저장 실패', undefined, 'watchlist');
     } finally {
@@ -170,7 +170,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
 
   const handleAnalyze = useCallback(async () => {
     if (items.length === 0) {
-      push('warning', '관심 종목이 없습니다', undefined, 'watchlist');
+      push('warning', '관심 없음', undefined, 'watchlist');
       return;
     }
     const requestId = analysisRequestIdRef.current + 1;
@@ -185,7 +185,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
       setActionItems(res.data.items || []);
       setActions(res.data.actions || []);
       setActionsGeneratedAt(new Date().toISOString());
-      push('success', `분석 완료 · ${(res.data.actions || []).length}개 액션`, undefined, 'watchlist');
+      push('success', `분석 완료 · ${(res.data.actions || []).length}개`, undefined, 'watchlist');
     } catch {
       if (analysisRequestIdRef.current !== requestId) return;
       push('error', '분석 실패', undefined, 'watchlist');
@@ -197,9 +197,9 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
   }, [items, push]);
 
   const statusItems = [
-    { label: '관심 종목', value: `${items.length}개`, tone: 'neutral' as const },
-    { label: '저장 상태', value: dirty ? '수정됨' : '동기화', tone: dirty ? 'bad' as const : 'good' as const },
-    { label: '분석 액션', value: `${actions.length}개`, tone: actions.length > 0 ? 'good' as const : 'neutral' as const },
+    { label: '관심', value: `${items.length}개`, tone: 'neutral' as const },
+    { label: '저장', value: dirty ? '수정' : '동기화', tone: dirty ? 'bad' as const : 'good' as const },
+    { label: '분석', value: `${actions.length}개`, tone: actions.length > 0 ? 'good' as const : 'neutral' as const },
   ];
 
   const enrichedMap = new Map(actionItems.map((item) => [`${item.market}:${item.code}`, item]));
@@ -213,8 +213,8 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
       <div className="page-frame">
         <div className="content-shell workspace-grid">
           <ConsoleActionBar
-            title="관심 종목"
-            subtitle="편집, 저장, 분석을 분리해서 보여줍니다. 저장 전 변경과 최근 분석 상태를 여기서 바로 확인합니다."
+            title="관심"
+            subtitle=""
             lastUpdated={actionsGeneratedAt}
             loading={loading || pageLoading}
             errorMessage={errorMessage}
@@ -224,7 +224,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
             onClearLogs={clear}
             actions={[
               {
-                label: '분석 실행',
+                label: '분석',
                 onClick: handleAnalyze,
                 tone: 'primary' as const,
                 busy: actionLoading,
@@ -246,16 +246,16 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
             <div className="workspace-card-block">
               <div className="workspace-card-head">
                 <div>
-                  <div className="section-title">종목 검색 / 추가</div>
+                  <div className="section-title">추가</div>
                   <div className="section-copy">검색 결과는 아래 표를 덮지 않게 별도 패널처럼 띄웁니다.</div>
                 </div>
-                {dirty && <div className="inline-badge is-danger">저장되지 않은 변경 있음</div>}
+                {dirty && <div className="inline-badge is-danger">저장 필요</div>}
               </div>
               <div ref={searchContainerRef} className="workspace-search-shell">
                 <input
                   type="text"
                   className="input-field"
-                  placeholder="종목명 또는 코드 검색"
+                  placeholder="검색"
                   value={searchQuery}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
@@ -285,17 +285,17 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
             <div className="workspace-card-block">
               <div className="workspace-card-head">
                 <div>
-                  <div className="section-title">편집 / 분석 상태</div>
+                  <div className="section-title">상태</div>
                   <div className="section-copy">지금 페이지에서 어디까지 된 건지 숫자로 바로 봅니다.</div>
                 </div>
                 <div className="inline-badge">{actionsGeneratedAt ? formatDateTime(actionsGeneratedAt) : '분석 전'}</div>
               </div>
               <div className="workspace-mini-metrics">
-                <div className="workspace-mini-metric"><span>서버 저장</span><strong>{savedItems.length}개</strong></div>
-                <div className="workspace-mini-metric"><span>가격 준비</span><strong>{priceReadyCount}개</strong></div>
-                <div className="workspace-mini-metric"><span>RSI 준비</span><strong>{rsiReadyCount}개</strong></div>
-                <div className="workspace-mini-metric"><span>매수 후보</span><strong>{buyActions}개</strong></div>
-                <div className="workspace-mini-metric"><span>관찰 후보</span><strong>{reviewActions}개</strong></div>
+                <div className="workspace-mini-metric"><span>저장</span><strong>{savedItems.length}개</strong></div>
+                <div className="workspace-mini-metric"><span>가격</span><strong>{priceReadyCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>RSI</span><strong>{rsiReadyCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>매수</span><strong>{buyActions}개</strong></div>
+                <div className="workspace-mini-metric"><span>관찰</span><strong>{reviewActions}개</strong></div>
               </div>
             </div>
           </section>
@@ -303,13 +303,13 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
           <section className="page-section workspace-table-section">
             <div className="workspace-card-head">
               <div>
-                <div className="section-title">관심 종목 목록</div>
+                <div className="section-title">목록</div>
                 <div className="section-copy">종목 표기는 이름 / 코드 · 시장 형식으로 통일했습니다.</div>
               </div>
               <div className="inline-badge">{items.length}개</div>
             </div>
             {items.length === 0 ? (
-              <div className="workspace-empty-state">관심 종목이 없습니다. 위에서 검색해서 추가해.</div>
+              <div className="workspace-empty-state">없음</div>
             ) : (
               <div style={{ overflow: 'auto' }}>
                 <table className="workspace-table" style={{ minWidth: 760 }}>
@@ -341,7 +341,7 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
                           <td>{displayMetric(rsi, 'analysis')}</td>
                           <td>{displayMetric(volRatio, 'volume')}</td>
                           <td>
-                            <span className={actionTone(action?.action)}>{action?.action || '분석 전'}</span>
+                            <span className={actionTone(action?.action)}>{action?.action || '-'}</span>
                             {action?.reason && <div className="workspace-row-subcopy">{action.reason}</div>}
                           </td>
                           <td style={{ textAlign: 'right' }}>
@@ -367,10 +367,10 @@ export function WatchlistPage({ loading, errorMessage, onRefresh }: WatchlistPag
             <section className="page-section workspace-analysis-section">
               <div className="workspace-card-head">
                 <div>
-                  <div className="section-title">최근 분석 결과</div>
+                  <div className="section-title">분석</div>
                   <div className="section-copy">매수/관찰/회피 판단을 카드로 먼저 보여줍니다.</div>
                 </div>
-                <div className="inline-badge">{actions.length}개 액션</div>
+                <div className="inline-badge">{actions.length}개</div>
               </div>
               <div className="operator-note-grid">
                 {actions.map((action, i) => (

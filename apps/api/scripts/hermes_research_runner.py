@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import datetime as dt
 import json
 import os
 import shlex
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,12 +21,9 @@ if str(ROOT) not in sys.path:
 DEFAULT_AGENT_COMMAND = "hermes --oneshot"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
 DEFAULT_RESEARCH_PROVIDER = "default"
-DEFAULT_AGENT_TTL_MINUTES = 180
 MAX_AGENT_SIZE_INTENT_PCT = 40.0
 ALLOWED_AGENT_RATINGS = {"strong_buy", "overweight", "hold", "underweight", "sell"}
 ALLOWED_AGENT_ACTIONS = {"buy", "buy_watch", "hold", "reduce", "sell", "block"}
-BUY_RATINGS = {"strong_buy", "overweight"}
-BUY_ACTIONS = {"buy", "buy_watch"}
 
 _REQUIRED_OUTPUT_FIELDS = {
     "symbol": "string; target symbol/code",
@@ -131,9 +128,58 @@ def _market_query(markets: list[str], *, limit: int, mode: str) -> dict[str, lis
     return query
 
 
+def _trim_dict(payload: Any, keys: tuple[str, ...]) -> dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    return {key: source.get(key) for key in keys if source.get(key) not in (None, "", [], {})}
+
+
+def _compact_target(target: dict[str, Any]) -> dict[str, Any]:
+    technical = _trim_dict(
+        target.get("technical_snapshot"),
+        (
+            "current_price",
+            "close",
+            "change_pct",
+            "volume_ratio",
+            "rsi14",
+            "atr14_pct",
+            "close_vs_sma20",
+            "close_vs_sma60",
+            "quote_source",
+            "quote_fetched_at",
+        ),
+    )
+    criteria = _trim_dict(
+        target.get("selection_criteria"),
+        ("trading_value", "change_pct", "news_surge_score", "source_ranks"),
+    )
+    payload = {
+        "symbol": target.get("symbol") or target.get("code"),
+        "market": target.get("market"),
+        "name": target.get("name"),
+        "sector": target.get("sector"),
+        "score": target.get("score"),
+        "candidate_rank": target.get("candidate_rank"),
+        "slot_type": target.get("slot_type"),
+        "candidate_source": target.get("candidate_source"),
+        "candidate_sources": target.get("candidate_sources"),
+        "selection_reason": target.get("selection_reason") or target.get("reason"),
+        "monitor_priority": target.get("monitor_priority") or target.get("priority"),
+        "bluechip": target.get("bluechip"),
+        "bluechip_reason": target.get("bluechip_reason"),
+        "allocation_mode": target.get("allocation_mode"),
+        "snapshot_research_score": target.get("snapshot_research_score"),
+        "research_status": target.get("research_status"),
+        "validation_grade": target.get("validation_grade"),
+        "technical_snapshot": technical,
+        "selection_criteria": criteria,
+    }
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
+
+
 def build_feature_pack(target: dict[str, Any]) -> dict[str, Any]:
     return {
-        "target": dict(target),
+        "target": _compact_target(target),
         "contract": {
             "schema": "Research Snapshot v2 agent analysis JSON",
             "required_fields": _REQUIRED_OUTPUT_FIELDS,
@@ -231,68 +277,11 @@ def call_hermes_agent(
     return output
 
 
-def _now_local() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc).astimezone()
-
-
-def _minute_iso(value: Any | None = None) -> str:
-    if value is None or value == "":
-        parsed = _now_local()
-    else:
-        parsed = dt.datetime.fromisoformat(str(value).strip())
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
-    return parsed.astimezone().replace(second=0, microsecond=0).isoformat()
-
-
-def _as_score(value: Any, *, field: str) -> float:
-    try:
-        score = float(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field}_invalid") from None
-    if score > 1.0:
-        score = score / 100.0
-    if not 0.0 <= score <= 1.0:
-        raise ValueError(f"{field}_out_of_range")
-    return round(score, 4)
-
-
-def _text(value: Any, *, field: str, required: bool = False) -> str:
-    text = str(value or "").strip()
-    if required and not text:
-        raise ValueError(f"{field}_required")
-    return text
-
-
-def _text_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        value = [value]
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _object(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
-
-
-def _object_list(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [dict(item) for item in value if isinstance(item, dict)]
-
-
-def _normalize_market(market: Any) -> str:
-    text = str(market or "").strip().upper()
-    aliases = {"KR": "KOSPI", "KOREA": "KOSPI", "US": "NASDAQ", "USA": "NASDAQ"}
-    return aliases.get(text, text)
-
-
 def build_agent_research_ingest_payload(payload: dict[str, Any]) -> dict[str, Any]:
     from services.research_agent_payload import build_agent_research_ingest_payload as service_builder  # type: ignore
     return service_builder(payload)
+
+
 def _merge_analysis_with_target(analysis: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
     merged = dict(analysis)
     merged.setdefault("symbol", target.get("symbol") or target.get("code"))
@@ -313,10 +302,11 @@ def run(
     dry_run: bool = False,
     agent_command: list[str] | str | None = None,
     timeout: int = 300,
-    concurrency: int = 1,
+    concurrency: int = 3,
     api_base_url: str | None = None,
     progress: bool = True,
 ) -> tuple[int, dict[str, Any]]:
+    started_monotonic = time.monotonic()
     query = _market_query(markets, limit=limit, mode=mode)
     _log(f"[hermes] collect targets markets={markets or ['KOSPI']} limit={limit} mode={mode}", enabled=progress)
     status_code, target_payload = handle_candidate_monitor_watchlist(query, base_url=api_base_url)
@@ -423,6 +413,9 @@ def run(
         "failure_count": len(errors),
         "partial_failure": bool(analyses and errors),
         "errors": errors,
+        "duration_seconds": round(time.monotonic() - started_monotonic, 2),
+        "avg_seconds_per_success": round((time.monotonic() - started_monotonic) / max(1, len(analyses)), 2) if analyses else None,
+        "concurrency": worker_count,
     }
     handle_research_run_status_save(run_status_payload, base_url=api_base_url)
 
@@ -434,6 +427,9 @@ def run(
             "markets": markets,
             "mode": mode,
             "selected_count": len(target_items),
+            "duration_seconds": run_status_payload["duration_seconds"],
+            "avg_seconds_per_success": run_status_payload["avg_seconds_per_success"],
+            "concurrency": worker_count,
             "errors": errors,
             "ingest_results": ingest_results,
         }
@@ -448,6 +444,9 @@ def run(
             "agent_success_count": len(analyses),
             "agent_error_count": len(errors),
             "accepted_count": sum(int(item.get("accepted") or 0) for item in ingest_results),
+            "duration_seconds": run_status_payload["duration_seconds"],
+            "avg_seconds_per_success": run_status_payload["avg_seconds_per_success"],
+            "concurrency": worker_count,
             "partial_failure": True,
             "errors": errors,
             "ingest_results": ingest_results,
@@ -462,6 +461,9 @@ def run(
         "agent_success_count": len(analyses),
         "agent_error_count": len(errors),
         "accepted_count": sum(int(item.get("accepted") or 0) for item in ingest_results),
+        "duration_seconds": run_status_payload["duration_seconds"],
+        "avg_seconds_per_success": run_status_payload["avg_seconds_per_success"],
+        "concurrency": worker_count,
         "errors": errors,
         "ingest_results": ingest_results,
     }
@@ -470,13 +472,13 @@ def run(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Hermes research analysis for WealthPulse pending monitor targets")
     parser.add_argument("--market", action="append", default=[])
-    parser.add_argument("--limit", type=int, default=3)
+    parser.add_argument("--limit", type=int, default=9)
     parser.add_argument("--mode", choices=["missing_or_stale", "missing_only", "stale_only"], default="missing_or_stale")
     parser.add_argument("--dry-run", action="store_true", help="Collect targets and print prompts without calling Hermes")
     parser.add_argument("--agent-command", default=None, help="Command prefix used to call Hermes, default: env WEALTHPULSE_HERMES_RESEARCH_COMMAND or 'hermes --oneshot'")
     parser.add_argument("--api-base-url", default=None, help="WealthPulse API base URL for host-side execution, default: env WEALTHPULSE_API_BASE_URL or http://127.0.0.1:8001")
     parser.add_argument("--timeout", type=int, default=300)
-    parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--no-progress", action="store_true", help="Do not print progress logs to stderr")
     return parser
 

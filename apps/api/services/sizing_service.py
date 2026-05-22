@@ -35,7 +35,7 @@ def recommend_position_size(
     cfg: dict[str, Any],
     symbol_key: str,
     sector: str,
-    allocation_mode: str = "diversified",
+    allocation_mode: str = "concentrated",
     bluechip: bool = False,
 ) -> dict[str, Any]:
     if unit_price_local <= 0:

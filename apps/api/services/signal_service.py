@@ -10,7 +10,7 @@ from analyzer.candidate_selector import (
     select_market_candidates,
 )
 from market_utils import lookup_company_listing, normalize_market, resolve_market
-from services.research_signal_service import get_recommendations as _get_recommendations, get_today_picks as _get_today_picks
+from services.research_signal_service import get_today_picks as _get_today_picks
 from services.optimized_params_store import load_execution_optimized_params
 from services.universe_builder import get_universe_snapshot
 
@@ -99,7 +99,6 @@ def _research_candidate_config(cfg: dict | None) -> dict[str, Any]:
     return {
         "min_score": payload.get("min_score", 50.0),
         "include_neutral": _to_bool(payload.get("include_neutral"), True),
-        "allow_recommendation_fallback": _to_bool(payload.get("allow_recommendation_fallback"), False),
         **parse_theme_gate_config(payload),
     }
 
@@ -110,7 +109,6 @@ def collect_research_candidates(market: str, cfg: dict | None = None) -> list[di
         market=market,
         cfg=candidate_cfg,
         today_picks=_get_today_picks(),
-        recommendations=_get_recommendations(),
     )
 
 
@@ -145,18 +143,11 @@ def _merge_runtime_technical_snapshot(item: dict[str, Any], fetched: dict[str, A
     snapshot = dict(fetched or {})
     snapshot.update({key: value for key, value in existing.items() if value not in (None, "")})
 
-    if snapshot.get("current_price") in (None, ""):
-        for key in ("last_price_local", "current_price", "price"):
-            value = item.get(key)
-            if value not in (None, ""):
-                snapshot["current_price"] = value
-                break
-
-    quote_source = str(snapshot.get("quote_source") or snapshot.get("source") or ("kis_daily_history" if fetched else "runtime_payload_fallback"))
+    quote_source = str(snapshot.get("quote_source") or snapshot.get("source") or ("kis_daily_history" if fetched else ""))
     quote_fetched_at = str(snapshot.get("quote_fetched_at") or snapshot.get("fetched_at") or _now_iso())
-    freshness = "fresh" if fetched else ("stale" if snapshot.get("current_price") not in (None, "") else "missing")
-    validation_grade = "B" if fetched and snapshot.get("current_price") not in (None, "") else "C" if snapshot.get("current_price") not in (None, "") else "D"
-    validation_reason = "quote_live_fetch" if fetched and snapshot.get("current_price") not in (None, "") else "quote_fallback" if snapshot.get("current_price") not in (None, "") else "quote_missing"
+    freshness = "fresh" if fetched and snapshot.get("current_price") not in (None, "") else "missing"
+    validation_grade = "B" if freshness == "fresh" else "D"
+    validation_reason = "quote_live_fetch" if freshness == "fresh" else "quote_missing"
     exclusion_reason = None if snapshot.get("current_price") not in (None, "") else "current price unavailable"
     snapshot["quote_source"] = quote_source
     snapshot["quote_fetched_at"] = quote_fetched_at
@@ -164,7 +155,7 @@ def _merge_runtime_technical_snapshot(item: dict[str, Any], fetched: dict[str, A
     snapshot["freshness_detail"] = {
         "status": freshness,
         "is_stale": freshness != "fresh",
-        "reason": "live_quote" if fetched else "fallback_quote" if snapshot.get("current_price") not in (None, "") else "quote_missing",
+        "reason": "live_quote" if freshness == "fresh" else "quote_missing",
         "fetched_at": quote_fetched_at,
     }
     snapshot["validation"] = {
@@ -172,7 +163,7 @@ def _merge_runtime_technical_snapshot(item: dict[str, Any], fetched: dict[str, A
         "source": quote_source,
         "source_count": 1,
         "reason": validation_reason,
-        "notes": ["live_quote" if fetched else "fallback_quote"],
+        "notes": ["live_quote" if freshness == "fresh" else "quote_missing"],
         "exclusion_reason": exclusion_reason,
     }
     return snapshot

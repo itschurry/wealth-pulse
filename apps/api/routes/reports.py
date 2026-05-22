@@ -7,16 +7,9 @@ try:
     from domains.report.market_context_service import get_market_context
 except ModuleNotFoundError:  # pragma: no cover - package import fallback
     from apps.api.domains.report.market_context_service import get_market_context
-from market_utils import resolve_market
-from services.reliability_service import assess_validation_reliability
 from services.report_cache import get_cached_payload
-from services.optimized_params_store import load_search_optimized_params
 
 _SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ"}
-
-
-def _infer_recommendation_market(ticker: str, market: str = "", code: str = "", name: str = "") -> str:
-    return resolve_market(code=code or ticker, name=name, market=market, ticker=ticker, scope="core")
 
 
 def _storage_list_dates(key: str) -> list[str]:
@@ -105,9 +98,6 @@ def _get_recommendations() -> dict:
 def _get_today_picks() -> dict:
     data = _get_cached_report(_cache._today_picks_cache, "today_picks", {})
     if not data:
-        fallback = _fallback_today_picks()
-        if fallback.get("picks"):
-            return fallback
         return {"error": "오늘의 추천 결과가 없습니다.", "picks": [], "auto_candidates": []}
     return data
 
@@ -171,10 +161,6 @@ def _research_quality_gate(item: dict[str, Any]) -> dict[str, Any]:
         "research_quality_flags": quality_flags,
         "research_exclusion_reason": exclusion_reason,
     }
-
-
-def _load_optimized_params_payload() -> dict[str, Any] | None:
-    return load_search_optimized_params()
 
 
 def _map_strategy_signal(item: dict[str, Any], rank: int) -> dict[str, Any]:
@@ -350,125 +336,6 @@ def _strategy_today_picks_payload() -> dict[str, Any]:
     }
 
 
-def _fallback_today_picks(date: str | None = None) -> dict:
-    recommendations = (
-        _get_recommendations() if not date
-        else _load_report_json("recommendations", date, latest=False)
-    )
-    recommendations = recommendations if isinstance(recommendations, dict) else {}
-    recommendation_rows = recommendations.get("recommendations")
-    if not isinstance(recommendation_rows, list):
-        recommendation_rows = []
-    if not recommendation_rows and isinstance(recommendations.get("picks"), list):
-        recommendation_rows = list(recommendations.get("picks") or [])
-    if not recommendation_rows and isinstance(recommendations.get("items"), list):
-        recommendation_rows = list(recommendations.get("items") or [])
-    if not recommendation_rows:
-        return {"picks": [], "auto_candidates": []}
-
-    optimized_params = _load_optimized_params_payload() or {}
-    per_symbol = optimized_params.get("per_symbol") if isinstance(optimized_params.get("per_symbol"), dict) else {}
-
-    all_candidates = []
-    for item in recommendation_rows:
-        ticker = (item.get("ticker") or "").split(".")[0]
-        code = str(item.get("code") or ticker).strip().upper()
-        market = _infer_recommendation_market(
-            str(item.get("ticker") or ""),
-            str(item.get("market") or ""),
-            code,
-            str(item.get("name") or ""),
-        )
-
-        opt_result = per_symbol.get(code) if code else None
-        opt_result = opt_result if isinstance(opt_result, dict) else {}
-
-        trade_count = int(_coalesce(opt_result.get("trade_count"), 0) or 0)
-        validation_trades = int(_coalesce(opt_result.get("validation_trades"), 0) or 0)
-        validation_sharpe_raw = _coalesce(opt_result.get("validation_sharpe"), item.get("validation_sharpe"), 0.0)
-        validation_sharpe = float(validation_sharpe_raw or 0.0)
-        max_drawdown_pct = _coalesce(opt_result.get("max_drawdown_pct"), item.get("max_drawdown_pct"))
-        reliability = assess_validation_reliability(
-            trade_count=trade_count if trade_count > 0 else validation_trades,
-            validation_signals=validation_trades,
-            validation_sharpe=validation_sharpe,
-            max_drawdown_pct=float(max_drawdown_pct) if max_drawdown_pct is not None else None,
-        )
-
-        signal_label = str(item.get("signal_label") or item.get("signal") or "")
-        reasons = item.get("reasons", [])
-        research_gate = _research_quality_gate(item)
-        candidate = {
-            "name": item.get("name"),
-            "code": code,
-            "market": market,
-            "sector": item.get("sector"),
-            "signal": item.get("signal"),
-            "signal_label": signal_label,
-            "score": item.get("score"),
-            "confidence": item.get("confidence", 55),
-            "reasons": reasons,
-            "recommendation_reason": reasons[0] if isinstance(reasons, list) and reasons else None,
-            "risks": item.get("risks", []),
-            "catalysts": item.get("reasons", [])[:2],
-            "related_news": [],
-            "theme_score": 0.0,
-            "theme_hit_count": 0,
-            "matched_themes": [],
-            "keyword_gate_passed": False,
-            "horizon": item.get("horizon", "short_term"),
-            "gate_status": item.get("gate_status", "passed"),
-            "gate_reasons": item.get("gate_reasons", []),
-            "playbook_alignment": item.get("playbook_alignment"),
-            "ai_thesis": item.get("ai_thesis") if research_gate["research_score"] is not None else (research_gate["research_exclusion_reason"] or item.get("ai_thesis")),
-            "research_score": research_gate["research_score"],
-            "research_freshness": research_gate["research_freshness"],
-            "research_validation": research_gate["research_validation"],
-            "research_quality_flags": research_gate["research_quality_flags"],
-            "research_exclusion_reason": research_gate["research_exclusion_reason"],
-            "layer_c": item.get("layer_c"),
-            "reliability": reliability.label,
-            "strategy_reliability": reliability.label,
-            "validation_trades": validation_trades,
-            "validation_sharpe": validation_sharpe,
-            "train_trade_count": trade_count,
-            "max_drawdown_pct": max_drawdown_pct,
-            "is_reliable": bool(opt_result.get("is_reliable", reliability.is_reliable)),
-            "reliability_reason": str(opt_result.get("reliability_reason", reliability.reason)),
-            "strategy_scorecard": {
-                "composite_score": opt_result.get("composite_score"),
-                "components": opt_result.get("score_components") if isinstance(opt_result.get("score_components"), dict) else {},
-                "tail_risk": opt_result.get("tail_risk") if isinstance(opt_result.get("tail_risk"), dict) else {},
-            },
-        }
-        all_candidates.append(candidate)
-
-    picks = all_candidates[:8]
-    auto_candidates = [
-        item for item in all_candidates
-        if str(item.get("market") or "").upper() in _SUPPORTED_AUTO_TRADE_MARKETS
-    ][:100]
-
-    return {
-        "generated_at": recommendations.get("generated_at"),
-        "date": recommendations.get("date"),
-        "market_tone": "fallback",
-        "strategy": "recommendation-fallback",
-        "playbook_ref": recommendations.get("playbook_ref"),
-        "picks": picks,
-        "auto_candidates": auto_candidates,
-        "auto_candidate_limit": 100,
-        "auto_candidate_total": len(auto_candidates),
-        "auto_candidate_market_counts": {
-            market: sum(
-                1 for item in auto_candidates
-                if str(item.get("market") or "").upper() == market
-            )
-            for market in sorted(_SUPPORTED_AUTO_TRADE_MARKETS)
-        },
-    }
-
-
 def _build_compare_payload(base_date: str | None = None, prev_date: str | None = None) -> dict:
     base_date = _pick_date(base_date)
     if not base_date:
@@ -486,10 +353,8 @@ def _build_compare_payload(base_date: str | None = None, prev_date: str | None =
         "recommendations", prev_date, latest=False)
     base_context = _load_report_json("market_context", base_date, latest=False)
     prev_context = _load_report_json("market_context", prev_date, latest=False)
-    base_today_picks = _load_report_json(
-        "today_picks", base_date, latest=False) or _fallback_today_picks(base_date)
-    prev_today_picks = _load_report_json(
-        "today_picks", prev_date, latest=False) or _fallback_today_picks(prev_date)
+    base_today_picks = _load_report_json("today_picks", base_date, latest=False)
+    prev_today_picks = _load_report_json("today_picks", prev_date, latest=False)
 
     base_rec_map: dict = {}
     prev_rec_map: dict = {}
@@ -613,7 +478,6 @@ def handle_today_picks(date: str | None) -> tuple[int, dict]:
         else:
             data = (
                 _load_report_json("today_picks", date, latest=False)
-                or _fallback_today_picks(date)
                 or {"error": "해당 날짜 오늘의 추천이 없습니다.", "picks": []}
             )
         return 200, data

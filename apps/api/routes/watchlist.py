@@ -9,7 +9,6 @@ import cache as _cache
 from helpers import _HEADERS, _KST, _get_kis_client, _parse_signed_number, _strip_html
 from routes.market import _overseas_exchange_candidates
 from routes.reports import (
-    _fallback_today_picks,
     _get_recommendations,
     _get_today_picks,
     _load_report_json,
@@ -187,7 +186,7 @@ def handle_watchlist_actions(payload: dict) -> tuple[int, dict]:
         prev_date = _previous_date(base_date)
         today_picks = (
             _get_today_picks() if not payload.get("date")
-            else (_load_report_json("today_picks", base_date, latest=False) or _fallback_today_picks(base_date))
+            else _load_report_json("today_picks", base_date, latest=False)
         )
         recommendations = (
             _get_recommendations() if not payload.get("date")
@@ -195,7 +194,7 @@ def handle_watchlist_actions(payload: dict) -> tuple[int, dict]:
         )
         previous_recommendations = _load_report_json("recommendations", prev_date, latest=False) if prev_date else {}
         previous_today_picks = (
-            (_load_report_json("today_picks", prev_date, latest=False) or _fallback_today_picks(prev_date))
+            _load_report_json("today_picks", prev_date, latest=False)
             if prev_date else {}
         )
         enriched_items = [dict(item) for item in items]

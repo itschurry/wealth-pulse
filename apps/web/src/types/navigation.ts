@@ -5,8 +5,7 @@ export type WorkspacePage =
   | 'orders-execution'
   | 'performance'
   | 'watchlist'
-  | 'lab'
-  | 'operations-dashboard';
+  | 'lab';
 
 export type DashboardTab = 'overview';
 

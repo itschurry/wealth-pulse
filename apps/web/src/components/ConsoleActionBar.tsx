@@ -56,10 +56,10 @@ function sourceLabel(source: string): string {
   if (source === 'backtest') return '백테스트';
   if (source === 'optimization') return '최적화';
   if (source === 'settings') return '설정';
-  if (source === 'paper') return '모의계좌';
-  if (source === 'live') return '실계좌';
-  if (source === 'engine') return '자동매매 엔진';
-  if (source === 'refresh') return '새로고침';
+  if (source === 'paper') return '모의';
+  if (source === 'live') return '실전';
+  if (source === 'engine') return '엔진';
+  if (source === 'refresh') return '갱신';
   if (source === 'all') return '전체';
   return source || '전체';
 }
@@ -155,9 +155,9 @@ function renderLoadFailure(errorMessage: string, onRetry: () => void, onOpenLogs
       <div className="console-error-card-title">{UI_TEXT.errors.partialLoadFailed}</div>
       <div className="console-error-card-copy">{errorMessage}</div>
       <ul className="console-error-card-list">
-        <li>네트워크 지연 또는 API 일시 장애가 있었을 수 있습니다.</li>
-        <li>아직 수집되지 않은 데이터라 화면 일부가 비어 있을 수 있습니다.</li>
-        <li>인증 또는 백엔드 자동매매 엔진 오류로 일부 엔드포인트가 실패했을 수 있습니다.</li>
+        <li>API 실패</li>
+        <li>수집 대기</li>
+        <li>인증/엔진 오류</li>
       </ul>
       <div className="console-error-card-actions">
         <button className="ghost-button" onClick={onRetry}>재시도</button>
@@ -288,12 +288,12 @@ export function ConsoleActionBar({
               {renderButtonLabel(loading ? '갱신 중' : '새로고침', loading, '갱신 중...')}
             </button>
             <button className="ghost-button" onClick={() => setLogOpen(true)}>
-              로그 보기
+              로그
             </button>
             {settingsPanel && (
               <button className="ghost-button" onClick={() => setSettingsOpen(true)}>
                 <span className="button-content">
-                  설정/실행
+                  설정
                   {settingsDirty && <span className="inline-badge is-warning">저장 필요</span>}
                 </span>
               </button>
@@ -301,7 +301,7 @@ export function ConsoleActionBar({
             {visibleSafeActions.map(renderActionButton)}
             {extraSafeActions.length > 0 && (
               <button className={`ghost-button ${extraActionsOpen ? 'is-active' : ''}`} onClick={() => setExtraActionsOpen((prev) => !prev)}>
-                {extraActionsOpen ? `추가 작업 접기` : `추가 작업 ${extraSafeActions.length}개`}
+                {extraActionsOpen ? '접기' : `+${extraSafeActions.length}`}
               </button>
             )}
           </div>
@@ -315,7 +315,7 @@ export function ConsoleActionBar({
 
         {dangerActions.length > 0 && (
           <div className="console-actionbar-danger-row">
-            <div className="console-actionbar-danger-copy">위험 작업은 실행계·계좌 상태를 직접 바꾸니 아래 빨간 버튼에서만 처리하세요.</div>
+            <div className="console-actionbar-danger-copy">위험 작업</div>
             <div className="console-actionbar-danger-buttons">
               {dangerActions.map(renderActionButton)}
             </div>
@@ -342,8 +342,8 @@ export function ConsoleActionBar({
         <aside className="console-drawer open" aria-hidden={false}>
           <div className="console-drawer-head">
             <div>
-              <div className="console-drawer-title">실행 로그</div>
-              <div className="console-drawer-caption">레벨/작업별로 빠르게 필터링할 수 있습니다.</div>
+              <div className="console-drawer-title">로그</div>
+              <div className="console-drawer-caption">필터</div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button
@@ -356,7 +356,7 @@ export function ConsoleActionBar({
                   onConfirm: onClearLogs,
                 })}
               >
-                로그 비우기
+                비우기
               </button>
               <button className="ghost-button" onClick={() => setLogOpen(false)}>닫기</button>
             </div>
@@ -365,7 +365,7 @@ export function ConsoleActionBar({
             <input
               className="console-search-input"
               type="search"
-              placeholder="메시지, 상세 문구, 작업명을 검색하세요"
+              placeholder="검색"
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
               aria-label="로그 검색"
@@ -396,7 +396,7 @@ export function ConsoleActionBar({
           <div className="console-drawer-body">
             {filteredLogs.length === 0 && (
               <div className="console-drawer-empty">
-                {logs.length === 0 ? UI_TEXT.empty.noLogs : '선택한 조건과 일치하는 로그가 없습니다.'}
+                {logs.length === 0 ? UI_TEXT.empty.noLogs : '없음'}
               </div>
             )}
             {filteredLogs.map((log) => (
@@ -408,7 +408,7 @@ export function ConsoleActionBar({
                 <div className="console-log-message">{log.message}</div>
                 <div className="console-log-meta">
                   <span>{sourceLabel(log.source || 'all')}</span>
-                  {log.context && <span>상세 있음</span>}
+                  {log.context && <span>상세</span>}
                 </div>
                 {log.context && <div className="console-log-context">{log.context}</div>}
               </div>
@@ -421,15 +421,15 @@ export function ConsoleActionBar({
         <aside className="console-drawer open" aria-hidden={false}>
           <div className="console-drawer-head">
             <div>
-              <div className="console-drawer-title">전략 설정 · 실행 준비</div>
+              <div className="console-drawer-title">설정</div>
               <div className="console-drawer-caption">
-                {settingsDirty ? '저장되지 않은 변경 사항이 있습니다.' : settingsSavedAt ? `마지막 저장 ${formatDateTime(settingsSavedAt)}` : '저장된 설정이 아직 없습니다.'}
+                {settingsDirty ? '저장 필요' : settingsSavedAt ? formatDateTime(settingsSavedAt) : '저장 없음'}
               </div>
             </div>
             <button className="ghost-button" onClick={() => setSettingsOpen(false)}>닫기</button>
           </div>
           <div className="console-drawer-body">
-            {settingsPanel || <div className="console-drawer-empty">설정 항목이 없습니다.</div>}
+            {settingsPanel || <div className="console-drawer-empty">없음</div>}
           </div>
         </aside>
       )}

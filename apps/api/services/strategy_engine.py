@@ -140,7 +140,7 @@ def _monitor_active_slot_candidates(market: str, *, cfg: dict[str, Any]) -> list
         }
         bluechip = bluechip_meta(code, normalized_market, cfg)
         row.update(bluechip)
-        row["allocation_mode"] = str(cfg.get("allocation_mode") or "diversified")
+        row["allocation_mode"] = str(cfg.get("allocation_mode") or "concentrated")
         candidates.append(_with_live_technical_snapshot(row, normalized_market))
     candidates.sort(
         key=lambda row: (
@@ -173,7 +173,7 @@ def build_risk_guard_state(*, candidate: dict[str, Any], cfg: dict[str, Any], ac
     account_payload = account_payload if isinstance(account_payload, dict) else {}
     regime, risk_level = _context_snapshot()
     try:
-        allocation_mode = str(config.get("allocation_mode") or "diversified").strip().lower()
+        allocation_mode = str(config.get("allocation_mode") or "concentrated").strip().lower()
         candidate_bluechip = bool(candidate.get("bluechip"))
         normalized_cfg = {
             "daily_loss_limit_pct": _normalize_threshold(config.get("daily_loss_limit_pct"), 2.0),
@@ -214,8 +214,40 @@ def _normalize_threshold(value: Any, default: float) -> float:
 
 def compute_ev_metrics(*, candidate: dict[str, Any], validation_snapshot: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     reliability = str(validation_snapshot.get("strategy_reliability") or "insufficient")
+    research_score = _to_float(candidate.get("snapshot_research_score"), _to_float(candidate.get("research_score"), 0.0))
+    if research_score > 1.0:
+        research_score = research_score / 100.0
+    confidence = _to_float(candidate.get("confidence"), 0.0)
+    if confidence > 1.0:
+        confidence = confidence / 100.0
+    quant_score = max(0.0, min(1.0, _to_float(candidate.get("score"), 0.0) / 100.0))
+    validation = validation_snapshot.get("validation") if isinstance(validation_snapshot.get("validation"), dict) else {}
+    grade = str(validation.get("grade") or "").upper()
+    grade_bonus = {"A": 0.18, "B": 0.10, "C": 0.0, "D": -0.16}.get(grade, -0.05)
+    reliability_bonus = {"high": 0.16, "medium": 0.08, "low": -0.04}.get(reliability.lower(), -0.12)
+    bluechip_bonus = 0.08 if bool(candidate.get("bluechip")) and str(cfg.get("allocation_mode") or "").lower() == "concentrated" else 0.0
+    expected_value = max(
+        0.0,
+        min(
+            2.5,
+            (quant_score * 0.42)
+            + (research_score * 0.38)
+            + (confidence * 0.20)
+            + grade_bonus
+            + reliability_bonus
+            + bluechip_bonus,
+        ),
+    )
     return {
-        "expected_value": round(_to_float(candidate.get("score"), 0.0) / 100.0, 4),
+        "expected_value": round(expected_value, 4),
+        "expected_return_model": {
+            "quant_score": round(quant_score, 4),
+            "research_score": round(research_score, 4),
+            "confidence": round(confidence, 4),
+            "validation_grade": grade,
+            "reliability_bonus": round(reliability_bonus, 4),
+            "bluechip_bonus": round(bluechip_bonus, 4),
+        },
         "reliability": reliability,
         "reliability_detail": {
             "label": reliability,
@@ -325,7 +357,7 @@ def _build_signal_from_candidate(
     normalized_market = str(candidate.get("market") or market).upper()
     code = str(candidate.get("code") or candidate.get("symbol") or "").upper()
     bluechip = bluechip_meta(code, normalized_market, cfg)
-    candidate = {**candidate, **bluechip, "allocation_mode": str(cfg.get("allocation_mode") or candidate.get("allocation_mode") or "diversified")}
+    candidate = {**candidate, **bluechip, "allocation_mode": str(cfg.get("allocation_mode") or candidate.get("allocation_mode") or "concentrated")}
     validation_snapshot = _validation_snapshot_for_candidate(candidate, optimized_payload)
     risk_inputs = _risk_inputs_for_candidate(candidate, optimized_payload, cfg)
     risk_guard_state = build_risk_guard_state(candidate=candidate, cfg=cfg, account=account)
@@ -353,7 +385,7 @@ def _build_signal_from_candidate(
         cfg=cfg,
         symbol_key=f"{normalized_market}:{str(candidate.get('code') or '').upper()}",
         sector=str(candidate.get("sector") or "미분류"),
-        allocation_mode=str(candidate.get("allocation_mode") or "diversified"),
+        allocation_mode=str(candidate.get("allocation_mode") or "concentrated"),
         bluechip=bool(candidate.get("bluechip")),
     )
     gate_passed = str(candidate.get("gate_status") or "passed") == "passed"
@@ -425,7 +457,7 @@ def _build_signal_from_candidate(
         "strategy_role": "auxiliary",
         "candidate_primary_source": "common_candidate_pool",
         "allocation": allocator_weight(candidate=candidate, cfg=cfg, account=account),
-        "allocation_mode": str(candidate.get("allocation_mode") or "diversified"),
+        "allocation_mode": str(candidate.get("allocation_mode") or "concentrated"),
         "bluechip": bool(candidate.get("bluechip")),
         "bluechip_reason": str(candidate.get("bluechip_reason") or ""),
         "cap_source": str(size_recommendation.get("cap_source") or ""),

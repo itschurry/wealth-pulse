@@ -1532,12 +1532,14 @@ def _default_auto_trader_config() -> dict:
         "daily_buy_limit": 100,
         "daily_sell_limit": 100,
         "max_orders_per_symbol_per_day": 3,
-        "allocation_mode": "diversified",
+        "allocation_mode": "concentrated",
         "bluechip_top_n_kospi": 20,
         "bluechip_top_n_us": 20,
         "bluechip_max_symbol_position_ratio": 0.40,
         "bluechip_risk_per_trade_pct": 1.5,
         "bluechip_allow_additional_buy": True,
+        "candidate_pool_limit": 100,
+        "research_refresh_limit": 60,
         "rsi_min": primary["rsi_min"],
         "rsi_max": primary["rsi_max"],
         "volume_ratio_min": primary["volume_ratio_min"],
@@ -1565,9 +1567,14 @@ def _default_auto_trader_config() -> dict:
         "slippage_bps_base": 8.0,
         "rotation": {
             "enabled": True,
-            "min_score_gap": 5.0,
-            "daily_limit": 3,
-            "min_holding_days": 1,
+            "min_score_gap": 2.0,
+            "daily_limit": 6,
+            "min_holding_days": 0,
+        },
+        "candidate_monitor": {
+            "pool_limit": 100,
+            "core_limit": 20,
+            "promotion_limit": 4,
         },
         "market_profiles": profiles,
     }
@@ -1695,8 +1702,8 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     cfg["max_symbol_weight_pct"] = max(30.0, _to_float(cfg.get("max_symbol_weight_pct"), 30.0))
     cfg["max_sector_weight_pct"] = max(50.0, _to_float(cfg.get("max_sector_weight_pct"), 50.0))
     cfg["max_market_exposure_pct"] = max(95.0, _to_float(cfg.get("max_market_exposure_pct"), 95.0))
-    allocation_mode = str(cfg.get("allocation_mode") or "diversified").strip().lower()
-    cfg["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "diversified"
+    allocation_mode = str(cfg.get("allocation_mode") or "concentrated").strip().lower()
+    cfg["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "concentrated"
     cfg["bluechip_top_n_kospi"] = max(1, int(_to_float(cfg.get("bluechip_top_n_kospi"), 20)))
     cfg["bluechip_top_n_us"] = max(1, int(_to_float(cfg.get("bluechip_top_n_us"), 20)))
     cfg["bluechip_max_symbol_position_ratio"] = max(0.0, min(1.0, _to_float(cfg.get("bluechip_max_symbol_position_ratio"), 0.40)))
@@ -1705,9 +1712,9 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     rotation_raw = cfg.get("rotation") if isinstance(cfg.get("rotation"), dict) else {}
     cfg["rotation"] = {
         "enabled": bool(rotation_raw.get("enabled", True)),
-        "min_score_gap": min(5.0, _to_float(rotation_raw.get("min_score_gap"), 5.0)),
-        "daily_limit": max(3, int(_to_float(rotation_raw.get("daily_limit"), 3))),
-        "min_holding_days": min(1, max(0, int(_to_float(rotation_raw.get("min_holding_days"), 1)))),
+        "min_score_gap": min(5.0, _to_float(rotation_raw.get("min_score_gap"), 2.0)),
+        "daily_limit": max(6, int(_to_float(rotation_raw.get("daily_limit"), 6))),
+        "min_holding_days": max(0, int(_to_float(rotation_raw.get("min_holding_days"), 0))),
     }
     return cfg
 
@@ -1790,6 +1797,13 @@ def _rotation_candidate_needs_resizing(candidate: dict[str, Any]) -> bool:
     return str(size_recommendation.get("reason") or "").strip() in _ROTATION_RESIZABLE_SIZE_REASONS
 
 
+def _candidate_allows_additional_buy(candidate: dict[str, Any], cfg: dict[str, Any]) -> bool:
+    if bool(cfg.get("allow_additional_buy", False)):
+        return True
+    allocation_mode = str(candidate.get("allocation_mode") or cfg.get("allocation_mode") or "concentrated").strip().lower()
+    return allocation_mode == "concentrated" and bool(candidate.get("bluechip")) and bool(cfg.get("bluechip_allow_additional_buy", True))
+
+
 def _candidate_unit_price_local(candidate: dict[str, Any]) -> float:
     technical_snapshot = candidate.get("technical_snapshot") if isinstance(candidate.get("technical_snapshot"), dict) else {}
     for key in ("price", "current_price", "last_price_local"):
@@ -1851,6 +1865,8 @@ def _resize_rotation_buy_candidate(candidate: dict[str, Any], account: dict[str,
         cfg=cfg,
         symbol_key=f"{str(updated.get('market') or '').upper()}:{str(updated.get('code') or '').upper()}",
         sector=str(updated.get("sector") or "미분류"),
+        allocation_mode=str(updated.get("allocation_mode") or cfg.get("allocation_mode") or "concentrated"),
+        bluechip=bool(updated.get("bluechip")),
     )
     updated["risk_guard_state"] = risk_guard_state
     updated["size_recommendation"] = size_recommendation
@@ -2302,7 +2318,6 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         )
 
     def _load_technicals(code: str, market: str) -> tuple[dict | None, str | None]:
-        primary_error: str | None = None
         profile = _auto_trader_profile(cfg, market)
         try:
             technicals = _compute_technical_snapshot(
@@ -2312,27 +2327,10 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 interval=profile.signal_interval,
             )
         except Exception as exc:
-            technicals = None
-            primary_error = str(exc)
+            return None, str(exc)
         if technicals:
             return technicals, None
-
-        if profile.signal_interval != "1d" or profile.signal_range != "6mo":
-            try:
-                fallback = _compute_technical_snapshot(
-                    code,
-                    market,
-                    range_="6mo",
-                    interval="1d",
-                )
-            except Exception as exc:
-                if primary_error:
-                    return None, f"{primary_error}; fallback={exc}"
-                return None, str(exc)
-            if fallback:
-                return fallback, None
-
-        return None, primary_error or "data_insufficient_or_api_error"
+        return None, "data_insufficient_or_api_error"
 
     executed_buys: list[dict] = []
     executed_sells: list[dict] = []
@@ -2877,13 +2875,18 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 })
                 continue
         for candidate in effective_candidates:
-            if slots <= 0 or buy_count >= daily_buy_limit:
-                break
             code = str(candidate.get("code") or "").upper()
+            additional_buy = bool(code and code in held_codes and _candidate_allows_additional_buy(candidate, cfg))
+            if buy_count >= daily_buy_limit:
+                break
+            if slots <= 0 and not additional_buy:
+                break
             cand_name = str(candidate.get("name") or code)
             strategy_id = str(candidate.get("strategy_id") or "").strip()
             strategy_name = str(candidate.get("strategy_name") or strategy_id or "")
-            if not code or code in held_codes:
+            if not code:
+                continue
+            if code in held_codes and not additional_buy:
                 continue
             if _symbol_order_count(market, "buy", code) >= max_orders_per_symbol:
                 continue
@@ -2928,7 +2931,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             )
             if result.get("ok"):
                 buy_count += 1
-                slots -= 1
+                if not additional_buy:
+                    slots -= 1
                 held_codes.add(code)
                 if strategy_id:
                     strategy_position_counts[strategy_id] = strategy_position_counts.get(strategy_id, 0) + 1
@@ -3205,8 +3209,8 @@ def _start_auto_trader(config: dict) -> dict:
             1, min(200, int(merged.get("daily_sell_limit") or 20)))
         merged["max_orders_per_symbol_per_day"] = max(
             1, min(10, int(merged.get("max_orders_per_symbol_per_day") or 1)))
-        allocation_mode = str(merged.get("allocation_mode") or "diversified").strip().lower()
-        merged["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "diversified"
+        allocation_mode = str(merged.get("allocation_mode") or "concentrated").strip().lower()
+        merged["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "concentrated"
         merged["bluechip_top_n_kospi"] = max(
             1, min(100, int(merged.get("bluechip_top_n_kospi") or 20)))
         merged["bluechip_top_n_us"] = max(

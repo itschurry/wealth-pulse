@@ -99,23 +99,23 @@ function gradeBadge(item: CandidateResearchSnapshot): { label: string; tone: str
 function snapshotStatus(item: CandidateResearchSnapshot): { label: string; tone: string } {
   const grade = snapshotGrade(item);
   if (grade === 'D') return { label: '검증 제외', tone: 'inline-badge is-danger' };
-  if (String(item.freshness || '').toLowerCase() === 'stale') return { label: '지연 리서치', tone: 'inline-badge is-danger' };
+  if (String(item.freshness || '').toLowerCase() === 'stale') return { label: '지연', tone: 'inline-badge is-danger' };
   const score = Number(item.research_score);
   if (!Number.isFinite(score)) return { label: '점수 대기', tone: 'inline-badge' };
   if (score >= 0.8) return { label: '우선 검토', tone: 'inline-badge is-success' };
-  if (score >= 0.6) return { label: '리서치 후보', tone: 'inline-badge' };
+  if (score >= 0.6) return { label: '후보', tone: 'inline-badge' };
   return { label: '관찰 유지', tone: 'inline-badge is-danger' };
 }
 
 function candidateStatusBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
-  if (!item.snapshot_exists) return { label: '리서치 없음', tone: 'inline-badge' };
+  if (!item.snapshot_exists) return { label: '없음', tone: 'inline-badge' };
   if (item.snapshot_fresh) return { label: '최신', tone: 'inline-badge is-success' };
   return { label: '지연', tone: 'inline-badge is-danger' };
 }
 
 function pendingCandidateBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
-  if (!item.snapshot_exists) return { label: '신규 리서치', tone: 'inline-badge' };
-  return { label: '지연 리서치', tone: 'inline-badge is-danger' };
+  if (!item.snapshot_exists) return { label: '신규', tone: 'inline-badge' };
+  return { label: '지연', tone: 'inline-badge is-danger' };
 }
 
 function candidateActionBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
@@ -221,7 +221,7 @@ function CandidateResearchCard({ item }: { item: CandidateResearchSnapshot }) {
 
       <div className="workspace-summary-card" style={{ marginTop: 12 }}>
         <div className="workspace-summary-title">요약</div>
-        <div className="workspace-summary-copy">{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '검증 불가라 점수를 표시하지 않았습니다.') : (item.summary || '요약 없음')}</div>
+        <div className="workspace-summary-copy">{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '제외') : (item.summary || '-')}</div>
       </div>
 
       {(warnings.length > 0 || tags.length > 0) && (
@@ -300,8 +300,8 @@ function MonitorSlotSection({
                   <th>슬롯</th>
                   <th>전략</th>
                   <th>순위</th>
-                  <th>리서치 상태</th>
-                  <th>최근 리서치</th>
+                  <th>상태</th>
+                  <th>최근</th>
                   <th>액션</th>
                 </tr>
               </thead>
@@ -384,7 +384,7 @@ function MonitorSlotSection({
                       <div className="responsive-card-value">{item.market || '-'}</div>
                     </div>
                     <div>
-                      <div className="responsive-card-label">최근 리서치</div>
+                      <div className="responsive-card-label">최근</div>
                       <div className="responsive-card-value">{item.snapshot_generated_at ? formatDateTime(item.snapshot_generated_at) : '없음'}</div>
                     </div>
                   </div>
@@ -400,14 +400,14 @@ function MonitorSlotSection({
 
 function MarketSummarySection({ items }: { items: CandidateMonitorStatusItem[] }) {
   if (!items.length) {
-    return <div className="page-section workspace-empty-state">시장별 감시 상태가 아직 없어.</div>;
+    return <div className="page-section workspace-empty-state">없음</div>;
   }
 
   return (
     <section className="page-section workspace-table-section">
       <div className="workspace-card-head section-head-row">
         <div>
-          <div className="section-title">시장별 감시 상태</div>
+          <div className="section-title">시장</div>
           <div className="section-copy">KOSPI/NASDAQ 후보 풀과 핵심 감시, 승격 슬롯, 보유 추적 수를 따로 본다.</div>
         </div>
       </div>
@@ -459,7 +459,7 @@ function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }
     <section className="page-section workspace-table-section">
       <div className="workspace-card-head section-head-row">
         <div>
-          <div className="section-title">최근 승격/탈락 로그</div>
+          <div className="section-title">승격/탈락</div>
           <div className="section-copy">새 구조가 실제로 종목을 감시 슬롯에 넣고 빼는지 바로 확인하는 용도야.</div>
         </div>
         <div className="section-toolbar">
@@ -467,7 +467,7 @@ function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }
         </div>
       </div>
       {items.length === 0 ? (
-        <div className="workspace-empty-state">최근 승격/탈락 로그가 아직 없어.</div>
+        <div className="workspace-empty-state">없음</div>
       ) : (
         <>
           <div style={{ overflow: 'auto' }}>
@@ -705,18 +705,33 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
 
   const topStatusItems = [
     { label: '감시 슬롯', value: `${totalActiveCount || activeSlots.length}개`, tone: (totalActiveCount || activeSlots.length) > 0 ? 'good' as const : 'neutral' as const },
-    { label: '지금 리서치 필요', value: `${pendingTargets.length}개`, tone: pendingTargets.length > 0 ? 'bad' as const : 'good' as const },
-    { label: '저장소 상태', value: storageStatusLabel, tone: storageStatusTone as 'good' | 'neutral' | 'bad' },
-    { label: '최근 Hermes', value: researchStatus.last_run_status || '대기', tone: runStatusTone as 'good' | 'neutral' | 'bad' },
+    { label: '필요', value: `${pendingTargets.length}개`, tone: pendingTargets.length > 0 ? 'bad' as const : 'good' as const },
+    { label: '저장소', value: storageStatusLabel, tone: storageStatusTone as 'good' | 'neutral' | 'bad' },
+    { label: '실행', value: researchStatus.last_run_status || '대기', tone: runStatusTone as 'good' | 'neutral' | 'bad' },
   ];
+  const researchHeadline = researchStatus.partial_failure
+    ? '리서치 일부 실패'
+    : pendingTargets.length > 0
+      ? '분석 대기 있음'
+      : researchStatus.status === 'healthy'
+        ? '리서치 정상'
+        : '리서치 확인 필요';
+  const researchHeadlineTone = researchStatus.partial_failure || researchStatus.status === 'stale' || researchStatus.status === 'invalid'
+    ? 'bad'
+    : pendingTargets.length > 0
+      ? 'warn'
+      : 'good';
+  const recentErrorText = researchStatus.partial_failure && Array.isArray(researchStatus.recent_errors) && researchStatus.recent_errors.length > 0
+    ? researchStatus.recent_errors.slice(0, 2).map((item) => `${item.market || '-'}:${item.symbol || '-'} ${item.error || ''}`).join(' / ')
+    : '';
 
   return (
     <div className="app-shell">
       <div className="page-frame">
         <div className="content-shell workspace-grid">
           <ConsoleActionBar
-            title="후보 리서치"
-            subtitle="전체 캐시 목록보다 지금 감시 중인 핵심 슬롯과 승격 슬롯을 먼저 본다. 애매한 중복 없이 이 화면을 truth source로 쓴다."
+            title="리서치"
+            subtitle=""
             lastUpdated={researchStatus.last_generated_at || monitorStatus[0]?.generated_at || latestSnapshot?.generated_at || latestSnapshot?.bucket_ts || ''}
             loading={loading}
             errorMessage={errorMessage}
@@ -727,17 +742,38 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
             actions={[]}
           />
 
+          <section className={`research-command-center is-${researchHeadlineTone}`}>
+            <div>
+              <div className="ops-eyebrow">상태</div>
+              <div className="ops-command-title">{researchHeadline}</div>
+              <div className="ops-command-detail">
+                {researchStatus.partial_failure
+                  ? '부분 실패를 성공처럼 보지 않는다. 실패 종목을 먼저 확인해야 자동 판단 품질이 올라간다.'
+                  : pendingTargets.length > 0
+                    ? `${pendingTargets.length}개 종목이 리서치 없음 또는 지연 상태야. 이 목록이 오늘 리서치 우선순위다.`
+                    : '현재 감시 슬롯 기준으로 급한 리서치 공백은 없어.'}
+              </div>
+              {recentErrorText ? <div className="research-error-line">{recentErrorText}</div> : null}
+            </div>
+            <div className="research-command-metrics">
+              <div><span>감시 슬롯</span><strong>{totalActiveCount || activeSlots.length}</strong></div>
+              <div><span>필요</span><strong>{pendingTargets.length}</strong></div>
+              <div><span>성공/실패</span><strong>{researchStatus.success_count ?? 0}/{researchStatus.failure_count ?? 0}</strong></div>
+              <div><span>fresh</span><strong>{researchStatus.fresh_symbol_count ?? 0}</strong></div>
+            </div>
+          </section>
+
           <section className="page-section workspace-two-column">
             <div className="workspace-card-block">
               <div className="workspace-card-head">
                 <div>
-                  <div className="section-title">종목 조회</div>
+              <div className="section-title">조회</div>
                   <div className="section-copy">감시 슬롯에서 바로 눌러도 되고, 직접 코드와 시장을 넣어서 latest/history를 확인해도 돼.</div>
                 </div>
               </div>
               <div className="workspace-query-grid">
                 <div>
-                  <div className="workspace-field-label">종목 코드</div>
+                  <div className="workspace-field-label">종목</div>
                   <input
                     type="text"
                     className="input-field"
@@ -776,33 +812,33 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
             <div className="workspace-card-block">
               <div className="workspace-card-head">
                 <div>
-                  <div className="section-title">감시 운영 요약</div>
+                  <div className="section-title">감시</div>
                   <div className="section-copy">핵심 감시와 승격 슬롯이 실제 리서치 우선순위를 결정해. 지금은 열린 시장을 기본으로 먼저 보여주고, 닫힌 시장은 상태만 같이 표시해.</div>
                 </div>
               </div>
               <div className="workspace-chip-row" style={{ marginBottom: 12 }}>
                 <span className={liveMarket?.market_sessions?.KR?.is_open ? 'inline-badge is-success' : 'inline-badge'}>
-                  한국장 {liveMarket?.market_sessions?.KR?.status_label || '상태 대기'}
+                  KR {liveMarket?.market_sessions?.KR?.status_label || '대기'}
                 </span>
                 <span className={liveMarket?.market_sessions?.US?.is_open ? 'inline-badge is-success' : 'inline-badge'}>
-                  미국장 {liveMarket?.market_sessions?.US?.status_label || '상태 대기'}
+                  US {liveMarket?.market_sessions?.US?.status_label || '대기'}
                 </span>
               </div>
               <div className="workspace-mini-metrics">
-                <div className="workspace-mini-metric"><span>후보 풀</span><strong>{totalCandidatePoolCount}개</strong></div>
-                <div className="workspace-mini-metric"><span>감시 슬롯</span><strong>{totalActiveCount}개</strong></div>
-                <div className="workspace-mini-metric"><span>핵심 감시</span><strong>{totalCoreCount}개</strong></div>
-                <div className="workspace-mini-metric"><span>승격 슬롯</span><strong>{totalPromotionCount}개</strong></div>
-                <div className="workspace-mini-metric"><span>보유 추적</span><strong>{totalHeldCount}개</strong></div>
-                <div className="workspace-mini-metric"><span>저장소 fresh</span><strong>{researchStatus.fresh_symbol_count ?? 0}개</strong></div>
-                <div className="workspace-mini-metric"><span>즉시 리서치 대상</span><strong>{pendingTargets.length}개</strong></div>
-                <div className="workspace-mini-metric"><span>마지막 적재</span><strong>{researchStatus.last_generated_at ? formatDateTime(researchStatus.last_generated_at) : '대기'}</strong></div>
-                <div className="workspace-mini-metric"><span>Hermes 성공/실패</span><strong>{researchStatus.success_count ?? 0}/{researchStatus.failure_count ?? 0}</strong></div>
-                <div className="workspace-mini-metric"><span>부분 실패</span><strong>{researchStatus.partial_failure ? '있음' : '없음'}</strong></div>
+                <div className="workspace-mini-metric"><span>후보</span><strong>{totalCandidatePoolCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>감시</span><strong>{totalActiveCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>핵심</span><strong>{totalCoreCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>승격</span><strong>{totalPromotionCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>보유</span><strong>{totalHeldCount}개</strong></div>
+                <div className="workspace-mini-metric"><span>fresh</span><strong>{researchStatus.fresh_symbol_count ?? 0}개</strong></div>
+                <div className="workspace-mini-metric"><span>대상</span><strong>{pendingTargets.length}개</strong></div>
+                <div className="workspace-mini-metric"><span>적재</span><strong>{researchStatus.last_generated_at ? formatDateTime(researchStatus.last_generated_at) : '대기'}</strong></div>
+                <div className="workspace-mini-metric"><span>성공/실패</span><strong>{researchStatus.success_count ?? 0}/{researchStatus.failure_count ?? 0}</strong></div>
+                <div className="workspace-mini-metric"><span>부분</span><strong>{researchStatus.partial_failure ? '있음' : '없음'}</strong></div>
               </div>
               {researchStatus.partial_failure && Array.isArray(researchStatus.recent_errors) && researchStatus.recent_errors.length > 0 ? (
                 <div className="workspace-summary-card" style={{ marginTop: 12 }}>
-                  <div className="workspace-summary-title">최근 Hermes 실패</div>
+                  <div className="workspace-summary-title">실패</div>
                   <div className="workspace-summary-copy">
                     {researchStatus.recent_errors.slice(0, 3).map((item) => `${item.market || '-'}:${item.symbol || '-'} ${item.error || ''}`).join(' / ')}
                   </div>
@@ -814,7 +850,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
           <MarketSummarySection items={monitorStatus} />
 
           <MonitorSlotSection
-            title="지금 리서치 돌릴 감시 슬롯"
+            title="대상"
             copy="감시 슬롯 중에서 snapshot이 없거나 stale인 대상만 먼저 돌린다. 핵심 감시와 승격 슬롯 위주라서 더 이상 전체 후보 목록에 끌려가지 않아."
             items={pendingTargets}
             loading={targetsLoading}
@@ -825,12 +861,12 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
               setPendingMarketView(view);
             }}
             onSelect={handleSelectTarget}
-            emptyText={targetsLoading ? '불러오는 중...' : `${pendingMarketView} 시장에서 지금 돌릴 리서치 대상이 없어.`}
+            emptyText={targetsLoading ? '불러오는 중...' : '없음'}
             highlightPending
           />
 
           <MonitorSlotSection
-            title="현재 핵심 감시 / 승격 슬롯"
+            title="감시"
             copy="여기가 후보 리서치의 기준 목록이야. 보유 추적, 핵심 감시, 승격 슬롯만 남기고 애매한 중간 후보는 걷어냈어."
             items={activeSlots}
             loading={targetsLoading}
@@ -841,7 +877,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
               setActiveMarketView(view);
             }}
             onSelect={handleSelectTarget}
-            emptyText={targetsLoading ? '불러오는 중...' : `${activeMarketView} 시장 감시 슬롯이 없어.`}
+            emptyText={targetsLoading ? '불러오는 중...' : '없음'}
           />
 
           <PromotionSection items={promotionEvents} />
@@ -850,7 +886,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
 
           {queried && !latestSnapshot && !queryLoading && (
             <div className="page-section workspace-empty-state">
-              {symbol.trim().toUpperCase()} ({market}) 에 대한 후보 리서치 이력이 없어.
+              없음
             </div>
           )}
 
@@ -858,7 +894,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
             <section className="page-section workspace-table-section">
               <div className="workspace-card-head section-head-row">
                 <div>
-                  <div className="section-title">스냅샷 이력</div>
+                  <div className="section-title">이력</div>
                   <div className="section-copy">감시 슬롯에서 선택한 종목이나 직접 조회한 종목의 저장된 리서치 이력을 본다.</div>
                 </div>
                 <div className="section-toolbar">
@@ -870,7 +906,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                 <table className="workspace-table" style={{ minWidth: 760 }}>
                   <thead>
                     <tr>
-                      <th>기준 시각</th>
+                      <th>시각</th>
                       <th>점수</th>
                       <th>상태</th>
                       <th>신뢰도</th>
@@ -896,8 +932,8 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                                 <span className={gradeBadge(item).tone}>{gradeBadge(item).label}</span>
                               </div>
                             </td>
-                            <td>{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '검증 제외') : (item.summary ? (item.summary.length > 88 ? `${item.summary.slice(0, 88)}…` : item.summary) : '요약 없음')}</td>
-                            <td>{warnings.length > 0 ? warnings.map((warning) => reasonCodeToKorean(String(warning))).join(', ') : '경고 없음'}</td>
+                            <td>{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '제외') : (item.summary ? (item.summary.length > 48 ? `${item.summary.slice(0, 48)}…` : item.summary) : '-')}</td>
+                            <td>{warnings.length > 0 ? warnings.map((warning) => reasonCodeToKorean(String(warning))).join(', ') : '-'}</td>
                           </tr>
                           {isExpanded && (
                             <tr>
@@ -916,8 +952,8 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                                     </div>
                                   )}
                                   <div className="workspace-summary-card">
-                                    <div className="workspace-summary-title">상세 요약</div>
-                                    <div className="workspace-summary-copy">{item.summary || '요약 없음'}</div>
+                                    <div className="workspace-summary-title">요약</div>
+                                    <div className="workspace-summary-copy">{item.summary || '-'}</div>
                                   </div>
                                 </div>
                               </td>

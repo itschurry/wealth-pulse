@@ -822,7 +822,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       tone: 'neutral',
     },
     {
-      label: 'Hermes',
+      label: '리서치',
       value: researchStateLabel(currentResearchState),
       tone: researchTone(currentResearchState),
     },
@@ -1338,8 +1338,8 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       <div className="page-frame">
         <div className="content-shell console-page-shell runtime-ops-shell" style={{ display: 'grid', gap: 16 }}>
           <ConsoleActionBar
-            title="주문/리스크"
-            subtitle="계좌, 포지션, 주문 이력, 리스크 거절 사유를 한 화면에서 확인합니다. 신호가 있었는데 왜 주문이 없었는지 이 화면에서 바로 추적합니다."
+            title="주문"
+            subtitle=""
             lastUpdated={snapshot.fetchedAt}
             loading={loading}
             errorMessage={errorMessage || lastError}
@@ -1351,7 +1351,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
             settingsSavedAt={settingsSavedAt}
             actions={[
               {
-                label: '자동매매 엔진 시작',
+                label: '시작',
                 onClick: () => { if (!engineState.running) { void handleStartStop(); } },
                 tone: 'primary',
                 disabled: engineState.running,
@@ -1377,7 +1377,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 busyLabel: '재개 중...',
               },
               {
-                label: '자동매매 엔진 중지',
+                label: '중지',
                 onClick: () => { if (engineState.running || engineState.engine_state === 'paused') { void handleStartStop(); } },
                 tone: 'danger',
                 disabled: !(engineState.running || engineState.engine_state === 'paused'),
@@ -1387,12 +1387,12 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 confirmMessage: UI_TEXT.confirm.stopEngineMessage,
               },
               {
-                label: '강제 새로고침',
+                label: '갱신',
                 onClick: () => { void handleRefreshAll(); },
                 tone: 'default',
               },
               {
-                label: '실행 로그 전부 삭제',
+                label: '로그 삭제',
                 onClick: () => { void handleClearRuntimeHistory(); },
                 tone: 'danger',
                 busy: pendingAction === 'history-clear',
@@ -1406,7 +1406,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 ],
               },
               {
-                label: runtimeMode === 'live' ? '실계좌 초기화 불가' : '모의계좌 초기화',
+                label: runtimeMode === 'live' ? '초기화 불가' : '초기화',
                 onClick: () => { void handleReset(); },
                 tone: 'danger',
                 disabled: runtimeMode === 'live',
@@ -1417,7 +1417,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 confirmDetails: ['계좌, 포지션, 주문/사이클 기준 데이터가 새 초기 자금으로 다시 설정됩니다.', '이 작업은 되돌릴 수 없습니다.'],
               },
               {
-                label: '계좌/자동매매 엔진 히스토리 완전 정리',
+                label: '전체 정리',
                 onClick: () => { void handleClearRuntimeHistoryAndReset(); },
                 tone: 'danger',
                 busy: pendingAction === 'history-reset',
@@ -1436,10 +1436,10 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
 
           <div className="page-section validation-decision-hero console-hero-section" style={{ padding: 18 }}>
             <div className="report-hero-topline">
-              <span className="report-hero-tag">리스크 우선</span>
-              <span className={`report-decision-chip ${entryAllowed ? 'is-good' : 'is-bad'}`}>신규 진입 {entryAllowed ? '가능' : '차단'}</span>
+              <span className="report-hero-tag">리스크</span>
+              <span className={`report-decision-chip ${entryAllowed ? 'is-good' : 'is-bad'}`}>{entryAllowed ? '진입 가능' : '진입 차단'}</span>
             </div>
-            <div className="report-decision-title">운용 우선순위: {riskyPositions.length > 0 || todayFailCount > 0 ? '리스크 정리 먼저' : '정상 운영 지속'}</div>
+            <div className="report-decision-title">{riskyPositions.length > 0 || todayFailCount > 0 ? '리스크 우선' : '정상'}</div>
             <div className="report-hero-copy">지금 필요한 순서만 짧게 보이도록 정리했어. 보유 포지션 확인 → 실행 워크플로우 확인 → 리스크/액션 로그 확인 순서로 보면 어디서 막혔는지 훨씬 빨리 찾을 수 있어.</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
               <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-positions-section')}>보유 포지션으로</button>
@@ -1449,7 +1449,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
             </div>
             {repeatedCashRetries.length > 0 && (
               <div className="inline-warning-card" style={{ marginTop: 12 }}>
-                <div><strong>반복 현금 부족 실패 감지</strong></div>
+                <div><strong>현금 부족 반복</strong></div>
                 <div>오늘 현금 부족 실패 {formatCount(todayInsufficientCashFailCount, '건')} · 같은 종목 재시도 {formatCount(repeatedCashRetries.length, '건')}</div>
                 {repeatedCashRetries.slice(0, 3).map((item) => (
                   <div key={`${item.market || '-'}:${item.code || '-'}`}>
@@ -1496,7 +1496,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
               </div>
               <div className="detail-list">
                 <div>2단계: 퀀트 스캐너가 진입 후보를 만든 뒤 사유 코드와 스냅샷을 남깁니다.</div>
-                <div>3단계: Hermes는 판단만 만들고, Risk Gate와 Executor가 주문 여부를 결정합니다.</div>
+                <div>3단계: 리서치 AI는 판단만 만들고, 주문 안전심사와 주문 실행기가 주문 여부를 결정해.</div>
                 <div>3단계 점수는 최신성/등급을 같이 봐야 합니다. D등급이면 점수 숫자는 숨기고 사유만 봅니다.</div>
                 <div>4·5단계: 리스크 게이트가 최종 거부권을 쥐고, 결과는 진입 검토 / 관찰 전용 / 차단 / 관망으로만 끝냅니다.</div>
               </div>
@@ -1748,44 +1748,44 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   </article>
                 );
               })}
-              {filteredPositions.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</div>}
+              {filteredPositions.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{UI_TEXT.empty.noPositions}</div>}
             </div>
           </div>
 
           <div className="runtime-ops-summary-grid">
             <div id="runtime-engine-panel-section" className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>자동매매 엔진 상태 패널</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>엔진</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
-                <div>상태: {engineStateLabel(engineState.engine_state, engineState.running)}</div>
-                <div>상태 사유: {engineState.last_error ? '최근 오류 발생' : (engineState.running ? '정상 실행 중' : engineState.engine_state === 'paused' ? '일시정지' : '대기 중')}</div>
-                <div>최근 실행 시각: {formatDateTime(engineState.last_run_at)}</div>
-                <div>다음 실행 시각: {formatDateTime(engineState.next_run_at)}</div>
-                <div>최근 오류: {engineState.last_error || '-'}</div>
+                <div>{engineStateLabel(engineState.engine_state, engineState.running)}</div>
+                <div>{engineState.last_error ? '오류' : (engineState.running ? '정상' : engineState.engine_state === 'paused' ? '일시정지' : '대기')}</div>
+                <div>최근 {formatDateTime(engineState.last_run_at)}</div>
+                <div>다음 {formatDateTime(engineState.next_run_at)}</div>
+                <div>오류 {engineState.last_error || '-'}</div>
                 <div>로테이션: {engineState.config?.rotation?.enabled ? '활성' : '비활성'} · 오늘 교체 {formatNumber(rotationSummary?.executed_count, 0)}건</div>
                 <div>
-                  최근 실행 요약: 매수 {formatNumber(engineState.last_summary?.executed_buy_count, 0)}건 / 매도 {formatNumber(engineState.last_summary?.executed_sell_count, 0)}건
+                  실행: 매수 {formatNumber(engineState.last_summary?.executed_buy_count, 0)} / 매도 {formatNumber(engineState.last_summary?.executed_sell_count, 0)}
                 </div>
-                <div>당일 체결(B/S) / 실패: {formatNumber(engineState.today_order_counts?.buy, 0)} / {formatNumber(engineState.today_order_counts?.sell, 0)} / {formatNumber(engineState.today_order_counts?.failed, 0)}</div>
-                <div>당일 실현손익: {formatKRW(engineState.today_realized_pnl, true)}</div>
-                <div>검증 게이트: {engineState.validation_policy?.validation_gate_enabled ? '활성' : '비활성'}</div>
+                <div>오늘 B/S/F: {formatNumber(engineState.today_order_counts?.buy, 0)} / {formatNumber(engineState.today_order_counts?.sell, 0)} / {formatNumber(engineState.today_order_counts?.failed, 0)}</div>
+                <div>실현 {formatKRW(engineState.today_realized_pnl, true)}</div>
+                <div>검증 {engineState.validation_policy?.validation_gate_enabled ? 'ON' : 'OFF'}</div>
               </div>
             </div>
 
             <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>오늘 포지션 변화 요약</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>오늘</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
-                <div>오늘 체결 합계: {formatNumber(todayOrders.length, 0)}건</div>
-                <div>매수 체결: {formatCount(todayBuyCount, '건')}</div>
-                <div>매도 체결: {formatCount(todaySellCount, '건')}</div>
-                <div>실패 주문: {formatCount(todayFailCount, '건')}</div>
-                <div>순증가 포지션: {formatCount(todayBuyCount - todaySellCount, '건')}</div>
+                <div>체결 {formatNumber(todayOrders.length, 0)}건</div>
+                <div>매수 {formatCount(todayBuyCount, '건')}</div>
+                <div>매도 {formatCount(todaySellCount, '건')}</div>
+                <div>실패 {formatCount(todayFailCount, '건')}</div>
+                <div>순증가 {formatCount(todayBuyCount - todaySellCount, '건')}</div>
               </div>
             </div>
           </div>
 
           <div className="runtime-ops-log-grid">
             <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 주문 / 체결 내역</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 주문</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                 {mergedOrderHistory.slice(0, 12).map((order, index) => {
                   const item = order as {
@@ -1824,15 +1824,14 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                       </span>
                     </div>
                     <div style={{ marginTop: 4, color: 'var(--text-3)' }}>
-                      {item.market ? `${formatMarketWithCurrency(item.market)} · ` : ''}수량 {formatCount(item.quantity, '주')} · 체결가 {filledPriceCopy} · {formatDateTime(orderEventTime(item))}
+                      {item.market ? `${formatMarketWithCurrency(item.market)} · ` : ''}{formatCount(item.quantity, '주')} · {filledPriceCopy} · {formatDateTime(orderEventTime(item))}
                     </div>
                     {!!item.strategy_name && (
                       <div className="signal-cell-copy" style={{ marginTop: 4 }}>전략: {item.strategy_name}</div>
                     )}
                     {!isSuccess && (
                       <div style={{ marginTop: 4, color: 'var(--down)', display: 'grid', gap: 4 }}>
-                        <div>사유 코드: {reasonCodeToKorean(String(item.reason_code || item.failure_reason || '-'))}</div>
-                        <div>상세: {item.message || explainOrderFailureReason(item.failure_reason)}</div>
+                        <div>{reasonCodeToKorean(String(item.reason_code || item.failure_reason || '-'))}</div>
                       </div>
                     )}
                     </div>
@@ -1843,7 +1842,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
             </div>
 
             <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 자동매매 엔진 이벤트 로그</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>엔진 로그</div>
               <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                 {Object.entries(skipReasonCounts).slice(0, 6).map(([reason, count]) => (
                   <div key={reason} style={{ fontSize: 15, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
@@ -1879,10 +1878,10 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
           <div id="runtime-workflow-section" className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
               <div>
-                <div className="section-title">실행 워크플로우</div>
+                <div className="section-title">워크플로우</div>
                 <div className="section-copy">탐색 → 신호 → 판단 → 주문으로 끊어서 본다. 어디서 막혔는지, 주문 직전까지 갔는지, 체결됐는지 한 번에 보이게 정리했다.</div>
               </div>
-              <div className={`inline-badge ${workflowCounts.ready > 0 ? 'is-success' : ''}`}>주문 준비 {formatCount(workflowCounts.ready, '건')}</div>
+              <div className={`inline-badge ${workflowCounts.ready > 0 ? 'is-success' : ''}`}>준비 {formatCount(workflowCounts.ready, '건')}</div>
             </div>
 
             <div className="validation-decision-grid" style={{ marginTop: 12 }}>
@@ -1931,7 +1930,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   className="backtest-input-wrap"
                   style={{ padding: '0 12px', minWidth: 220 }}
                   type="text"
-                  placeholder="종목/전략/차단 사유 검색"
+                  placeholder="검색"
                   value={workflowSearch}
                   onChange={(event) => setWorkflowSearch(event.target.value)}
                 />
@@ -1942,7 +1941,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                     onChange={(event) => setWorkflowOnlyBlocked(event.target.checked)}
                     style={{ marginRight: 6 }}
                   />
-                  막힌 건만 보기
+                  차단만
                 </label>
                 <label className={autoRefreshEnabled ? 'inline-badge is-success' : 'inline-badge'} style={{ cursor: 'pointer' }}>
                   <input
@@ -1951,7 +1950,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                     onChange={(event) => setAutoRefreshEnabled(event.target.checked)}
                     style={{ marginRight: 6 }}
                   />
-                  10초 자동 갱신
+                  자동 갱신
                 </label>
                 {(workflowSearch || workflowOnlyBlocked || workflowTab !== 'all') && (
                   <button
@@ -1963,7 +1962,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                       setWorkflowTab('all');
                     }}
                   >
-                    필터 초기화
+                    초기화
                   </button>
                 )}
               </div>
@@ -2011,18 +2010,18 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   </article>
                 );
               })}
-              {visibleWorkflowItems.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>아직 워크플로우 이벤트가 없다. 자동매매 엔진을 한 번 돌리면 탐색부터 주문까지 누적된다.</div>}
+              {visibleWorkflowItems.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
             </div>
           </div>
 
           <div id="runtime-risk-action-section" className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
               <div>
-                <div className="section-title">리스크/액션 로그</div>
-                <div className="section-copy">4단계 리스크 결과와 5단계 최종 액션을 분리해서 보여줍니다. Hermes 리서치 상태는 참고 정보이고 주문 허용 여부는 Risk Gate 결과로 읽으면 됩니다.</div>
+                <div className="section-title">리스크</div>
+                <div className="section-copy">4단계 리스크 결과와 5단계 최종 액션을 분리해서 보여준다. 리서치 상태는 참고 정보이고 주문 허용 여부는 안전심사 결과로 읽으면 된다.</div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <div className={researchBadgeClass(currentResearchState)}>Hermes {researchStateLabel(currentResearchState)}</div>
+                <div className={researchBadgeClass(currentResearchState)}>리서치 {researchStateLabel(currentResearchState)}</div>
                 <div className={layerCResearchBadgeClass('freshness', String(snapshot.research.freshness || 'missing').toLowerCase())}>{freshnessToKorean(String(snapshot.research.freshness || 'missing'))}</div>
               </div>
             </div>
@@ -2042,7 +2041,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                     <th style={{ padding: 12, fontSize: 15 }}>시각</th>
                     <th style={{ padding: 12, fontSize: 15 }}>종목</th>
                     <th style={{ padding: 12, fontSize: 15 }}>전략</th>
-                    <th style={{ padding: 12, fontSize: 15 }}>Hermes</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>리서치</th>
                     <th style={{ padding: 12, fontSize: 15 }}>3단계</th>
                     <th style={{ padding: 12, fontSize: 15 }}>4단계</th>
                     <th style={{ padding: 12, fontSize: 15 }}>5단계</th>
@@ -2087,9 +2086,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   ))}
                   {signalRiskActionLogs.length === 0 && (
                     <tr>
-                      <td colSpan={8} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>
-                        아직 기록된 신호 스냅샷이 없습니다. 자동매매 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.
-                      </td>
+                      <td colSpan={8} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>없음</td>
                     </tr>
                   )}
                 </tbody>
@@ -2117,12 +2114,12 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   </div>
                 </article>
               ))}
-              {signalRiskActionLogs.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>아직 기록된 신호 스냅샷이 없습니다. 자동매매 엔진을 한 번 실행하면 4·5단계 로그가 여기에 누적됩니다.</div>}
+              {signalRiskActionLogs.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
             </div>
           </div>
 
           <div className="page-section" style={{ padding: 16 }}>
-            <div style={{ fontSize: 17, fontWeight: 700 }}>운영 로그 스냅샷</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>로그</div>
             <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
               <div>cycle 로그: {formatCount(cycles.length, '건')}</div>
               <div>주문 이벤트 로그: {formatCount(orderEvents.length, '건')}</div>
