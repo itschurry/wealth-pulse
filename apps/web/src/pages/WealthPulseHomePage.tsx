@@ -1,6 +1,5 @@
 import {
   getRiskGuardState,
-  isRiskBlockedSignal,
   isRiskEntryAllowed,
 } from '../adapters/consoleViewAdapter';
 import {
@@ -12,12 +11,11 @@ import {
   reliabilityToKorean,
 } from '../constants/uiText';
 import type { ConsoleSnapshot } from '../types/consoleView';
-import type { DomainSignal } from '../types/domain';
 import {
-  explainSizeRecommendation,
   formatDateTime,
   formatDateTimeWithAge,
   formatKRW,
+  formatLocalAmountWithKRW,
   formatNumber,
   formatPercent,
   formatSymbol,
@@ -30,7 +28,6 @@ interface WealthPulseHomePageProps {
   errorMessage: string;
   onRefresh: () => void;
   onGoLab: () => void;
-  onGoAnalysis: () => void;
 }
 
 interface PositionView {
@@ -170,7 +167,6 @@ export function WealthPulseHomePage({
   errorMessage,
   onRefresh,
   onGoLab,
-  onGoAnalysis,
 }: WealthPulseHomePageProps) {
   const engineState = snapshot.engine.execution?.state || {};
   const engineAccount = snapshot.engine.execution?.account || {};
@@ -205,6 +201,17 @@ export function WealthPulseHomePage({
   const cashUsd = toNumber(portfolioAccount.cash_usd) || toNumber(engineAccount.cash_usd);
   const todayRealizedPnlKrw = toNumber(engineState.today_realized_pnl);
   const totalBookValueKrw = Math.max(totalEquityKrw, totalMarketValueKrw + cashKrw, 1);
+  const livePerformance = snapshot.performance.live || {};
+  const totalReturnPct = toOptionalNumber(livePerformance.total_return_pct);
+  const positionReturnPct = toOptionalNumber(livePerformance.position_return_pct);
+  const positionReturnKrwPct = toOptionalNumber(livePerformance.position_return_pct_krw);
+  const positionReturnUsdPct = toOptionalNumber(livePerformance.position_return_pct_usd);
+  const startingEquityKrw = toNumber(livePerformance.starting_equity_krw);
+  const performanceEquityKrw = toNumber(livePerformance.equity_krw) || totalEquityKrw;
+  const positionCostKrw = toNumber(livePerformance.position_cost_krw) || Math.max(0, totalMarketValueKrw - totalUnrealizedPnlKrw);
+  const positionMarketValueKrw = toNumber(livePerformance.position_market_value_krw) || totalMarketValueKrw;
+  const positionUnrealizedKrwOnly = toNumber(livePerformance.position_unrealized_pnl_krw_only);
+  const positionUnrealizedUsd = toNumber(livePerformance.position_unrealized_pnl_usd);
 
   const kospiExposureKrw = positions
     .filter((item) => marketLabel(item.market) === 'KOSPI')
@@ -217,10 +224,8 @@ export function WealthPulseHomePage({
 
   const allocator = snapshot.engine.allocator || {};
   const signals = snapshot.signals.signals || [];
-  const allowedSignals = signals.filter((item) => item.entry_allowed);
-  const blockedSignals = signals.filter(isRiskBlockedSignal);
-  const totalAllowedSignals = Number(allocator.entry_allowed_count ?? allowedSignals.length);
-  const totalBlockedSignals = Number(allocator.blocked_count ?? blockedSignals.length);
+  const totalAllowedSignals = Number(allocator.entry_allowed_count ?? 0);
+  const totalBlockedSignals = Number(allocator.blocked_count ?? 0);
   const totalObserveSignals = Math.max(signals.length - totalAllowedSignals - totalBlockedSignals, 0);
   const totalSignalCount = Math.max(0, totalAllowedSignals + totalBlockedSignals + totalObserveSignals);
   const riskGuard = getRiskGuardState(snapshot);
@@ -229,7 +234,7 @@ export function WealthPulseHomePage({
   const validationSummary = snapshot.validation.summary || {};
   const validationReliability = reliabilityToKorean(String(validationSummary.oos_reliability || '').toLowerCase()) || '-';
   const engineRunning = Boolean(engineState.running);
-  const engineStatusLabel = engineRunning ? 'RUN' : engineState.engine_state === 'paused' ? 'PAUSE' : engineState.engine_state === 'error' ? 'ERROR' : 'STOP';
+  const engineStatusLabel = engineRunning ? '실행' : engineState.engine_state === 'paused' ? '일시정지' : engineState.engine_state === 'error' ? '오류' : '정지';
   const failedOrders = toNumber(engineState.today_order_counts?.failed);
   const buyOrders = toNumber(engineState.today_order_counts?.buy);
   const sellOrders = toNumber(engineState.today_order_counts?.sell);
@@ -237,7 +242,6 @@ export function WealthPulseHomePage({
   const lastSummary = asRecord(engineState.last_summary);
   const blockedReasonRows = topRecordRows(lastSummary.blocked_reason_counts);
   const skipReasonRows = topRecordRows(lastSummary.skip_reason_counts);
-  const reportGeneratedAt = snapshot.reports.generated_at || snapshot.reports.brief?.generated_at || '';
 
   const liveMarket = snapshot.liveMarket || {};
   const marketCtx = snapshot.marketContext || {};
@@ -252,15 +256,10 @@ export function WealthPulseHomePage({
   ];
 
   const allocationRows: BarRow[] = [
-    { label: 'CASH', value: ratioPercent(cashAllocationKrw, totalBookValueKrw), width: ratioPercent(cashAllocationKrw, totalBookValueKrw), tone: 'is-cash' },
+    { label: '현금', value: ratioPercent(cashAllocationKrw, totalBookValueKrw), width: ratioPercent(cashAllocationKrw, totalBookValueKrw), tone: 'is-cash' },
     { label: 'KOSPI', value: ratioPercent(kospiExposureKrw, totalBookValueKrw), width: ratioPercent(kospiExposureKrw, totalBookValueKrw), tone: 'is-kospi' },
     { label: 'NASDAQ', value: ratioPercent(nasdaqExposureKrw, totalBookValueKrw), width: ratioPercent(nasdaqExposureKrw, totalBookValueKrw), tone: 'is-nasdaq' },
-    { label: 'OTHER', value: ratioPercent(otherExposureKrw, totalBookValueKrw), width: ratioPercent(otherExposureKrw, totalBookValueKrw), tone: 'is-other' },
-  ];
-  const signalRows: BarRow[] = [
-    { label: 'ENTRY', value: formatNumber(totalAllowedSignals, 0), width: ratioPercent(totalAllowedSignals, totalSignalCount || 1), tone: 'is-allowed' },
-    { label: 'BLOCK', value: formatNumber(totalBlockedSignals, 0), width: ratioPercent(totalBlockedSignals, totalSignalCount || 1), tone: 'is-blocked' },
-    { label: 'WATCH', value: formatNumber(totalObserveSignals, 0), width: ratioPercent(totalObserveSignals, totalSignalCount || 1), tone: 'is-watch' },
+    { label: '기타', value: ratioPercent(otherExposureKrw, totalBookValueKrw), width: ratioPercent(otherExposureKrw, totalBookValueKrw), tone: 'is-other' },
   ];
   const allocationGradient = buildConicGradient([
     { value: cashAllocationKrw, color: 'var(--text-4)' },
@@ -268,12 +267,6 @@ export function WealthPulseHomePage({
     { value: nasdaqExposureKrw, color: 'var(--up)' },
     { value: otherExposureKrw, color: 'var(--silver)' },
   ]);
-  const signalGradient = buildConicGradient([
-    { value: totalAllowedSignals, color: 'var(--up)' },
-    { value: totalBlockedSignals, color: 'var(--down)' },
-    { value: totalObserveSignals, color: 'var(--silver)' },
-  ]);
-
   const universeSymbolCount = (snapshot.universe.items || []).reduce((sum, item) => sum + toNumber(item.symbol_count), 0);
   const researchCoverage = toNumber(snapshot.research.coverage_count);
   const researchFresh = toNumber(snapshot.research.fresh_symbol_count);
@@ -281,63 +274,44 @@ export function WealthPulseHomePage({
   const flowSteps: FlowStep[] = [
     {
       layer: 'A',
-      label: 'Universe',
+      label: '종목군',
       value: formatNumber(universeSymbolCount || signals.length, 0),
-      meta: `${formatNumber(snapshot.universe.count || 0, 0)} sets`,
+      meta: `${formatNumber(snapshot.universe.count || 0, 0)}개`,
       tone: universeSymbolCount > 0 ? 'good' : 'neutral',
     },
     {
       layer: 'B',
-      label: 'Quant',
+      label: '퀀트',
       value: formatNumber(signals.length, 0),
-      meta: `${formatNumber(totalSignalCount, 0)} signals`,
+      meta: `${formatNumber(totalSignalCount, 0)}건`,
       tone: signals.length > 0 ? 'good' : 'neutral',
     },
     {
       layer: 'C',
-      label: 'Research',
+      label: '리서치',
       value: formatNumber(researchFresh || researchCoverage, 0),
-      meta: researchAcceptRatio == null ? freshnessToKorean(String(snapshot.research.freshness || 'missing')) : `${formatPercent(researchAcceptRatio, 1, true)} accept`,
+      meta: researchAcceptRatio == null ? freshnessToKorean(String(snapshot.research.freshness || 'missing')) : `수락 ${formatPercent(researchAcceptRatio, 1, true)}`,
       tone: researchFresh > 0 ? 'good' : snapshot.research.freshness === 'stale' ? 'warning' : 'neutral',
     },
     {
       layer: 'D',
-      label: 'Risk Gate',
-      value: riskGuardAllowed ? 'OPEN' : 'LOCK',
-      meta: `${formatNumber(totalAllowedSignals, 0)} in / ${formatNumber(totalBlockedSignals, 0)} out`,
+      label: '리스크',
+      value: riskGuardAllowed ? '열림' : '잠김',
+      meta: `허용 ${formatNumber(totalAllowedSignals, 0)} / 차단 ${formatNumber(totalBlockedSignals, 0)}`,
       tone: riskGuardAllowed ? 'good' : 'bad',
     },
     {
       layer: 'E',
-      label: 'Execution',
+      label: '실행',
       value: engineStatusLabel,
-      meta: `${formatNumber(buyOrders, 0)} buy / ${formatNumber(sellOrders, 0)} sell / ${formatNumber(failedOrders, 0)} fail`,
+      meta: `매수 ${formatNumber(buyOrders, 0)} / 매도 ${formatNumber(sellOrders, 0)} / 실패 ${formatNumber(failedOrders, 0)}`,
       tone: failedOrders > 0 || engineState.engine_state === 'error' ? 'bad' : engineRunning ? 'good' : 'neutral',
     },
   ];
 
-  const topSignals = [...signals]
-    .sort((left, right) => {
-      const allowedGap = Number(Boolean(right.entry_allowed)) - Number(Boolean(left.entry_allowed));
-      if (allowedGap !== 0) return allowedGap;
-      const evGap = toNumber(right.ev_metrics?.expected_value) - toNumber(left.ev_metrics?.expected_value);
-      if (evGap !== 0) return evGap;
-      return toNumber(right.score) - toNumber(left.score);
-    })
-    .slice(0, 8);
-  const topPositions = positions.slice(0, 6);
   const researchSourceLabel = providerSourceToKorean(String(snapshot.research.source || snapshot.research.source_of_truth || ''))
     || providerStatusToKorean(String(snapshot.research.status || '-'))
     || '-';
-
-  function signalActionLabel(signal: DomainSignal): string {
-    if (signal.entry_allowed) return 'ENTRY';
-    if (isRiskBlockedSignal(signal)) return 'BLOCK';
-    const finalAction = String(signal.final_action || signal.final_action_snapshot?.final_action || '').toLowerCase();
-    if (finalAction === 'watch_only') return 'WATCH';
-    if (finalAction === 'do_not_touch') return 'SKIP';
-    return 'WAIT';
-  }
 
   return (
     <div className="app-shell">
@@ -351,37 +325,36 @@ export function WealthPulseHomePage({
                 <strong>{engineStatusLabel}</strong>
               </div>
               <div className="wealth-terminal-actions">
-                <button className="ghost-button" onClick={onRefresh}>Refresh</button>
-                <button className="ghost-button" onClick={onGoAnalysis}>Signals</button>
-                <button className="ghost-button" onClick={onGoLab}>Lab</button>
+                <button className="ghost-button" onClick={onRefresh}>새로고침</button>
+                <button className="ghost-button" onClick={onGoLab}>실험</button>
               </div>
             </div>
 
             <div className="wealth-hero-grid">
               <div>
-                <div className="wealth-kpi-label">TOTAL EQUITY</div>
+                <div className="wealth-kpi-label">총자산</div>
                 <div className="wealth-hero-number">{formatKRWExact(totalEquityKrw)}</div>
                 <div className="wealth-hero-subline">
-                  <span>Cash {formatKRWExact(cashKrw)}</span>
-                  <span>USD {formatUSD(cashUsd, true)}</span>
+                  <span>원화 현금 {formatKRWExact(cashKrw)}</span>
+                  <span>달러 현금 {formatUSD(cashUsd, true)}</span>
                   <span>{formatDateTimeWithAge(snapshot.fetchedAt)}</span>
                 </div>
               </div>
               <div className="wealth-hero-metrics">
                 <div>
-                  <span>Today P/L</span>
+                  <span>오늘 손익</span>
                   <strong className={toneForNumber(todayRealizedPnlKrw)}>{formatSignedKRWExact(todayRealizedPnlKrw)}</strong>
                 </div>
                 <div>
-                  <span>Unrealized</span>
+                  <span>평가손익</span>
                   <strong className={toneForNumber(totalUnrealizedPnlKrw)}>{formatSignedKRWExact(totalUnrealizedPnlKrw)}</strong>
                 </div>
                 <div>
-                  <span>Risk Gate</span>
-                  <strong className={riskGuardAllowed ? 'is-up' : 'is-down'}>{riskGuardAllowed ? 'OPEN' : 'LOCKED'}</strong>
+                  <span>리스크</span>
+                  <strong className={riskGuardAllowed ? 'is-up' : 'is-down'}>{riskGuardAllowed ? '열림' : '잠김'}</strong>
                 </div>
                 <div>
-                  <span>OOS</span>
+                  <span>검증</span>
                   <strong>{validationReliability}</strong>
                 </div>
               </div>
@@ -399,9 +372,9 @@ export function WealthPulseHomePage({
                 </div>
               ))}
               <div className="wealth-ticker">
-                <span>USD/KRW</span>
+                <span>달러/원</span>
                 <strong>{liveMarket.usd_krw != null ? formatNumber(liveMarket.usd_krw, 0) : '-'}</strong>
-                <em>{liveMarket.updated_at ? 'LIVE' : '-'}</em>
+                <em>{liveMarket.updated_at ? '실시간' : '-'}</em>
               </div>
             </div>
             {sessionCards.length > 0 && (
@@ -422,15 +395,15 @@ export function WealthPulseHomePage({
             <div className="wealth-chart-panel">
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">Portfolio</div>
-                  <div className="section-copy">positions {formatNumber(positions.length, 0)} · market {formatKRWExact(totalMarketValueKrw)}</div>
+                  <div className="section-title">포트폴리오</div>
+                  <div className="section-copy">보유 {formatNumber(positions.length, 0)}종목 · 평가 {formatKRWExact(totalMarketValueKrw)}</div>
                 </div>
               </div>
               <div className="wealth-chart-body">
                 <div className="wealth-donut" style={{ background: allocationGradient }}>
                   <div>
                     <strong>{ratioPercent(totalMarketValueKrw, totalBookValueKrw)}</strong>
-                    <span>Invested</span>
+                    <span>투자중</span>
                   </div>
                 </div>
                 <div className="wealth-bars">
@@ -448,25 +421,27 @@ export function WealthPulseHomePage({
             <div className="wealth-chart-panel">
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">Signals</div>
-                  <div className="section-copy">regime {allocator.regime || snapshot.signals.regime || '-'} · risk {allocator.risk_level || snapshot.signals.risk_level || '-'}</div>
+                  <div className="section-title">성과</div>
+                  <div className="section-copy">시작 {formatKRWExact(startingEquityKrw)} · 현재 {formatKRWExact(performanceEquityKrw)}</div>
                 </div>
               </div>
-              <div className="wealth-chart-body">
-                <div className="wealth-donut" style={{ background: signalGradient }}>
-                  <div>
-                    <strong>{formatNumber(totalSignalCount, 0)}</strong>
-                    <span>Total</span>
-                  </div>
+              <div className="wealth-data-list">
+                <div className={`wealth-data-row ${toneForNumber(totalReturnPct)}`.trim()}>
+                  <div className="wealth-data-label">통합 수익률</div>
+                  <div className="wealth-data-main">{totalReturnPct == null ? '-' : formatPercent(totalReturnPct, 2)}</div>
+                  <div className="wealth-data-meta">{formatKRWExact(startingEquityKrw)} → {formatKRWExact(performanceEquityKrw)}</div>
                 </div>
-                <div className="wealth-bars">
-                  {signalRows.map((item) => (
-                    <div key={item.label} className="wealth-bar-row">
-                      <div className="wealth-bar-label">{item.label}</div>
-                      <div className="wealth-bar-track"><div className={`wealth-bar-fill ${item.tone || ''}`.trim()} style={{ width: item.width }} /></div>
-                      <div className="wealth-bar-value">{item.value}</div>
-                    </div>
-                  ))}
+                <div className={`wealth-data-row ${toneForNumber(positionReturnPct)}`.trim()}>
+                  <div className="wealth-data-label">보유 수익률</div>
+                  <div className="wealth-data-main">{positionReturnPct == null ? '-' : formatPercent(positionReturnPct, 2)}</div>
+                  <div className="wealth-data-meta">투자 {formatKRWExact(positionCostKrw)} / 평가 {formatKRWExact(positionMarketValueKrw)}</div>
+                </div>
+                <div className="wealth-data-row">
+                  <div className="wealth-data-label">시장별 수익률</div>
+                  <div className="wealth-data-main">{positionReturnKrwPct == null ? '-' : formatPercent(positionReturnKrwPct, 2)} / {positionReturnUsdPct == null ? '-' : formatPercent(positionReturnUsdPct, 2)}</div>
+                  <div className="wealth-data-meta">
+                    원화 {formatKRWExact(positionUnrealizedKrwOnly)} · 달러 {formatLocalAmountWithKRW(positionUnrealizedUsd, positionUnrealizedUsd && liveMarket.usd_krw ? positionUnrealizedUsd * Number(liveMarket.usd_krw) : null, 'USD')}
+                  </div>
                 </div>
               </div>
             </div>
@@ -475,10 +450,10 @@ export function WealthPulseHomePage({
           <section className="page-section">
             <div className="section-head-row">
               <div>
-                <div className="section-title">Engine Flow</div>
-                <div className="section-copy">API layers A-E · latest cycle {String(engineState.latest_cycle_id || '-')}</div>
+                <div className="section-title">운용 흐름</div>
+                <div className="section-copy">최근 사이클 {String(engineState.latest_cycle_id || '-')}</div>
               </div>
-              <div className="inline-badge">{engineState.last_success_at ? formatDateTime(engineState.last_success_at) : 'no cycle'}</div>
+              <div className="inline-badge">{engineState.last_success_at ? formatDateTime(engineState.last_success_at) : '기록 없음'}</div>
             </div>
             <div className="wealth-flow-grid">
               {flowSteps.map((step) => (
@@ -496,28 +471,28 @@ export function WealthPulseHomePage({
             <div className="wealth-chart-panel">
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">Risk</div>
-                  <div className="section-copy">{riskReasons.slice(0, 2).join(' · ') || 'no active guard reason'}</div>
+                  <div className="section-title">리스크</div>
+                  <div className="section-copy">{riskReasons.slice(0, 2).join(' · ') || '활성 차단 없음'}</div>
                 </div>
                 <div className={riskGuardAllowed ? 'inline-badge is-success' : 'inline-badge is-danger'}>
-                  {riskGuardAllowed ? 'ENTRY ON' : 'ENTRY OFF'}
+                  {riskGuardAllowed ? '진입 가능' : '진입 차단'}
                 </div>
               </div>
               <div className="wealth-data-list">
                 <div className={`wealth-data-row ${failedOrders > 0 ? 'is-bad' : 'is-good'}`.trim()}>
-                  <div className="wealth-data-label">FAIL/SKIP</div>
+                  <div className="wealth-data-label">실패/스킵</div>
                   <div className="wealth-data-main">{formatNumber(failedOrders, 0)} / {formatNumber(skippedCount, 0)}</div>
                   <div className="wealth-data-meta">{String(engineState.order_failure_summary?.top_reason || '-')}</div>
                 </div>
                 <div className={`wealth-data-row ${engineState.optimized_params?.is_stale ? 'is-bad' : 'is-good'}`.trim()}>
-                  <div className="wealth-data-label">PARAMS</div>
-                  <div className="wealth-data-main">{engineState.optimized_params?.is_stale ? 'STALE' : 'OK'}</div>
+                  <div className="wealth-data-label">전략값</div>
+                  <div className="wealth-data-main">{engineState.optimized_params?.is_stale ? '지연' : '정상'}</div>
                   <div className="wealth-data-meta">{String(engineState.optimized_params?.effective_source || engineState.optimized_params?.source || '-')}</div>
                 </div>
                 <div className="wealth-data-row is-good">
-                  <div className="wealth-data-label">RESEARCH</div>
+                  <div className="wealth-data-label">리서치</div>
                   <div className="wealth-data-main">{freshnessToKorean(String(snapshot.research.freshness || 'missing'))}</div>
-                  <div className="wealth-data-meta">{researchSourceLabel} · fresh {formatNumber(researchFresh, 0)} / coverage {formatNumber(researchCoverage, 0)}</div>
+                  <div className="wealth-data-meta">{researchSourceLabel} · 최신 {formatNumber(researchFresh, 0)} / 전체 {formatNumber(researchCoverage, 0)}</div>
                 </div>
               </div>
             </div>
@@ -525,8 +500,8 @@ export function WealthPulseHomePage({
             <div className="wealth-chart-panel">
               <div className="section-head-row">
                 <div>
-                  <div className="section-title">Blocks</div>
-                  <div className="section-copy">blocked reason distribution</div>
+                  <div className="section-title">차단 사유</div>
+                  <div className="section-copy">주요 차단 분포</div>
                 </div>
               </div>
               <div className="wealth-bars wealth-reason-bars">
@@ -538,84 +513,19 @@ export function WealthPulseHomePage({
                   </div>
                 ))}
                 {blockedReasonRows.length === 0 && skipReasonRows.length === 0 && (
-                  <div className="wealth-empty-line">no block histogram</div>
+                  <div className="wealth-empty-line">차단 기록 없음</div>
                 )}
               </div>
             </div>
           </section>
 
-          <section className="page-section">
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">Signal Board</div>
-                <div className="section-copy">ranked by entry permission, EV, score</div>
-              </div>
-              <div className="inline-badge">{reportGeneratedAt ? formatDateTimeWithAge(reportGeneratedAt) : 'report idle'}</div>
-            </div>
-            <div className="wealth-table">
-              <div className="wealth-table-row is-head">
-                <span>Symbol</span>
-                <span>Action</span>
-                <span>Score</span>
-                <span>EV</span>
-                <span>Win</span>
-                <span>Size</span>
-              </div>
-              {topSignals.map((signal, index) => (
-                <div key={`signal-${signal.market || ''}-${signal.code || ''}-${index}`} className="wealth-table-row">
-                  <span>
-                    <strong>{formatSymbol(signal.code, signal.name)}</strong>
-                    <em>{signal.market || '-'} · {signal.strategy_type || '-'}</em>
-                  </span>
-                  <span className={signal.entry_allowed ? 'is-up' : isRiskBlockedSignal(signal) ? 'is-down' : 'is-neutral'}>{signalActionLabel(signal)}</span>
-                  <span>{formatNumber(signal.score ?? signal.quant_score, 1)}</span>
-                  <span>{formatNumber(signal.ev_metrics?.expected_value, 2)}</span>
-                  <span>{formatPercent(signal.ev_metrics?.win_probability, 1, true)}</span>
-                  <span>{explainSizeRecommendation(signal.size_recommendation)}</span>
-                </div>
-              ))}
-              {topSignals.length === 0 && <div className="wealth-empty-line">{UI_TEXT.empty.signalsNoMatches}</div>}
-            </div>
-          </section>
-
-          <section className="page-section">
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">Positions</div>
-                <div className="section-copy">largest live exposures</div>
-              </div>
-            </div>
-            <div className="wealth-table is-positions">
-              <div className="wealth-table-row is-head">
-                <span>Symbol</span>
-                <span>Market</span>
-                <span>Qty</span>
-                <span>Value</span>
-                <span>P/L</span>
-              </div>
-              {topPositions.map((position) => (
-                <div key={position.key} className="wealth-table-row">
-                  <span><strong>{position.symbol}</strong></span>
-                  <span>{position.market}</span>
-                  <span>{formatNumber(position.quantity, 0)}</span>
-                  <span>{formatKRWExact(position.marketValueKrw)}</span>
-                  <span className={toneForNumber(position.unrealizedPnlKrw)}>
-                    {formatSignedKRWExact(position.unrealizedPnlKrw)}
-                    {position.unrealizedPnlPct == null ? '' : ` · ${safePct(position.unrealizedPnlPct)}`}
-                  </span>
-                </div>
-              ))}
-              {topPositions.length === 0 && <div className="wealth-empty-line">no positions</div>}
-            </div>
-          </section>
-
           {(marketCtx.regime || marketCtx.risk_level || marketCtx.summary) && (
             <section className="page-section wealth-context-strip">
-              <div className="wealth-context-item"><span>Regime</span><strong>{marketCtx.regime || allocator.regime || '-'}</strong></div>
-              <div className="wealth-context-item"><span>Risk</span><strong>{marketCtx.risk_level || allocator.risk_level || '-'}</strong></div>
-              <div className="wealth-context-item"><span>Inflation</span><strong>{marketCtx.inflation_signal || '-'}</strong></div>
-              <div className="wealth-context-item"><span>Policy</span><strong>{marketCtx.policy_signal || '-'}</strong></div>
-              <div className="wealth-context-item"><span>Dollar</span><strong>{marketCtx.dollar_signal || '-'}</strong></div>
+              <div className="wealth-context-item"><span>장세</span><strong>{marketCtx.regime || allocator.regime || '-'}</strong></div>
+              <div className="wealth-context-item"><span>위험도</span><strong>{marketCtx.risk_level || allocator.risk_level || '-'}</strong></div>
+              <div className="wealth-context-item"><span>물가</span><strong>{marketCtx.inflation_signal || '-'}</strong></div>
+              <div className="wealth-context-item"><span>정책</span><strong>{marketCtx.policy_signal || '-'}</strong></div>
+              <div className="wealth-context-item"><span>달러</span><strong>{marketCtx.dollar_signal || '-'}</strong></div>
             </section>
           )}
 

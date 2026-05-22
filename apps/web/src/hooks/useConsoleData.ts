@@ -76,26 +76,6 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.page === 'signal-review') {
-    return {
-      signalLimit: 0,
-      initialTargets: ['engine', 'scanner', 'research'],
-      fastTargets: ['engine'],
-      midTargets: ['scanner', 'research'],
-      slowTargets: [],
-    };
-  }
-
-  if (route.page === 'performance') {
-    return {
-      signalLimit: 0,
-      initialTargets: ['engine', 'performance', 'research'],
-      fastTargets: ['engine'],
-      midTargets: ['performance'],
-      slowTargets: ['research'],
-    };
-  }
-
   if (route.page === 'orders-execution') {
     return {
       signalLimit: 0,

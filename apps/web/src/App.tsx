@@ -3,9 +3,7 @@ import { UI_TEXT } from './constants/uiText';
 import { useConsoleData } from './hooks/useConsoleData';
 import { BacktestValidationPage } from './pages/BacktestValidationPage';
 import { RuntimePortfolioPage } from './pages/RuntimePortfolioPage';
-import { PerformancePage } from './pages/PerformancePage';
 import { CandidateResearchPage } from './pages/CandidateResearchPage';
-import { ScannerPage } from './pages/ScannerPage';
 import { StrategiesPage } from './pages/StrategiesPage';
 import { UniversePage } from './pages/UniversePage';
 import { WatchlistPage } from './pages/WatchlistPage';
@@ -33,10 +31,8 @@ interface RouteState {
 
 const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; hint: string }> = [
   { id: 'agent-dashboard', label: '운용', path: '/agent-dashboard', hint: '자산과 손익' },
-  { id: 'performance', label: '성과', path: '/performance', hint: '손익' },
   { id: 'research-ai', label: '리서치', path: '/research-ai', hint: '성공과 실패' },
   { id: 'orders-execution', label: '주문', path: '/orders-execution', hint: '주문과 보유' },
-  { id: 'signal-review', label: '신호', path: '/signal-review', hint: '후보와 차단' },
   { id: 'watchlist', label: '관심', path: '/watchlist', hint: '관심 종목' },
   { id: 'lab', label: '실험', path: '/lab/validation', hint: '검증' },
 ];
@@ -50,9 +46,7 @@ const LAB_TABS: Array<{ id: LabTab; label: string; path: string; hint: string }>
 const PAGE_COPY: Record<WorkspacePage, string> = {
   'agent-dashboard': '',
   'research-ai': '',
-  'signal-review': '',
   'orders-execution': '',
-  performance: '',
   watchlist: '',
   lab: '',
 };
@@ -91,13 +85,13 @@ function toRouteState(pathname: string, search = ''): RouteState {
     return withDefaults({ page: 'research-ai', researchTab: 'research', canonicalPath: '/research-ai' }, normalizedSearch);
   }
   if (path === '/signal-review') {
-    return withDefaults({ page: 'signal-review', canonicalPath: '/signal-review' }, normalizedSearch);
+    return withDefaults({ page: 'orders-execution', canonicalPath: '/orders-execution' }, normalizedSearch);
   }
   if (path === '/orders-execution') {
     return withDefaults({ page: 'orders-execution', canonicalPath: '/orders-execution' }, normalizedSearch);
   }
   if (path === '/performance') {
-    return withDefaults({ page: 'performance', canonicalPath: '/performance' }, normalizedSearch);
+    return withDefaults({ page: 'agent-dashboard', canonicalPath: '/agent-dashboard' }, normalizedSearch);
   }
   if (path === '/watchlist') {
     return withDefaults({ page: 'watchlist', canonicalPath: '/watchlist' }, normalizedSearch);
@@ -268,13 +262,10 @@ export default function App() {
             <WealthPulseHomePage
               {...sharedProps}
               onGoLab={() => navigateTo('/lab/validation')}
-              onGoAnalysis={() => navigateTo('/research-ai')}
             />
           )}
           {route.page === 'research-ai' && <CandidateResearchPage {...sharedProps} />}
-          {route.page === 'signal-review' && <ScannerPage {...sharedProps} />}
           {route.page === 'orders-execution' && <RuntimePortfolioPage {...sharedProps} />}
-          {route.page === 'performance' && <PerformancePage {...sharedProps} />}
           {route.page === 'watchlist' && <WatchlistPage {...sharedProps} />}
 
           {route.page === 'lab' && route.labTab === 'validation' && <BacktestValidationPage {...sharedProps} />}

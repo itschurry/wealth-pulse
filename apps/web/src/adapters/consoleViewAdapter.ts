@@ -310,7 +310,7 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
   const judgmentLines = dedupeKeepOrder([
     ...decision.rationale,
     guardAllowed
-      ? `현재 신규 진입은 가능합니다. 신호 화면에서 허용 ${formatCount(allowedCount, '건')}을 우선 확인하세요.`
+      ? `현재 신규 진입은 가능합니다. 주문 페이지 리스크 표에서 허용 ${formatCount(allowedCount, '건')}을 우선 확인하세요.`
       : '현재 신규 진입은 제한됩니다. 리스크 가드 사유를 먼저 해소하거나 관망 비중을 유지하세요.',
     blockedCount > 0
       ? `차단 신호 ${formatCount(blockedCount, '건')}은 사유를 확인한 뒤 제외 대상으로 유지합니다.`
@@ -323,7 +323,7 @@ export function buildTodayReportView(snapshot: ConsoleSnapshot): TodayReportView
     {
       label: '오늘 해야 할 일',
       detail: guardAllowed && allowedCount > 0
-        ? `허용 신호 ${formatCount(allowedCount, '건')}을 신호 화면에서 우선 점검하세요.`
+        ? `허용 신호 ${formatCount(allowedCount, '건')}을 주문 페이지에서 우선 점검하세요.`
         : '신규 진입보다 기존 포지션과 리스크 가드 상태를 먼저 점검하세요.',
       tone: guardAllowed && allowedCount > 0 ? 'good' : 'bad',
     },

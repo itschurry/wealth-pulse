@@ -228,13 +228,13 @@ curl -fsS http://127.0.0.1:8001/api/runtime/engine/status
 
 - `/agent-dashboard`: 운용 현황판
 - `/research-ai`: 리서치
-- `/signal-review`: 신호
 - `/orders-execution`: 주문
-- `/performance`: 성과
 - `/watchlist`: 관심
 - `/lab/validation`: 실험
 
 `/operations-dashboard`는 별도 메뉴로 쓰지 않는다. 기존 주소로 들어오면 `/agent-dashboard` 운용 현황판으로 합쳐진다.
+`/performance`는 별도 메뉴로 쓰지 않는다. 기존 주소로 들어오면 `/agent-dashboard` 운용 현황판으로 합쳐진다.
+`/signal-review`는 별도 메뉴로 쓰지 않는다. 기존 주소로 들어오면 `/orders-execution` 주문 페이지로 합쳐진다.
 
 UI는 관제 설명보다 숫자, 표, 상태 배지를 우선한다. 긴 안내문, 보조 설명, 반복 메타는 숨기고 각 화면은 핵심 지표만 먼저 보이게 둔다.
 

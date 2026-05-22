@@ -1,9 +1,7 @@
 export type WorkspacePage =
   | 'agent-dashboard'
   | 'research-ai'
-  | 'signal-review'
   | 'orders-execution'
-  | 'performance'
   | 'watchlist'
   | 'lab';
 
