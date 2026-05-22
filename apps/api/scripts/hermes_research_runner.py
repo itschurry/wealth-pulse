@@ -39,8 +39,8 @@ _REQUIRED_OUTPUT_FIELDS = {
     "invalidation_trigger": "object",
     "trade_plan": "object; size_intent_pct is only intent and will be clamped by risk guard",
     "technical_features": "object; include close_vs_sma20/close_vs_sma60/volume_ratio/rsi14 when available",
-    "news_inputs": "array of cited news/source objects; empty only for non-buy neutral calls",
-    "evidence": "array of evidence objects; required for buy/buy_watch",
+    "news_inputs": "array of cited news objects with title, source, url, published_at, summary; buy/buy_watch requires at least one trusted item from the last 72 hours",
+    "evidence": "array of evidence objects with url or official source; required for buy/buy_watch and must not be blog/community/ad landing evidence",
     "data_quality": "object; has_recent_price, has_technical_features, has_news",
 }
 
@@ -202,8 +202,11 @@ def build_research_prompt(target: dict[str, Any]) -> str:
         "Return ONLY one JSON object, no markdown, no code fence, no commentary.\n"
         "The JSON must satisfy the Research Snapshot v2 agent analysis contract.\n"
         "Do not place orders, do not call brokers, and do not claim execution. WealthPulse runtime and risk guard decide all orders.\n"
-        "Do not invent news. If no current sourced news is available, set news_inputs=[] and data_quality.has_news=false.\n"
-        "For buy/buy_watch, include technical_features and evidence. If evidence is weak, use hold or buy_watch rather than buy.\n"
+        "Do not invent news. If no current sourced news is available, set news_inputs=[] and data_quality.has_news=false, then use hold/reduce/sell/block only.\n"
+        "For buy/buy_watch, news_inputs must include title, source, url, published_at, summary. Missing URL, missing published_at, stale news, or untrusted source means hold.\n"
+        "For buy/buy_watch, evidence must include URL or official data source. Feature-pack metadata alone never justifies buy/buy_watch.\n"
+        "Allowed source labels: naver-openapi, google-news-rss, dart, opendart, krx, kind, company_ir, company_newsroom, sec, nasdaq, nyse.\n"
+        "Blogs, communities, ad landing pages, anonymous claims, and URL-free evidence are not valid buy evidence.\n"
         "Keep trade_plan.size_intent_pct as intent only; risk guard will clamp and recalculate actual size.\n\n"
         "Feature pack:\n"
         f"{_json_dumps(feature_pack)}"

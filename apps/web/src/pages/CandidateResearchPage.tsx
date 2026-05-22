@@ -21,7 +21,7 @@ import type {
   CandidateResearchSnapshot,
   LiveMarketResponse,
 } from '../types/domain';
-import { formatDateTime, formatDateTimeWithAge, formatNumber } from '../utils/format';
+import { formatDateTime, formatDateTimeWithAge, formatNumber, formatPercent } from '../utils/format';
 
 interface CandidateResearchPageProps {
   snapshot: ConsoleSnapshot;
@@ -105,6 +105,17 @@ function snapshotStatus(item: CandidateResearchSnapshot): { label: string; tone:
   if (score >= 0.8) return { label: '우선 검토', tone: 'inline-badge is-success' };
   if (score >= 0.6) return { label: '후보', tone: 'inline-badge' };
   return { label: '관찰 유지', tone: 'inline-badge is-danger' };
+}
+
+function qualityTone(score: number | undefined): string {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return 'inline-badge';
+  if (value >= 0.65) return 'inline-badge is-success';
+  return 'inline-badge is-danger';
+}
+
+function outcomeValue(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? formatPercent(value, 2) : '-';
 }
 
 function candidateStatusBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
@@ -191,6 +202,10 @@ function CandidateResearchCard({ item }: { item: CandidateResearchSnapshot }) {
   const status = snapshotStatus(item);
   const freshness = freshnessBadge(item);
   const grade = gradeBadge(item);
+  const quality = item.research_quality || {};
+  const outcomes = item.outcomes || {};
+  const newsInputs = Array.isArray(item.news_inputs) ? item.news_inputs.slice(0, 3) : [];
+  const evidence = Array.isArray(item.evidence) ? item.evidence.slice(0, 3) : [];
 
   return (
     <div className="page-section workspace-analysis-section" style={{ padding: 16 }}>
@@ -207,6 +222,8 @@ function CandidateResearchCard({ item }: { item: CandidateResearchSnapshot }) {
             <span className={status.tone}>{status.label}</span>
             <span className={freshness.tone}>{freshness.label}</span>
             <span className={grade.tone}>{grade.label}</span>
+            <span className={qualityTone(quality.source_quality_score)}>출처 {formatNumber(quality.source_quality_score, 2)}</span>
+            {quality.blocked_reason ? <span className="inline-badge is-danger">{reasonCodeToKorean(quality.blocked_reason)}</span> : null}
           </div>
         </div>
       </div>
@@ -223,6 +240,70 @@ function CandidateResearchCard({ item }: { item: CandidateResearchSnapshot }) {
         <div className="workspace-summary-title">요약</div>
         <div className="workspace-summary-copy">{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '제외') : (item.summary || '-')}</div>
       </div>
+
+      <div className="workspace-table-wrap" style={{ marginTop: 12 }}>
+        <table className="workspace-table compact">
+          <thead>
+            <tr>
+              <th>뉴스</th>
+              <th>fresh</th>
+              <th>공식</th>
+              <th>비허용</th>
+              <th>1D</th>
+              <th>3D</th>
+              <th>5D</th>
+              <th>20D</th>
+              <th>hit</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{quality.trusted_news_count ?? 0}</td>
+              <td>{quality.fresh_news_count ?? 0}</td>
+              <td>{quality.official_source_count ?? 0}</td>
+              <td>{quality.untrusted_source_count ?? 0}</td>
+              <td>{outcomeValue(outcomes.return_1d)}</td>
+              <td>{outcomeValue(outcomes.return_3d)}</td>
+              <td>{outcomeValue(outcomes.return_5d)}</td>
+              <td>{outcomeValue(outcomes.return_20d)}</td>
+              <td>{outcomes.hit == null ? '-' : outcomes.hit ? 'Y' : 'N'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {(newsInputs.length > 0 || evidence.length > 0) && (
+        <div className="workspace-table-wrap" style={{ marginTop: 12 }}>
+          <table className="workspace-table compact">
+            <thead>
+              <tr>
+                <th>구분</th>
+                <th>출처</th>
+                <th>시각</th>
+                <th>제목</th>
+              </tr>
+            </thead>
+            <tbody>
+              {newsInputs.map((news, index) => (
+                <tr key={`news-${index}`}>
+                  <td>뉴스</td>
+                  <td>{news.source || '-'}</td>
+                  <td>{formatDateTime(news.published_at)}</td>
+                  <td>{news.url ? <a href={news.url} target="_blank" rel="noreferrer">{news.title || news.summary || news.url}</a> : (news.title || news.summary || '-')}</td>
+                </tr>
+              ))}
+              {evidence.map((row, index) => (
+                <tr key={`ev-${index}`}>
+                  <td>근거</td>
+                  <td>{row.source || row.type || '-'}</td>
+                  <td>-</td>
+                  <td>{row.url ? <a href={row.url} target="_blank" rel="noreferrer">{row.title || row.detail || row.summary || row.url}</a> : (row.title || row.detail || row.summary || '-')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {(warnings.length > 0 || tags.length > 0) && (
         <div className="workspace-chip-row" style={{ marginTop: 12 }}>
@@ -708,6 +789,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
     { label: '필요', value: `${pendingTargets.length}개`, tone: pendingTargets.length > 0 ? 'bad' as const : 'good' as const },
     { label: '저장소', value: storageStatusLabel, tone: storageStatusTone as 'good' | 'neutral' | 'bad' },
     { label: '실행', value: researchStatus.last_run_status || '대기', tone: runStatusTone as 'good' | 'neutral' | 'bad' },
+    { label: '출처', value: formatNumber(researchStatus.avg_source_quality_score, 2), tone: Number(researchStatus.avg_source_quality_score || 0) >= 0.65 ? 'good' as const : 'bad' as const },
   ];
   const researchHeadline = researchStatus.partial_failure
     ? '리서치 일부 실패'
@@ -746,20 +828,15 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
             <div>
               <div className="ops-eyebrow">상태</div>
               <div className="ops-command-title">{researchHeadline}</div>
-              <div className="ops-command-detail">
-                {researchStatus.partial_failure
-                  ? '부분 실패를 성공처럼 보지 않는다. 실패 종목을 먼저 확인해야 자동 판단 품질이 올라간다.'
-                  : pendingTargets.length > 0
-                    ? `${pendingTargets.length}개 종목이 리서치 없음 또는 지연 상태야. 이 목록이 오늘 리서치 우선순위다.`
-                    : '현재 감시 슬롯 기준으로 급한 리서치 공백은 없어.'}
-              </div>
               {recentErrorText ? <div className="research-error-line">{recentErrorText}</div> : null}
             </div>
             <div className="research-command-metrics">
               <div><span>감시 슬롯</span><strong>{totalActiveCount || activeSlots.length}</strong></div>
               <div><span>필요</span><strong>{pendingTargets.length}</strong></div>
               <div><span>성공/실패</span><strong>{researchStatus.success_count ?? 0}/{researchStatus.failure_count ?? 0}</strong></div>
-              <div><span>fresh</span><strong>{researchStatus.fresh_symbol_count ?? 0}</strong></div>
+              <div><span>차단</span><strong>{researchStatus.quality_gate_rejected_count ?? 0}</strong></div>
+              <div><span>출처</span><strong>{formatNumber(researchStatus.avg_source_quality_score, 2)}</strong></div>
+              <div><span>5D hit</span><strong>{researchStatus.outcome_5d_hit_rate == null ? '-' : formatPercent(researchStatus.outcome_5d_hit_rate, 1, true)}</strong></div>
             </div>
           </section>
 

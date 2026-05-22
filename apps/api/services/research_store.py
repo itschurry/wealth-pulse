@@ -8,6 +8,13 @@ from typing import Any
 from config.settings import CACHE_DIR
 from services.json_utils import clear_json_file_cache, json_dump_compact, json_dump_text, read_json_file_cached
 from services.research_contract import normalize_and_validate_warning_codes, normalize_tags
+from services.research_source_policy import (
+    ResearchQualityError,
+    assert_quality_allows_ingest,
+    evaluate_research_quality,
+    warning_codes_for_quality,
+)
+from services.research_outcome_store import attach_outcome, load_outcome_summary
 from market_utils import normalize_market
 
 
@@ -263,6 +270,7 @@ def _build_snapshot_validation(snapshot: dict[str, Any], freshness: dict[str, An
     tags = [str(item) for item in (snapshot.get("tags") or []) if str(item)]
     score = snapshot.get("research_score")
     components = snapshot.get("components") if isinstance(snapshot.get("components"), dict) else {}
+    research_quality = snapshot.get("research_quality") if isinstance(snapshot.get("research_quality"), dict) else {}
     source = str(snapshot.get("provider") or DEFAULT_RESEARCH_PROVIDER)
 
     grade = "D"
@@ -297,7 +305,12 @@ def _build_snapshot_validation(snapshot: dict[str, Any], freshness: dict[str, An
                 grade = "B" if numeric_score >= 0.65 else "C"
                 reason = "warning_codes_present"
                 exclusion_reason = None
-            elif str(snapshot.get("action") or "").strip().lower() in {"buy", "buy_watch"} and str(snapshot.get("rating") or "").strip().lower() in {"strong_buy", "overweight"}:
+            elif (
+                str(snapshot.get("action") or "").strip().lower() in {"buy", "buy_watch"}
+                and str(snapshot.get("rating") or "").strip().lower() in {"strong_buy", "overweight"}
+                and float(research_quality.get("source_quality_score") or 0.0) >= 0.65
+                and int(research_quality.get("fresh_news_count") or 0) > 0
+            ):
                 confidence = _parse_score(snapshot.get("confidence"), field="confidence")
                 grade = "A" if numeric_score >= 0.8 and (confidence or 0.0) >= 0.8 else "B"
                 reason = "fresh_agent_buy_candidate"
@@ -342,7 +355,24 @@ def _enrich_snapshot(snapshot: dict[str, Any] | None, *, reference_dt: datetime.
     enriched["is_stale"] = bool(freshness.get("is_stale"))
     enriched["freshness_detail"] = freshness
     enriched["validation"] = validation
-    return enriched
+    return attach_outcome(enriched)
+
+
+def _quality_summary_from_snapshots(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+    quality_rows = [item.get("research_quality") for item in snapshots if isinstance(item.get("research_quality"), dict)]
+    if not quality_rows:
+        return {
+            "trusted_news_count": 0,
+            "untrusted_source_count": 0,
+            "stale_news_count": 0,
+            "avg_source_quality_score": 0.0,
+        }
+    return {
+        "trusted_news_count": sum(int(item.get("trusted_news_count") or 0) for item in quality_rows),
+        "untrusted_source_count": sum(int(item.get("untrusted_source_count") or 0) for item in quality_rows),
+        "stale_news_count": sum(int(item.get("stale_news_count") or 0) for item in quality_rows),
+        "avg_source_quality_score": round(sum(float(item.get("source_quality_score") or 0.0) for item in quality_rows) / len(quality_rows), 4),
+    }
 
 
 def _attach_snapshot_name(item: dict[str, Any]) -> dict[str, Any]:
@@ -515,6 +545,16 @@ def _normalize_item(
             "evidence": _normalize_object_list(item.get("evidence"), field="evidence"),
             "data_quality": _normalize_object(item.get("data_quality"), field="data_quality"),
         })
+        try:
+            quality_input = {**normalized, "generated_at": normalized.get("generated_at")}
+            research_quality = assert_quality_allows_ingest(quality_input, reference_time=normalized.get("generated_at"))
+        except ResearchQualityError:
+            raise
+        normalized["research_quality"] = research_quality
+        normalized["warnings"] = normalize_and_validate_warning_codes([
+            *normalized.get("warnings", []),
+            *warning_codes_for_quality(research_quality),
+        ])
 
     return normalized
 
@@ -580,8 +620,11 @@ def ingest_research_snapshots(payload: dict[str, Any]) -> dict[str, Any]:
                 default_generated_at=generated_at,
                 ingested_at=ingested_at,
             )
+        except ResearchQualityError as exc:
+            errors.append({"index": index, "error": exc.code, "error_code": exc.code, "reason": exc.reason})
+            continue
         except ValueError as exc:
-            errors.append({"index": index, "error": str(exc)})
+            errors.append({"index": index, "error": str(exc), "error_code": str(exc), "reason": str(exc)})
             continue
         validated_item_count += 1
 
@@ -642,6 +685,10 @@ def ingest_research_snapshots(payload: dict[str, Any]) -> dict[str, Any]:
         "deduped_count_last_run": max(0, validated_item_count - persisted_count),
         "rejected_last_run": len(errors),
         "fresh_until": fresh_until,
+        "quality_gate_rejected_count": sum(
+            1 for item in errors
+            if str(item.get("error_code") or "").startswith(("news_", "source_", "evidence_", "research_quality_"))
+        ),
     }
     _write_json(RESEARCH_PROVIDER_STATE_PATH, {"providers": providers})
 
@@ -760,6 +807,8 @@ def load_provider_status(provider: str = DEFAULT_RESEARCH_PROVIDER) -> dict[str,
             latest_snapshot_candidates_map[key] = payload
 
     latest_snapshots = list(latest_snapshot_candidates_map.values())
+    quality_summary = _quality_summary_from_snapshots(latest_snapshots)
+    outcome_summary = load_outcome_summary()
 
     now = datetime.datetime.now(datetime.timezone.utc)
     if not latest_snapshots:
@@ -782,6 +831,9 @@ def load_provider_status(provider: str = DEFAULT_RESEARCH_PROVIDER) -> dict[str,
             "stale_symbol_count": 0,
             "latest_bucket_ts": "",
             "accept_ratio": 0.0,
+            "quality_gate_rejected_count": int(state.get("quality_gate_rejected_count") or 0) if isinstance(state, dict) else 0,
+            **quality_summary,
+            **outcome_summary,
             **(state.get("last_run_summary") if isinstance(state.get("last_run_summary"), dict) else {}),
         }
 
@@ -838,6 +890,9 @@ def load_provider_status(provider: str = DEFAULT_RESEARCH_PROVIDER) -> dict[str,
         "stale_symbol_count": stale_symbol_count,
         "latest_bucket_ts": latest_bucket_dt.isoformat() if latest_bucket_dt else "",
         "accept_ratio": round(accept_ratio, 4),
+        "quality_gate_rejected_count": int(state.get("quality_gate_rejected_count") or 0) if isinstance(state, dict) else 0,
+        **quality_summary,
+        **outcome_summary,
         **(state.get("last_run_summary") if isinstance(state, dict) and isinstance(state.get("last_run_summary"), dict) else {}),
     }
 

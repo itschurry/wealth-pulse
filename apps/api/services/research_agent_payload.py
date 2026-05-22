@@ -6,6 +6,11 @@ from typing import Any
 
 from market_utils import normalize_market
 from services.research_contract import normalize_tags, normalize_warning_codes
+from services.research_source_policy import (
+    assert_quality_allows_ingest,
+    evaluate_research_quality,
+    warning_codes_for_quality,
+)
 from services.research_store import (
     ALLOWED_AGENT_ACTIONS,
     ALLOWED_AGENT_RATINGS,
@@ -162,19 +167,27 @@ def _normalize_agent_item(item: dict[str, Any], *, default_generated_at: str, de
     evidence = _object_list(item.get("evidence"), field="evidence")
     data_quality = _object(item.get("data_quality"), field="data_quality")
 
+    item_for_quality = {
+        **item,
+        "rating": rating,
+        "action": action,
+        "news_inputs": news_inputs,
+        "evidence": evidence,
+        "data_quality": data_quality,
+        "generated_at": item.get("generated_at") or default_generated_at,
+    }
     if _is_buy_intent(rating, action):
         if not technical_features:
             raise ValueError("technical_features_required_for_buy_intent")
         if not evidence:
             raise ValueError("evidence_required_for_buy_intent")
+        research_quality = assert_quality_allows_ingest(item_for_quality, reference_time=item_for_quality["generated_at"])
+    else:
+        research_quality = evaluate_research_quality(item_for_quality, reference_time=item_for_quality["generated_at"])
 
-    data_quality.setdefault("has_recent_price", bool(technical_features))
-    data_quality.setdefault("has_technical_features", bool(technical_features))
-    data_quality.setdefault("has_news", bool(news_inputs))
     data_quality.setdefault("analysis_mode", "agent_research")
-
     tags = normalize_tags([*normalize_tags(item.get("tags")), "agent_research"])
-    warnings = normalize_warning_codes(item.get("warnings"))
+    warnings = normalize_warning_codes([*normalize_warning_codes(item.get("warnings")), *warning_codes_for_quality(research_quality)])
     generated_at = _minute_iso(item.get("generated_at") or default_generated_at)
     bucket_ts = _minute_iso(item.get("bucket_ts") or default_bucket_ts)
 
@@ -212,6 +225,7 @@ def _normalize_agent_item(item: dict[str, Any], *, default_generated_at: str, de
         "news_inputs": news_inputs,
         "evidence": evidence,
         "data_quality": data_quality,
+        "research_quality": research_quality,
     }
 
 

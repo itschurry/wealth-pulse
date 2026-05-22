@@ -12,6 +12,9 @@ ALLOWED_WARNING_CODES = {
     "policy_uncertainty",
     "liquidity_mismatch",
     "too_many_similar_news",
+    "untrusted_source",
+    "stale_news",
+    "missing_news_url",
 }
 
 

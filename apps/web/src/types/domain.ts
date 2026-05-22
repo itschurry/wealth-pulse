@@ -441,6 +441,48 @@ export interface CandidateResearchSnapshot {
   warnings?: string[];
   tags?: string[];
   summary?: string;
+  confidence?: number | null;
+  rating?: string;
+  action?: string;
+  news_inputs?: Array<{
+    title?: string;
+    source?: string;
+    url?: string;
+    published_at?: string;
+    summary?: string;
+  }>;
+  evidence?: Array<{
+    source?: string;
+    type?: string;
+    url?: string;
+    title?: string;
+    detail?: string;
+    summary?: string;
+  }>;
+  data_quality?: Record<string, unknown>;
+  research_quality?: {
+    trusted_news_count?: number;
+    fresh_news_count?: number;
+    official_source_count?: number;
+    evidence_url_count?: number;
+    trusted_evidence_count?: number;
+    untrusted_source_count?: number;
+    stale_news_count?: number;
+    missing_news_url_count?: number;
+    missing_published_at_count?: number;
+    source_quality_score?: number;
+    blocked_reason?: string;
+  };
+  outcomes?: {
+    return_1d?: number | null;
+    return_3d?: number | null;
+    return_5d?: number | null;
+    return_20d?: number | null;
+    max_drawdown_20d?: number | null;
+    hit?: boolean | null;
+    price_at_research?: number | null;
+    evaluated_at?: string;
+  };
   ttl_minutes?: number;
   freshness?: 'fresh' | 'stale' | 'invalid' | 'missing' | string;
   is_stale?: boolean;
@@ -622,6 +664,16 @@ export interface ResearchStatusResponse {
   success_count?: number;
   failure_count?: number;
   recent_errors?: Array<{ symbol?: string; market?: string; error?: string }>;
+  quality_gate_rejected_count?: number;
+  trusted_news_count?: number;
+  untrusted_source_count?: number;
+  stale_news_count?: number;
+  avg_source_quality_score?: number;
+  outcome_count?: number;
+  outcome_1d_hit_rate?: number | null;
+  outcome_3d_hit_rate?: number | null;
+  outcome_5d_hit_rate?: number | null;
+  outcome_20d_hit_rate?: number | null;
   error?: string;
 }
 

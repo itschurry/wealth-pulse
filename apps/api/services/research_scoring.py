@@ -82,6 +82,8 @@ class ResearchScoreResult:
     news_inputs: list[dict[str, Any]] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     data_quality: dict[str, Any] = field(default_factory=dict)
+    research_quality: dict[str, Any] = field(default_factory=dict)
+    outcomes: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -215,6 +217,8 @@ class StoredResearchScorer:
             news_inputs=_list_of_dict(snapshot.get("news_inputs")),
             evidence=_list_of_dict(snapshot.get("evidence")),
             data_quality=_dict_or_empty(snapshot.get("data_quality")),
+            research_quality=_dict_or_empty(snapshot.get("research_quality")),
+            outcomes=_dict_or_empty(snapshot.get("outcomes")),
         )
 
 

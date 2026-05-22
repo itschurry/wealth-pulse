@@ -62,11 +62,19 @@ def _technical_sanity_ok(research: dict[str, Any]) -> bool:
 
 
 def _evidence_ok(research: dict[str, Any]) -> bool:
-    evidence = research.get("evidence") if isinstance(research.get("evidence"), list) else []
+    quality = research.get("research_quality") if isinstance(research.get("research_quality"), dict) else {}
     data_quality = research.get("data_quality") if isinstance(research.get("data_quality"), dict) else {}
-    if evidence:
-        return True
-    return _truthy(data_quality.get("has_technical_features")) or _truthy(data_quality.get("has_news"))
+    if str(quality.get("blocked_reason") or ""):
+        return False
+    return (
+        float(quality.get("source_quality_score") or 0.0) >= 0.65
+        and int(quality.get("fresh_news_count") or 0) > 0
+        and int(quality.get("trusted_news_count") or 0) > 0
+        and int(quality.get("trusted_evidence_count") or 0) > 0
+        and _truthy(data_quality.get("has_news"))
+        and _truthy(data_quality.get("has_recent_price"))
+        and _truthy(data_quality.get("has_technical_features"))
+    )
 
 
 def build_layer_a_snapshot(*, strategy: dict[str, Any], universe: dict[str, Any], symbol: dict[str, Any], scan_time: str) -> dict[str, Any]:
@@ -150,6 +158,8 @@ def build_layer_c_snapshot(*, symbol: str, market: str, timestamp: str, strategy
         "news_inputs": result.news_inputs,
         "evidence": result.evidence,
         "data_quality": result.data_quality,
+        "research_quality": result.research_quality,
+        "outcomes": result.outcomes,
         "agent_analysis": {
             "rating": result.rating,
             "action": result.action,
@@ -165,6 +175,8 @@ def build_layer_c_snapshot(*, symbol: str, market: str, timestamp: str, strategy
             "news_inputs": result.news_inputs,
             "evidence": result.evidence,
             "data_quality": result.data_quality,
+            "research_quality": result.research_quality,
+            "outcomes": result.outcomes,
         },
     }
 
@@ -222,6 +234,7 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     confidence_threshold = 0.75 if action == "buy" else 0.65
     technical_ok = _technical_sanity_ok(research)
     evidence_ok = _evidence_ok(research)
+    quality = research.get("research_quality") if isinstance(research.get("research_quality"), dict) else {}
     validation_ok = _grade_allows_entry(validation)
     buy_intent = rating in _BUY_RATINGS and action in _BUY_ACTIONS
     negative_intent = rating in _NEGATIVE_RATINGS or action in _NEGATIVE_ACTIONS
@@ -247,15 +260,26 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
             "analysis_mode": "agent_research",
         }
     elif buy_intent:
+        if str(quality.get("blocked_reason") or ""):
+            quality_reason = str(quality.get("blocked_reason"))
+        elif not validation_ok:
+            quality_reason = "research_quality_gate_failed"
+        elif not technical_ok:
+            quality_reason = "research_quality_gate_failed"
+        elif not evidence_ok:
+            quality_reason = "research_quality_gate_failed"
+        else:
+            quality_reason = "research_quality_gate_failed"
         agent_decision = {
             "decision": "agent_buy_watch",
             "order_ready": False,
-            "reason": "agent_evidence_or_quality_gate_failed",
+            "reason": quality_reason,
             "rating": rating,
             "action": action,
             "confidence": confidence,
             "technical_sanity": "ok" if technical_ok else "failed",
             "validation_grade": validation.get("grade"),
+            "quality_gate": quality_reason,
         }
     else:
         agent_decision = {"decision": "agent_neutral", "order_ready": False, "reason": "no_buy_intent", "rating": rating, "action": action}

@@ -350,6 +350,43 @@ curl -X POST http://localhost:8001/api/risk/config \
 
 ## Hermes 리서치
 
+Hermes는 뉴스와 공식 데이터를 찾아 `Research Snapshot v2` JSON을 만든다. WealthPulse는 그 결과를 그대로 믿지 않고 ingest 단계에서 검증한다.
+
+뉴스/근거 입력 구조:
+
+- `news_inputs`: `title`, `source`, `url`, `published_at`, `summary`
+- `evidence`: URL이 있거나 `dart`, `opendart`, `krx`, `kind`, `sec`, `nasdaq`, `nyse`, `company_ir` 같은 공식 출처
+- `data_quality`: `has_news`, `has_recent_price`, `has_technical_features`
+
+`buy` / `buy_watch` 차단 규칙:
+
+- `news_inputs` 없음
+- URL 없음
+- `published_at` 없음 또는 파싱 실패
+- 72시간 초과 뉴스
+- 허용목록 밖 출처
+- URL/공식 출처 없는 evidence
+- `data_quality`가 뉴스/현재가/기술지표를 모두 확인하지 못함
+
+차단 시 ingest 결과는 `accepted=0`, `rejected=1`로 남고 아래 error code 중 하나를 반환한다.
+
+- `news_inputs_required_for_buy`
+- `news_url_required`
+- `news_published_at_required`
+- `news_stale`
+- `source_not_allowed`
+- `evidence_url_required`
+- `research_quality_gate_failed`
+
+허용 source label:
+
+```text
+naver-openapi, google-news-rss, dart, opendart, krx, kind,
+company_ir, company_newsroom, sec, nasdaq, nyse
+```
+
+블로그, 커뮤니티, 광고성 랜딩, URL 없는 주장성 근거는 매수 근거로 쓰지 않는다.
+
 시장 자동 선택 실행:
 
 ```bash
@@ -402,10 +439,32 @@ tail -n 100 storage/logs/runtime/hermes_research_runner.log
 - `selected_count`
 - `success_count`
 - `failure_count`
+- `quality_gate_rejected_count`
+- `trusted_news_count`
+- `untrusted_source_count`
+- `stale_news_count`
+- `avg_source_quality_score`
+- `outcome_1d_hit_rate`
+- `outcome_5d_hit_rate`
+- `outcome_20d_hit_rate`
 - `duration_seconds`
 - `avg_seconds_per_success`
 - `concurrency`
 - `recent_errors`
+
+사후 성과 추적:
+
+```bash
+python apps/api/scripts/research_outcome_evaluator.py --limit 20 --dry-run
+python apps/api/scripts/research_outcome_evaluator.py --limit 200
+```
+
+기준:
+
+- `buy` / `buy_watch`: 평가 수익률이 0보다 크면 hit
+- `sell` / `reduce`: 평가 수익률이 0보다 작으면 hit
+- `hold`: hit 계산 제외
+- 저장 필드: `return_1d`, `return_3d`, `return_5d`, `return_20d`, `max_drawdown_20d`, `hit`
 
 리서치 부하 정책:
 
