@@ -33,10 +33,10 @@ interface RouteState {
 
 const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; hint: string }> = [
   { id: 'agent-dashboard', label: '운용', path: '/agent-dashboard', hint: '자산과 손익' },
-  { id: 'research-ai', label: '리서치', path: '/research-ai', hint: '성공과 실패' },
-  { id: 'signal-review', label: '신호', path: '/signal-review', hint: '후보와 차단' },
-  { id: 'orders-execution', label: '주문', path: '/orders-execution', hint: '주문과 보유' },
   { id: 'performance', label: '성과', path: '/performance', hint: '손익' },
+  { id: 'research-ai', label: '리서치', path: '/research-ai', hint: '성공과 실패' },
+  { id: 'orders-execution', label: '주문', path: '/orders-execution', hint: '주문과 보유' },
+  { id: 'signal-review', label: '신호', path: '/signal-review', hint: '후보와 차단' },
   { id: 'watchlist', label: '관심', path: '/watchlist', hint: '관심 종목' },
   { id: 'lab', label: '실험', path: '/lab/validation', hint: '검증' },
 ];

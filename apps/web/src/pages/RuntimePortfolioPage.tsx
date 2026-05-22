@@ -118,15 +118,6 @@ function resolveRuntimeMode(accountMode: unknown, executionMode: unknown): 'pape
   return 'paper';
 }
 
-function runtimeSkipReasonLabel(reason: string): string {
-  if (reason === 'account_unavailable') return '계좌 스냅샷 없음 · sizing 계산 불가';
-  if (reason === 'size_zero') return '권장 수량 0주';
-  if (reason === 'exposure_or_cash_limit') return '현금/노출 한도로 권장 수량 0주';
-  if (reason === 'daily_buy_limit_reached') return '일일 매수 한도 도달';
-  if (reason === 'symbol_daily_limit_reached') return '종목별 주문 한도 도달';
-  return explainOrderFailureReason(reason);
-}
-
 function marketCurrency(market: unknown): 'KRW' | 'USD' {
   const normalized = String(market || '').toUpperCase();
   if (normalized === 'NASDAQ' || normalized === 'NYSE' || normalized === 'AMEX' || normalized === 'US') {
@@ -469,9 +460,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
   const {
     account,
     engineState,
-    cycles,
     orderEvents,
-    accountHistory,
     signalSnapshots,
     workflowSummary,
     status,
@@ -523,6 +512,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       .slice(0, 80)
       .sort((a, b) => orderEventTime(b).localeCompare(orderEventTime(a)));
   }, [orderEvents, orders]);
+  const topOrderRows = useMemo(() => mergedOrderHistory.slice(0, 5), [mergedOrderHistory]);
   const currentResearchState = useMemo<ResearchState>(() => {
     const states = (snapshot.signals.signals || []).map((signal) => resolveResearchStateWithProvider(
       signal.research_status,
@@ -630,6 +620,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
         };
       });
   }, [signalSnapshots]);
+  const visibleRiskActionLogs = useMemo(() => signalRiskActionLogs.slice(0, 10), [signalRiskActionLogs]);
   const readinessSignals = useMemo(() => {
     const cutoffMs = Date.now() - (14 * 24 * 60 * 60 * 1000);
     return signalRiskActionLogs
@@ -1244,7 +1235,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
   const stopLossPctDefault = toNumber(engineState.config?.stop_loss_pct, NaN);
   const takeProfitPctDefault = toNumber(engineState.config?.take_profit_pct, NaN);
   const skipReasonCounts = engineState.last_summary?.skip_reason_counts || {};
-  const rotationSummary = engineState.last_summary?.rotation_summary;
   const orderFailureSummary = engineState.order_failure_summary || {};
   const blockedReasonRows = reasonCountRows(
     engineState.last_summary?.blocked_reason_counts,
@@ -1445,7 +1435,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
               <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-positions-section')}>보유 포지션으로</button>
               <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-workflow-section')}>실행 워크플로우로</button>
               <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-risk-action-section')}>리스크/액션 로그로</button>
-              <button type="button" className="ghost-button" onClick={() => scrollToSection('runtime-engine-panel-section')}>자동매매 엔진 상태로</button>
             </div>
             {repeatedCashRetries.length > 0 && (
               <div className="inline-warning-card" style={{ marginTop: 12 }}>
@@ -1519,16 +1508,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 <div>보유 투자금 / 평가금액: {formatKRW(vm.positionCostKrw, true)} / {formatKRW(vm.positionMarketValueKrw, true)}</div>
                 <div>보유 종목 총 수익률: {vm.positionReturnPct != null ? formatPercent(vm.positionReturnPct, 2) : '-'}</div>
                 <div>평가손익 / 실현손익: {formatKRW(vm.unrealizedPnlKrw, true)} / {formatKRW(vm.realizedPnlKrw, true)}</div>
-              </div>
-            </div>
-            <div className="page-section" style={{ padding: 16 }}>
-              <div className="section-title">오늘 실행 결과</div>
-              <div className="detail-list">
-                <div>오늘 체결 합계: {formatNumber(todayOrders.length, 0)}건</div>
-                <div>매수 체결: {formatCount(todayBuyCount, '건')}</div>
-                <div>매도 체결: {formatCount(todaySellCount, '건')}</div>
-                <div>실패 주문: {formatCount(todayFailCount, '건')}</div>
-                <div>순증가 포지션: {formatCount(todayBuyCount - todaySellCount, '건')}</div>
               </div>
             </div>
             <div className="page-section" style={{ padding: 16, gridColumn: '1 / -1' }}>
@@ -1610,6 +1589,110 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="page-section console-data-section" style={{ padding: 0 }}>
+            <div style={{ padding: 16, display: 'grid', gap: 12 }}>
+              <div className="section-head-row">
+                <div>
+                  <div className="section-title">주문</div>
+                </div>
+                <div
+                  className="section-toolbar"
+                  style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}
+                >
+                  <span className="inline-badge">체결 {formatNumber(todayOrders.length, 0)}</span>
+                  <span className="inline-badge is-success">매수 {formatCount(todayBuyCount, '건')}</span>
+                  <span className="inline-badge">매도 {formatCount(todaySellCount, '건')}</span>
+                  <span className={todayFailCount > 0 ? 'inline-badge is-danger' : 'inline-badge'}>실패 {formatCount(todayFailCount, '건')}</span>
+                  <span className="inline-badge">순증 {formatCount(todayBuyCount - todaySellCount, '건')}</span>
+                </div>
+              </div>
+            </div>
+            <div className="responsive-table-desktop" style={{ overflow: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
+                    <th style={{ padding: 12, fontSize: 15 }}>일시</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>종목</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>시장</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>방향</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>상태</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>수량</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>체결가</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>금액</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topOrderRows.map((order, index) => {
+                    const item = order as Record<string, unknown>;
+                    const market = String(item.market || '');
+                    const currency = normalizePortfolioMarket(market) === 'NASDAQ' ? 'USD' : 'KRW';
+                    const quantity = toNumber(firstKnown(item.quantity, item.filled_quantity), NaN);
+                    const filledPriceLocal = toNumber(firstKnown(item.filled_price_local, item.price), NaN);
+                    const notionalLocal = toNumber(firstKnown(item.notional_local, Number.isFinite(quantity) && Number.isFinite(filledPriceLocal) ? quantity * filledPriceLocal : null), NaN);
+                    const notionalKrw = toNumber(item.notional_krw, NaN);
+                    const isSuccess = item.success !== false;
+                    return (
+                      <tr key={String(item.order_id || `${item.code || 'order'}-${index}`)} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatDateTime(orderEventTime(item))}</td>
+                        <td style={{ padding: 12, fontSize: 15, fontWeight: 600 }}>
+                          <SymbolIdentity code={String(item.code || '')} name={String(item.name || '')} market={market} compact />
+                        </td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{market || '-'}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>
+                          <span className={item.side === 'buy' ? 'inline-badge is-success' : 'inline-badge is-danger'}>{item.side === 'buy' ? '매수' : '매도'}</span>
+                        </td>
+                        <td style={{ padding: 12, fontSize: 15 }}>
+                          <span className={isSuccess ? 'inline-badge' : 'inline-badge is-danger'}>{orderSideStatusLabel(item)}</span>
+                        </td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{Number.isFinite(quantity) ? formatCount(quantity, '주') : '-'}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{Number.isFinite(filledPriceLocal) ? formatLocalPrice(filledPriceLocal, market) : orderStatusCopy(item)}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>
+                          {Number.isFinite(notionalLocal) || Number.isFinite(notionalKrw)
+                            ? formatLocalAmountWithKRW(Number.isFinite(notionalLocal) ? notionalLocal : null, Number.isFinite(notionalKrw) ? notionalKrw : null, currency)
+                            : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {topOrderRows.length === 0 && (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{UI_TEXT.empty.noTrades}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="responsive-card-list">
+              {topOrderRows.map((order, index) => {
+                const item = order as Record<string, unknown>;
+                const market = String(item.market || '');
+                const quantity = toNumber(firstKnown(item.quantity, item.filled_quantity), NaN);
+                const filledPriceLocal = toNumber(firstKnown(item.filled_price_local, item.price), NaN);
+                const isSuccess = item.success !== false;
+                return (
+                  <article key={String(item.order_id || `${item.code || 'order'}-${index}-card`)} className="responsive-card">
+                    <div className="responsive-card-head">
+                      <div>
+                        <div className="responsive-card-title">
+                          <SymbolIdentity code={String(item.code || '')} name={String(item.name || '')} market={market} compact />
+                        </div>
+                        <div className="signal-cell-copy">{market || '-'} · {formatDateTime(orderEventTime(item))}</div>
+                      </div>
+                      <div className={isSuccess ? 'inline-badge' : 'inline-badge is-danger'}>{orderSideStatusLabel(item)}</div>
+                    </div>
+                    <div className="responsive-card-grid">
+                      <div><div className="responsive-card-label">수량</div><div className="responsive-card-value">{Number.isFinite(quantity) ? formatCount(quantity, '주') : '-'}</div></div>
+                      <div><div className="responsive-card-label">체결가</div><div className="responsive-card-value">{Number.isFinite(filledPriceLocal) ? formatLocalPrice(filledPriceLocal, market) : orderStatusCopy(item)}</div></div>
+                      <div><div className="responsive-card-label">방향</div><div className="responsive-card-value">{item.side === 'buy' ? '매수' : '매도'}</div></div>
+                      <div><div className="responsive-card-label">상태</div><div className="responsive-card-value">{orderStatusCopy(item)}</div></div>
+                    </div>
+                  </article>
+                );
+              })}
+              {topOrderRows.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{UI_TEXT.empty.noTrades}</div>}
             </div>
           </div>
 
@@ -1751,129 +1834,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
               {filteredPositions.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{UI_TEXT.empty.noPositions}</div>}
             </div>
           </div>
-
-          <div className="runtime-ops-summary-grid">
-            <div id="runtime-engine-panel-section" className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>엔진</div>
-              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
-                <div>{engineStateLabel(engineState.engine_state, engineState.running)}</div>
-                <div>{engineState.last_error ? '오류' : (engineState.running ? '정상' : engineState.engine_state === 'paused' ? '일시정지' : '대기')}</div>
-                <div>최근 {formatDateTime(engineState.last_run_at)}</div>
-                <div>다음 {formatDateTime(engineState.next_run_at)}</div>
-                <div>오류 {engineState.last_error || '-'}</div>
-                <div>로테이션: {engineState.config?.rotation?.enabled ? '활성' : '비활성'} · 오늘 교체 {formatNumber(rotationSummary?.executed_count, 0)}건</div>
-                <div>
-                  실행: 매수 {formatNumber(engineState.last_summary?.executed_buy_count, 0)} / 매도 {formatNumber(engineState.last_summary?.executed_sell_count, 0)}
-                </div>
-                <div>오늘 B/S/F: {formatNumber(engineState.today_order_counts?.buy, 0)} / {formatNumber(engineState.today_order_counts?.sell, 0)} / {formatNumber(engineState.today_order_counts?.failed, 0)}</div>
-                <div>실현 {formatKRW(engineState.today_realized_pnl, true)}</div>
-                <div>검증 {engineState.validation_policy?.validation_gate_enabled ? 'ON' : 'OFF'}</div>
-              </div>
-            </div>
-
-            <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>오늘</div>
-              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
-                <div>체결 {formatNumber(todayOrders.length, 0)}건</div>
-                <div>매수 {formatCount(todayBuyCount, '건')}</div>
-                <div>매도 {formatCount(todaySellCount, '건')}</div>
-                <div>실패 {formatCount(todayFailCount, '건')}</div>
-                <div>순증가 {formatCount(todayBuyCount - todaySellCount, '건')}</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="runtime-ops-log-grid">
-            <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>최근 주문</div>
-              <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-                {mergedOrderHistory.slice(0, 12).map((order, index) => {
-                  const item = order as {
-                    order_id?: string;
-                    timestamp?: string;
-                    ts?: string;
-                    code?: string;
-                    name?: string;
-                    market?: string;
-                    side?: string;
-                    strategy_name?: string;
-                    quantity?: number | null;
-                    filled_price_local?: number | null;
-                    status?: string;
-                    execution_status?: string;
-                    lifecycle_state?: string;
-                    success?: boolean;
-                    failure_reason?: string;
-                    reason_code?: string;
-                    message?: string;
-                  };
-                  const isSuccess = item.success !== false;
-                  const stateLabel = orderSideStatusLabel(item);
-                  const statusCopy = orderStatusCopy(item);
-                  const filledPriceCopy = orderLifecycleState(item) === 'filled'
-                    ? formatLocalPrice(item.filled_price_local, item.market)
-                    : statusCopy;
-                  return (
-                    <div key={item.order_id || `${item.code || 'order'}-${index}`} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px', fontSize: 15 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <div>
-                        <SymbolIdentity code={item.code} name={item.name} market={item.market} compact />
-                      </div>
-                      <span style={{ color: isSuccess ? (item.side === 'buy' ? 'var(--up)' : 'var(--down)') : 'var(--down)', fontWeight: 700 }}>
-                        {stateLabel}
-                      </span>
-                    </div>
-                    <div style={{ marginTop: 4, color: 'var(--text-3)' }}>
-                      {item.market ? `${formatMarketWithCurrency(item.market)} · ` : ''}{formatCount(item.quantity, '주')} · {filledPriceCopy} · {formatDateTime(orderEventTime(item))}
-                    </div>
-                    {!!item.strategy_name && (
-                      <div className="signal-cell-copy" style={{ marginTop: 4 }}>전략: {item.strategy_name}</div>
-                    )}
-                    {!isSuccess && (
-                      <div style={{ marginTop: 4, color: 'var(--down)', display: 'grid', gap: 4 }}>
-                        <div>{reasonCodeToKorean(String(item.reason_code || item.failure_reason || '-'))}</div>
-                      </div>
-                    )}
-                    </div>
-                  );
-                })}
-                {mergedOrderHistory.length === 0 && <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{UI_TEXT.empty.noTrades}</div>}
-              </div>
-            </div>
-
-            <div className="page-section" style={{ padding: 16 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>엔진 로그</div>
-              <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-                {Object.entries(skipReasonCounts).slice(0, 6).map(([reason, count]) => (
-                  <div key={reason} style={{ fontSize: 15, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
-                    {runtimeSkipReasonLabel(reason)}: {formatCount(count, '건')}
-                  </div>
-                ))}
-                {cycles.slice(0, 4).map((cycle, idx) => {
-                  const item = cycle as {
-                    cycle_id?: string;
-                    started_at?: string;
-                    finished_at?: string;
-                    executed_buy_count?: number;
-                    executed_sell_count?: number;
-                    error?: string;
-                  };
-                  return (
-                    <div key={item.cycle_id || `cycle-${idx}`} style={{ fontSize: 15, color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
-                      <div>cycle: {item.cycle_id || '-'}</div>
-                      <div>시각: {formatDateTime(item.finished_at || item.started_at)}</div>
-                      <div>매수 {formatNumber(item.executed_buy_count, 0)} / 매도 {formatNumber(item.executed_sell_count, 0)}</div>
-                      {!!item.error && <div style={{ color: 'var(--down)' }}>오류: {item.error}</div>}
-                    </div>
-                  );
-                })}
-                {Object.keys(skipReasonCounts).length === 0 && (
-                  <div style={{ fontSize: 15, color: 'var(--text-4)' }}>{UI_TEXT.empty.noSkipReasons}</div>
-                )}
-              </div>
-            </div>
-          </div>
-
 
           <div id="runtime-workflow-section" className="page-section" style={{ padding: 16 }}>
             <div className="section-head-row">
@@ -2034,7 +1994,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 ))}
               </div>
             </div>
-            <div className="responsive-table-desktop" style={{ overflow: 'auto', marginTop: 12 }}>
+            <div className="responsive-table-desktop" style={{ overflow: 'auto', marginTop: 12, maxHeight: 520 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-soft)', textAlign: 'left' }}>
@@ -2049,7 +2009,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   </tr>
                 </thead>
                 <tbody>
-                  {signalRiskActionLogs.map((item) => (
+                  {visibleRiskActionLogs.map((item) => (
                     <tr key={item.key} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12, fontSize: 15 }}>{formatDateTime(item.timestamp)}</td>
                       <td style={{ padding: 12, fontSize: 15 }}>
@@ -2084,7 +2044,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                       </td>
                     </tr>
                   ))}
-                  {signalRiskActionLogs.length === 0 && (
+                  {visibleRiskActionLogs.length === 0 && (
                     <tr>
                       <td colSpan={8} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>없음</td>
                     </tr>
@@ -2093,7 +2053,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
               </table>
             </div>
             <div className="responsive-card-list" style={{ marginTop: 12 }}>
-              {signalRiskActionLogs.map((item) => (
+              {visibleRiskActionLogs.map((item) => (
                 <article key={`${item.key}-card`} className="responsive-card">
                   <div className="responsive-card-head">
                     <div>
@@ -2114,17 +2074,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   </div>
                 </article>
               ))}
-              {signalRiskActionLogs.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
-            </div>
-          </div>
-
-          <div className="page-section" style={{ padding: 16 }}>
-            <div style={{ fontSize: 17, fontWeight: 700 }}>로그</div>
-            <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 15, color: 'var(--text-3)' }}>
-              <div>cycle 로그: {formatCount(cycles.length, '건')}</div>
-              <div>주문 이벤트 로그: {formatCount(orderEvents.length, '건')}</div>
-              <div>계좌 스냅샷: {formatCount(accountHistory.length, '건')}</div>
-              <div>신호 스냅샷: {formatCount(signalSnapshots.length, '건')}</div>
+              {visibleRiskActionLogs.length === 0 && <div style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>없음</div>}
             </div>
           </div>
 
