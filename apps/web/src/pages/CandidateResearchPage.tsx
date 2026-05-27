@@ -373,7 +373,7 @@ function MonitorSlotSection({
         <div className="workspace-empty-state">{loading ? '불러오는 중...' : emptyText}</div>
       ) : (
         <>
-          <div style={{ overflow: 'auto' }}>
+          <div className="workspace-table-scroll is-ten-rows">
             <table className="workspace-table" style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
@@ -427,7 +427,7 @@ function MonitorSlotSection({
             </table>
           </div>
 
-          <div className="responsive-card-list">
+          <div className="responsive-card-list is-scroll-ten">
             {displayedItems.map((item, idx) => {
               const status = candidateStatusBadge(item);
               const pending = pendingCandidateBadge(item);
@@ -551,7 +551,7 @@ function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }
         <div className="workspace-empty-state">없음</div>
       ) : (
         <>
-          <div style={{ overflow: 'auto' }}>
+          <div className="workspace-table-scroll is-ten-rows">
             <table className="workspace-table" style={{ minWidth: 760 }}>
               <thead>
                 <tr>
@@ -578,7 +578,7 @@ function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }
               </tbody>
             </table>
           </div>
-          <div className="responsive-card-list">
+          <div className="responsive-card-list is-scroll-ten">
             {items.map((item, idx) => {
               const event = promotionEventBadge(item);
               return (
@@ -824,7 +824,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
             actions={[]}
           />
 
-          <section className={`research-command-center is-${researchHeadlineTone}`}>
+          <section className={`research-command-center is-${researchHeadlineTone} is-compact`}>
             <div>
               <div className="ops-eyebrow">상태</div>
               <div className="ops-command-title">{researchHeadline}</div>
@@ -840,12 +840,11 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
             </div>
           </section>
 
-          <section className="page-section workspace-two-column">
-            <div className="workspace-card-block">
+          <section className="page-section workspace-two-column is-research-compact">
+            <div className="workspace-card-block research-query-panel">
               <div className="workspace-card-head">
                 <div>
-              <div className="section-title">조회</div>
-                  <div className="section-copy">감시 슬롯에서 바로 눌러도 되고, 직접 코드와 시장을 넣어서 latest/history를 확인해도 돼.</div>
+                  <div className="section-title">조회</div>
                 </div>
               </div>
               <div className="workspace-query-grid">
@@ -886,11 +885,10 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
               </div>
             </div>
 
-            <div className="workspace-card-block">
+            <div className="workspace-card-block research-monitor-panel">
               <div className="workspace-card-head">
                 <div>
                   <div className="section-title">감시</div>
-                  <div className="section-copy">핵심 감시와 승격 슬롯이 실제 리서치 우선순위를 결정해. 지금은 열린 시장을 기본으로 먼저 보여주고, 닫힌 시장은 상태만 같이 표시해.</div>
                 </div>
               </div>
               <div className="workspace-chip-row" style={{ marginBottom: 12 }}>
@@ -907,9 +905,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
                 <div className="workspace-mini-metric"><span>핵심</span><strong>{totalCoreCount}개</strong></div>
                 <div className="workspace-mini-metric"><span>승격</span><strong>{totalPromotionCount}개</strong></div>
                 <div className="workspace-mini-metric"><span>보유</span><strong>{totalHeldCount}개</strong></div>
-                <div className="workspace-mini-metric"><span>fresh</span><strong>{researchStatus.fresh_symbol_count ?? 0}개</strong></div>
                 <div className="workspace-mini-metric"><span>대상</span><strong>{pendingTargets.length}개</strong></div>
-                <div className="workspace-mini-metric"><span>적재</span><strong>{researchStatus.last_generated_at ? formatDateTime(researchStatus.last_generated_at) : '대기'}</strong></div>
                 <div className="workspace-mini-metric"><span>성공/실패</span><strong>{researchStatus.success_count ?? 0}/{researchStatus.failure_count ?? 0}</strong></div>
                 <div className="workspace-mini-metric"><span>부분</span><strong>{researchStatus.partial_failure ? '있음' : '없음'}</strong></div>
               </div>

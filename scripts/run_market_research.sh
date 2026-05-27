@@ -90,16 +90,16 @@ PY
 
 case "$research_market" in
   KOSPI)
-    limit="${WEALTHPULSE_RESEARCH_LIMIT:-9}"
+    limit="${WEALTHPULSE_RESEARCH_LIMIT:-12}"
     mode="${WEALTHPULSE_RESEARCH_MODE:-missing_or_stale}"
-    timeout="${WEALTHPULSE_RESEARCH_TIMEOUT:-300}"
+    timeout="${WEALTHPULSE_RESEARCH_TIMEOUT:-600}"
     concurrency="${WEALTHPULSE_RESEARCH_CONCURRENCY:-3}"
     dry_run="${WEALTHPULSE_RESEARCH_DRY_RUN:-0}"
     ;;
   NASDAQ)
-    limit="${WEALTHPULSE_RESEARCH_LIMIT:-9}"
+    limit="${WEALTHPULSE_RESEARCH_LIMIT:-12}"
     mode="${WEALTHPULSE_RESEARCH_MODE:-missing_or_stale}"
-    timeout="${WEALTHPULSE_RESEARCH_TIMEOUT:-300}"
+    timeout="${WEALTHPULSE_RESEARCH_TIMEOUT:-600}"
     concurrency="${WEALTHPULSE_RESEARCH_CONCURRENCY:-3}"
     dry_run="${WEALTHPULSE_RESEARCH_DRY_RUN:-0}"
     ;;

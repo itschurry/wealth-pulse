@@ -134,7 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     watchlist.add_argument("--refresh", action="store_true")
     watchlist.add_argument(
         "--mode",
-        choices=["missing_or_stale", "missing_only", "stale_only"],
+        choices=["missing_or_stale", "missing_only", "stale_only", "all"],
         default="missing_or_stale",
     )
     watchlist.set_defaults(func=cmd_watchlist)
@@ -145,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     pending.add_argument("--refresh", action="store_true")
     pending.add_argument(
         "--mode",
-        choices=["missing_or_stale", "missing_only", "stale_only"],
+        choices=["missing_or_stale", "missing_only", "stale_only", "all"],
         default="missing_or_stale",
     )
     pending.set_defaults(func=cmd_pending)

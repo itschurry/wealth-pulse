@@ -7,6 +7,7 @@ import os
 import shlex
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -24,6 +25,7 @@ DEFAULT_RESEARCH_PROVIDER = "default"
 MAX_AGENT_SIZE_INTENT_PCT = 40.0
 ALLOWED_AGENT_RATINGS = {"strong_buy", "overweight", "hold", "underweight", "sell"}
 ALLOWED_AGENT_ACTIONS = {"buy", "buy_watch", "hold", "reduce", "sell", "block"}
+_QUOTE_FETCH_LOCK = threading.Lock()
 
 _REQUIRED_OUTPUT_FIELDS = {
     "symbol": "string; target symbol/code",
@@ -133,7 +135,44 @@ def _trim_dict(payload: Any, keys: tuple[str, ...]) -> dict[str, Any]:
     return {key: source.get(key) for key in keys if source.get(key) not in (None, "", [], {})}
 
 
+def _quote_enriched_target(target: dict[str, Any]) -> dict[str, Any]:
+    row = dict(target)
+    raw_technical = row.get("technical_snapshot")
+    technical: dict[str, Any] = dict(raw_technical) if isinstance(raw_technical, dict) else {}
+    if technical.get("current_price") not in (None, "") and technical.get("quote_fetched_at"):
+        return row
+
+    symbol = str(row.get("symbol") or row.get("code") or "").strip().upper()
+    market = str(row.get("market") or "").strip().upper()
+    if not symbol or not market:
+        return row
+
+    with _QUOTE_FETCH_LOCK:
+        status, quote = _http_json(
+            "GET",
+            f"/api/stock/{parse.quote(symbol)}",
+            query={"market": [market]},
+        )
+    if status != 200:
+        raise RuntimeError(f"quote_fetch_failed:{symbol}:{status}:{quote.get('error') or quote}")
+    current_price = quote.get("price")
+    if current_price not in (None, ""):
+        row["current_price"] = current_price
+        row["price"] = current_price
+        technical["current_price"] = current_price
+        technical["close"] = current_price
+    if quote.get("change_pct") not in (None, ""):
+        technical["change_pct"] = quote.get("change_pct")
+    technical["quote_source"] = str(quote.get("source") or "KIS")
+    technical["quote_fetched_at"] = str(quote.get("fetched_at") or "")
+    technical["freshness"] = "fresh"
+    technical["quote_is_stale"] = bool(quote.get("is_stale", False))
+    row["technical_snapshot"] = technical
+    return row
+
+
 def _compact_target(target: dict[str, Any]) -> dict[str, Any]:
+    target = _quote_enriched_target(target)
     technical = _trim_dict(
         target.get("technical_snapshot"),
         (
@@ -476,7 +515,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Hermes research analysis for WealthPulse pending monitor targets")
     parser.add_argument("--market", action="append", default=[])
     parser.add_argument("--limit", type=int, default=9)
-    parser.add_argument("--mode", choices=["missing_or_stale", "missing_only", "stale_only"], default="missing_or_stale")
+    parser.add_argument("--mode", choices=["missing_or_stale", "missing_only", "stale_only", "all"], default="missing_or_stale")
     parser.add_argument("--dry-run", action="store_true", help="Collect targets and print prompts without calling Hermes")
     parser.add_argument("--agent-command", default=None, help="Command prefix used to call Hermes, default: env WEALTHPULSE_HERMES_RESEARCH_COMMAND or 'hermes --oneshot'")
     parser.add_argument("--api-base-url", default=None, help="WealthPulse API base URL for host-side execution, default: env WEALTHPULSE_API_BASE_URL or http://127.0.0.1:8001")

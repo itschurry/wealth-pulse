@@ -18,7 +18,7 @@ from services.research_store import (
 )
 
 MAX_AGENT_SIZE_INTENT_PCT = 40.0
-DEFAULT_AGENT_TTL_MINUTES = 180
+DEFAULT_AGENT_TTL_MINUTES = 15
 
 
 def _now_local() -> dt.datetime:

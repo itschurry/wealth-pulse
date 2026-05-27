@@ -713,6 +713,8 @@ def _matches_pending_mode(item: dict[str, Any], mode: str) -> bool:
     snapshot_exists = bool(item.get("snapshot_exists"))
     snapshot_fresh = bool(item.get("snapshot_fresh"))
     normalized_mode = str(mode or "missing_or_stale").strip().lower()
+    if normalized_mode == "all":
+        return True
     if normalized_mode == "missing_only":
         return not snapshot_exists
     if normalized_mode == "stale_only":
