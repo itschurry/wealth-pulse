@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from services.research_source_enricher import build_research_source_pack
+
 
 DEFAULT_AGENT_COMMAND = "hermes --oneshot"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
@@ -141,6 +143,8 @@ def _quote_enriched_target(target: dict[str, Any]) -> dict[str, Any]:
     technical: dict[str, Any] = dict(raw_technical) if isinstance(raw_technical, dict) else {}
     if technical.get("current_price") not in (None, "") and technical.get("quote_fetched_at"):
         return row
+    if str(os.getenv("WEALTHPULSE_RESEARCH_FETCH_QUOTES") or "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return row
 
     symbol = str(row.get("symbol") or row.get("code") or "").strip().upper()
     market = str(row.get("market") or "").strip().upper()
@@ -217,8 +221,10 @@ def _compact_target(target: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_feature_pack(target: dict[str, Any]) -> dict[str, Any]:
+    source_pack = target.get("source_pack") if isinstance(target.get("source_pack"), dict) else build_research_source_pack(target)
     return {
         "target": _compact_target(target),
+        "source_inputs": source_pack,
         "contract": {
             "schema": "Research Snapshot v2 agent analysis JSON",
             "required_fields": _REQUIRED_OUTPUT_FIELDS,
@@ -237,11 +243,13 @@ def build_research_prompt(target: dict[str, Any]) -> str:
     feature_pack = build_feature_pack(target)
     return (
         "You are the Hermes research analyst for WealthPulse.\n"
-        "Analyze the candidate using the provided feature pack and any explicitly sourced news/tool evidence you can cite.\n"
+        "Analyze the candidate using the provided feature pack and source_inputs.\n"
         "Return ONLY one JSON object, no markdown, no code fence, no commentary.\n"
         "The JSON must satisfy the Research Snapshot v2 agent analysis contract.\n"
         "Do not place orders, do not call brokers, and do not claim execution. WealthPulse runtime and risk guard decide all orders.\n"
-        "Do not invent news. If no current sourced news is available, set news_inputs=[] and data_quality.has_news=false, then use hold/reduce/sell/block only.\n"
+        "Use source_inputs.news_inputs as the primary news evidence. Do not invent news.\n"
+        "If source_inputs.news_inputs is empty, set news_inputs=[] and data_quality.has_news=false, then use hold/reduce/sell/block only.\n"
+        "Use source_inputs.evidence as official evidence where relevant.\n"
         "For buy/buy_watch, news_inputs must include title, source, url, published_at, summary. Missing URL, missing published_at, stale news, or untrusted source means hold.\n"
         "For buy/buy_watch, evidence must include URL or official data source. Feature-pack metadata alone never justifies buy/buy_watch.\n"
         "Allowed source labels: naver-openapi, google-news-rss, dart, opendart, krx, kind, company_ir, company_newsroom, sec, nasdaq, nyse.\n"
@@ -329,9 +337,30 @@ def _merge_analysis_with_target(analysis: dict[str, Any], target: dict[str, Any]
     merged.setdefault("symbol", target.get("symbol") or target.get("code"))
     merged.setdefault("market", target.get("market"))
     merged.setdefault("candidate_source", "hermes_agent")
+    source_pack = target.get("source_pack") if isinstance(target.get("source_pack"), dict) else {}
+    source_news = source_pack.get("news_inputs") if isinstance(source_pack.get("news_inputs"), list) else []
+    source_evidence = source_pack.get("evidence") if isinstance(source_pack.get("evidence"), list) else []
+    if source_news:
+        merged["news_inputs"] = [*source_news, *[item for item in (merged.get("news_inputs") or []) if isinstance(item, dict)]]
+    if source_evidence:
+        merged["evidence"] = [*source_evidence, *[item for item in (merged.get("evidence") or []) if isinstance(item, dict)]]
+    if not isinstance(merged.get("technical_features"), dict) or not merged.get("technical_features"):
+        technical = target.get("technical_snapshot") if isinstance(target.get("technical_snapshot"), dict) else {}
+        merged["technical_features"] = _trim_dict(
+            technical,
+            ("current_price", "close", "change_pct", "volume_ratio", "rsi14", "atr14_pct", "close_vs_sma20", "close_vs_sma60"),
+        )
     data_quality = dict(merged.get("data_quality")) if isinstance(merged.get("data_quality"), dict) else {}
     data_quality.setdefault("analysis_mode", "agent_research")
     data_quality.setdefault("target_source", "candidate_monitor")
+    data_quality["has_news"] = bool(merged.get("news_inputs"))
+    data_quality["has_recent_price"] = bool(
+        data_quality.get("has_recent_price")
+        or (isinstance(target.get("technical_snapshot"), dict) and target["technical_snapshot"].get("current_price") not in (None, ""))
+        or target.get("current_price") not in (None, "")
+        or target.get("price") not in (None, "")
+    )
+    data_quality["has_technical_features"] = bool(data_quality.get("has_technical_features") or merged.get("technical_features"))
     merged["data_quality"] = data_quality
     return merged
 
@@ -376,14 +405,20 @@ def run(
             "message": "No pending monitor-slot research targets.",
         }
 
-    prompt_rows = [
-        {
-            "symbol": target.get("symbol") or target.get("code"),
-            "market": target.get("market"),
-            "prompt": build_research_prompt(target),
-        }
-        for target in target_items
-    ]
+    enriched_targets: list[dict[str, Any]] = []
+    prompt_rows: list[dict[str, Any]] = []
+    for target in target_items:
+        enriched_target = dict(target)
+        enriched_target["source_pack"] = build_research_source_pack(enriched_target)
+        enriched_targets.append(enriched_target)
+        prompt_rows.append(
+            {
+                "symbol": enriched_target.get("symbol") or enriched_target.get("code"),
+                "market": enriched_target.get("market"),
+                "prompt": build_research_prompt(enriched_target),
+                "source_pack": enriched_target["source_pack"],
+            }
+        )
     _log(f"[hermes] selected targets={len(target_items)}", enabled=progress)
     if dry_run:
         _log("[hermes] dry-run only; Hermes is not called", enabled=progress)
@@ -432,7 +467,7 @@ def run(
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         futures = [
             executor.submit(_process_one, index, target, prompt_row)
-            for index, (target, prompt_row) in enumerate(zip(target_items, prompt_rows), start=1)
+            for index, (target, prompt_row) in enumerate(zip(enriched_targets, prompt_rows), start=1)
         ]
         for future in as_completed(futures):
             result = future.result()

@@ -40,7 +40,7 @@ def handle_signal_detail(path: str) -> tuple[int, dict]:
         if not raw:
             return 400, {"ok": False, "error": "signal code required"}
         code = raw.upper()
-        payload = build_signal_book(markets=["KOSPI", "NASDAQ"], cfg={}, account=_load_runtime_account())
+        payload = build_signal_book(markets=["KOSPI"], cfg={}, account=_load_runtime_account())
         for item in payload.get("signals", []):
             if str(item.get("code") or "").upper() == code:
                 return 200, {"ok": True, "signal": item, "generated_at": payload.get("generated_at")}

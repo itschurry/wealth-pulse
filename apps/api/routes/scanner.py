@@ -38,7 +38,7 @@ def _strategy_support_count(markets: list[str]) -> int:
 
 
 def _build_common_pool_rows(markets: list[str], account: dict[str, Any], *, refresh: bool = False) -> list[dict[str, Any]]:
-    selected_markets = markets or ["KOSPI", "NASDAQ"]
+    selected_markets = markets or ["KOSPI"]
     payload = build_signal_book(
         markets=selected_markets,
         cfg={"refresh_scanner": refresh},

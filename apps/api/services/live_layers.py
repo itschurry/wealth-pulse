@@ -7,6 +7,7 @@ from services.research_scoring import ResearchScoreRequest, get_research_scorer
 
 
 _AGENT_EXECUTION_MODES = {"quant_gated_agent", "agent_primary_quant_assisted", "agent_only"}
+DEFAULT_AGENT_EXECUTION_MODE = "agent_primary_quant_assisted"
 _BUY_RATINGS = {"strong_buy", "overweight"}
 _BUY_ACTIONS = {"buy", "buy_watch"}
 _NEGATIVE_RATINGS = {"underweight", "sell"}
@@ -18,9 +19,11 @@ def _normalized_execution_mode(source_context: dict[str, Any] | None) -> str:
     raw = str(
         source_context.get("agent_execution_mode")
         or source_context.get("execution_mode")
-        or os.getenv("WEALTHPULSE_AGENT_EXECUTION_MODE", "quant_gated_agent")
+        or os.getenv("WEALTHPULSE_AGENT_EXECUTION_MODE", DEFAULT_AGENT_EXECUTION_MODE)
     ).strip().lower()
-    return raw if raw in _AGENT_EXECUTION_MODES else "quant_gated_agent"
+    if raw not in _AGENT_EXECUTION_MODES:
+        raise ValueError(f"unsupported agent execution mode: {raw}")
+    return raw
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -246,7 +249,7 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     elif action == "hold" or rating == "hold":
         agent_decision = {"decision": "agent_hold", "order_ready": False, "reason": "hold_rating_or_action", "rating": rating, "action": action}
     elif buy_intent and confidence >= confidence_threshold and validation_ok and technical_ok and evidence_ok and not warnings:
-        order_ready = execution_mode == "agent_primary_quant_assisted" or quant_entry_ready
+        order_ready = execution_mode in {"agent_primary_quant_assisted", "agent_only"} or quant_entry_ready
         reason = "agent_buy_confirmed" if order_ready else "agent_buy_without_quant_entry"
         agent_decision = {
             "decision": "agent_primary_buy",

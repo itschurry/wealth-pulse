@@ -678,12 +678,12 @@ def list_market_watchlists(
     account: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     normalized_markets: list[str] = []
-    for market in markets or ["KOSPI", "NASDAQ"]:
+    for market in markets or ["KOSPI"]:
         normalized = _normalize_market(market)
         if normalized and normalized not in normalized_markets:
             normalized_markets.append(normalized)
     if not normalized_markets:
-        normalized_markets = ["KOSPI", "NASDAQ"]
+        normalized_markets = ["KOSPI"]
     return [
         build_market_watchlist(market, account=account, refresh=refresh) if refresh else get_market_watchlist(market)
         for market in normalized_markets
@@ -804,12 +804,12 @@ def list_pending_research_targets(
 
 def list_recent_promotion_events(markets: list[str] | None = None, *, limit: int = DEFAULT_PROMOTION_EVENT_LIMIT) -> list[dict[str, Any]]:
     normalized_markets: list[str] = []
-    for market in markets or ["KOSPI", "NASDAQ"]:
+    for market in markets or ["KOSPI"]:
         normalized = _normalize_market(market)
         if normalized and normalized not in normalized_markets:
             normalized_markets.append(normalized)
     rows: list[dict[str, Any]] = []
-    for market in normalized_markets or ["KOSPI", "NASDAQ"]:
+    for market in normalized_markets or ["KOSPI"]:
         rows.extend(store.list_promotion_events(market, limit=limit))
     rows.sort(key=lambda item: (str(item.get("created_at") or ""), int(item.get("id") or 0)), reverse=True)
     capped = max(1, int(limit or DEFAULT_PROMOTION_EVENT_LIMIT))

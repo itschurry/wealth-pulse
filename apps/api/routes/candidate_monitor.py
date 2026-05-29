@@ -10,7 +10,7 @@ from services.candidate_monitor_service import (
 )
 from services.runtime_execution_service import get_execution_service
 
-_DEFAULT_MARKETS = ["KOSPI", "NASDAQ"]
+_DEFAULT_MARKETS = ["KOSPI"]
 
 
 def _to_bool(raw: object, default: bool) -> bool:

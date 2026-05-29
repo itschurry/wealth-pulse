@@ -2,7 +2,7 @@
 
 WealthPulse의 목적은 투자 전문가에게 맡긴 것처럼 시장에서 좋은 종목을 골라 공격적으로 굴리는 자동 운용 앱이다.
 
-Hermes는 종목 리서치 JSON을 만들고, WealthPulse는 후보 선정, 리스크 검증, 포지션 sizing, 주문 실행을 담당한다. Hermes가 직접 주문하지 않는다. 실패한 판단은 대체하지 않고 차단하거나 운영 화면에 노출한다.
+Hermes는 종목 리서치 JSON을 만들고, WealthPulse는 후보 선정, 리스크 검증, 포지션 sizing, 주문 실행을 담당한다. Hermes가 직접 주문하지 않는다. 기본 모드는 Hermes `buy` 판단이 품질/리스크를 통과하면 퀀트 entry 없이도 주문 검토로 올리는 공격 운용이다. 실패한 판단은 대체하지 않고 차단하거나 운영 화면에 노출한다.
 
 ## 지금 기준
 
@@ -265,7 +265,9 @@ UI는 관제 설명보다 숫자, 표, 상태 배지를 우선한다. 긴 안내
 - active core slot 기본: 시장별 `20`
 - promotion slot 기본: 시장별 `4`
 - 런타임 research refresh limit: `60`
-- Hermes 기본 limit/concurrency: `9 / 3`
+- Hermes 기본 limit/concurrency: `12 / 3`
+- Agent 주문 판단 기본: `agent_primary_quant_assisted`
+- 자동 운영 시장: `KOSPI`만 사용
 - 회전매매 기본: score gap `2.0`, 일 `6회`, 최소 보유일 `0`
 - 우량주 추가매수: 집중 모드에서 허용
 - 우량주 단일 종목 cap: `40%`
@@ -274,9 +276,8 @@ UI는 관제 설명보다 숫자, 표, 상태 배지를 우선한다. 긴 안내
 후보 풀은 좋은 종목을 먼저 올리는 방식이다.
 
 - KOSPI: `kospi100` 기반
-- NASDAQ/US: `sp100` 전체 기반
-- KOSPI와 NASDAQ은 같은 후보 점수 알고리즘을 쓴다.
-- NASDAQ 실거래는 KOSPI 검증 이후 켜는 전제지만, 후보/리서치/점수 로직은 이미 동일하게 돈다.
+- NASDAQ/US: 현재 자동 운영에서 제외. KOSPI 검증 이후 다시 연다.
+- KOSPI와 NASDAQ 후보/백테스트 코드는 남겨두지만, 자동 리서치와 자동매매 기본 루프는 KOSPI만 돈다.
 - 우선순위: 보유 종목, 우량주, 높은 Hermes 리서치 점수, 뉴스 급증, 거래대금 상위, 상승률 상위, 관심종목
 - 근거 없는 일반 유니버스 종목은 active slot 뒤로 밀린다.
 - 집중 모드에서는 우량주가 후보 풀과 active slot에서 더 강하게 올라온다.
@@ -301,6 +302,7 @@ UI는 관제 설명보다 숫자, 표, 상태 배지를 우선한다. 긴 안내
 - `bluechip_max_symbol_position_ratio`: 집중 모드 우량주 단일 종목 cap, 기본 `0.40`
 - `bluechip_risk_per_trade_pct`: 집중 모드 우량주 거래 리스크, 기본 `1.5`
 - `bluechip_allow_additional_buy`: 집중 모드 우량주 추가매수 허용, 기본 `true`
+- `WEALTHPULSE_AGENT_EXECUTION_MODE`: Agent 주문 판단 모드. 기본 `agent_primary_quant_assisted`
 
 집중투자 모드 예시:
 
@@ -322,6 +324,17 @@ curl -X POST http://localhost:8001/api/risk/config \
 - `diversified`: 기존 분산 정책. 일반 종목 cap과 섹터 cap을 강하게 적용한다.
 - `concentrated`: 기본 운용 정책. 우량주에 단일 종목 40% cap, 추가매수 허용, 높은 risk budget, 완화된 섹터 cap을 적용한다.
 - 우량주 기준: KOSPI는 `kospi100` 상위 20개, US/NASDAQ은 `sp100` 상위 20개다.
+
+Agent 주문 판단 모드:
+
+- `agent_primary_quant_assisted`: 기본. Hermes `buy`가 리서치 품질, technical sanity, Risk Guard, sizing을 통과하면 퀀트 entry 없이도 `review_for_entry`로 승격한다.
+- `quant_gated_agent`: Hermes `buy`여도 퀀트 entry가 같이 떠야 `review_for_entry`로 승격한다.
+- `agent_only`: Hermes `buy` 판단 중심으로 `review_for_entry`를 만든다.
+
+```bash
+WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted \
+python apps/api/api_server.py
+```
 
 후보, 신호, 주문 감사 payload에는 아래 필드가 붙는다.
 
@@ -352,13 +365,24 @@ curl -X POST http://localhost:8001/api/risk/config \
 
 ## Hermes 리서치
 
-Hermes는 뉴스와 공식 데이터를 찾아 `Research Snapshot v2` JSON을 만든다. WealthPulse는 그 결과를 그대로 믿지 않고 ingest 단계에서 검증한다.
+Hermes는 WealthPulse가 미리 수집한 뉴스와 공식 근거를 보고 `Research Snapshot v2` JSON을 만든다. WealthPulse는 그 결과를 그대로 믿지 않고 ingest 단계에서 검증한다.
 
 뉴스/근거 입력 구조:
 
+- `source_inputs.news_inputs`: 후보별 Google News RSS 최신 기사. 기본 최근 3일 쿼리
+- `source_inputs.evidence`: KRX/KIND 또는 Nasdaq/SEC 공식 링크
 - `news_inputs`: `title`, `source`, `url`, `published_at`, `summary`
 - `evidence`: URL이 있거나 `dart`, `opendart`, `krx`, `kind`, `sec`, `nasdaq`, `nyse`, `company_ir` 같은 공식 출처
 - `data_quality`: `has_news`, `has_recent_price`, `has_technical_features`
+
+Hermes runner는 `source_inputs`를 프롬프트에 넣고, ingest 직전에도 `news_inputs`와 `evidence`를 보존한다. Hermes가 근거를 빼먹어도 수집된 원천 근거는 snapshot에 남긴다.
+
+리서치 runner는 기본으로 브로커 quote를 추가 조회하지 않는다. KIS 토큰 제한 때문에 리서치가 막히면 시장 추적이 죽는다. quote 추가 조회가 꼭 필요하면 아래처럼 명시해서 켠다.
+
+```bash
+WEALTHPULSE_RESEARCH_FETCH_QUOTES=1 \
+python apps/api/scripts/hermes_research_runner.py --market KOSPI --limit 3
+```
 
 `buy` / `buy_watch` 차단 규칙:
 
@@ -400,8 +424,8 @@ WEALTHPULSE_RESEARCH_CONCURRENCY=3 \
 동작 기준:
 
 - KOSPI 정규장: KOSPI만 리서치
-- US 정규장: NASDAQ만 리서치
-- 양쪽 휴장/장외: 리서치 실행 안 함
+- US 정규장: NASDAQ 리서치 안 함
+- KOSPI 휴장/장외: 리서치 실행 안 함
 - 캘린더 판정 실패: 실패로 종료
 
 crontab 예시:
@@ -416,9 +440,10 @@ crontab 예시:
 
 - `WEALTHPULSE_API_BASE_URL`: 기본 `http://127.0.0.1:8001`
 - `WEALTHPULSE_HERMES_RESEARCH_COMMAND`: Hermes CLI 명령
-- `WEALTHPULSE_RESEARCH_LIMIT`: 시장 공통 limit, 기본 `9`
+- `WEALTHPULSE_RESEARCH_LIMIT`: 시장 공통 limit, 기본 `12`
 - `WEALTHPULSE_RESEARCH_CONCURRENCY`: 시장 공통 concurrency, 기본 `3`
-- `WEALTHPULSE_RESEARCH_TIMEOUT`: 시장 공통 timeout, 기본 `300`
+- `WEALTHPULSE_RESEARCH_TIMEOUT`: 시장 공통 timeout, 기본 `600`
+- `WEALTHPULSE_RESEARCH_FETCH_QUOTES=1`: 리서치 입력 생성 중 KIS quote 추가 조회
 - `WEALTHPULSE_RESEARCH_DRY_RUN=1`: Hermes 호출 없이 대상과 프롬프트만 확인
 
 exit code:

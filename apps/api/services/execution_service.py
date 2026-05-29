@@ -1510,7 +1510,8 @@ def _passes_theme_gate(item: dict, cfg: dict) -> bool:
 def _default_auto_trader_config() -> dict:
     profiles = {
         profile.market: serialize_strategy_profiles([profile])[profile.market]
-        for profile in default_strategy_profiles(["KOSPI", "NASDAQ"])
+        # NASDAQ 운영은 아직 막아둔다. 자동매매 기본 profile도 KOSPI만 만든다.
+        for profile in default_strategy_profiles(["KOSPI"])
     }
     for market, profile in list(profiles.items()):
         if isinstance(profile, dict) and profile.get("take_profit_pct") in (None, ""):
@@ -1520,7 +1521,7 @@ def _default_auto_trader_config() -> dict:
     primary = profiles["KOSPI"]
     base = {
         "interval_seconds": 300,
-        "markets": ["KOSPI", "NASDAQ"],
+        "markets": ["KOSPI"],
         "max_positions_per_market": int(primary["max_positions"]),
         "min_score": 50.0,
         "include_neutral": True,
@@ -1606,9 +1607,9 @@ def _position_holding_days(position: dict) -> int:
 def _auto_trader_profile_map(cfg: dict, markets: list[str] | None = None) -> dict[str, dict]:
     selected_markets = [
         normalize_strategy_market(market)
-        for market in (markets or cfg.get("markets") or ["KOSPI", "NASDAQ"])
+        for market in (markets or cfg.get("markets") or ["KOSPI"])
         if normalize_strategy_market(market) in {"KOSPI", "NASDAQ"}
-    ] or ["KOSPI", "NASDAQ"]
+    ] or ["KOSPI"]
     raw_profiles = cfg.get("market_profiles")
     if isinstance(raw_profiles, dict) and raw_profiles:
         profile_map = {
@@ -1669,9 +1670,9 @@ def _auto_trader_profile(cfg: dict, market: str):
 def _sync_primary_strategy_fields(cfg: dict) -> dict:
     markets = [
         normalize_strategy_market(market)
-        for market in (cfg.get("markets") or ["KOSPI", "NASDAQ"])
+        for market in (cfg.get("markets") or ["KOSPI"])
         if normalize_strategy_market(market) in {"KOSPI", "NASDAQ"}
-    ] or ["KOSPI", "NASDAQ"]
+    ] or ["KOSPI"]
     profile_map = _auto_trader_profile_map(cfg, markets)
     for market_key, profile in list(profile_map.items()):
         normalized_market = normalize_strategy_market(market_key)
@@ -2349,7 +2350,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         "blocked": [],
     }
     closed_markets: list[str] = []
-    markets = [m for m in cfg.get("markets", ["KOSPI", "NASDAQ"]) if m in {
+    markets = [m for m in cfg.get("markets", ["KOSPI"]) if m in {
         "KOSPI", "NASDAQ"}]
     candidate_counts_by_market: dict[str, int] = {
         market: 0 for market in markets}
@@ -3255,12 +3256,12 @@ def _start_auto_trader(config: dict) -> dict:
         merged["validation_require_optimized_reliability"] = _coerce_bool(
             merged.get("validation_require_optimized_reliability"), True)
         merged.update(_parse_theme_gate_config(merged))
-        markets = merged.get("markets") or ["KOSPI", "NASDAQ"]
+        markets = merged.get("markets") or ["KOSPI"]
         if not isinstance(markets, list):
-            markets = ["KOSPI", "NASDAQ"]
+            markets = ["KOSPI"]
         merged["markets"] = [
             m for m in markets if normalize_strategy_market(m) in {"KOSPI", "NASDAQ"}
-        ] or ["KOSPI", "NASDAQ"]
+        ] or ["KOSPI"]
         merged = _sync_primary_strategy_fields(merged)
 
         _auto_trader_stop_event = threading.Event()
