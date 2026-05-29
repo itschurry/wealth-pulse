@@ -11,6 +11,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any
 
+import FinanceDataReader as fdr
+
 from config.settings import CACHE_DIR, DART_API_KEY
 
 
@@ -116,6 +118,55 @@ def _recent_date(days: int) -> str:
 
 def _today_date() -> str:
     return dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date().strftime("%Y%m%d")
+
+
+def _rsi(values: list[float], period: int = 14) -> float | None:
+    if len(values) <= period:
+        return None
+    gains: list[float] = []
+    losses: list[float] = []
+    for prev, current in zip(values[:-1], values[1:]):
+        change = current - prev
+        gains.append(max(change, 0.0))
+        losses.append(abs(min(change, 0.0)))
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for idx in range(period, len(gains)):
+        avg_gain = ((avg_gain * (period - 1)) + gains[idx]) / period
+        avg_loss = ((avg_loss * (period - 1)) + losses[idx]) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def fetch_fdr_technical_features(*, symbol: str, market: str) -> dict[str, Any]:
+    if _market(market) not in {"KOSPI", "KOSDAQ"}:
+        return {}
+    end = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date()
+    start = end - dt.timedelta(days=130)
+    frame = fdr.DataReader(_text(symbol).upper(), start.isoformat(), end.isoformat())
+    if frame is None or len(frame) < 35:
+        return {}
+    close = [float(value) for value in frame["Close"].dropna().tolist()]
+    volume = [float(value) for value in frame["Volume"].dropna().tolist()] if "Volume" in frame else []
+    if len(close) < 35:
+        return {}
+    current = close[-1]
+    sma20 = sum(close[-20:]) / 20
+    sma60 = sum(close[-60:]) / 60 if len(close) >= 60 else sma20
+    avg_volume20 = sum(volume[-20:]) / 20 if len(volume) >= 20 else 0.0
+    current_volume = volume[-1] if volume else 0.0
+    return {
+        "current_price": round(current, 4),
+        "close": round(current, 4),
+        "close_vs_sma20": round(current / sma20, 4) if sma20 > 0 else None,
+        "close_vs_sma60": round(current / sma60, 4) if sma60 > 0 else None,
+        "volume_ratio": round(current_volume / avg_volume20, 4) if avg_volume20 > 0 else None,
+        "rsi14": round(_rsi(close) or 0.0, 4),
+        "source": "finance-datareader",
+        "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+    }
 
 
 def _load_dart_corp_codes() -> dict[str, dict[str, str]]:
@@ -237,14 +288,18 @@ def build_research_source_pack(target: dict[str, Any]) -> dict[str, Any]:
     news_inputs = fetch_google_news_inputs(symbol=symbol, market=market, name=name)
     dart_evidence = fetch_dart_disclosure_evidence(symbol=symbol, market=market)
     evidence = [*dart_evidence, *build_official_evidence(symbol=symbol, market=market, name=name)]
+    target_technical = target.get("technical_snapshot") if isinstance(target.get("technical_snapshot"), dict) else {}
+    technical_features = target_technical or fetch_fdr_technical_features(symbol=symbol, market=market)
     return {
         "news_inputs": news_inputs,
         "evidence": evidence,
+        "technical_features": technical_features,
         "source_summary": {
             "news_source": "google-news-rss",
             "official_sources": sorted({str(item.get("source") or "") for item in evidence if item.get("source")}),
             "news_count": len(news_inputs),
             "dart_disclosure_count": len(dart_evidence),
             "evidence_count": len(evidence),
+            "technical_source": str(technical_features.get("source") or "target_snapshot") if technical_features else "",
         },
     }

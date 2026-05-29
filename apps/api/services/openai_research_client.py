@@ -10,7 +10,7 @@ from config.settings import OPENAI_API_KEY, OPENAI_RESEARCH_MAX_OUTPUT_TOKENS, O
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 DEFAULT_OPENAI_RESEARCH_MODEL = "gpt-4.1"
-DEFAULT_MAX_OUTPUT_TOKENS = 2200
+DEFAULT_MAX_OUTPUT_TOKENS = 6000
 
 
 RESEARCH_SNAPSHOT_SCHEMA: dict[str, Any] = {
@@ -74,7 +74,7 @@ def _model() -> str:
 def _max_output_tokens() -> int:
     raw = os.getenv("OPENAI_RESEARCH_MAX_OUTPUT_TOKENS") or OPENAI_RESEARCH_MAX_OUTPUT_TOKENS
     try:
-        return max(400, min(8000, int(raw or DEFAULT_MAX_OUTPUT_TOKENS)))
+        return max(DEFAULT_MAX_OUTPUT_TOKENS, min(12000, int(raw or DEFAULT_MAX_OUTPUT_TOKENS)))
     except ValueError:
         raise ValueError("OPENAI_RESEARCH_MAX_OUTPUT_TOKENS_invalid") from None
 
@@ -122,6 +122,9 @@ def build_openai_research_prompt(feature_pack: dict[str, Any]) -> str:
         "close_vs_sma20 또는 close_vs_sma60이 1보다 크고 volume_ratio가 1 이상이면 추세 확인으로 본다.\n"
         "rsi14가 88 이상이면 신규 buy는 피하고 buy_watch 이하로 낮춰라.\n"
         "주문 실행은 하지 마라. trade_plan.size_intent_pct는 의도만 적고 실제 수량은 WealthPulse risk guard가 다시 계산한다.\n"
+        "출력은 짧게 써라. summary는 한 문장, bull_case/bear_case/catalysts/risks는 각각 최대 3개만 써라.\n"
+        "news_inputs와 evidence는 Python이 ingest 직전에 source_inputs를 다시 붙인다. 출력 JSON에서는 빈 배열 []로 둬라.\n"
+        "technical_features는 핵심 숫자만 복사해라. source_inputs 전체를 JSON 출력에 반복하지 마라.\n"
         "반드시 Research Snapshot v2 JSON 하나만 반환해.\n\n"
         f"{json.dumps(feature_pack, ensure_ascii=False, sort_keys=True)}"
     )
@@ -162,4 +165,7 @@ def call_openai_research(feature_pack: dict[str, Any], *, timeout: int = 300) ->
         raise RuntimeError("openai_response_invalid")
     if parsed.get("error"):
         raise RuntimeError(f"openai_response_error:{parsed['error']}")
+    if str(parsed.get("status") or "").lower() == "incomplete":
+        details = parsed.get("incomplete_details") if isinstance(parsed.get("incomplete_details"), dict) else {}
+        raise RuntimeError(f"openai_response_incomplete:{details.get('reason') or 'unknown'}")
     return _parse_json(_extract_text(parsed))

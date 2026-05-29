@@ -343,6 +343,7 @@ def build_agent_research_ingest_payload(payload: dict[str, Any]) -> dict[str, An
 
 def _merge_analysis_with_target(analysis: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
     merged = dict(analysis)
+    merged.pop("components", None)
     merged.setdefault("symbol", target.get("symbol") or target.get("code"))
     merged.setdefault("market", target.get("market"))
     merged.setdefault("candidate_source", "hermes_agent")
@@ -355,9 +356,12 @@ def _merge_analysis_with_target(analysis: dict[str, Any], target: dict[str, Any]
         merged["evidence"] = [*source_evidence, *[item for item in (merged.get("evidence") or []) if isinstance(item, dict)]]
     if not isinstance(merged.get("technical_features"), dict) or not merged.get("technical_features"):
         technical = target.get("technical_snapshot") if isinstance(target.get("technical_snapshot"), dict) else {}
+        if not technical:
+            source_pack = target.get("source_pack") if isinstance(target.get("source_pack"), dict) else {}
+            technical = source_pack.get("technical_features") if isinstance(source_pack.get("technical_features"), dict) else {}
         merged["technical_features"] = _trim_dict(
             technical,
-            ("current_price", "close", "change_pct", "volume_ratio", "rsi14", "atr14_pct", "close_vs_sma20", "close_vs_sma60"),
+            ("current_price", "close", "change_pct", "volume_ratio", "rsi14", "atr14_pct", "close_vs_sma20", "close_vs_sma60", "source", "fetched_at"),
         )
     data_quality = dict(merged.get("data_quality")) if isinstance(merged.get("data_quality"), dict) else {}
     data_quality.setdefault("analysis_mode", "agent_research")
@@ -365,6 +369,7 @@ def _merge_analysis_with_target(analysis: dict[str, Any], target: dict[str, Any]
     data_quality["has_news"] = bool(merged.get("news_inputs"))
     data_quality["has_recent_price"] = bool(
         data_quality.get("has_recent_price")
+        or (isinstance(merged.get("technical_features"), dict) and (merged["technical_features"].get("current_price") not in (None, "") or merged["technical_features"].get("close") not in (None, "")))
         or (isinstance(target.get("technical_snapshot"), dict) and target["technical_snapshot"].get("current_price") not in (None, ""))
         or target.get("current_price") not in (None, "")
         or target.get("price") not in (None, "")

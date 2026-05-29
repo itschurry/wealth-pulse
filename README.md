@@ -365,12 +365,13 @@ python apps/api/api_server.py
 
 ## Hermes 리서치
 
-Python collector가 뉴스, DART 공시, 공식 링크, 후보 점수, 기술 지표를 먼저 모은다. OpenAI 리서치 판단기는 이 입력만 보고 `Research Snapshot v2` JSON을 만든다. WealthPulse는 그 결과를 그대로 믿지 않고 ingest 단계에서 검증한다.
+Python collector가 뉴스, DART 공시, 공식 링크, 후보 점수, FinanceDataReader 기반 기술 지표를 먼저 모은다. OpenAI 리서치 판단기는 이 입력만 보고 `Research Snapshot v2` JSON을 만든다. WealthPulse는 그 결과를 그대로 믿지 않고 ingest 단계에서 검증한다.
 
 뉴스/근거 입력 구조:
 
 - `source_inputs.news_inputs`: 후보별 Google News RSS 최신 기사. 기본 최근 3일 쿼리
 - `source_inputs.evidence`: OpenDART 최근 공시, KRX/KIND 또는 Nasdaq/SEC 공식 링크
+- `source_inputs.technical_features`: `current_price`, `close_vs_sma20`, `close_vs_sma60`, `volume_ratio`, `rsi14`
 - `news_inputs`: `title`, `source`, `url`, `published_at`, `summary`
 - `evidence`: URL이 있거나 `dart`, `opendart`, `krx`, `kind`, `sec`, `nasdaq`, `nyse`, `company_ir` 같은 공식 출처
 - `data_quality`: `has_news`, `has_recent_price`, `has_technical_features`
@@ -444,7 +445,7 @@ crontab 예시:
 - `WEALTHPULSE_RESEARCH_AGENT_PROVIDER`: 기본 `openai`. 수동 디버그 때만 `hermes`
 - `OPENAI_API_KEY`: OpenAI API key. 없으면 OpenAI 리서치는 `OPENAI_API_KEY_required`로 실패한다.
 - `OPENAI_RESEARCH_MODEL`: OpenAI 리서치 판단 모델, 기본 `gpt-4.1`
-- `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS`: OpenAI 응답 토큰 상한, 기본 `2200`
+- `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS`: OpenAI 응답 토큰 상한, 기본 `6000`. 더 낮게 잡아도 내부 최소값은 `6000`
 - `WEALTHPULSE_HERMES_RESEARCH_COMMAND`: `WEALTHPULSE_RESEARCH_AGENT_PROVIDER=hermes`일 때만 쓰는 Hermes CLI 명령
 - `WEALTHPULSE_RESEARCH_LIMIT`: 시장 공통 limit, 기본 `12`
 - `WEALTHPULSE_RESEARCH_CONCURRENCY`: 시장 공통 concurrency, 기본 `3`
