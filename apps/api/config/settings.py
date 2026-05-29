@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     dart_api_key: str = Field(default="", alias="DART_API_KEY")
     opendart_api_key: str = Field(default="", alias="OPENDART_API_KEY")
 
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_research_model: str = Field(default="gpt-4.1", alias="OPENAI_RESEARCH_MODEL")
+    openai_research_max_output_tokens: int = Field(default=2200, alias="OPENAI_RESEARCH_MAX_OUTPUT_TOKENS")
+
     kis_app_key: str = Field(default="", alias="KIS_APP_KEY")
     kis_app_secret: str = Field(default="", alias="KIS_APP_SECRET")
     kis_account_cano: str = Field(default="", alias="KIS_ACCOUNT_CANO")
@@ -121,6 +125,9 @@ BASE_DIR = REPO_ROOT
 FRED_API_KEY = settings.effective_fred_api_key
 ECOS_API_KEY = settings.effective_ecos_api_key
 DART_API_KEY = settings.effective_dart_api_key
+OPENAI_API_KEY = settings.openai_api_key
+OPENAI_RESEARCH_MODEL = settings.openai_research_model
+OPENAI_RESEARCH_MAX_OUTPUT_TOKENS = settings.openai_research_max_output_tokens
 
 KIS_APP_KEY = settings.kis_app_key
 KIS_APP_SECRET = settings.kis_app_secret

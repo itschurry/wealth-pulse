@@ -3,14 +3,23 @@ from __future__ import annotations
 import datetime as dt
 from email.utils import parsedate_to_datetime
 import html
+import io
+import json
+import zipfile
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any
 
+from config.settings import CACHE_DIR, DART_API_KEY
+
 
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
+OPENDART_CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
+OPENDART_DISCLOSURE_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 DEFAULT_NEWS_LIMIT = 5
+DEFAULT_DART_LIMIT = 5
+DART_CORP_CODE_CACHE = CACHE_DIR / "opendart" / "corp_codes_by_stock.json"
 
 
 def _text(value: Any) -> str:
@@ -101,6 +110,85 @@ def fetch_google_news_inputs(*, symbol: str, market: str, name: str = "", limit:
     return rows
 
 
+def _recent_date(days: int) -> str:
+    return (dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date() - dt.timedelta(days=max(1, int(days)))).strftime("%Y%m%d")
+
+
+def _today_date() -> str:
+    return dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date().strftime("%Y%m%d")
+
+
+def _load_dart_corp_codes() -> dict[str, dict[str, str]]:
+    if DART_CORP_CODE_CACHE.exists():
+        payload = json.loads(DART_CORP_CODE_CACHE.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return {str(key): dict(value) for key, value in payload.items() if isinstance(value, dict)}
+
+    if not DART_API_KEY:
+        return {}
+
+    url = f"{OPENDART_CORP_CODE_URL}?{urllib.parse.urlencode({'crtfc_key': DART_API_KEY})}"
+    req = urllib.request.Request(url, headers={"User-Agent": "WealthPulse research source collector"})
+    with urllib.request.urlopen(req, timeout=15) as response:
+        archive = zipfile.ZipFile(io.BytesIO(response.read()))
+    xml_name = archive.namelist()[0]
+    root = ET.fromstring(archive.read(xml_name))
+    rows: dict[str, dict[str, str]] = {}
+    for item in root.findall("list"):
+        stock_code = _text(item.findtext("stock_code")).upper()
+        corp_code = _text(item.findtext("corp_code"))
+        corp_name = _text(item.findtext("corp_name"))
+        if stock_code and corp_code:
+            rows[stock_code] = {"corp_code": corp_code, "corp_name": corp_name, "stock_code": stock_code}
+    DART_CORP_CODE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    DART_CORP_CODE_CACHE.write_text(json.dumps(rows, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    return rows
+
+
+def fetch_dart_disclosure_evidence(*, symbol: str, market: str, limit: int = DEFAULT_DART_LIMIT, timeout: int = 10) -> list[dict[str, Any]]:
+    if _market(market) not in {"KOSPI", "KOSDAQ"} or not DART_API_KEY:
+        return []
+    corp = _load_dart_corp_codes().get(_text(symbol).upper())
+    if not corp:
+        return []
+    params = {
+        "crtfc_key": DART_API_KEY,
+        "corp_code": corp["corp_code"],
+        "bgn_de": _recent_date(30),
+        "end_de": _today_date(),
+        "page_count": str(max(1, min(100, int(limit)))),
+    }
+    url = f"{OPENDART_DISCLOSURE_LIST_URL}?{urllib.parse.urlencode(params)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "WealthPulse research source collector", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=max(1, int(timeout))) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if str(payload.get("status") or "") not in {"000", "013"}:
+        raise RuntimeError(f"opendart_list_failed:{payload.get('status')}:{payload.get('message')}")
+    rows: list[dict[str, Any]] = []
+    for item in payload.get("list") or []:
+        if not isinstance(item, dict):
+            continue
+        receipt_no = _text(item.get("rcept_no"))
+        report_name = _text(item.get("report_nm"))
+        receipt_date = _text(item.get("rcept_dt"))
+        if not receipt_no or not report_name:
+            continue
+        rows.append(
+            {
+                "type": "official_disclosure",
+                "source": "opendart",
+                "title": report_name,
+                "url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={urllib.parse.quote(receipt_no)}",
+                "published_at": f"{receipt_date[:4]}-{receipt_date[4:6]}-{receipt_date[6:8]}T00:00:00+09:00" if len(receipt_date) == 8 else "",
+                "summary": f"{corp.get('corp_name') or symbol} 공시: {report_name}",
+                "receipt_no": receipt_no,
+            }
+        )
+        if len(rows) >= max(1, int(limit)):
+            break
+    return rows
+
+
 def build_official_evidence(*, symbol: str, market: str, name: str = "") -> list[dict[str, Any]]:
     normalized_market = _market(market)
     normalized_symbol = _text(symbol).upper()
@@ -147,7 +235,8 @@ def build_research_source_pack(target: dict[str, Any]) -> dict[str, Any]:
     if not symbol or not market:
         raise ValueError("research_source_target_required")
     news_inputs = fetch_google_news_inputs(symbol=symbol, market=market, name=name)
-    evidence = build_official_evidence(symbol=symbol, market=market, name=name)
+    dart_evidence = fetch_dart_disclosure_evidence(symbol=symbol, market=market)
+    evidence = [*dart_evidence, *build_official_evidence(symbol=symbol, market=market, name=name)]
     return {
         "news_inputs": news_inputs,
         "evidence": evidence,
@@ -155,6 +244,7 @@ def build_research_source_pack(target: dict[str, Any]) -> dict[str, Any]:
             "news_source": "google-news-rss",
             "official_sources": sorted({str(item.get("source") or "") for item in evidence if item.get("source")}),
             "news_count": len(news_inputs),
+            "dart_disclosure_count": len(dart_evidence),
             "evidence_count": len(evidence),
         },
     }

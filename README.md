@@ -365,17 +365,17 @@ python apps/api/api_server.py
 
 ## Hermes 리서치
 
-Hermes는 WealthPulse가 미리 수집한 뉴스와 공식 근거를 보고 `Research Snapshot v2` JSON을 만든다. WealthPulse는 그 결과를 그대로 믿지 않고 ingest 단계에서 검증한다.
+Python collector가 뉴스, DART 공시, 공식 링크, 후보 점수, 기술 지표를 먼저 모은다. OpenAI 리서치 판단기는 이 입력만 보고 `Research Snapshot v2` JSON을 만든다. WealthPulse는 그 결과를 그대로 믿지 않고 ingest 단계에서 검증한다.
 
 뉴스/근거 입력 구조:
 
 - `source_inputs.news_inputs`: 후보별 Google News RSS 최신 기사. 기본 최근 3일 쿼리
-- `source_inputs.evidence`: KRX/KIND 또는 Nasdaq/SEC 공식 링크
+- `source_inputs.evidence`: OpenDART 최근 공시, KRX/KIND 또는 Nasdaq/SEC 공식 링크
 - `news_inputs`: `title`, `source`, `url`, `published_at`, `summary`
 - `evidence`: URL이 있거나 `dart`, `opendart`, `krx`, `kind`, `sec`, `nasdaq`, `nyse`, `company_ir` 같은 공식 출처
 - `data_quality`: `has_news`, `has_recent_price`, `has_technical_features`
 
-Hermes runner는 `source_inputs`를 프롬프트에 넣고, ingest 직전에도 `news_inputs`와 `evidence`를 보존한다. Hermes가 근거를 빼먹어도 수집된 원천 근거는 snapshot에 남긴다.
+리서치 runner는 `source_inputs`를 프롬프트에 넣고, ingest 직전에도 `news_inputs`와 `evidence`를 보존한다. 모델이 근거를 빼먹어도 수집된 원천 근거는 snapshot에 남긴다.
 
 리서치 runner는 기본으로 브로커 quote를 추가 조회하지 않는다. KIS 토큰 제한 때문에 리서치가 막히면 시장 추적이 죽는다. quote 추가 조회가 꼭 필요하면 아래처럼 명시해서 켠다.
 
@@ -416,7 +416,9 @@ company_ir, company_newsroom, sec, nasdaq, nyse
 시장 자동 선택 실행:
 
 ```bash
-WEALTHPULSE_RESEARCH_LIMIT=9 \
+OPENAI_API_KEY=sk-... \
+OPENAI_RESEARCH_MODEL=gpt-4.1 \
+WEALTHPULSE_RESEARCH_LIMIT=12 \
 WEALTHPULSE_RESEARCH_CONCURRENCY=3 \
 /home/user/wealth-pulse/scripts/run_market_research.sh
 ```
@@ -439,7 +441,11 @@ crontab 예시:
 환경변수:
 
 - `WEALTHPULSE_API_BASE_URL`: 기본 `http://127.0.0.1:8001`
-- `WEALTHPULSE_HERMES_RESEARCH_COMMAND`: Hermes CLI 명령
+- `WEALTHPULSE_RESEARCH_AGENT_PROVIDER`: 기본 `openai`. 수동 디버그 때만 `hermes`
+- `OPENAI_API_KEY`: OpenAI API key. 없으면 OpenAI 리서치는 `OPENAI_API_KEY_required`로 실패한다.
+- `OPENAI_RESEARCH_MODEL`: OpenAI 리서치 판단 모델, 기본 `gpt-4.1`
+- `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS`: OpenAI 응답 토큰 상한, 기본 `2200`
+- `WEALTHPULSE_HERMES_RESEARCH_COMMAND`: `WEALTHPULSE_RESEARCH_AGENT_PROVIDER=hermes`일 때만 쓰는 Hermes CLI 명령
 - `WEALTHPULSE_RESEARCH_LIMIT`: 시장 공통 limit, 기본 `12`
 - `WEALTHPULSE_RESEARCH_CONCURRENCY`: 시장 공통 concurrency, 기본 `3`
 - `WEALTHPULSE_RESEARCH_TIMEOUT`: 시장 공통 timeout, 기본 `600`
