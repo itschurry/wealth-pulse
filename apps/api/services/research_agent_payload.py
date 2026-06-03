@@ -214,7 +214,7 @@ def _normalize_agent_item(item: dict[str, Any], *, default_generated_at: str, de
         "time_horizon_days": int(item.get("time_horizon_days") or 3),
         "rating": rating,
         "action": action,
-        "candidate_source": _text(item.get("candidate_source") or "hermes_agent", field="candidate_source"),
+        "candidate_source": _text(item.get("candidate_source") or "openai_research", field="candidate_source"),
         "bull_case": _text_list(item.get("bull_case"), field="bull_case"),
         "bear_case": _text_list(item.get("bear_case"), field="bear_case"),
         "catalysts": _text_list(item.get("catalysts"), field="catalysts"),
@@ -240,8 +240,8 @@ def build_agent_research_ingest_payload(payload: dict[str, Any]) -> dict[str, An
     return {
         "provider": DEFAULT_RESEARCH_PROVIDER,
         "schema_version": "v2",
-        "source": "hermes-agent",
-        "run_id": _text(payload.get("run_id") or f"hermes-agent-{uuid.uuid4().hex[:12]}", field="run_id"),
+        "source": "openai-research",
+        "run_id": _text(payload.get("run_id") or f"openai-research-{uuid.uuid4().hex[:12]}", field="run_id"),
         "generated_at": generated_at,
         "items": items,
     }

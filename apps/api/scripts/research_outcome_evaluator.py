@@ -70,7 +70,7 @@ def run(*, limit: int = 200, dry_run: bool = False) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Evaluate Hermes research outcomes")
+    parser = argparse.ArgumentParser(description="Evaluate OpenAI research outcomes")
     parser.add_argument("--limit", type=int, default=200)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()

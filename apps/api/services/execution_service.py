@@ -1067,7 +1067,7 @@ def _auto_refresh_research_snapshots(*, markets: list[str], limit: int = 30, mod
     return {
         "ok": True,
         "stage": "skipped",
-        "reason": "host_side_hermes_research_runner_required",
+        "reason": "host_side_openai_research_runner_required",
         "markets": normalized_markets,
         "selected_count": 0,
         "limit": max(1, min(200, int(limit or 30))),

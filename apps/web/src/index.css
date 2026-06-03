@@ -7071,3 +7071,103 @@ textarea {
     padding: 10px 12px;
   }
 }
+
+/* Narrow viewport navigation: keep the primary tabs reachable without the hidden drawer. */
+@media (max-width: 1024px) {
+  .app-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .app-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 300;
+    width: 100%;
+    min-height: 0;
+    height: auto;
+    transform: none;
+    overflow: visible;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 10px 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    background: #ffffff;
+    color: #111827;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  }
+
+  .app-sidebar-brand,
+  .app-sidebar-foot,
+  .app-mobile-nav-toggle,
+  .app-mobile-nav-backdrop {
+    display: none !important;
+  }
+
+  .app-sidebar-group {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 0 0 2px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-sidebar-group::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-nav-button,
+  .app-nav-button.is-sub {
+    flex: 0 0 auto;
+    min-height: 42px;
+    padding: 8px 13px;
+    border: 1px solid #d8dee6;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #334155;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .app-nav-button.active {
+    border-color: #93c5fd;
+    background: #eff6ff;
+    color: #0f172a;
+  }
+
+  .app-nav-label {
+    color: inherit;
+    font-size: 15px;
+    font-weight: 850;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .app-main {
+    padding: 0 12px 20px;
+  }
+
+  .app-main-header {
+    top: 58px;
+    margin: 0 -12px 12px;
+    padding: 12px;
+    background: rgba(248, 250, 252, 0.94);
+  }
+}
+
+@media (max-width: 420px) {
+  .app-nav-button,
+  .app-nav-button.is-sub {
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+
+  .app-nav-label {
+    font-size: 14px;
+  }
+}

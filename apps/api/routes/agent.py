@@ -7,7 +7,7 @@ from urllib.parse import unquote
 from routes.candidate_monitor import handle_candidate_monitor_watchlist
 from routes.research import handle_research_latest_snapshot
 from routes.trading import handle_runtime_order, handle_runtime_account
-from services.agent_decision_provider import call_hermes_trade_decision, research_analysis_to_trade_decision
+from services.agent_decision_provider import research_analysis_to_trade_decision
 from services.agent_config import default_risk_config_store
 from services.agent_runner import run_agent_once
 from services.agent_store import default_store
@@ -135,13 +135,6 @@ def _decision_provider_from_payload(payload: dict[str, Any]):
 
     def _provider(candidate: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[str, Any] | str:
         symbol = _symbol(candidate)
-        if decision_source == "hermes":
-            return call_hermes_trade_decision(
-                candidate,
-                evidence,
-                agent_command=payload.get("agent_command"),
-                timeout=int(payload.get("timeout") or 300),
-            )
         if decision_source == "research_snapshot":
             snapshot = next((item.get("payload") for item in evidence if isinstance(item, dict) and item.get("type") == "research_snapshot" and isinstance(item.get("payload"), dict)), None)
             if isinstance(snapshot, dict):

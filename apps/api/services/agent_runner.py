@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from services.agent_risk_gate import evaluate_agent_decision_risk
-from services.agent_schemas import parse_hermes_decision
+from services.agent_schemas import parse_agent_decision
 from services.agent_store import AgentAuditStore, default_store
 
 DecisionProvider = Callable[[dict[str, Any], list[dict[str, Any]]], str | dict[str, Any]]
@@ -27,7 +27,7 @@ def _default_decision_provider(candidate: dict[str, Any], _evidence: list[dict[s
         "action": "HOLD",
         "symbol": _symbol(candidate),
         "confidence": 0.0,
-        "reason_summary": "No Hermes decision provider configured; treated as HOLD.",
+        "reason_summary": "No decision provider configured; treated as HOLD.",
         "evidence": [],
         "risk": {"entry_price": 0, "stop_loss": 0, "take_profit": 0, "max_position_ratio": 0},
     }
@@ -102,7 +102,7 @@ def run_agent_once(
                 )
 
             raw_decision = decision_provider(candidate, evidence_rows)
-            parsed = parse_hermes_decision(raw_decision)
+            parsed = parse_agent_decision(raw_decision)
             decision = dict(parsed["decision"])
             if not str(decision.get("symbol") or "").strip():
                 decision["symbol"] = symbol

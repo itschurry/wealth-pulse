@@ -174,8 +174,8 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--input", help="JSON file path. If omitted, read stdin")
     ingest.set_defaults(func=cmd_ingest_bulk)
 
-    ingest_agent = sub.add_parser("ingest-agent", help="Normalize Hermes/LLM agent analysis JSON and ingest it as Research Snapshot v2")
-    ingest_agent.add_argument("--input", help="Hermes/LLM analysis JSON file path. If omitted, read stdin")
+    ingest_agent = sub.add_parser("ingest-agent", help="Normalize OpenAI research analysis JSON and ingest it as Research Snapshot v2")
+    ingest_agent.add_argument("--input", help="OpenAI research analysis JSON file path. If omitted, read stdin")
     ingest_agent.set_defaults(func=cmd_ingest_agent)
 
     return parser

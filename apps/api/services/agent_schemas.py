@@ -1,8 +1,4 @@
-"""Hermes trade decision schema helpers.
-
-Hermes is allowed to propose BUY/SELL/HOLD only. This module validates and
-normalizes the model output before any risk or execution code sees it.
-"""
+"""Agent trade decision schema helpers."""
 
 from __future__ import annotations
 
@@ -51,13 +47,13 @@ def _parse_raw(raw: str | dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
     return (parsed if isinstance(parsed, dict) else None), raw_text
 
 
-def parse_hermes_decision(raw: str | dict[str, Any]) -> dict[str, Any]:
+def parse_agent_decision(raw: str | dict[str, Any]) -> dict[str, Any]:
     parsed, raw_text = _parse_raw(raw)
     errors: list[str] = []
     if parsed is None:
         return {
             "valid": False,
-            "decision": _default_decision(reason_summary="Hermes JSON parse failed; treated as HOLD."),
+            "decision": _default_decision(reason_summary="Decision JSON parse failed; treated as HOLD."),
             "errors": ["parse_error"],
             "raw_text": raw_text,
         }

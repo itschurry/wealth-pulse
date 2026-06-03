@@ -4,8 +4,6 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
-import shlex
-import subprocess
 import sys
 import threading
 import time
@@ -22,8 +20,6 @@ from services.research_source_enricher import build_research_source_pack
 from services.openai_research_client import call_openai_research
 
 
-DEFAULT_AGENT_COMMAND = "hermes --oneshot"
-DEFAULT_RESEARCH_AGENT_PROVIDER = "openai"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
 DEFAULT_RESEARCH_PROVIDER = "default"
 MAX_AGENT_SIZE_INTENT_PCT = 40.0
@@ -92,13 +88,13 @@ def _http_json(method: str, path: str, *, base_url: str | None = None, query: di
 def _use_direct_routes(base_url: str | None = None) -> bool:
     """Opt into in-process route calls only for tests/debugging.
 
-    Host-side Hermes runs must use the live API HTTP surface so they hit the
+    Host-side research runs must use the live API HTTP surface so they hit the
     same Docker container, env, and mounted storage as production. Importing
     route handlers directly from the checkout can silently write to a different
     local path, so HTTP is the safe default.
     """
     text = str(base_url or "").strip().lower()
-    env_value = str(os.getenv("WEALTHPULSE_HERMES_DIRECT_ROUTES") or "").strip().lower()
+    env_value = str(os.getenv("WEALTHPULSE_RESEARCH_DIRECT_ROUTES") or "").strip().lower()
     return text in {"direct", "local"} or env_value in {"1", "true", "yes", "direct", "local"}
 
 
@@ -244,7 +240,7 @@ def build_feature_pack(target: dict[str, Any]) -> dict[str, Any]:
 def build_research_prompt(target: dict[str, Any]) -> str:
     feature_pack = build_feature_pack(target)
     return (
-        "You are the Hermes research analyst for WealthPulse.\n"
+        "You are the OpenAI research analyst for WealthPulse.\n"
         "Analyze the candidate using the provided feature pack and source_inputs.\n"
         "Return ONLY one JSON object, no markdown, no code fence, no commentary.\n"
         "The JSON must satisfy the Research Snapshot v2 agent analysis contract.\n"
@@ -262,80 +258,6 @@ def build_research_prompt(target: dict[str, Any]) -> str:
     )
 
 
-def parse_agent_json(output: str) -> dict[str, Any]:
-    text = str(output or "").strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("agent_output_json_missing") from None
-        try:
-            parsed = json.loads(text[start:end + 1])
-        except json.JSONDecodeError as exc:
-            raise ValueError("agent_output_json_invalid") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError("agent_output_must_be_object")
-    return parsed
-
-
-def _command_list(agent_command: list[str] | str | None) -> list[str]:
-    if isinstance(agent_command, list):
-        return [str(part) for part in agent_command if str(part)]
-    command_text = str(agent_command or os.getenv("WEALTHPULSE_HERMES_RESEARCH_COMMAND") or DEFAULT_AGENT_COMMAND).strip()
-    return shlex.split(command_text)
-
-
-def _command_with_prompt(command: list[str], prompt: str) -> list[str]:
-    if any("{prompt}" in part for part in command):
-        return [part.replace("{prompt}", prompt) for part in command]
-    return [*command, prompt]
-
-
-def call_hermes_agent(
-    prompt: str,
-    *,
-    agent_command: list[str] | str | None = None,
-    timeout: int = 300,
-) -> str:
-    command = _command_list(agent_command)
-    if not command:
-        raise ValueError("agent_command_required")
-    timeout_seconds = max(1, int(timeout))
-    try:
-        completed = subprocess.run(
-            _command_with_prompt(command, prompt),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        stderr = str(exc.stderr or "").strip()
-        raise RuntimeError(f"hermes_agent_timeout:{timeout_seconds}s:{stderr[:500]}") from exc
-    if completed.returncode != 0:
-        raise RuntimeError(f"hermes_agent_failed:{completed.returncode}:{completed.stderr.strip()[:500]}")
-    output = completed.stdout.strip()
-    if not output:
-        raise RuntimeError("hermes_agent_empty_output")
-    return output
-
-
-def _research_provider(value: str | None = None) -> str:
-    provider = str(value or os.getenv("WEALTHPULSE_RESEARCH_AGENT_PROVIDER") or DEFAULT_RESEARCH_AGENT_PROVIDER).strip().lower()
-    if provider not in {"openai", "hermes"}:
-        raise ValueError(f"unsupported_research_agent_provider:{provider}")
-    return provider
-
-
 def build_agent_research_ingest_payload(payload: dict[str, Any]) -> dict[str, Any]:
     from services.research_agent_payload import build_agent_research_ingest_payload as service_builder  # type: ignore
     return service_builder(payload)
@@ -346,7 +268,7 @@ def _merge_analysis_with_target(analysis: dict[str, Any], target: dict[str, Any]
     merged.pop("components", None)
     merged.setdefault("symbol", target.get("symbol") or target.get("code"))
     merged.setdefault("market", target.get("market"))
-    merged.setdefault("candidate_source", "hermes_agent")
+    merged.setdefault("candidate_source", "openai_research")
     source_pack = target.get("source_pack") if isinstance(target.get("source_pack"), dict) else {}
     source_news = source_pack.get("news_inputs") if isinstance(source_pack.get("news_inputs"), list) else []
     source_evidence = source_pack.get("evidence") if isinstance(source_pack.get("evidence"), list) else []
@@ -385,8 +307,6 @@ def run(
     limit: int,
     mode: str,
     dry_run: bool = False,
-    provider: str | None = None,
-    agent_command: list[str] | str | None = None,
     timeout: int = 300,
     concurrency: int = 3,
     api_base_url: str | None = None,
@@ -394,10 +314,10 @@ def run(
 ) -> tuple[int, dict[str, Any]]:
     started_monotonic = time.monotonic()
     query = _market_query(markets, limit=limit, mode=mode)
-    _log(f"[hermes] collect targets markets={markets or ['KOSPI']} limit={limit} mode={mode}", enabled=progress)
+    _log(f"[research] collect targets markets={markets or ['KOSPI']} limit={limit} mode={mode}", enabled=progress)
     status_code, target_payload = handle_candidate_monitor_watchlist(query, base_url=api_base_url)
     if status_code != 200:
-        _log(f"[hermes] target collection failed status={status_code}", enabled=progress)
+        _log(f"[research] target collection failed status={status_code}", enabled=progress)
         return status_code, {
             "ok": False,
             "stage": "target_collection",
@@ -410,7 +330,7 @@ def run(
         target_items = []
     target_items = [item for item in target_items if isinstance(item, dict)]
     if not target_items:
-        _log("[hermes] no pending targets", enabled=progress)
+        _log("[research] no pending targets", enabled=progress)
         return 200, {
             "ok": True,
             "stage": "noop",
@@ -434,7 +354,7 @@ def run(
                 "source_pack": enriched_target["source_pack"],
             }
         )
-    _log(f"[hermes] selected targets={len(target_items)}", enabled=progress)
+    _log(f"[research] selected targets={len(target_items)}", enabled=progress)
     if dry_run:
         _log("[research] dry-run only; research agent is not called", enabled=progress)
         return 200, {
@@ -450,22 +370,17 @@ def run(
     errors: list[dict[str, Any]] = []
     ingest_results: list[dict[str, Any]] = []
     total = len(prompt_rows)
-    selected_provider = _research_provider(provider)
-    command_preview = "openai responses" if selected_provider == "openai" else " ".join(shlex.quote(part) for part in _command_list(agent_command))
+    command_preview = "openai responses"
     worker_count = max(1, min(int(concurrency or 1), total))
-    _log(f"[research] provider={selected_provider} command={command_preview} timeout={max(1, int(timeout))}s concurrency={worker_count}", enabled=progress)
+    _log(f"[research] provider=openai command={command_preview} timeout={max(1, int(timeout))}s concurrency={worker_count}", enabled=progress)
 
     def _process_one(index: int, target: dict[str, Any], prompt_row: dict[str, Any]) -> dict[str, Any]:
         symbol = str(prompt_row.get("symbol") or "")
         market = str(prompt_row.get("market") or "")
         try:
-            _log(f"[hermes] {index}/{total} start {market}:{symbol}", enabled=progress)
+            _log(f"[research] {index}/{total} start {market}:{symbol}", enabled=progress)
             feature_pack = build_feature_pack(target)
-            if selected_provider == "openai":
-                raw_analysis = call_openai_research(feature_pack, timeout=timeout)
-            else:
-                raw_output = call_hermes_agent(prompt_row["prompt"], agent_command=agent_command, timeout=timeout)
-                raw_analysis = parse_agent_json(raw_output)
+            raw_analysis = call_openai_research(feature_pack, timeout=timeout)
             analysis = _merge_analysis_with_target(raw_analysis, target)
             ingest_payload = build_agent_research_ingest_payload({"items": [analysis]})
             ingest_status, ingest_result = handle_research_ingest_bulk(ingest_payload, base_url=api_base_url)
@@ -479,10 +394,10 @@ def run(
             }
             if not (200 <= ingest_status < 300) or accepted <= 0:
                 raise RuntimeError(f"ingest_failed:{ingest_status}:accepted={accepted}")
-            _log(f"[hermes] {index}/{total} ok {market}:{symbol} ingest_status={ingest_status} accepted={accepted}", enabled=progress)
+            _log(f"[research] {index}/{total} ok {market}:{symbol} ingest_status={ingest_status} accepted={accepted}", enabled=progress)
             return {"ok": True, "analysis": analysis, "ingest_result": ingest_row, "symbol": symbol, "market": market}
         except Exception as exc:
-            _log(f"[hermes] {index}/{total} failed {market}:{symbol} error={exc}", enabled=progress)
+            _log(f"[research] {index}/{total} failed {market}:{symbol} error={exc}", enabled=progress)
             return {"ok": False, "error": {"symbol": symbol, "market": market, "error": str(exc)}, "symbol": symbol, "market": market}
 
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
@@ -506,7 +421,7 @@ def run(
 
     run_status_payload = {
         "provider": DEFAULT_RESEARCH_PROVIDER,
-        "agent_provider": selected_provider,
+        "agent_provider": "openai",
         "selected_count": len(target_items),
         "success_count": len(analyses),
         "failure_count": len(errors),
@@ -519,7 +434,7 @@ def run(
     handle_research_run_status_save(run_status_payload, base_url=api_base_url)
 
     if not analyses:
-        _log(f"[hermes] all Hermes calls or ingests failed errors={len(errors)}", enabled=progress)
+        _log(f"[research] all OpenAI calls or ingests failed errors={len(errors)}", enabled=progress)
         return 502, {
             "ok": False,
             "stage": "agent_failed",
@@ -574,8 +489,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=9)
     parser.add_argument("--mode", choices=["missing_or_stale", "missing_only", "stale_only", "all"], default="missing_or_stale")
     parser.add_argument("--dry-run", action="store_true", help="Collect targets and print prompts without calling the research agent")
-    parser.add_argument("--provider", choices=["openai", "hermes"], default=None, help="Research agent provider. Default: env WEALTHPULSE_RESEARCH_AGENT_PROVIDER or openai")
-    parser.add_argument("--agent-command", default=None, help="Command prefix used to call Hermes, default: env WEALTHPULSE_HERMES_RESEARCH_COMMAND or 'hermes --oneshot'")
     parser.add_argument("--api-base-url", default=None, help="WealthPulse API base URL for host-side execution, default: env WEALTHPULSE_API_BASE_URL or http://127.0.0.1:8001")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--concurrency", type=int, default=3)
@@ -590,8 +503,6 @@ def main() -> int:
         limit=max(1, int(args.limit)),
         mode=args.mode,
         dry_run=bool(args.dry_run),
-        provider=args.provider,
-        agent_command=args.agent_command,
         timeout=max(1, int(args.timeout)),
         concurrency=max(1, int(args.concurrency)),
         api_base_url=args.api_base_url,

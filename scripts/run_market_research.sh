@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 REPO_DIR="/home/user/wealth-pulse"
 LOG_DIR="$REPO_DIR/storage/logs/runtime"
-LOG_FILE="$LOG_DIR/hermes_research_runner.log"
+LOG_FILE="$LOG_DIR/openai_research_runner.log"
 LOCK_FILE="/tmp/wealthpulse_market_research.lock"
 
 mkdir -p "$LOG_DIR"
@@ -13,7 +13,6 @@ printf '\n[%s] wealthpulse-market-research start\n' "$(date --iso-8601=seconds)"
 
 export PATH="/home/user/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export WEALTHPULSE_API_BASE_URL="${WEALTHPULSE_API_BASE_URL:-http://127.0.0.1:8001}"
-export WEALTHPULSE_HERMES_RESEARCH_COMMAND="${WEALTHPULSE_HERMES_RESEARCH_COMMAND:-/home/user/.local/bin/hermes chat -Q -t web -q}"
 export PYTHONUNBUFFERED=1
 
 cd "$REPO_DIR"
@@ -111,7 +110,7 @@ case "$research_market" in
 esac
 
 args=(
-  "$PYTHON_BIN" apps/api/scripts/hermes_research_runner.py
+  "$PYTHON_BIN" apps/api/scripts/openai_research_runner.py
   --market "$research_market"
   --limit "$limit"
   --mode "$mode"

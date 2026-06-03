@@ -1,8 +1,4 @@
-"""Deterministic Risk Gate for Hermes Agent trade decisions.
-
-This module never calls a broker. It turns a validated Hermes BUY/SELL/HOLD
-proposal into either an approved order intent or a rejected/skipped decision.
-"""
+"""Deterministic Risk Gate for Agent trade decisions."""
 
 from __future__ import annotations
 
