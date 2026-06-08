@@ -374,6 +374,10 @@ Python collector가 뉴스, DART 공시, 공식 링크, 후보 점수, FinanceDa
 - `news_inputs`: `title`, `source`, `url`, `published_at`, `summary`
 - `evidence`: URL이 있거나 `dart`, `opendart`, `krx`, `kind`, `sec`, `nasdaq`, `nyse`, `company_ir` 같은 공식 출처
 - `data_quality`: `has_news`, `has_recent_price`, `has_technical_features`
+- `catalysts`: 1~20거래일 안에 재평가를 만들 수 있는 구체 이벤트. 막연한 업황 기대나 반복 뉴스는 제외
+- `bear_case`: bull case를 깨는 반대 논리. 수요, 마진, 밸류에이션, 수급, 정책/공시 불확실성 중 입력 근거가 있는 항목
+- `invalidation_trigger`: `condition`, `stop_loss`, `reason` 구조. `buy`/`buy_watch`는 숫자 `stop_loss`가 필요
+- `trade_plan`: `size_intent_pct`, `entry`, `stop_loss`, `take_profit` 구조. 수량은 runtime risk guard가 다시 계산
 
 리서치 runner는 `source_inputs`를 프롬프트에 넣고, ingest 직전에도 `news_inputs`와 `evidence`를 보존한다. 모델이 근거를 빼먹어도 수집된 원천 근거는 snapshot에 남긴다.
 
@@ -393,6 +397,10 @@ python apps/api/scripts/openai_research_runner.py --market KOSPI --limit 3
 - 허용목록 밖 출처
 - URL/공식 출처 없는 evidence
 - `data_quality`가 뉴스/현재가/기술지표를 모두 확인하지 못함
+- `bear_case` 없음
+- `catalysts` 없음
+- `invalidation_trigger.condition` 없음
+- `invalidation_trigger.stop_loss`, `trade_plan.stop_loss`, `trade_plan.take_profit`이 숫자가 아니거나 0 이하
 
 차단 시 ingest 결과는 `accepted=0`, `rejected=1`로 남고 아래 error code 중 하나를 반환한다.
 

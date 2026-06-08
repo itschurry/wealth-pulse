@@ -46,8 +46,27 @@ RESEARCH_SNAPSHOT_SCHEMA: dict[str, Any] = {
         "bear_case": {"type": "array", "items": {"type": "string"}},
         "catalysts": {"type": "array", "items": {"type": "string"}},
         "risks": {"type": "array", "items": {"type": "string"}},
-        "invalidation_trigger": {"type": "object", "additionalProperties": True},
-        "trade_plan": {"type": "object", "additionalProperties": True},
+        "invalidation_trigger": {
+            "type": "object",
+            "additionalProperties": True,
+            "required": ["condition", "stop_loss"],
+            "properties": {
+                "condition": {"type": "string"},
+                "stop_loss": {"type": "number"},
+                "reason": {"type": "string"},
+            },
+        },
+        "trade_plan": {
+            "type": "object",
+            "additionalProperties": True,
+            "required": ["size_intent_pct", "entry", "stop_loss", "take_profit"],
+            "properties": {
+                "size_intent_pct": {"type": "number", "minimum": 0, "maximum": 40},
+                "entry": {"type": "string"},
+                "stop_loss": {"type": "number"},
+                "take_profit": {"type": "number"},
+            },
+        },
         "technical_features": {"type": "object", "additionalProperties": True},
         "news_inputs": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
         "evidence": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
@@ -121,6 +140,10 @@ def build_openai_research_prompt(feature_pack: dict[str, Any]) -> str:
         "최근 72시간 뉴스가 긍정적이고, 기술 지표가 과열이 아니며, 공식 evidence가 있으면 overweight/buy_watch 이상을 적극 검토해라.\n"
         "close_vs_sma20 또는 close_vs_sma60이 1보다 크고 volume_ratio가 1 이상이면 추세 확인으로 본다.\n"
         "rsi14가 88 이상이면 신규 buy는 피하고 buy_watch 이하로 낮춰라.\n"
+        "catalysts는 앞으로 1~20거래일 안에 실제 가격 재평가를 만들 수 있는 이벤트만 적어라. 뉴스 반복, 막연한 업황 기대, 이미 가격에 반영된 재료는 catalyst가 아니다.\n"
+        "bear_case는 bull_case의 반대편을 실제로 공격해야 한다. 수요 둔화, 마진 훼손, 밸류에이션 부담, 수급 반전, 정책/공시 불확실성 중 입력 근거로 확인되는 약점을 적어라.\n"
+        "invalidation_trigger.condition은 매수 논리가 깨지는 단일 조건을 써라. invalidation_trigger.stop_loss는 숫자로 적고, 현재가나 기술 지표가 없으면 0으로 두고 buy/buy_watch를 내지 마라.\n"
+        "trade_plan은 size_intent_pct, entry, stop_loss, take_profit을 반드시 포함해라. stop_loss와 take_profit은 숫자여야 한다.\n"
         "주문 실행은 하지 마라. trade_plan.size_intent_pct는 의도만 적고 실제 수량은 WealthPulse risk guard가 다시 계산한다.\n"
         "출력은 짧게 써라. summary는 한 문장, bull_case/bear_case/catalysts/risks는 각각 최대 3개만 써라.\n"
         "news_inputs와 evidence는 Python이 ingest 직전에 source_inputs를 다시 붙인다. 출력 JSON에서는 빈 배열 []로 둬라.\n"

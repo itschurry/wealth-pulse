@@ -124,6 +124,22 @@ def _clamped_trade_plan(raw_plan: Any) -> dict[str, Any]:
     return plan
 
 
+def _require_text_items(items: list[str], *, field: str) -> None:
+    if not items:
+        raise ValueError(f"{field}_required")
+
+
+def _require_numeric_object_field(payload: dict[str, Any], name: str, *, field: str, positive: bool = False) -> None:
+    if name not in payload:
+        raise ValueError(f"{field}_{name}_required")
+    try:
+        value = float(payload.get(name))
+    except (TypeError, ValueError):
+        raise ValueError(f"{field}_{name}_invalid") from None
+    if positive and value <= 0:
+        raise ValueError(f"{field}_{name}_invalid")
+
+
 def _components(raw: Any, *, confidence: float, technical_features: dict[str, Any], news_inputs: list[dict[str, Any]]) -> dict[str, float]:
     components: dict[str, float] = {}
     if isinstance(raw, dict):
@@ -199,6 +215,19 @@ def _normalize_agent_item(item: dict[str, Any], *, default_generated_at: str, de
     if ttl_minutes <= 0:
         raise ValueError("ttl_minutes_invalid")
 
+    bear_case = _text_list(item.get("bear_case"), field="bear_case")
+    catalysts = _text_list(item.get("catalysts"), field="catalysts")
+    invalidation_trigger = _object(item.get("invalidation_trigger"), field="invalidation_trigger")
+    trade_plan = _clamped_trade_plan(item.get("trade_plan"))
+    if _is_buy_intent(rating, action):
+        _require_text_items(bear_case, field="bear_case")
+        _require_text_items(catalysts, field="catalysts")
+        if not _text(invalidation_trigger.get("condition"), field="invalidation_trigger_condition"):
+            raise ValueError("invalidation_trigger_condition_required")
+        _require_numeric_object_field(invalidation_trigger, "stop_loss", field="invalidation_trigger", positive=True)
+        _require_numeric_object_field(trade_plan, "stop_loss", field="trade_plan", positive=True)
+        _require_numeric_object_field(trade_plan, "take_profit", field="trade_plan", positive=True)
+
     return {
         "symbol": symbol,
         "market": market,
@@ -216,11 +245,11 @@ def _normalize_agent_item(item: dict[str, Any], *, default_generated_at: str, de
         "action": action,
         "candidate_source": _text(item.get("candidate_source") or "openai_research", field="candidate_source"),
         "bull_case": _text_list(item.get("bull_case"), field="bull_case"),
-        "bear_case": _text_list(item.get("bear_case"), field="bear_case"),
-        "catalysts": _text_list(item.get("catalysts"), field="catalysts"),
+        "bear_case": bear_case,
+        "catalysts": catalysts,
         "risks": _text_list(item.get("risks"), field="risks"),
-        "invalidation_trigger": _object(item.get("invalidation_trigger"), field="invalidation_trigger"),
-        "trade_plan": _clamped_trade_plan(item.get("trade_plan")),
+        "invalidation_trigger": invalidation_trigger,
+        "trade_plan": trade_plan,
         "technical_features": technical_features,
         "news_inputs": news_inputs,
         "evidence": evidence,
