@@ -107,15 +107,24 @@ function snapshotStatus(item: CandidateResearchSnapshot): { label: string; tone:
   return { label: '관찰 유지', tone: 'inline-badge is-danger' };
 }
 
-function qualityTone(score: number | undefined): string {
-  const value = Number(score);
-  if (!Number.isFinite(value)) return 'inline-badge';
-  if (value >= 0.65) return 'inline-badge is-success';
-  return 'inline-badge is-danger';
-}
-
 function outcomeValue(value: number | null | undefined): string {
   return typeof value === 'number' && Number.isFinite(value) ? formatPercent(value, 2) : '-';
+}
+
+function percentBarWidth(value: number | null | undefined): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(4, Math.min(100, Math.abs(numeric) * 12));
+}
+
+function numericTone(value: number | null | undefined, goodAtZero = true): string {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric === 0) return goodAtZero ? 'is-neutral' : 'is-down';
+  return numeric > 0 ? 'is-up' : 'is-down';
+}
+
+function ratioPercentValue(value: number | null | undefined): string {
+  return value == null ? '-' : formatPercent(value, 0, true);
 }
 
 function candidateStatusBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
@@ -185,12 +194,38 @@ function promotionReasonLabel(item: CandidateMonitorPromotionEvent): string {
 function ScoreBar({ label, value }: { label: string; value: number }) {
   const width = Math.max(0, Math.min(100, value * 100));
   return (
-    <div className="workspace-score-row">
+    <div className="workspace-score-row research-score-row">
       <div className="workspace-score-label">{label}</div>
       <div className="workspace-score-track">
         <div className="workspace-score-fill" style={{ width: `${width}%` }} />
       </div>
       <div className="workspace-score-value">{formatNumber(value, 2)}</div>
+    </div>
+  );
+}
+
+function MetricTile({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="research-metric-tile">
+      <span>{label}</span>
+      <strong className={tone || ''}>{value}</strong>
+    </div>
+  );
+}
+
+function ReturnBar({ label, value }: { label: string; value: number | null | undefined }) {
+  const numeric = Number(value);
+  const width = percentBarWidth(value);
+  const tone = numericTone(value);
+  return (
+    <div className="research-return-row">
+      <span>{label}</span>
+      <div className="research-return-track">
+        {Number.isFinite(numeric) ? (
+          <div className={numeric >= 0 ? 'research-return-fill is-up' : 'research-return-fill is-down'} style={{ width: `${width}%` }} />
+        ) : null}
+      </div>
+      <strong className={tone}>{outcomeValue(value)}</strong>
     </div>
   );
 }
@@ -206,74 +241,68 @@ function CandidateResearchCard({ item }: { item: CandidateResearchSnapshot }) {
   const outcomes = item.outcomes || {};
   const newsInputs = Array.isArray(item.news_inputs) ? item.news_inputs.slice(0, 3) : [];
   const evidence = Array.isArray(item.evidence) ? item.evidence.slice(0, 3) : [];
+  const outcomeRows = [
+    { label: '1D', value: outcomes.return_1d },
+    { label: '3D', value: outcomes.return_3d },
+    { label: '5D', value: outcomes.return_5d },
+    { label: '20D', value: outcomes.return_20d },
+    { label: 'MDD', value: outcomes.max_drawdown_20d },
+  ];
 
   return (
-    <div className="page-section workspace-analysis-section" style={{ padding: 16 }}>
-      <div className="workspace-card-head" style={{ marginBottom: 12 }}>
+    <div className="page-section workspace-analysis-section research-snapshot-panel">
+      <div className="research-snapshot-head">
         <div>
           <div className="section-title"><SymbolIdentity code={item.symbol} name={item.name} market={item.market} /></div>
-          <div className="section-copy">생성 {formatDateTimeWithAge(item.generated_at || item.bucket_ts)}</div>
+          <div className="research-snapshot-meta">{formatDateTimeWithAge(item.generated_at || item.bucket_ts)}</div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 27, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+        <div className="research-score-hero">
+          <span>RESEARCH</span>
+          <strong>
             {scoreDisplay(item)}
-          </div>
-          <div className="workspace-chip-row" style={{ marginTop: 6, justifyContent: 'flex-end' }}>
+          </strong>
+          <div className="workspace-chip-row">
             <span className={status.tone}>{status.label}</span>
             <span className={freshness.tone}>{freshness.label}</span>
             <span className={grade.tone}>{grade.label}</span>
-            <span className={qualityTone(quality.source_quality_score)}>출처 {formatNumber(quality.source_quality_score, 2)}</span>
-            {quality.blocked_reason ? <span className="inline-badge is-danger">{reasonCodeToKorean(quality.blocked_reason)}</span> : null}
           </div>
         </div>
       </div>
 
-      {Object.keys(components).length > 0 && (
-        <div className="workspace-score-grid">
-          {Object.entries(components).map(([key, value]) => (
-            <ScoreBar key={key} label={key} value={typeof value === 'number' ? value : 0} />
-          ))}
+      <div className="research-kpi-strip">
+        <MetricTile label="출처" value={formatNumber(quality.source_quality_score, 2)} tone={Number(quality.source_quality_score || 0) >= 0.65 ? 'is-up' : 'is-down'} />
+        <MetricTile label="신뢰 뉴스" value={formatNumber(quality.trusted_news_count ?? 0, 0)} />
+        <MetricTile label="Fresh" value={formatNumber(quality.fresh_news_count ?? 0, 0)} />
+        <MetricTile label="공식" value={formatNumber(quality.official_source_count ?? 0, 0)} />
+        <MetricTile label="비허용" value={formatNumber(quality.untrusted_source_count ?? 0, 0)} tone={Number(quality.untrusted_source_count || 0) > 0 ? 'is-down' : 'is-neutral'} />
+        <MetricTile label="Hit" value={outcomes.hit == null ? '-' : outcomes.hit ? 'Y' : 'N'} tone={outcomes.hit ? 'is-up' : outcomes.hit === false ? 'is-down' : 'is-neutral'} />
+      </div>
+
+      <div className="research-visual-grid">
+        <div className="research-visual-panel">
+          <div className="research-visual-title">성과</div>
+          <div className="research-return-list">
+            {outcomeRows.map((row) => (
+              <ReturnBar key={row.label} label={row.label} value={row.value} />
+            ))}
+          </div>
         </div>
-      )}
-
-      <div className="workspace-summary-card" style={{ marginTop: 12 }}>
-        <div className="workspace-summary-title">요약</div>
-        <div className="workspace-summary-copy">{item.validation?.grade === 'D' ? (item.validation?.exclusion_reason || '제외') : (item.summary || '-')}</div>
+        {Object.keys(components).length > 0 ? (
+          <div className="research-visual-panel">
+            <div className="research-visual-title">컴포넌트</div>
+            <div className="workspace-score-grid">
+              {Object.entries(components).map(([key, value]) => (
+                <ScoreBar key={key} label={key} value={typeof value === 'number' ? value : 0} />
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      <div className="workspace-table-wrap" style={{ marginTop: 12 }}>
-        <table className="workspace-table compact">
-          <thead>
-            <tr>
-              <th>뉴스</th>
-              <th>fresh</th>
-              <th>공식</th>
-              <th>비허용</th>
-              <th>1D</th>
-              <th>3D</th>
-              <th>5D</th>
-              <th>20D</th>
-              <th>hit</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>{quality.trusted_news_count ?? 0}</td>
-              <td>{quality.fresh_news_count ?? 0}</td>
-              <td>{quality.official_source_count ?? 0}</td>
-              <td>{quality.untrusted_source_count ?? 0}</td>
-              <td>{outcomeValue(outcomes.return_1d)}</td>
-              <td>{outcomeValue(outcomes.return_3d)}</td>
-              <td>{outcomeValue(outcomes.return_5d)}</td>
-              <td>{outcomeValue(outcomes.return_20d)}</td>
-              <td>{outcomes.hit == null ? '-' : outcomes.hit ? 'Y' : 'N'}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      {quality.blocked_reason ? <div className="research-alert-line">{reasonCodeToKorean(quality.blocked_reason)}</div> : null}
 
       {(newsInputs.length > 0 || evidence.length > 0) && (
-        <div className="workspace-table-wrap" style={{ marginTop: 12 }}>
+        <div className="workspace-table-wrap research-evidence-table">
           <table className="workspace-table compact">
             <thead>
               <tr>
@@ -306,7 +335,7 @@ function CandidateResearchCard({ item }: { item: CandidateResearchSnapshot }) {
       )}
 
       {(warnings.length > 0 || tags.length > 0) && (
-        <div className="workspace-chip-row" style={{ marginTop: 12 }}>
+        <div className="workspace-chip-row research-warning-row">
           {warnings.map((warning, index) => <span key={`w-${index}`} className="inline-badge is-danger">{reasonCodeToKorean(String(warning))}</span>)}
           {tags.map((tag, index) => <span key={`t-${index}`} className="inline-badge">{reasonCodeToKorean(String(tag))}</span>)}
         </div>
@@ -381,6 +410,7 @@ function MonitorSlotSection({
                   <th>슬롯</th>
                   <th>전략</th>
                   <th>순위</th>
+                  <th>점수</th>
                   <th>상태</th>
                   <th>최근</th>
                   <th>액션</th>
@@ -410,6 +440,7 @@ function MonitorSlotSection({
                       </td>
                       <td>{item.strategy_name || item.strategy_id || '-'}</td>
                       <td>{candidateRankDisplay(item.candidate_rank)}</td>
+                      <td className="workspace-number-cell">{item.snapshot_research_score == null ? '-' : formatNumber(item.snapshot_research_score, 2)}</td>
                       <td>
                         <div className="workspace-chip-row">
                           <span className={status.tone}>{status.label}</span>
@@ -836,7 +867,10 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
               <div><span>성공/실패</span><strong>{researchStatus.success_count ?? 0}/{researchStatus.failure_count ?? 0}</strong></div>
               <div><span>차단</span><strong>{researchStatus.quality_gate_rejected_count ?? 0}</strong></div>
               <div><span>출처</span><strong>{formatNumber(researchStatus.avg_source_quality_score, 2)}</strong></div>
-              <div><span>5D hit</span><strong>{researchStatus.outcome_5d_hit_rate == null ? '-' : formatPercent(researchStatus.outcome_5d_hit_rate, 1, true)}</strong></div>
+              <div><span>1D hit</span><strong>{ratioPercentValue(researchStatus.outcome_1d_hit_rate)}</strong></div>
+              <div><span>3D hit</span><strong>{ratioPercentValue(researchStatus.outcome_3d_hit_rate)}</strong></div>
+              <div><span>5D hit</span><strong>{ratioPercentValue(researchStatus.outcome_5d_hit_rate)}</strong></div>
+              <div><span>20D hit</span><strong>{ratioPercentValue(researchStatus.outcome_20d_hit_rate)}</strong></div>
             </div>
           </section>
 

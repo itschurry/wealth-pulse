@@ -85,7 +85,8 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
 def _read_latest_jsonl(path: Path, limit: int | None) -> list[dict[str, Any]]:
     capped = None if limit is None else max(1, int(limit or 50))
     rows: list[dict[str, Any]] = []
-    for line in reversed(_read_lines(path)):
+    lines = list(reversed(_read_lines(path))) if capped is None else _read_latest_lines(path, capped)
+    for line in lines:
         if capped is not None and len(rows) >= capped:
             break
         try:
@@ -95,6 +96,44 @@ def _read_latest_jsonl(path: Path, limit: int | None) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             rows.append(item)
     return rows
+
+
+def _read_latest_lines(path: Path, limit: int) -> list[str]:
+    capped = max(1, int(limit or 50))
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    if size <= 0:
+        return []
+
+    lines: list[str] = []
+    buffer = b""
+    position = size
+    chunk_size = 128 * 1024
+    try:
+        with path.open("rb") as fp:
+            while position > 0 and len(lines) < capped:
+                read_size = min(chunk_size, position)
+                position -= read_size
+                fp.seek(position)
+                chunk = fp.read(read_size)
+                buffer = chunk + buffer
+                parts = buffer.split(b"\n")
+                if position > 0:
+                    buffer = parts[0]
+                    complete = parts[1:]
+                else:
+                    complete = parts
+                    buffer = b""
+                for raw in reversed(complete):
+                    if len(lines) >= capped:
+                        break
+                    if raw.strip():
+                        lines.append(raw.decode("utf-8", errors="replace"))
+    except OSError:
+        return []
+    return lines
 
 
 def _cycle_log_path(timestamp: str) -> Path:

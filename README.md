@@ -235,11 +235,11 @@ curl -fsS http://127.0.0.1:8001/api/runtime/engine/status
 `/performance`는 별도 메뉴로 쓰지 않는다. 기존 주소로 들어오면 `/agent-dashboard` 운용 현황판으로 합쳐진다.
 `/signal-review`는 별도 메뉴로 쓰지 않는다. 기존 주소로 들어오면 `/orders-execution` 주문 페이지로 합쳐진다.
 
-UI는 관제 설명보다 숫자, 표, 상태 배지를 우선한다. 긴 안내문, 보조 설명, 반복 메타는 숨기고 각 화면은 핵심 지표만 먼저 보이게 둔다.
+UI는 관제 설명보다 숫자, 표, 상태 배지, 작은 그래프를 우선한다. 긴 안내문, 보조 설명, 반복 메타는 숨기고 각 화면은 핵심 지표만 먼저 보이게 둔다.
 
 탐색 메뉴는 상단 가로 네비게이션이다. 핸드폰과 세로 모니터에서는 화면 맨 위에 고정된 가로 스크롤 탭으로 항상 접근 가능해야 한다.
 
-리서치 화면의 감시/승격 테이블은 최대 10개 행 높이로 고정하고, 나머지는 표 안에서 스크롤한다. 상태/조회 영역은 압축 카드로 둔다.
+리서치 화면의 감시/승격 테이블은 최대 10개 행 높이로 고정하고, 나머지는 표 안에서 스크롤한다. 상태/조회 영역은 압축 카드로 둔다. 최신 스냅샷은 요약문보다 research score, source quality, 뉴스/공식 출처 수, 1D/3D/5D/20D 성과 막대, 컴포넌트 점수를 먼저 보여준다.
 
 ## 주요 API
 
@@ -252,8 +252,19 @@ UI는 관제 설명보다 숫자, 표, 상태 배지를 우선한다. 긴 안내
 - `GET /api/research/status`
 - `POST /api/research/run-status`
 - `GET /api/broker/kis/status`
+- `GET /api/engine/summary`
 - `GET /api/runtime/engine/status`
 - `GET /api/runtime/account`
+- `GET /api/portfolio/state`
+- `GET /api/performance/summary`
+
+운용 화면 polling은 `/api/engine/summary`를 쓴다. 이 엔드포인트는 저장된 runtime state만 읽고 live 계좌/KIS 조회를 하지 않는다. `/api/runtime/engine/start|stop|pause|resume|status` 응답도 화면 제어용 compact payload만 반환한다.
+
+`/api/runtime/account?refresh=0`과 `/api/portfolio/state?refresh=0`은 live 모드에서 positions 포함 full account state를 읽는다. KIS 원장은 직접 조회하지 않는다. 실계좌 원장 갱신은 `refresh=1` 요청에서만 수행하고, 성공한 조회와 엔진 cycle은 `storage/logs/runtime/accounts/live_account_state.json`을 갱신한다.
+
+`/api/performance/summary`는 저장된 engine state, full account state, order/execution event tail만 읽는다. 페이지 로딩 중 runtime engine status나 live 계좌 조회를 호출하지 않는다.
+
+`/api/signals/rank`는 화면용 cached signal snapshot만 읽는다. 페이지 로딩 중 full signal scan이나 live 계좌 조회를 새로 돌리지 않는다. runtime JSONL 이벤트 파일은 최신 N개를 tail 방식으로 읽고, 대용량 로그 전체를 메모리에 올리지 않는다.
 
 ## 공격 운용 정책
 

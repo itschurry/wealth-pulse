@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import datetime
 import json
+from pathlib import Path
 from typing import Any
 
 from config.settings import RUNTIME_DIR
 from services.execution_lifecycle import coerce_order_id
-from services.execution_service import _normalize_runtime_account
-from services.runtime_execution_service import get_execution_service
+from services.execution_service import _current_execution_mode, _normalize_runtime_account, read_cached_live_runtime_account
 from services.operations_report_service import build_operations_report
-from services.runtime_store import read_execution_events, read_order_events
+from services.runtime_store import load_engine_state, read_execution_events, read_order_events
 
 _ACCOUNT_STATE_PATH = RUNTIME_DIR / "accounts" / "simulated_account_state.json"
 _LIVE_PERFORMANCE_BASELINE_PATH = RUNTIME_DIR / "accounts" / "live_performance_baseline.json"
@@ -46,6 +46,10 @@ def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
 
 def _read_account_state() -> dict:
     return _read_json_file(_ACCOUNT_STATE_PATH)
+
+
+def _read_latest_live_account_snapshot() -> dict[str, Any]:
+    return read_cached_live_runtime_account()
 
 
 def _safe_float(value: Any) -> float:
@@ -218,17 +222,12 @@ def _normalize_history_row(order_event: dict[str, Any], status: str, latest_exec
 
 def handle_performance_summary() -> tuple[int, dict]:
     try:
-        _, execution_payload = get_execution_service().runtime_engine_status()
-        engine_state = execution_payload.get("state") if isinstance(execution_payload, dict) else {}
-        engine_account = execution_payload.get("account") if isinstance(execution_payload, dict) else {}
-
-        account = _read_account_state()
-        if not account:
-            account = engine_account or {}
-
-        account_status, account_payload = get_execution_service().runtime_account(False)
-        if account_status == 200 and isinstance(account_payload, dict):
-            account = account_payload
+        engine_state = load_engine_state(default={})
+        engine_account: dict[str, Any] = {}
+        if _current_execution_mode() == "live":
+            account = _read_latest_live_account_snapshot()
+        else:
+            account = _read_account_state()
 
         account = _normalize_runtime_account(account)
 

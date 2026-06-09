@@ -88,6 +88,7 @@ _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
 _OPTIMIZED_PARAMS_PATH = STORE_SEARCH_OPTIMIZED_PARAMS_PATH
 _RUNTIME_OPTIMIZED_PARAMS_PATH = STORE_RUNTIME_OPTIMIZED_PARAMS_PATH
 _ACCOUNT_STATE_DIR = RUNTIME_DIR / "accounts"
+_LIVE_ACCOUNT_STATE_PATH = _ACCOUNT_STATE_DIR / "live_account_state.json"
 _LIVE_POSITION_ENTRY_PATH = _ACCOUNT_STATE_DIR / "live_position_entries.json"
 _OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
 _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
@@ -143,6 +144,48 @@ _live_engine: LiveBrokerExecutionEngine | None = None
 
 _MARKET_TO_CALENDAR = {"KOSPI": "KR", "NASDAQ": "US"}
 _MARKET_BRIEF_LABELS = {"KR": "한국장", "US": "미국장"}
+
+
+def read_cached_live_runtime_account() -> dict[str, Any]:
+    try:
+        payload = json.loads(_LIVE_ACCOUNT_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    if str(payload.get("mode") or "").strip().lower() == "real" and "ok" not in payload:
+        payload["ok"] = True
+    if not str(payload.get("updated_at") or "").strip():
+        payload["updated_at"] = _account_positions_updated_at(payload)
+    return payload
+
+
+def _account_positions_updated_at(account: dict[str, Any]) -> str:
+    positions = account.get("positions") if isinstance(account.get("positions"), list) else []
+    timestamps = [
+        str(item.get("updated_at") or "").strip()
+        for item in positions
+        if isinstance(item, dict) and str(item.get("updated_at") or "").strip()
+    ]
+    return max(timestamps) if timestamps else _now_iso()
+
+
+def _persist_live_runtime_account(account: dict[str, Any]) -> None:
+    if not isinstance(account, dict):
+        return
+    if str(account.get("mode") or "").strip().lower() != "real":
+        return
+    if account.get("ok") is False or account.get("error"):
+        return
+    payload = dict(account)
+    payload["ok"] = True
+    if not str(payload.get("updated_at") or "").strip():
+        payload["updated_at"] = _account_positions_updated_at(payload)
+    _LIVE_ACCOUNT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _LIVE_ACCOUNT_STATE_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _mask_chat_id(chat_id: str) -> str:
@@ -1076,6 +1119,7 @@ def _auto_refresh_research_snapshots(*, markets: list[str], limit: int = 30, mod
 
 def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
     normalized_account = _normalize_runtime_account(account)
+    _persist_live_runtime_account(normalized_account)
     today_counts = _today_order_counts(normalized_account)
     running = state.get("engine_state") == "running"
     execution_mode = _current_execution_mode()
@@ -1100,6 +1144,19 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
         "execution_mode": execution_mode,
         "state": payload_state,
         "account": normalized_account,
+    }
+
+
+def _build_engine_control_payload(state: dict[str, Any]) -> dict[str, Any]:
+    execution_mode = _current_execution_mode()
+    payload_state = dict(state)
+    payload_state["running"] = payload_state.get("engine_state") == "running"
+    payload_state["execution_mode"] = execution_mode
+    payload_state["config"] = dict(payload_state.get("current_config") or payload_state.get("config") or {})
+    return {
+        "ok": True,
+        "execution_mode": execution_mode,
+        "state": payload_state,
     }
 
 
@@ -3040,6 +3097,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         )
         if any_market_open else account
     )
+    _persist_live_runtime_account(final_account)
     unrealized_pnl = sum(
         _to_float(position.get("unrealized_pnl_krw"), 0.0)
         for position in final_account.get("positions", [])
@@ -3197,7 +3255,7 @@ def _start_auto_trader(config: dict) -> dict:
         current_state = str(_auto_trader_state.get(
             "engine_state") or "stopped")
         if current_state in {"running", "paused"} and _auto_trader_thread and _auto_trader_thread.is_alive():
-            return _build_status_payload(dict(_auto_trader_state), _runtime_account_snapshot(refresh_quotes=False))
+            return _build_engine_control_payload(dict(_auto_trader_state))
         merged = _default_auto_trader_config()
         merged.update(config or {})
         merged["interval_seconds"] = max(
@@ -3288,8 +3346,7 @@ def _start_auto_trader(config: dict) -> dict:
         _persist_auto_trader_state_locked()
         _auto_trader_thread.start()
         get_notification_service().notify_engine_started(merged)
-        account = _runtime_account_snapshot(refresh_quotes=False)
-        return _build_status_payload(dict(_auto_trader_state), account)
+        return _build_engine_control_payload(dict(_auto_trader_state))
 
 
 def _stop_auto_trader() -> dict:
@@ -3310,14 +3367,14 @@ def _stop_auto_trader() -> dict:
     with _auto_trader_lock:
         state = dict(_auto_trader_state)
     get_notification_service().notify_engine_stopped({"reason": "manual_stop"})
-    return _build_status_payload(state, _runtime_account_snapshot(refresh_quotes=False))
+    return _build_engine_control_payload(state)
 
 
 def _pause_auto_trader() -> dict:
     _hydrate_auto_trader_state()
     with _auto_trader_lock:
         if str(_auto_trader_state.get("engine_state") or "") != "running":
-            return _build_status_payload(dict(_auto_trader_state), _runtime_account_snapshot(refresh_quotes=False))
+            return _build_engine_control_payload(dict(_auto_trader_state))
         _auto_trader_state["engine_state"] = "paused"
         _auto_trader_state["running"] = False
         _auto_trader_state["paused_at"] = _now_iso()
@@ -3325,7 +3382,7 @@ def _pause_auto_trader() -> dict:
         _persist_auto_trader_state_locked()
         state = dict(_auto_trader_state)
     get_notification_service().notify_engine_paused()
-    return _build_status_payload(state, _runtime_account_snapshot(refresh_quotes=False))
+    return _build_engine_control_payload(state)
 
 
 def _resume_auto_trader() -> dict:
@@ -3333,7 +3390,7 @@ def _resume_auto_trader() -> dict:
     start_cfg: dict[str, Any] | None = None
     with _auto_trader_lock:
         if str(_auto_trader_state.get("engine_state") or "") == "running":
-            return _build_status_payload(dict(_auto_trader_state), _runtime_account_snapshot(refresh_quotes=False))
+            return _build_engine_control_payload(dict(_auto_trader_state))
         if _auto_trader_thread is None or not _auto_trader_thread.is_alive():
             # 정지된 스레드는 재시작 시 start 흐름을 재사용한다.
             start_cfg = dict(_auto_trader_state.get(
@@ -3349,7 +3406,7 @@ def _resume_auto_trader() -> dict:
     if start_cfg is not None:
         return _start_auto_trader(start_cfg)
     get_notification_service().notify_engine_resumed()
-    return _build_status_payload(state, _runtime_account_snapshot(refresh_quotes=False))
+    return _build_engine_control_payload(state)
 
 
 def _auto_trader_status() -> dict:
@@ -3393,7 +3450,9 @@ def handle_runtime_account(refresh_quotes: bool) -> tuple[int, dict]:
     try:
         engine = _runtime_engine()
         account = engine.get_account(refresh_quotes=refresh_quotes)
-        return 200, _normalize_runtime_account(account)
+        normalized_account = _normalize_runtime_account(account)
+        _persist_live_runtime_account(normalized_account)
+        return 200, normalized_account
     except Exception as exc:
         return 500, {"error": str(exc)}
 
@@ -3480,6 +3539,7 @@ def handle_runtime_order(payload: dict) -> tuple[int, dict]:
                 persist_live_reconciled_fills=True,
                 notify_live_fills=True,
             )
+            _persist_live_runtime_account(account)
             unrealized = sum(
                 _to_float(item.get("unrealized_pnl_krw"), 0.0)
                 for item in account.get("positions", [])

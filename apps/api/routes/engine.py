@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from services.execution_service import _current_execution_mode, hydrate_runtime_state, read_cached_live_runtime_account
 from services.runtime_execution_service import get_execution_service
-from services.runtime_store import list_strategy_scans
+from services.runtime_store import list_strategy_scans, load_engine_state
 from services.strategy_registry import summarize_registry
 from services.strategy_engine import _context_snapshot
 from services.system_mode_service import get_mode_status
@@ -89,14 +90,18 @@ def _compact_execution_payload(execution_payload: dict | None) -> dict:
         "validation_policy",
         "optimized_params",
         "execution_mode",
+        "current_config",
+        "config",
     }
     compact_state = {key: state[key] for key in keep_keys if key in state}
+    compact_state["execution_mode"] = compact_state.get("execution_mode") or execution_payload.get("execution_mode")
     compact_state["last_summary"] = _compact_last_summary(state.get("last_summary"))
     compact_account = {
         "mode": account.get("mode"),
         "equity_krw": account.get("equity_krw"),
         "cash_krw": account.get("cash_krw"),
         "cash_usd": account.get("cash_usd"),
+        "updated_at": account.get("updated_at"),
         "positions": account.get("positions") if isinstance(account.get("positions"), list) else [],
     }
     return {
@@ -140,7 +145,15 @@ def handle_engine_status() -> tuple[int, dict]:
 
 def handle_engine_summary() -> tuple[int, dict]:
     try:
-        _, execution_payload = get_execution_service().runtime_engine_status()
+        hydrate_runtime_state()
+        state = load_engine_state(default={})
+        latest_account = read_cached_live_runtime_account() if _current_execution_mode() == "live" else {}
+        execution_payload = {
+            "ok": True,
+            "execution_mode": _current_execution_mode(),
+            "state": state,
+            "account": latest_account,
+        }
         scans = list_strategy_scans()
         strategy_counts, entry_allowed_count, blocked_count, risk_guard_state = _allocator_snapshot(scans)
         regime, risk_level = _context_snapshot()

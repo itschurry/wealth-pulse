@@ -40,6 +40,11 @@ type RuntimeEngineResponse = {
   message?: string;
   [key: string]: unknown;
 };
+type RuntimeEngineSummaryResponse = {
+  ok?: boolean;
+  error?: string;
+  execution?: RuntimeEngineResponse;
+};
 type RuntimeCyclesResponse = {
   ok?: boolean;
   cycles?: Record<string, unknown>[];
@@ -226,12 +231,13 @@ export function useRuntimeTrading(options?: { autoRefreshEnabled?: boolean }) {
     const requestId = engineRequestIdRef.current + 1;
     engineRequestIdRef.current = requestId;
     try {
-      const payload = await getJSON<RuntimeEngineResponse>('/api/runtime/engine/status', { noStore: true });
+      const summary = await getJSON<RuntimeEngineSummaryResponse>('/api/engine/summary', { noStore: true });
       if (engineRequestIdRef.current !== requestId) {
         return { ok: false, error: 'stale' };
       }
+      const payload = summary.execution || {};
       if (!payload.ok) {
-        const message = payload.error || '자동매매 상태 조회에 실패했습니다.';
+        const message = summary.error || payload.error || '자동매매 상태 조회에 실패했습니다.';
         setLastError(message);
         return { ok: false, error: message };
       }
