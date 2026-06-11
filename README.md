@@ -1,9 +1,33 @@
 # WealthPulse
 
-자동매매 후보 발굴, OpenAI 리서치 판단, 리스크 게이트, 가상계좌 런타임, 운영 콘솔을 한 저장소에서 돌리는 앱이야.
-문서보다 코드를 먼저 봐. 이 README도 현재 코드 기준 인수인계용으로만 유지해.
+WealthPulse는 Docker로 실행되는 자동매매 운영 콘솔이야.
+한 컨테이너는 FastAPI API를 돌리고, 다른 컨테이너는 React 콘솔을 Nginx로 서빙해. API는 전략 스캔, 후보 모니터, OpenAI 리서치, 리스크 게이트, 가상계좌/실계좌 런타임, 주문 이벤트를 전부 한 프로세스 안에서 다뤄.
 
-## 설치와 실행
+이 문서는 후임자가 코드 열기 전에 전체 흐름을 잡기 위한 인수인계 문서야. 그래도 최종 근거는 항상 코드야.
+
+## 한눈에 보는 구조
+
+```text
+browser
+  -> web container nginx
+  -> api container FastAPI
+  -> apps/api/server.py route table
+  -> routes/*
+  -> services/*
+  -> storage/logs, storage/reports
+```
+
+큰 축은 5개야.
+
+1. 콘솔 UI: `apps/web/src/App.tsx`, `apps/web/src/api/domain.ts`
+2. API 라우팅: `apps/api/api_server.py`, `apps/api/server.py`
+3. 후보/신호 생성: `services/strategy_engine.py`, `services/live_signal_engine.py`, `services/candidate_monitor_service.py`
+4. 리서치 판단: `scripts/run_market_research.sh`, `apps/api/scripts/openai_research_runner.py`, `services/research_*`
+5. 런타임/주문: `services/execution_service.py`, `services/trade_workflow.py`, `services/runtime_store.py`
+
+## Docker 실행
+
+기본 실행은 Docker야.
 
 ```bash
 cp apps/api/.env.example apps/api/.env
@@ -12,77 +36,28 @@ curl http://127.0.0.1:8001/health
 open http://127.0.0.1:8081
 ```
 
-기본 실행은 Docker야. API는 `http://127.0.0.1:8001`, Web은 `http://127.0.0.1:8081`에서 확인해.
+서비스는 이렇게 떠.
 
-## 운영 엔트리포인트
+- `api`: Python 3.11, FastAPI, `uvicorn api_server:app --host 0.0.0.0 --port 8001`
+- `web`: React 빌드 산출물을 Nginx가 서빙
+- API 포트: `8001`
+- Web 포트: `8081`
+- API 컨테이너 볼륨: `./storage/reports:/reports`, `./storage/logs:/logs`
+- Web 컨테이너는 `/api/` 요청을 `http://api:8001/api/`로 프록시해
 
-### API 서버
+재기동은 이거면 돼.
 
 ```bash
-docker compose up -d api
+docker compose up -d --force-recreate api web
+docker compose ps
 curl http://127.0.0.1:8001/health
 ```
 
-- 앱 정의: `apps/api/api_server.py`
-- 라우팅 테이블: `apps/api/server.py`
-- 헬스체크: `GET /health`
-- API prefix: `/api/*`
+## 설정
 
-### 프런트
+API는 `apps/api/.env`와 루트 `.env`를 읽어. Docker에선 `docker-compose.yml`이 `apps/api/.env`를 env file로 넣고, 로그/리포트 경로를 `/logs`, `/reports`로 고정해.
 
-```bash
-docker compose up -d web
-open http://127.0.0.1:8081
-```
-
-- 앱 셸: `apps/web/src/App.tsx`
-- 운용 화면: `apps/web/src/pages/WealthPulseHomePage.tsx`
-- 리서치 화면: `apps/web/src/pages/CandidateResearchPage.tsx`
-- 주문/계좌 화면: `apps/web/src/pages/RuntimePortfolioPage.tsx`
-- 실험 화면: `apps/web/src/pages/BacktestValidationPage.tsx`
-
-### OpenAI 리서치
-
-운영 래퍼는 이거야.
-
-```bash
-scripts/run_market_research.sh
-```
-
-직접 돌릴 땐 이렇게 해.
-
-```bash
-docker compose exec api python scripts/openai_research_runner.py \
-  --market KOSPI \
-  --limit 12 \
-  --mode missing_or_stale \
-  --api-base-url http://127.0.0.1:8001 \
-  --timeout 600 \
-  --concurrency 3
-```
-
-드라이런은 후보와 프롬프트만 확인해.
-
-```bash
-docker compose exec api python scripts/openai_research_runner.py \
-  --market KOSPI \
-  --limit 3 \
-  --dry-run
-```
-
-흐름은 이 순서야.
-
-1. `scripts/run_market_research.sh`
-2. `apps/api/scripts/openai_research_runner.py`
-3. `services/research_source_enricher.py`
-4. `services/openai_research_client.py`
-5. `services/research_agent_payload.py`
-6. `POST /api/research/ingest/bulk`
-7. `services/research_store.py`
-
-## 주요 설정
-
-`apps/api/config/settings.py`가 `.env`를 읽어. Docker 실행 전에 `apps/api/.env`를 만들고 필요한 값만 채워.
+최소 설정은 이거야.
 
 ```bash
 OPENAI_API_KEY=
@@ -102,41 +77,399 @@ KIS_BASE_URL=https://openapi.koreainvestment.com:9443
 EXECUTION_MODE=paper
 WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted
 
-# Docker는 docker-compose.yml에서 /reports, /logs로 잡아.
-# REPORT_OUTPUT_DIR=/absolute/path/to/reports
-# LOGS_DIR=/absolute/path/to/logs
 TELEGRAM_ENABLED=false
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
 
-리서치 래퍼 전용 설정은 셸 환경변수로 준다.
+중요한 설정 의미는 이래.
 
-```bash
-WEALTHPULSE_API_BASE_URL=http://127.0.0.1:8001
-WEALTHPULSE_RESEARCH_LIMIT=12
-WEALTHPULSE_RESEARCH_MODE=missing_or_stale
-WEALTHPULSE_RESEARCH_TIMEOUT=600
-WEALTHPULSE_RESEARCH_CONCURRENCY=3
-WEALTHPULSE_RESEARCH_DRY_RUN=0
+- `EXECUTION_MODE=paper`: 내부 가상계좌 엔진을 써. 기본값이야.
+- `EXECUTION_MODE=live`: KIS 실계좌 주문 경로를 써.
+- `WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted`: OpenAI 리서치 buy 판단이 품질/리스크를 통과하면 퀀트 entry 없이도 주문 검토로 올라갈 수 있어.
+- `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS=6000`: 리서치 JSON 잘림을 피하려고 현재 기준값으로 둬.
+- `DART_API_KEY`: 있으면 OpenDART 공시 evidence를 붙여.
+- `KIS_*`: 현재가 조회, 실계좌 모드, 브로커 상태 확인에 필요해.
+
+## API 진입 방식
+
+FastAPI 라우터를 여러 파일에 직접 등록하는 구조가 아니야. `api_server.py`가 `/api/{full_path:path}`를 받고, `server.py`의 `GET_ROUTES`, `POST_ROUTES` 테이블로 넘겨.
+
+```text
+apps/api/api_server.py
+  health()
+  api_get()
+  api_post()
+  api_put()
+    -> server.dispatch_get()
+    -> server.dispatch_post()
+    -> routes/*.py handler
+    -> services/*.py
 ```
 
-## 런타임 확인
+새 API를 추가할 때는 보통 이 순서야.
+
+1. `apps/api/routes/<domain>.py`에 handler 추가
+2. `apps/api/server.py`의 `GET_ROUTES` 또는 `POST_ROUTES`에 route 추가
+3. 프런트에서 쓰면 `apps/web/src/api/domain.ts`에 client 함수 추가
+
+## 프런트 구조
+
+React 앱은 라우터 라이브러리 없이 `App.tsx`에서 URL path를 해석해 화면을 바꿔.
+
+주요 화면:
+
+- `/agent-dashboard`: 운용 요약, 엔진 상태, 리서치 신선도, 포트폴리오 요약
+- `/research-ai`: 후보 모니터, 리서치 상태, 스냅샷 상세
+- `/orders-execution`: 런타임 엔진 제어, 포지션, 주문 이벤트, 워크플로우
+- `/watchlist`: 사용자 관심 종목
+- `/lab/validation`: 백테스트/워크포워드/Quant Ops
+- `/lab/strategies`: 전략 프리셋
+- `/lab/universe`: 유니버스
+
+콘솔 데이터는 `apps/web/src/hooks/useConsoleData.ts`가 페이지별 polling profile로 가져와.
+
+- 빠른 polling: 엔진, 실시간 시장
+- 중간 polling: 신호, 포트폴리오
+- 느린 polling: 리서치, 검증, 리포트, 유니버스, 성과
+
+API client는 `apps/web/src/api/domain.ts`에 모여 있어. 화면에서 직접 `/api/*` 문자열을 만들기보다 여기 함수를 우선 봐.
+
+## 저장소와 상태 파일
+
+이 앱은 별도 DB 서버 없이 파일/SQLite 중심으로 상태를 보관해. Docker 기준 실제 경로는 `storage/logs`, `storage/reports`야.
+
+```text
+storage/
+  reports/
+    market_brief.db
+    kospi_backtest_latest.json
+  logs/
+    runtime/
+      engine_state.json
+      accounts/simulated_account_state.json
+      candidate_monitor.db
+      engine_cycles/*.jsonl
+      events/
+        order_events.jsonl
+        execution_events.jsonl
+        signal_snapshots.jsonl
+        account_snapshots.jsonl
+        runtime_events.jsonl
+    cache/
+      research_snapshots/
+        latest/default__MARKET__SYMBOL.json
+        history/default__MARKET__SYMBOL.jsonl
+        ingest_history.jsonl
+        provider_state.json
+      strategy_scans/
+      universe_snapshots/
+      opendart/
+    audit/
+    config/
+      watchlist.json
+      agent_risk_config.json
+```
+
+상태 저장 역할은 대략 이래.
+
+- `runtime_store.py`: 엔진 상태, cycle, 주문 이벤트, 신호 스냅샷, 계좌 히스토리
+- `candidate_monitor_store.py`: 후보 pool, active slots, promotion events SQLite
+- `research_store.py`: OpenAI 리서치 latest/history snapshot과 ingest 상태
+- `agent_config.py`: 리스크 설정 JSON
+
+## 후보 생성 흐름
+
+후보 생성은 한 번에 끝나는 단순 ranking이 아니야. 전략 스캔, 기존 보유, 관심 종목, 리서치 freshness, 거래대금/등락률/뉴스 점수가 섞여.
+
+```text
+strategy scans + configured universe + held positions + user watchlist + latest research
+  -> candidate_monitor_service._dedupe_market_candidates()
+  -> candidate_monitor_service.build_market_watchlist()
+  -> candidate_monitor_store.candidate_pool
+  -> candidate_monitor_store.active_slots
+  -> /api/monitor/watchlist
+```
+
+핵심 파일:
+
+- `services/live_signal_engine.py`: 전략별 유니버스를 훑고 기술지표로 `top_candidates` 생성
+- `services/candidate_monitor_service.py`: 여러 후보 소스를 합치고 우선순위를 계산
+- `services/candidate_monitor_store.py`: 후보 pool과 active slot 저장
+- `routes/candidate_monitor.py`: `/api/monitor/status`, `/api/monitor/watchlist`, `/api/monitor/promotions`
+
+후보 slot 타입은 3개야.
+
+- `held`: 이미 보유 중인 종목
+- `core`: 상시 감시할 핵심 후보
+- `promotion`: 뉴스/거래대금/등락률/리서치 점수로 승격된 후보
+
+`/api/monitor/watchlist`는 리서치 runner가 읽는 핵심 API야. 응답 안의 `pending_items`가 OpenAI 리서치 대상이 돼.
+
+## OpenAI 리서치 흐름
+
+리서치 판단은 주문을 내지 않아. Python이 데이터를 모으고, OpenAI는 JSON 판단만 반환해. 주문 실행은 항상 런타임과 리스크 게이트가 맡아.
+
+운영 흐름:
+
+```text
+/api/monitor/watchlist
+  -> pending_items
+  -> research_source_enricher.build_research_source_pack()
+  -> openai_research_client.call_openai_research()
+  -> research_agent_payload.build_agent_research_ingest_payload()
+  -> /api/research/ingest/bulk
+  -> research_store latest/history snapshot
+```
+
+실행:
 
 ```bash
-curl http://127.0.0.1:8001/health
+docker compose exec api python scripts/openai_research_runner.py \
+  --market KOSPI \
+  --limit 12 \
+  --mode missing_or_stale \
+  --api-base-url http://127.0.0.1:8001 \
+  --timeout 600 \
+  --concurrency 3
+```
+
+드라이런:
+
+```bash
+docker compose exec api python scripts/openai_research_runner.py \
+  --market KOSPI \
+  --limit 3 \
+  --dry-run
+```
+
+루트의 `scripts/run_market_research.sh`는 현재 호스트 cron용 wrapper야. 앱 기본 실행은 Docker지만, 이 wrapper는 API 컨테이너의 HTTP 표면을 때리는 운영 배치로 남아 있어.
+
+리서치 source pack 구성:
+
+- 뉴스: Google News RSS, 최근 3일 쿼리
+- 기술 지표: 후보의 `technical_snapshot` 우선, 없으면 KOSPI/KOSDAQ은 FinanceDataReader
+- 공시 evidence: OpenDART API, KRX KIND, KRX 데이터 링크
+- 미국 evidence: Nasdaq, SEC 검색 링크
+
+OpenAI 출력 계약:
+
+- schema 이름: `wealthpulse_research_snapshot_v2`
+- 필수 필드: `symbol`, `market`, `confidence`, `rating`, `action`, `summary`, `bull_case`, `bear_case`, `catalysts`, `risks`, `invalidation_trigger`, `trade_plan`, `technical_features`, `news_inputs`, `evidence`, `data_quality`
+- 허용 rating: `strong_buy`, `overweight`, `hold`, `underweight`, `sell`
+- 허용 action: `buy`, `buy_watch`, `hold`, `reduce`, `sell`, `block`
+
+`buy` 또는 `buy_watch`가 ingest 되려면 조건이 빡세.
+
+- 최근 72시간 안의 신뢰 가능한 뉴스가 있어야 해
+- 뉴스는 URL과 `published_at`이 있어야 해
+- 공식 evidence나 허용 domain evidence가 있어야 해
+- `data_quality.has_news`, `has_recent_price`, `has_technical_features`가 true여야 해
+- `bear_case`, `catalysts`, `invalidation_trigger.condition`, `stop_loss`, `trade_plan.stop_loss`, `trade_plan.take_profit`이 있어야 해
+
+품질 게이트 위치:
+
+- source/domain 검증: `services/research_source_policy.py`
+- agent payload 정규화: `services/research_agent_payload.py`
+- snapshot 저장/신선도/등급: `services/research_store.py`
+- 런타임 Layer C 조회: `services/research_scoring.py`
+
+## Layer A-E 판단 구조
+
+런타임 후보는 Layer A-E를 거쳐 최종 action이 정해져.
+
+```text
+Layer A: 후보가 어떤 universe/slot/source에서 왔는지
+Layer B: quant/technical score와 signal_state
+Layer C: 저장된 research snapshot 조회와 freshness/quality 평가
+Layer D: risk guard와 sizing 결과
+Layer E: quant + agent + risk를 합쳐 final_action 결정
+```
+
+구현 위치:
+
+- `services/live_layers.py`
+- `services/strategy_engine.py`
+- `services/live_signal_engine.py`
+
+중요한 상태값:
+
+- `signal_state=entry`: 진입 후보
+- `signal_state=watch`: 감시 후보
+- `signal_state=exit`: 청산 후보
+- `final_action=review_for_entry`: 주문 검토 가능
+- `final_action=watch_only`: 감시만
+- `final_action=do_not_touch`: 건드리지 않음
+- `final_action=blocked`: 차단
+
+Layer E에서 `review_for_entry`가 나오려면 대체로 이 조건이 맞아야 해.
+
+- `signal_state`가 entry거나 agent buy 판단이 충분해야 해
+- Layer C research가 fresh/healthy/derived 상태여야 해
+- research validation grade가 A 또는 B여야 해
+- source quality가 충분해야 해
+- RSI/이평/거래량 같은 technical sanity가 깨지면 안 돼
+- Layer D risk가 막지 않아야 해
+
+## 런타임 엔진 흐름
+
+자동매매 엔진은 `services/execution_service.py` 안에서 thread로 돌아. 제어 API는 `/api/runtime/engine/start`, `/stop`, `/pause`, `/resume`, `/status`야.
+
+시작:
+
+```bash
+curl -X POST http://127.0.0.1:8001/api/runtime/engine/start \
+  -H 'Content-Type: application/json' \
+  -d '{"markets":["KOSPI"],"interval_seconds":300}'
+```
+
+상태:
+
+```bash
+curl http://127.0.0.1:8001/api/runtime/engine/status
+curl http://127.0.0.1:8001/api/runtime/engine/cycles?limit=30
+curl http://127.0.0.1:8001/api/runtime/orders?limit=60
+curl http://127.0.0.1:8001/api/runtime/workflow?limit=120
+```
+
+cycle 내부 흐름:
+
+```text
+_auto_trader_loop()
+  -> _run_auto_trader_cycle()
+  -> runtime account 조회
+  -> 시장 개장 여부 확인
+  -> 보유 포지션 exit 조건 확인
+  -> build_signal_book()
+  -> allowed entry 후보 선택
+  -> sizing/risk/order limit 확인
+  -> engine.place_order()
+  -> order_events, signal_snapshots, account_snapshots, engine_cycles 저장
+```
+
+`paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.
+
+`live` 모드는 KIS를 통해 실계좌 경로를 쓴다. `EXECUTION_MODE=live`를 켜기 전에 `/api/broker/kis/status`, 계좌 상태, 주문 제한을 직접 봐야 해.
+
+## 주문 판단과 리스크
+
+주문은 `final_action=review_for_entry`만으로 바로 나가는 게 아니야. 최종 주문 가능 여부는 order decision, size recommendation, runtime limit을 다시 통과해야 해.
+
+관련 파일:
+
+- `services/trade_workflow.py`: signal/order workflow stage 계산
+- `services/order_decision_service.py`: orderable/action/quantity 요약
+- `services/risk_guard_service.py`: 계좌 기반 리스크 상태
+- `services/agent_risk_gate.py`: agent decision용 deterministic gate
+- `services/sizing_service.py`: 포지션 사이징
+- `services/execution_service.py`: 실제 cycle과 주문 호출
+
+주문 관련 주요 제한:
+
+- 시장 개장 여부
+- 일일 buy/sell limit
+- 종목별 일일 주문 횟수
+- 보유 수량과 매도 가능 수량
+- 현금과 포지션 cap
+- daily loss limit
+- sector/market exposure
+- cooldown
+- validation gate
+- research freshness와 quality gate
+
+workflow stage는 콘솔에서 주문이 어디서 멈췄는지 볼 때 중요해.
+
+- `watch`
+- `signal_generated`
+- `execution_decided`
+- `order_ready`
+- `order_sent`
+- `filled`
+- `rejected`
+- `blocked`
+
+## Research와 Runtime의 관계
+
+이 앱에서 OpenAI 리서치는 독립 실행되고, 런타임은 저장된 리서치 스냅샷을 읽어. 즉 실시간 cycle이 OpenAI를 매번 직접 호출하는 구조가 아니야.
+
+정상적인 운영 순서:
+
+1. 후보 모니터가 active slots를 만든다
+2. 리서치 runner가 pending 후보를 분석한다
+3. `research_store`가 latest snapshot을 저장한다
+4. 런타임 Layer C가 해당 snapshot을 읽는다
+5. Layer E가 agent/quant/risk를 합쳐 `final_action`을 정한다
+6. runtime order path가 실제 주문 여부를 다시 판단한다
+
+그래서 “감시만 하고 매수가 안 됨” 증상은 보통 이 순서로 봐야 해.
+
+```bash
 curl http://127.0.0.1:8001/api/runtime/engine/status
 curl http://127.0.0.1:8001/api/research/status
-curl http://127.0.0.1:8001/api/broker/kis/status
+curl 'http://127.0.0.1:8001/api/monitor/watchlist?market=KOSPI&limit=20&refresh=0'
+curl 'http://127.0.0.1:8001/api/signals/rank?limit=50'
+curl 'http://127.0.0.1:8001/api/runtime/workflow?limit=120'
 ```
 
-주문 판단이 이상하면 이 순서로 봐.
+판단 순서:
 
-1. `apps/api/services/agent_risk_gate.py`
-2. `apps/api/services/trade_workflow.py`
-3. `apps/api/services/research_source_policy.py`
-4. `apps/api/services/quant_ops_service.py`
-5. `apps/api/services/execution_service.py`
+1. `engine_state`가 `running`인지
+2. 시장이 열려 있는지
+3. `research.status`와 `research.freshness`가 healthy/fresh인지
+4. active slot 수가 충분한지
+5. signal의 `final_action`이 `review_for_entry`까지 올라왔는지
+6. `entry_allowed`가 true인지
+7. `size_recommendation.quantity`가 0보다 큰지
+8. `blocked_reason_counts`, `reason_codes`, `workflow_stage`가 뭔지
+
+## 주요 API 지도
+
+엔진/런타임:
+
+```bash
+curl http://127.0.0.1:8001/api/engine/summary
+curl http://127.0.0.1:8001/api/engine/status
+curl http://127.0.0.1:8001/api/runtime/account
+curl http://127.0.0.1:8001/api/runtime/engine/status
+curl http://127.0.0.1:8001/api/runtime/engine/cycles?limit=30
+curl http://127.0.0.1:8001/api/runtime/orders?limit=60
+curl http://127.0.0.1:8001/api/runtime/workflow?limit=120
+```
+
+후보/신호:
+
+```bash
+curl 'http://127.0.0.1:8001/api/monitor/status?market=KOSPI&refresh=0'
+curl 'http://127.0.0.1:8001/api/monitor/watchlist?market=KOSPI&limit=30&mode=missing_or_stale'
+curl 'http://127.0.0.1:8001/api/monitor/promotions?market=KOSPI&limit=50'
+curl 'http://127.0.0.1:8001/api/signals/rank?limit=100'
+curl 'http://127.0.0.1:8001/api/signals/snapshots?limit=120'
+```
+
+리서치:
+
+```bash
+curl http://127.0.0.1:8001/api/research/status
+curl 'http://127.0.0.1:8001/api/research/snapshots?limit=50'
+curl 'http://127.0.0.1:8001/api/research/snapshots/latest?market=KOSPI&symbol=005930'
+```
+
+브로커/모드:
+
+```bash
+curl http://127.0.0.1:8001/api/system/mode
+curl http://127.0.0.1:8001/api/broker/kis/status
+curl http://127.0.0.1:8001/api/portfolio/state
+```
+
+전략/검증:
+
+```bash
+curl http://127.0.0.1:8001/api/strategies
+curl http://127.0.0.1:8001/api/strategies/metadata
+curl http://127.0.0.1:8001/api/validation/walk-forward
+curl http://127.0.0.1:8001/api/quant-ops/workflow
+```
 
 ## 디렉터리 구조
 
@@ -144,42 +477,77 @@ curl http://127.0.0.1:8001/api/broker/kis/status
 .
 ├── apps/
 │   ├── api/
-│   │   ├── api_server.py              # FastAPI 앱
-│   │   ├── server.py                  # /api 라우팅 테이블
-│   │   ├── routes/                    # HTTP 핸들러
-│   │   ├── services/                  # 리서치, 런타임, 리스크, 저장소 로직
-│   │   ├── scripts/                   # 운영/검증 CLI
-│   │   ├── analyzer/                  # 백테스트와 분석 엔진
-│   │   └── config/                    # 설정, 유니버스, 마켓 캘린더
+│   │   ├── api_server.py
+│   │   ├── server.py
+│   │   ├── routes/
+│   │   ├── services/
+│   │   ├── scripts/
+│   │   ├── analyzer/
+│   │   ├── config/
+│   │   ├── broker/
+│   │   └── domains/
 │   └── web/
-│       ├── src/                       # React 콘솔
+│       ├── src/
+│       │   ├── api/
+│       │   ├── hooks/
+│       │   ├── pages/
+│       │   ├── components/
+│       │   └── adapters/
 │       ├── public/
-│       └── nginx.conf                 # Docker web API 프록시
+│       └── nginx.conf
 ├── scripts/
-│   └── run_market_research.sh         # 운영 리서치 래퍼
+│   └── run_market_research.sh
 ├── storage/
-│   ├── reports/                       # 리포트/SQLite
+│   ├── reports/
 │   └── logs/
-│       ├── runtime/                   # 런타임 상태와 리서치 로그
-│       ├── audit/
-│       ├── config/
-│       └── cache/
-├── archive/                           # 예전 마크다운 문서 보관
+├── archive/
 ├── docker-compose.yml
 └── requirements.txt
 ```
 
-## 자주 쓰는 API
+`archive/`는 예전 마크다운 문서 보관용이야.
 
-```bash
-curl 'http://127.0.0.1:8001/api/monitor/watchlist?market=KOSPI&limit=12&refresh=1'
-curl 'http://127.0.0.1:8001/api/research/snapshots/latest?market=KOSPI&symbol=005930'
-curl http://127.0.0.1:8001/api/runtime/account
-curl -X POST http://127.0.0.1:8001/api/runtime/engine/start -H 'Content-Type: application/json' -d '{}'
-curl -X POST http://127.0.0.1:8001/api/runtime/engine/stop -H 'Content-Type: application/json' -d '{}'
-```
+## 후임자가 먼저 봐야 할 코드 순서
+
+앱 실행 흐름을 볼 때:
+
+1. `docker-compose.yml`
+2. `apps/api/api_server.py`
+3. `apps/api/server.py`
+4. `apps/api/routes/engine.py`
+5. `apps/api/routes/trading.py`
+6. `apps/api/services/execution_service.py`
+
+후보와 매수 판단을 볼 때:
+
+1. `apps/api/services/candidate_monitor_service.py`
+2. `apps/api/services/strategy_engine.py`
+3. `apps/api/services/live_layers.py`
+4. `apps/api/services/research_scoring.py`
+5. `apps/api/services/sizing_service.py`
+6. `apps/api/services/trade_workflow.py`
+
+OpenAI 리서치를 볼 때:
+
+1. `apps/api/scripts/openai_research_runner.py`
+2. `apps/api/services/research_source_enricher.py`
+3. `apps/api/services/openai_research_client.py`
+4. `apps/api/services/research_agent_payload.py`
+5. `apps/api/services/research_source_policy.py`
+6. `apps/api/services/research_store.py`
+
+프런트를 볼 때:
+
+1. `apps/web/src/App.tsx`
+2. `apps/web/src/hooks/useConsoleData.ts`
+3. `apps/web/src/api/domain.ts`
+4. `apps/web/src/pages/WealthPulseHomePage.tsx`
+5. `apps/web/src/pages/CandidateResearchPage.tsx`
+6. `apps/web/src/pages/RuntimePortfolioPage.tsx`
 
 ## 검증
+
+기본 검증은 Docker 기준으로 해.
 
 ```bash
 docker compose build api web
@@ -188,9 +556,18 @@ curl http://127.0.0.1:8001/health
 git diff --check
 ```
 
+리서치 runner만 확인할 땐 API 컨테이너에서 dry-run을 돌려.
+
+```bash
+docker compose exec api python scripts/openai_research_runner.py \
+  --market KOSPI \
+  --limit 3 \
+  --dry-run
+```
+
 ## 문서 보관
 
-기존 마크다운 문서는 전부 `archive/`로 옮겼어.
+예전 마크다운 문서는 여기로 옮겼어.
 
 ```text
 archive/README.md
