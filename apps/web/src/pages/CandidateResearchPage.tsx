@@ -859,7 +859,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
             <div>
               <div className="ops-eyebrow">상태</div>
               <div className="ops-command-title">{researchHeadline}</div>
-              {recentErrorText ? <div className="research-error-line">{recentErrorText}</div> : null}
+              {recentErrorText ? <div className="research-error-line research-error-text">{recentErrorText}</div> : null}
             </div>
             <div className="research-command-metrics">
               <div><span>감시 슬롯</span><strong>{totalActiveCount || activeSlots.length}</strong></div>
@@ -946,7 +946,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
               {researchStatus.partial_failure && Array.isArray(researchStatus.recent_errors) && researchStatus.recent_errors.length > 0 ? (
                 <div className="workspace-summary-card" style={{ marginTop: 12 }}>
                   <div className="workspace-summary-title">실패</div>
-                  <div className="workspace-summary-copy">
+                  <div className="workspace-summary-copy research-error-text">
                     {researchStatus.recent_errors.slice(0, 3).map((item) => `${item.market || '-'}:${item.symbol || '-'} ${item.error || ''}`).join(' / ')}
                   </div>
                 </div>

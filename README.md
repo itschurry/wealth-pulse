@@ -120,7 +120,7 @@ React 앱은 라우터 라이브러리 없이 `App.tsx`에서 URL path를 해석
 주요 화면:
 
 - `/agent-dashboard`: 운용 요약, 엔진 상태, 리서치 신선도, 포트폴리오 요약
-- `/research-ai`: 후보 모니터, 리서치 상태, 스냅샷 상세
+- `/research-ai`: 후보 모니터, 리서치 상태, 스냅샷 상세. 모바일/데스크톱 레이아웃 보정은 `apps/web/src/index.css`의 research responsive 규칙을 봐.
 - `/orders-execution`: 런타임 엔진 제어, 포지션, 주문 이벤트, 워크플로우
 - `/watchlist`: 사용자 관심 종목
 - `/lab/validation`: 백테스트/워크포워드/Quant Ops
