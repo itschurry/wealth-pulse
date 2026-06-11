@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import CACHE_DIR, CONFIG_STATE_DIR
+from helpers import _is_active_research_market
 from market_utils import lookup_company_listing
 from services import candidate_monitor_store as store
 from services.agent_config import default_risk_config_store
@@ -782,6 +783,8 @@ def list_pending_research_targets(
             if not isinstance(row, dict):
                 continue
             key = (_normalize_market(row.get("market") or watchlist.get("market")), _normalize_symbol(row.get("symbol") or row.get("code")))
+            if not _is_active_research_market(key[0]):
+                continue
             if not key[0] or not key[1] or key in seen:
                 continue
             row_with_meta = _with_latest_research_snapshot_meta(row)

@@ -17,6 +17,16 @@ _HEADERS = {
 }
 
 _SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ"}
+_ACTIVE_RESEARCH_MARKETS = {"KOSPI"}
+_ACTIVE_AUTO_TRADE_MARKETS = {"KOSPI"}
+
+
+def _is_active_research_market(market: str) -> bool:
+    return str(market or "").strip().upper() in _ACTIVE_RESEARCH_MARKETS
+
+
+def _is_active_auto_trade_market(market: str) -> bool:
+    return str(market or "").strip().upper() in _ACTIVE_AUTO_TRADE_MARKETS
 
 
 def _now_iso() -> str:

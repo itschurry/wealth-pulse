@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Any
 
+from helpers import _ACTIVE_AUTO_TRADE_MARKETS, _is_active_auto_trade_market
 from services.bluechip_universe import bluechip_meta
 
 
@@ -95,6 +96,15 @@ def evaluate_agent_decision_risk(
 
     if action == "HOLD":
         return _reject("hold_decision", final_action="HOLD", checks=checks)
+
+    checks.append({
+        "id": "active_market",
+        "passed": _is_active_auto_trade_market(market),
+        "current": market,
+        "allowed": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
+    })
+    if not _is_active_auto_trade_market(market):
+        return _reject("inactive_auto_trade_market", final_action=action, checks=checks)
 
     confidence = _to_float(decision.get("confidence"), 0.0)
     min_confidence = _to_float(config.get("min_confidence"), 0.7)

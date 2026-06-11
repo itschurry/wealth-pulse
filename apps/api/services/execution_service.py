@@ -12,8 +12,10 @@ try:
 except Exception:  # pragma: no cover - fallback for lightweight test envs
     logger = logging.getLogger(__name__)
 from helpers import (
+    _ACTIVE_AUTO_TRADE_MARKETS,
     _KST,
     _SUPPORTED_AUTO_TRADE_MARKETS,
+    _is_active_auto_trade_market,
     _now_iso,
 )
 from analyzer.technical_snapshot import fetch_technical_snapshot as _compute_technical_snapshot
@@ -1105,7 +1107,7 @@ def _auto_refresh_research_snapshots(*, markets: list[str], limit: int = 30, mod
     normalized_markets = [
         str(market or "").strip().upper()
         for market in markets
-        if str(market or "").strip().upper() in {"KOSPI", "NASDAQ"}
+        if _is_active_auto_trade_market(str(market or ""))
     ]
     return {
         "ok": True,
@@ -1665,7 +1667,7 @@ def _auto_trader_profile_map(cfg: dict, markets: list[str] | None = None) -> dic
     selected_markets = [
         normalize_strategy_market(market)
         for market in (markets or cfg.get("markets") or ["KOSPI"])
-        if normalize_strategy_market(market) in {"KOSPI", "NASDAQ"}
+        if _is_active_auto_trade_market(normalize_strategy_market(market))
     ] or ["KOSPI"]
     raw_profiles = cfg.get("market_profiles")
     if isinstance(raw_profiles, dict) and raw_profiles:
@@ -1675,7 +1677,7 @@ def _auto_trader_profile_map(cfg: dict, markets: list[str] | None = None) -> dic
                     market, payload if isinstance(payload, dict) else {})
             ])[normalize_strategy_market(market)]
             for market, payload in raw_profiles.items()
-            if normalize_strategy_market(market) in {"KOSPI", "NASDAQ"}
+            if _is_active_auto_trade_market(normalize_strategy_market(market))
         }
         for market in selected_markets:
             profile_map.setdefault(
@@ -1728,7 +1730,7 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     markets = [
         normalize_strategy_market(market)
         for market in (cfg.get("markets") or ["KOSPI"])
-        if normalize_strategy_market(market) in {"KOSPI", "NASDAQ"}
+        if _is_active_auto_trade_market(normalize_strategy_market(market))
     ] or ["KOSPI"]
     profile_map = _auto_trader_profile_map(cfg, markets)
     for market_key, profile in list(profile_map.items()):
@@ -2192,7 +2194,7 @@ def _collect_pick_candidates(market: str, cfg: dict) -> list[dict]:
 
 def _auto_invest_picks(
     *,
-    market: str = "NASDAQ",
+    market: str = "KOSPI",
     max_positions: int = 5,
     min_score: float = 50.0,
     include_neutral: bool = False,
@@ -2205,6 +2207,8 @@ def _auto_invest_picks(
     target_market = _normalize_pick_market(market)
     if target_market not in _SUPPORTED_AUTO_TRADE_MARKETS:
         return {"ok": False, "error": "market은 NASDAQ/KOSPI만 허용합니다."}
+    if not _is_active_auto_trade_market(target_market):
+        return {"ok": False, "error": f"{target_market}은 현재 운용 시장이 아닙니다."}
 
     calendar_market = "KR" if target_market == "KOSPI" else "US"
     if not is_market_open(calendar_market):
@@ -2407,8 +2411,20 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         "blocked": [],
     }
     closed_markets: list[str] = []
-    markets = [m for m in cfg.get("markets", ["KOSPI"]) if m in {
-        "KOSPI", "NASDAQ"}]
+    markets = [
+        m for m in cfg.get("markets", ["KOSPI"])
+        if _is_active_auto_trade_market(str(m or ""))
+    ]
+    if not markets:
+        return {
+            "ok": False,
+            "cycle_id": cycle_id,
+            "started_at": started_at,
+            "finished_at": _now_iso(),
+            "error": "active_market_required",
+            "markets": cfg.get("markets", []),
+            "active_markets": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
+        }
     candidate_counts_by_market: dict[str, int] = {
         market: 0 for market in markets}
     signal_snapshots: list[dict[str, Any]] = []
@@ -3250,6 +3266,28 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
 
 def _start_auto_trader(config: dict) -> dict:
     global _auto_trader_stop_event, _auto_trader_thread
+    raw_config = config if isinstance(config, dict) else {}
+    if "markets" in raw_config:
+        raw_markets = raw_config.get("markets")
+        requested_markets = raw_markets if isinstance(raw_markets, list) else []
+        inactive_markets = [
+            normalize_strategy_market(m)
+            for m in requested_markets
+            if normalize_strategy_market(m) and not _is_active_auto_trade_market(normalize_strategy_market(m))
+        ]
+        if inactive_markets:
+            return {
+                "ok": False,
+                "error": "inactive_auto_trade_market",
+                "inactive_markets": inactive_markets,
+                "active_markets": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
+            }
+        if not requested_markets:
+            return {
+                "ok": False,
+                "error": "active_market_required",
+                "active_markets": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
+            }
     _hydrate_auto_trader_state()
     with _auto_trader_lock:
         current_state = str(_auto_trader_state.get(
@@ -3314,12 +3352,33 @@ def _start_auto_trader(config: dict) -> dict:
         merged["validation_require_optimized_reliability"] = _coerce_bool(
             merged.get("validation_require_optimized_reliability"), True)
         merged.update(_parse_theme_gate_config(merged))
-        markets = merged.get("markets") or ["KOSPI"]
+        requested_markets = merged.get("markets")
+        markets = requested_markets or ["KOSPI"]
         if not isinstance(markets, list):
             markets = ["KOSPI"]
+        inactive_markets = [
+            normalize_strategy_market(m)
+            for m in markets
+            if normalize_strategy_market(m) and not _is_active_auto_trade_market(normalize_strategy_market(m))
+        ]
+        if inactive_markets:
+            return {
+                "ok": False,
+                "error": "inactive_auto_trade_market",
+                "inactive_markets": inactive_markets,
+                "active_markets": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
+            }
         merged["markets"] = [
-            m for m in markets if normalize_strategy_market(m) in {"KOSPI", "NASDAQ"}
-        ] or ["KOSPI"]
+            normalize_strategy_market(m)
+            for m in markets
+            if _is_active_auto_trade_market(normalize_strategy_market(m))
+        ]
+        if not merged["markets"]:
+            return {
+                "ok": False,
+                "error": "active_market_required",
+                "active_markets": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
+            }
         merged = _sync_primary_strategy_fields(merged)
 
         _auto_trader_stop_event = threading.Event()
@@ -3459,10 +3518,16 @@ def handle_runtime_account(refresh_quotes: bool) -> tuple[int, dict]:
 
 def handle_runtime_order(payload: dict) -> tuple[int, dict]:
     try:
-        _hydrate_auto_trader_state()
         side = str(payload.get("side") or "").strip().lower()
         code = str(payload.get("code") or "").strip().upper()
         market = str(payload.get("market") or "").strip().upper()
+        if not _is_active_auto_trade_market(market):
+            return 400, {
+                "ok": False,
+                "error": f"{market or 'UNKNOWN'}은 현재 운용 시장이 아닙니다.",
+                "active_markets": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
+            }
+        _hydrate_auto_trader_state()
         try:
             quantity = int(payload.get("quantity") or 0)
         except (TypeError, ValueError):
@@ -3626,7 +3691,7 @@ def handle_runtime_reset(payload: dict) -> tuple[int, dict]:
 
 def handle_runtime_auto_invest(payload: dict) -> tuple[int, dict]:
     try:
-        market = str(payload.get("market") or "NASDAQ").strip().upper()
+        market = str(payload.get("market") or "KOSPI").strip().upper()
         try:
             max_positions_raw = payload.get("max_positions")
             max_positions = int(5 if max_positions_raw in (

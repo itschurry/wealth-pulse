@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 
 from services.research_source_enricher import build_research_source_pack
 from services.openai_research_client import call_openai_research
+from helpers import _ACTIVE_RESEARCH_MARKETS, _is_active_research_market
 
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
@@ -313,6 +314,20 @@ def run(
     progress: bool = True,
 ) -> tuple[int, dict[str, Any]]:
     started_monotonic = time.monotonic()
+    inactive_markets = [
+        str(market or "").strip().upper()
+        for market in markets
+        if str(market or "").strip() and not _is_active_research_market(str(market or ""))
+    ]
+    if inactive_markets:
+        return 400, {
+            "ok": False,
+            "stage": "market_scope",
+            "error": "inactive_research_market",
+            "markets": markets,
+            "inactive_markets": inactive_markets,
+            "active_research_markets": sorted(_ACTIVE_RESEARCH_MARKETS),
+        }
     query = _market_query(markets, limit=limit, mode=mode)
     _log(f"[research] collect targets markets={markets or ['KOSPI']} limit={limit} mode={mode}", enabled=progress)
     status_code, target_payload = handle_candidate_monitor_watchlist(query, base_url=api_base_url)
