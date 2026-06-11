@@ -356,13 +356,16 @@ _auto_trader_loop()
   -> _run_auto_trader_cycle()
   -> runtime account 조회
   -> 시장 개장 여부 확인
-  -> 보유 포지션 exit 조건 확인
+  -> 보유 포지션 수익률 exit 조건 확인(-5% 손절, +12% 익절)
+  -> 기술지표 보조 exit 조건 확인
   -> build_signal_book()
   -> allowed entry 후보 선택
   -> sizing/risk/order limit 확인
   -> engine.place_order()
   -> order_events, signal_snapshots, account_snapshots, engine_cycles 저장
 ```
+
+런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
 
 `paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.
 

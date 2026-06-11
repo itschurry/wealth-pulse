@@ -20,6 +20,10 @@ from config.market_calendar import is_market_open
 from market_utils import lookup_company_listing
 
 
+_RUNTIME_STOP_LOSS_PCT = 5.0
+_RUNTIME_TAKE_PROFIT_PCT = 12.0
+
+
 # ── 인터페이스 ────────────────────────────────────────────────────────────────
 
 class ExecutionEngine(Protocol):
@@ -304,13 +308,6 @@ class SimulatedExecutionEngine:
                                    notional_local) / max(next_qty, 1)
                 avg_price_krw = avg_price_local * fx_rate
 
-                final_sl = _to_float(stop_loss_pct)
-                if final_sl is None and position:
-                    final_sl = _to_float(position.get("stop_loss_pct"))
-                final_tp = _to_float(take_profit_pct)
-                if final_tp is None and position:
-                    final_tp = _to_float(position.get("take_profit_pct"))
-
                 state["positions"][position_key] = {
                     "code": normalized_code,
                     "name": str(quote.get("name") or normalized_code),
@@ -322,8 +319,8 @@ class SimulatedExecutionEngine:
                     "avg_price_krw": avg_price_krw,
                     "last_price_local": executed_local,
                     "last_price_krw": executed_krw,
-                    "stop_loss_pct": final_sl,
-                    "take_profit_pct": final_tp,
+                    "stop_loss_pct": _RUNTIME_STOP_LOSS_PCT,
+                    "take_profit_pct": _RUNTIME_TAKE_PROFIT_PCT,
                     "fx_rate": fx_rate,
                     "updated_at": now,
                 }
@@ -601,8 +598,8 @@ class SimulatedExecutionEngine:
             position["unrealized_pnl_pct"] = unrealized_pct
             position["updated_at"] = _now_iso()
 
-            sl = _to_float(position.get("stop_loss_pct"))
-            tp = _to_float(position.get("take_profit_pct"))
+            sl = _RUNTIME_STOP_LOSS_PCT
+            tp = _RUNTIME_TAKE_PROFIT_PCT
             liquidation_reason = None
             if sl is not None and unrealized_pct <= -sl:
                 liquidation_reason = "stop_loss"
@@ -765,6 +762,8 @@ class SimulatedExecutionEngine:
                 "avg_price_krw": avg_price_local * fx_rate,
                 "last_price_local": avg_price_local,
                 "last_price_krw": avg_price_local * fx_rate,
+                "stop_loss_pct": _RUNTIME_STOP_LOSS_PCT,
+                "take_profit_pct": _RUNTIME_TAKE_PROFIT_PCT,
                 "fx_rate": fx_rate,
                 "updated_at": now,
             }

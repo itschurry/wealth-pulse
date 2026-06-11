@@ -93,9 +93,11 @@ _ACCOUNT_STATE_DIR = RUNTIME_DIR / "accounts"
 _LIVE_ACCOUNT_STATE_PATH = _ACCOUNT_STATE_DIR / "live_account_state.json"
 _LIVE_POSITION_ENTRY_PATH = _ACCOUNT_STATE_DIR / "live_position_entries.json"
 _OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
+_RUNTIME_STOP_LOSS_PCT = 5.0
+_RUNTIME_TAKE_PROFIT_PCT = 12.0
 _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
-    "KOSPI": 8.0,
-    "NASDAQ": 10.0,
+    "KOSPI": _RUNTIME_TAKE_PROFIT_PCT,
+    "NASDAQ": _RUNTIME_TAKE_PROFIT_PCT,
 }
 _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
 _ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit"}
@@ -230,7 +232,7 @@ def _compact_candidate(candidate: dict[str, Any], *, reason: str | None = None) 
 
 
 def _compact_sell_candidate(position: dict[str, Any], *, market: str, reason: str) -> dict[str, Any]:
-    pnl_pct = _to_float(position.get("pnl_pct"), None)
+    pnl_pct = _position_pnl_pct(position)
     suffix = f" / 수익률 {pnl_pct:+.2f}%" if pnl_pct is not None else ""
     return {
         "name": str(position.get("name") or position.get("code") or "").strip(),
@@ -534,6 +536,11 @@ def _hydrate_live_runtime_account(
             position["entry_ts"] = resolved_entry_ts
             next_registry[symbol_key] = resolved_entry_ts
             position_activity.setdefault(symbol_key, {}).update({"entry_ts": resolved_entry_ts})
+        if latest_buy:
+            if position.get("stop_loss_pct") in (None, ""):
+                position["stop_loss_pct"] = latest_buy.get("stop_loss_pct")
+            if position.get("take_profit_pct") in (None, ""):
+                position["take_profit_pct"] = latest_buy.get("take_profit_pct")
 
     if stored_entries.get(account_key) != next_registry:
         stored_entries[account_key] = next_registry
@@ -1510,13 +1517,14 @@ def _parse_seed_positions(raw) -> list[dict]:
         if avg_price_local <= 0:
             raise ValueError(
                 f"seed_positions[{idx}] avg_price_local은 0보다 커야 합니다.")
-
         parsed.append({
             "market": market,
             "code": code,
             "name": name,
             "quantity": quantity,
             "avg_price_local": avg_price_local,
+            "stop_loss_pct": _RUNTIME_STOP_LOSS_PCT,
+            "take_profit_pct": _RUNTIME_TAKE_PROFIT_PCT,
         })
     return parsed
 
@@ -1734,10 +1742,10 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     ] or ["KOSPI"]
     profile_map = _auto_trader_profile_map(cfg, markets)
     for market_key, profile in list(profile_map.items()):
-        normalized_market = normalize_strategy_market(market_key)
-        if isinstance(profile, dict) and profile.get("take_profit_pct") in (None, ""):
+        if isinstance(profile, dict):
             profile = dict(profile)
-            profile["take_profit_pct"] = _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET.get(normalized_market)
+            profile["stop_loss_pct"] = _RUNTIME_STOP_LOSS_PCT
+            profile["take_profit_pct"] = _RUNTIME_TAKE_PROFIT_PCT
             profile_map[market_key] = profile
     primary = profile_map.get(markets[0]) or next(iter(profile_map.values()))
     cfg["market_profiles"] = profile_map
@@ -1755,8 +1763,8 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     cfg["bb_pct_max"] = primary.get("bb_pct_max")
     cfg["stoch_k_min"] = primary.get("stoch_k_min")
     cfg["stoch_k_max"] = primary.get("stoch_k_max")
-    cfg["stop_loss_pct"] = primary.get("stop_loss_pct")
-    cfg["take_profit_pct"] = primary.get("take_profit_pct")
+    cfg["stop_loss_pct"] = _RUNTIME_STOP_LOSS_PCT
+    cfg["take_profit_pct"] = _RUNTIME_TAKE_PROFIT_PCT
     cfg["max_holding_days"] = int(primary.get("max_holding_days") or 30)
     cfg["risk_per_trade_pct"] = max(0.8, _to_float(cfg.get("risk_per_trade_pct"), 0.8))
     cfg["max_symbol_weight_pct"] = max(30.0, _to_float(cfg.get("max_symbol_weight_pct"), 30.0))
@@ -2188,6 +2196,41 @@ def _should_exit_by_indicators(position: dict, technicals: dict, cfg: dict, mark
     )
 
 
+def _position_pnl_pct(position: dict[str, Any]) -> float | None:
+    for key in ("unrealized_pnl_pct", "profit_loss_rate", "pnl_pct"):
+        value = position.get(key)
+        if value not in (None, ""):
+            return _to_float(value, None)
+    last_price = _to_float(
+        position.get("last_price_local")
+        or position.get("current_price")
+        or position.get("last_price_krw"),
+        None,
+    )
+    avg_price = _to_float(
+        position.get("avg_price_local")
+        or position.get("avg_price")
+        or position.get("avg_price_krw"),
+        None,
+    )
+    if last_price is None or avg_price is None or avg_price <= 0:
+        return None
+    return ((last_price / avg_price) - 1.0) * 100.0
+
+
+def _position_exit_reason_by_pnl(position: dict[str, Any], _cfg: dict, _market: str) -> str | None:
+    pnl_pct = _position_pnl_pct(position)
+    if pnl_pct is None:
+        return None
+    stop_loss_pct = _RUNTIME_STOP_LOSS_PCT
+    take_profit_pct = _RUNTIME_TAKE_PROFIT_PCT
+    if stop_loss_pct is not None and pnl_pct <= -abs(stop_loss_pct):
+        return "손절"
+    if take_profit_pct is not None and pnl_pct >= abs(take_profit_pct):
+        return "익절"
+    return None
+
+
 def _collect_pick_candidates(market: str, cfg: dict) -> list[dict]:
     return _signal_collect_pick_candidates(market=market, cfg=cfg)
 
@@ -2279,11 +2322,6 @@ def _auto_invest_picks(
                 {"code": code, "reason": size_recommendation.get("reason") or "size_zero"})
             continue
 
-        risk_inputs = item.get("risk_inputs") if isinstance(
-            item.get("risk_inputs"), dict) else {}
-        stop_loss_pct = risk_inputs.get("stop_loss_pct")
-        take_profit_pct = risk_inputs.get("take_profit_pct")
-
         order_result = engine.place_order(
             side="buy",
             code=code,
@@ -2291,8 +2329,8 @@ def _auto_invest_picks(
             quantity=quantity,
             order_type="market",
             limit_price=None,
-            stop_loss_pct=stop_loss_pct,
-            take_profit_pct=take_profit_pct,
+            stop_loss_pct=_RUNTIME_STOP_LOSS_PCT,
+            take_profit_pct=_RUNTIME_TAKE_PROFIT_PCT,
         )
         if not order_result.get("ok"):
             skipped.append(
@@ -2472,16 +2510,18 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             pos_name = str(position.get("name") or code)
             if _symbol_order_count(market, "sell", code) >= max_orders_per_symbol:
                 continue
-            technicals, tech_error = _load_technicals(code, market)
-            if tech_error:
-                logger.debug("exit technicals unavailable for {}:{}: {}", market, code, tech_error)
-                continue
-            if not technicals:
-                continue
-            reason = _should_exit_by_indicators(
-                position, technicals, cfg, market)
+            reason = _position_exit_reason_by_pnl(position, cfg, market)
             if not reason:
-                continue
+                technicals, tech_error = _load_technicals(code, market)
+                if tech_error:
+                    logger.debug("exit technicals unavailable for {}:{}: {}", market, code, tech_error)
+                    continue
+                if not technicals:
+                    continue
+                reason = _should_exit_by_indicators(
+                    position, technicals, cfg, market)
+                if not reason:
+                    continue
             requested_sell_qty = int(position.get("quantity") or 0)
             available_sell_qty = _fresh_available_sell_quantity(engine, market=market, code=code)
             if available_sell_qty <= 0:
@@ -2527,6 +2567,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "message": "",
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{code}",
+                    "trigger_type": "pnl_exit" if reason in {"손절", "익절"} else "indicator_exit",
                     "quote_source": event.get("quote_source"),
                     "quote_fetched_at": event.get("quote_fetched_at"),
                     "quote_is_stale": event.get("quote_is_stale"),
@@ -2802,15 +2843,14 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                             "score_gap": rotation_plan.get("score_gap"),
                         })
                         continue
-                    risk_inputs = buy_candidate.get("risk_inputs") if isinstance(buy_candidate.get("risk_inputs"), dict) else {}
                     buy_result = engine.place_order(
                         side="buy",
                         code=buy_code,
                         market=market,
                         quantity=quantity,
                         order_type="market",
-                        stop_loss_pct=risk_inputs.get("stop_loss_pct"),
-                        take_profit_pct=risk_inputs.get("take_profit_pct"),
+                        stop_loss_pct=_RUNTIME_STOP_LOSS_PCT,
+                        take_profit_pct=_RUNTIME_TAKE_PROFIT_PCT,
                     )
                     if buy_result.get("ok"):
                         buy_event = buy_result.get("event") or {}
@@ -2849,6 +2889,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                             "failure_reason": "",
                             "reason_code": "rotation_replace",
                             "message": "",
+                            "stop_loss_pct": _RUNTIME_STOP_LOSS_PCT,
+                            "take_profit_pct": _RUNTIME_TAKE_PROFIT_PCT,
                             "originating_cycle_id": cycle_id,
                             "originating_signal_key": f"{market}:{buy_code}",
                             "trigger_type": "rotation",
@@ -2989,10 +3031,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 })
                 continue
 
-            risk_inputs = candidate.get("risk_inputs") if isinstance(
-                candidate.get("risk_inputs"), dict) else {}
-            stop_loss_pct = risk_inputs.get("stop_loss_pct")
-            take_profit_pct = risk_inputs.get("take_profit_pct")
+            stop_loss_pct = _RUNTIME_STOP_LOSS_PCT
+            take_profit_pct = _RUNTIME_TAKE_PROFIT_PCT
 
             result = engine.place_order(
                 side="buy",
@@ -3040,6 +3080,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "failure_reason": "",
                     "reason_code": "",
                     "message": "",
+                    "stop_loss_pct": stop_loss_pct,
+                    "take_profit_pct": take_profit_pct,
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{code}",
                     "quote_source": event.get("quote_source"),
@@ -3549,6 +3591,9 @@ def handle_runtime_order(payload: dict) -> tuple[int, dict]:
             take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw not in (None, "") else None
         except (TypeError, ValueError):
             take_profit_pct = None
+        if side == "buy":
+            stop_loss_pct = _RUNTIME_STOP_LOSS_PCT
+            take_profit_pct = _RUNTIME_TAKE_PROFIT_PCT
         engine = _runtime_engine()
         result = engine.place_order(
             side=side,
@@ -3591,6 +3636,8 @@ def handle_runtime_order(payload: dict) -> tuple[int, dict]:
                 "failure_reason": "",
                 "reason_code": "",
                 "message": "",
+                "stop_loss_pct": stop_loss_pct,
+                "take_profit_pct": take_profit_pct,
                 "originating_cycle_id": "",
                 "originating_signal_key": f"{market}:{code}",
                 "quote_source": event.get("quote_source"),
