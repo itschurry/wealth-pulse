@@ -145,6 +145,11 @@ function positionCostKrw(position: { quantity?: unknown; avg_price_krw?: unknown
   return unitCost * quantity;
 }
 
+function positionMarketValueLocal(position: { market?: unknown; market_value_krw?: unknown; market_value_usd?: unknown }): number {
+  if (marketCurrency(position.market) === 'USD') return toNumber(position.market_value_usd);
+  return toNumber(position.market_value_krw);
+}
+
 function normalizePortfolioMarket(value: unknown): 'KOSPI' | 'NASDAQ' {
   return marketCurrency(value) === 'USD' ? 'NASDAQ' : 'KOSPI';
 }
@@ -1739,6 +1744,9 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                     <th style={{ padding: 12, fontSize: 15 }}>종목</th>
                     <th style={{ padding: 12, fontSize: 15 }}>시장 / 통화</th>
                     <th style={{ padding: 12, fontSize: 15 }}>수량</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>평가금액</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>투자원금</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>자산비중</th>
                     <th style={{ padding: 12, fontSize: 15 }}>진입가(현지)</th>
                     <th style={{ padding: 12, fontSize: 15 }}>현재가(현지)</th>
                     <th style={{ padding: 12, fontSize: 15 }}>평가손익(KRW)</th>
@@ -1757,6 +1765,10 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                     const name = String(position.name || '');
                     const entryPrice = toNumber(position.avg_price_local, 0);
                     const currentPrice = toNumber(position.last_price_local, 0);
+                    const marketValueKrw = toNumber(position.market_value_krw, 0);
+                    const marketValueLocal = positionMarketValueLocal(position);
+                    const costKrw = positionCostKrw(position);
+                    const weightPct = vm.totalEquityKrw > 0 ? (marketValueKrw / vm.totalEquityKrw) * 100 : 0;
                     const pnlKrw = toNumber(position.unrealized_pnl_krw, 0);
                     const pnlPct = toNumber(position.unrealized_pnl_pct, NaN);
                     const stopLossPct = toNumber(positionRaw.stop_loss_pct, stopLossPctDefault);
@@ -1769,6 +1781,9 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                         <td style={{ padding: 12, fontSize: 15 }}>{formatSymbol(code, name)}</td>
                         <td style={{ padding: 12, fontSize: 15 }}>{formatMarketWithCurrency(position.market)}</td>
                         <td style={{ padding: 12, fontSize: 15 }}>{formatCount(position.quantity, '주')}</td>
+                        <td style={{ padding: 12, fontSize: 15, fontWeight: 800 }}>{formatLocalPriceWithKrw(marketValueLocal, marketValueKrw, position.market)}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatKRW(costKrw, true)}</td>
+                        <td style={{ padding: 12, fontSize: 15 }}>{formatPercent(weightPct, 2)}</td>
                         <td style={{ padding: 12, fontSize: 15 }}>{formatLocalPriceWithKrw(entryPrice, toNumber(position.avg_price_krw, entryPrice), position.market)}</td>
                         <td style={{ padding: 12, fontSize: 15 }}>{formatLocalPriceWithKrw(currentPrice, toNumber(position.last_price_krw, currentPrice), position.market)}</td>
                         <td style={{ padding: 12, fontSize: 15, color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw, true)}</td>
@@ -1789,7 +1804,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   })}
                   {filteredPositions.length === 0 && (
                     <tr>
-                      <td colSpan={12} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</td>
+                      <td colSpan={15} style={{ padding: 16, fontSize: 15, color: 'var(--text-4)' }}>{positionMarketView === 'ALL' ? UI_TEXT.empty.noPositions : `${positionMarketView} 보유 종목이 없습니다.`}</td>
                     </tr>
                   )}
                 </tbody>
@@ -1802,6 +1817,10 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                 const name = String(position.name || '');
                 const entryPrice = toNumber(position.avg_price_local, 0);
                 const currentPrice = toNumber(position.last_price_local, 0);
+                const marketValueKrw = toNumber(position.market_value_krw, 0);
+                const marketValueLocal = positionMarketValueLocal(position);
+                const costKrw = positionCostKrw(position);
+                const weightPct = vm.totalEquityKrw > 0 ? (marketValueKrw / vm.totalEquityKrw) * 100 : 0;
                 const pnlKrw = toNumber(position.unrealized_pnl_krw, 0);
                 const pnlPct = toNumber(position.unrealized_pnl_pct, NaN);
                 const stopLossPct = toNumber(positionRaw.stop_loss_pct, stopLossPctDefault);
@@ -1820,6 +1839,9 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                     </div>
                     <div className="responsive-card-grid">
                       <div><div className="responsive-card-label">수량</div><div className="responsive-card-value">{formatCount(position.quantity, '주')}</div></div>
+                      <div><div className="responsive-card-label">평가금액</div><div className="responsive-card-value">{formatLocalPriceWithKrw(marketValueLocal, marketValueKrw, position.market)}</div></div>
+                      <div><div className="responsive-card-label">투자원금</div><div className="responsive-card-value">{formatKRW(costKrw, true)}</div></div>
+                      <div><div className="responsive-card-label">자산비중</div><div className="responsive-card-value">{formatPercent(weightPct, 2)}</div></div>
                       <div><div className="responsive-card-label">수익률</div><div className="responsive-card-value" style={{ color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatPercent(pnlPct, 2)}</div></div>
                       <div><div className="responsive-card-label">평가손익</div><div className="responsive-card-value" style={{ color: pnlKrw >= 0 ? 'var(--up)' : 'var(--down)' }}>{formatKRW(pnlKrw, true)}</div></div>
                       <div><div className="responsive-card-label">보유기간</div><div className="responsive-card-value">{formatNumber(holdingDays(position.entry_ts), 0)}일</div></div>

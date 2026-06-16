@@ -635,6 +635,7 @@ export interface RuntimePosition {
   last_price_local: number;
   fx_rate: number;
   market_value_krw: number;
+  market_value_usd?: number;
   unrealized_pnl_krw: number;
   unrealized_pnl_pct: number;
   updated_at?: string;

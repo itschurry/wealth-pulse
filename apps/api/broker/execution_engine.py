@@ -881,11 +881,14 @@ class LiveBrokerExecutionEngine:
         if quantity <= 0:
             return {"ok": False, "error": "quantity는 1 이상이어야 합니다."}
 
+        normalized_code = code.strip().upper()
+        normalized_order_type = order_type.strip().lower()
+
         # 주문 가격 결정
-        if order_type == "limit":
+        if normalized_order_type == "limit":
             if limit_price is None or limit_price <= 0:
                 return {"ok": False, "error": "limit 주문에는 유효한 limit_price가 필요합니다."}
-            price = limit_price
+            price = int(round(limit_price))
             order_division = "00"  # 지정가
         else:
             # 시장가: 현재가를 quote에서 가져와 ORD_UNPR=0으로 보내거나
@@ -895,23 +898,71 @@ class LiveBrokerExecutionEngine:
 
         try:
             if normalized_market == "KOSPI":
+                requested_order_type = normalized_order_type
+                requested_quantity = quantity
+                orderable_amount: dict[str, Any] | None = None
+                if normalized_side == "buy":
+                    quantity, price, order_division, normalized_order_type, orderable_amount = self._prepare_domestic_buy_order(
+                        code=normalized_code,
+                        requested_quantity=quantity,
+                        order_type=normalized_order_type,
+                        price=price,
+                        order_division=order_division,
+                        limit_price=limit_price,
+                    )
+                    if quantity <= 0:
+                        return {
+                            "ok": False,
+                            "mode": "live",
+                            "error": "domestic_orderable_quantity_zero",
+                            "requested": {
+                                "side": side,
+                                "code": code,
+                                "market": market,
+                                "quantity": requested_quantity,
+                                "order_type": order_type,
+                                "limit_price": limit_price,
+                            },
+                            "orderable_amount": orderable_amount,
+                        }
                 result = self._client.place_cash_order(
                     side=normalized_side,
-                    code=code.strip().upper(),
+                    code=normalized_code,
                     quantity=quantity,
                     price=price,
                     order_division=order_division,
                 )
+                event = self._build_live_order_event(
+                    side=normalized_side,
+                    code=normalized_code,
+                    market=normalized_market,
+                    quantity=quantity,
+                    order_type=normalized_order_type,
+                    price=price,
+                    result=result,
+                    requested_quantity=requested_quantity if normalized_side == "buy" else quantity,
+                    requested_order_type=requested_order_type if normalized_side == "buy" else normalized_order_type,
+                    orderable_amount=orderable_amount,
+                )
             else:  # NASDAQ
                 result = self._client.place_overseas_order(
                     side=normalized_side,
-                    symbol=code.strip().upper(),
+                    symbol=normalized_code,
                     quantity=quantity,
                     price=price,
                     exchange="NASDAQ",
                     order_division=order_division,
                 )
-            return {"ok": True, "mode": "live", **result}
+                event = self._build_live_order_event(
+                    side=normalized_side,
+                    code=normalized_code,
+                    market=normalized_market,
+                    quantity=quantity,
+                    order_type=normalized_order_type,
+                    price=price,
+                    result=result,
+                )
+            return {"ok": True, "mode": "live", "event": event, **result}
         except Exception as exc:
             return {
                 "ok": False,
@@ -926,6 +977,85 @@ class LiveBrokerExecutionEngine:
                     "limit_price": limit_price,
                 },
             }
+
+    def _prepare_domestic_buy_order(
+        self,
+        *,
+        code: str,
+        requested_quantity: int,
+        order_type: str,
+        price: int | float,
+        order_division: str,
+        limit_price: float | None,
+    ) -> tuple[int, int, str, str, dict[str, Any] | None]:
+        effective_order_type = order_type
+        effective_order_division = order_division
+        effective_price = int(round(float(price or 0)))
+
+        if order_type != "limit":
+            quote = self.quote_provider(code, "KOSPI")
+            quote_price = _to_float(quote.get("price"))
+            if quote_price is None or quote_price <= 0:
+                raise ValueError("domestic_buy_quote_unavailable")
+            effective_price = int(round(quote_price))
+            effective_order_division = "00"
+            effective_order_type = "limit"
+        elif limit_price is not None:
+            effective_price = int(round(limit_price))
+
+        orderable_amount = self._client.get_orderable_amount(
+            code,
+            effective_price,
+            order_division=effective_order_division,
+        )
+        max_orderable_quantity = _to_int(orderable_amount.get("max_orderable_quantity"))
+        adjusted_quantity = min(int(requested_quantity), max_orderable_quantity)
+        return adjusted_quantity, effective_price, effective_order_division, effective_order_type, orderable_amount
+
+    def _build_live_order_event(
+        self,
+        *,
+        side: str,
+        code: str,
+        market: str,
+        quantity: int,
+        order_type: str,
+        price: int | float,
+        result: dict[str, Any],
+        requested_quantity: int | None = None,
+        requested_order_type: str | None = None,
+        orderable_amount: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now_iso()
+        event = {
+            "order_id": str(result.get("order_no") or uuid.uuid4().hex[:12]),
+            "ts": now,
+            "side": side,
+            "order_type": order_type,
+            "code": code,
+            "market": market,
+            "quantity": quantity,
+            "submitted_at": now,
+            "filled_at": "",
+            "filled_price_local": None,
+            "filled_price_krw": None,
+            "notional_krw": None,
+            "status": "submitted",
+            "live_order_price": price,
+            "raw": result.get("raw") or {},
+        }
+        if requested_quantity is not None:
+            event["requested_quantity"] = requested_quantity
+            event["adjusted_quantity"] = quantity
+        if requested_order_type and requested_order_type != order_type:
+            event["requested_order_type"] = requested_order_type
+        if orderable_amount is not None:
+            event["orderable_amount"] = {
+                "max_orderable_quantity": orderable_amount.get("max_orderable_quantity"),
+                "orderable_cash": orderable_amount.get("orderable_cash"),
+                "order_price": orderable_amount.get("order_price"),
+            }
+        return event
 
     def reset(
         self,
@@ -959,6 +1089,15 @@ def _to_float(value: Any) -> float | None:
         return float(str(value).replace(",", ""))
     except (TypeError, ValueError):
         return None
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        if value in (None, ""):
+            return default
+        return int(float(str(value).replace(",", "")))
+    except (TypeError, ValueError):
+        return default
 
 
 def _now_iso() -> str:

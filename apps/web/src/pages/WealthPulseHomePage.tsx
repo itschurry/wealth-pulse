@@ -43,6 +43,7 @@ interface PositionView {
 interface BarRow {
   label: string;
   value: string;
+  meta?: string;
   width: string;
   tone?: string;
 }
@@ -256,10 +257,10 @@ export function WealthPulseHomePage({
   ];
 
   const allocationRows: BarRow[] = [
-    { label: '현금', value: ratioPercent(cashAllocationKrw, totalBookValueKrw), width: ratioPercent(cashAllocationKrw, totalBookValueKrw), tone: 'is-cash' },
-    { label: 'KOSPI', value: ratioPercent(kospiExposureKrw, totalBookValueKrw), width: ratioPercent(kospiExposureKrw, totalBookValueKrw), tone: 'is-kospi' },
-    { label: 'NASDAQ', value: ratioPercent(nasdaqExposureKrw, totalBookValueKrw), width: ratioPercent(nasdaqExposureKrw, totalBookValueKrw), tone: 'is-nasdaq' },
-    { label: '기타', value: ratioPercent(otherExposureKrw, totalBookValueKrw), width: ratioPercent(otherExposureKrw, totalBookValueKrw), tone: 'is-other' },
+    { label: '현금', value: formatKRWExact(cashAllocationKrw), meta: ratioPercent(cashAllocationKrw, totalBookValueKrw), width: ratioPercent(cashAllocationKrw, totalBookValueKrw), tone: 'is-cash' },
+    { label: 'KOSPI', value: formatKRWExact(kospiExposureKrw), meta: ratioPercent(kospiExposureKrw, totalBookValueKrw), width: ratioPercent(kospiExposureKrw, totalBookValueKrw), tone: 'is-kospi' },
+    { label: 'NASDAQ', value: formatKRWExact(nasdaqExposureKrw), meta: ratioPercent(nasdaqExposureKrw, totalBookValueKrw), width: ratioPercent(nasdaqExposureKrw, totalBookValueKrw), tone: 'is-nasdaq' },
+    { label: '기타', value: formatKRWExact(otherExposureKrw), meta: ratioPercent(otherExposureKrw, totalBookValueKrw), width: ratioPercent(otherExposureKrw, totalBookValueKrw), tone: 'is-other' },
   ];
   const allocationGradient = buildConicGradient([
     { value: cashAllocationKrw, color: 'var(--text-4)' },
@@ -411,7 +412,10 @@ export function WealthPulseHomePage({
                     <div key={item.label} className="wealth-bar-row">
                       <div className="wealth-bar-label">{item.label}</div>
                       <div className="wealth-bar-track"><div className={`wealth-bar-fill ${item.tone || ''}`.trim()} style={{ width: item.width }} /></div>
-                      <div className="wealth-bar-value">{item.value}</div>
+                      <div className="wealth-bar-value">
+                        <strong>{item.value}</strong>
+                        {item.meta && <span>{item.meta}</span>}
+                      </div>
                     </div>
                   ))}
                 </div>

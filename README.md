@@ -128,7 +128,7 @@ React 앱은 라우터 라이브러리 없이 `App.tsx`에서 URL path를 해석
 
 - `/agent-dashboard`: 운용 요약, 엔진 상태, 리서치 신선도, 포트폴리오 요약
 - `/research-ai`: 후보 모니터, 리서치 상태, 스냅샷 상세. 모바일/데스크톱 레이아웃 보정은 `apps/web/src/index.css`의 research responsive 규칙을 봐.
-- `/orders-execution`: 런타임 엔진 제어, 포지션, 주문 이벤트, 워크플로우
+- `/orders-execution`: 런타임 엔진 제어, 포지션, 주문 이벤트, 워크플로우. 보유 포지션은 평가금액, 투자원금, 자산비중을 같이 보여줘.
 - `/watchlist`: 사용자 관심 종목
 - `/lab/validation`: 백테스트/워크포워드/Quant Ops
 - `/lab/strategies`: 전략 프리셋
@@ -369,7 +369,7 @@ _auto_trader_loop()
 
 `paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.
 
-`live` 모드는 KIS를 통해 실계좌 경로를 쓴다. `EXECUTION_MODE=live`를 켜기 전에 `/api/broker/kis/status`, 계좌 상태, 주문 제한을 직접 봐야 해.
+`live` 모드는 KIS를 통해 실계좌 경로를 쓴다. `EXECUTION_MODE=live`를 켜기 전에 `/api/broker/kis/status`, 계좌 상태, 주문 제한을 직접 봐야 해. KOSPI 실계좌 매수는 주문 직전에 KIS 주문가능수량을 조회하고, 시장가 요청이면 현재가 지정가로 바꿔 주문 금액 초과를 줄인다. 요청 수량이 주문가능수량보다 크면 주문가능수량으로 낮춰 한 번만 낸다.
 
 ## 주문 판단과 리스크
 

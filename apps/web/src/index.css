@@ -1447,7 +1447,7 @@ button:disabled {
 
 .wealth-bar-row {
   display: grid;
-  grid-template-columns: 72px 1fr 64px;
+  grid-template-columns: 72px minmax(120px, 1fr) minmax(112px, auto);
   align-items: center;
   gap: 10px;
 }
@@ -1502,6 +1502,22 @@ button:disabled {
   font-size: 14px;
   color: var(--silver);
   font-family: var(--font-mono);
+}
+
+.wealth-bar-value strong,
+.wealth-bar-value span {
+  display: block;
+}
+
+.wealth-bar-value strong {
+  color: var(--gold);
+  font-weight: 800;
+}
+
+.wealth-bar-value span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .wealth-list,
@@ -3937,7 +3953,7 @@ button:disabled {
   }
 
   .wealth-bar-row {
-    grid-template-columns: 62px 1fr 56px;
+    grid-template-columns: 62px minmax(90px, 1fr) minmax(96px, auto);
   }
 }
 
