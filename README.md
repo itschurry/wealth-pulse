@@ -536,6 +536,11 @@ curl http://127.0.0.1:8001/api/strategies/metadata
 4. `apps/api/routes/engine.py`
 5. `apps/api/routes/trading.py`
 6. `apps/api/services/execution_service.py`
+7. `apps/api/services/execution_engine_factory.py`
+8. `apps/api/services/runtime_account_cache.py`
+9. `apps/api/services/runtime_validation_gate.py`
+
+`execution_service.py`는 auto trader loop와 주문 흐름의 중심이고, 엔진 생성, 라이브 계좌 캐시, validation gate는 별도 서비스로 분리돼 있어.
 
 후보와 매수 판단을 볼 때:
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from services.execution_service import _current_execution_mode, read_cached_live_runtime_account
+from services.execution_service import _current_execution_mode
+from services.runtime_account_cache import read_cached_live_runtime_account
 from services.runtime_execution_service import get_execution_service
 from services.risk_guard_service import build_risk_guard_state
 from services.strategy_engine import _context_snapshot

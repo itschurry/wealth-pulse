@@ -3,7 +3,6 @@ import json
 import os
 import threading
 import uuid
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -15,7 +14,7 @@ from helpers import (
     _now_iso,
 )
 from analyzer.technical_snapshot import fetch_technical_snapshot as _compute_technical_snapshot
-from services.market_data_service import get_usd_krw_rate as _usd_krw_rate, resolve_stock_quote as _resolve_stock_quote
+from services.market_data_service import get_usd_krw_rate as _usd_krw_rate
 from analyzer.shared_strategy import (
     build_strategy_profile,
     default_strategy_profile,
@@ -27,7 +26,6 @@ from analyzer.shared_strategy import (
     should_exit_from_snapshot,
 )
 from config.market_calendar import SESSION_WINDOWS, get_market_local_dt, is_market_open
-from config.settings import RUNTIME_DIR
 from market_utils import normalize_market, resolve_market
 from services.notification_service import get_notification_service
 from services.runtime_store import (
@@ -56,7 +54,13 @@ from services.trade_workflow import (
     enrich_order_payload,
     enrich_signal_payload,
 )
-from services.reliability_service import assess_validation_reliability
+from services.execution_engine_factory import get_execution_engine as _factory_get_execution_engine
+from services.runtime_account_cache import (
+    ACCOUNT_STATE_DIR as _ACCOUNT_STATE_DIR,
+    LIVE_POSITION_ENTRY_PATH as _LIVE_POSITION_ENTRY_PATH,
+    persist_live_runtime_account as _persist_live_runtime_account,
+)
+from services.runtime_validation_gate import apply_validation_gate as _apply_validation_gate
 from services.signal_service import (
     collect_pick_candidates as _signal_collect_pick_candidates,
     normalize_theme_focus as _signal_normalize_theme_focus,
@@ -67,19 +71,11 @@ from services.sizing_service import recommend_position_size
 from services.strategy_engine import build_signal_book, select_entry_candidates
 from services.strategy_registry import list_strategies
 
-from broker.kis_client import KISClient
-from broker.execution_engine import (
-    EngineConfig,
-    LiveBrokerExecutionEngine,
-    SimulatedExecutionEngine,
-)
+from broker.execution_engine import LiveBrokerExecutionEngine, SimulatedExecutionEngine
 
 _DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]
 _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
 
-_ACCOUNT_STATE_DIR = RUNTIME_DIR / "accounts"
-_LIVE_ACCOUNT_STATE_PATH = _ACCOUNT_STATE_DIR / "live_account_state.json"
-_LIVE_POSITION_ENTRY_PATH = _ACCOUNT_STATE_DIR / "live_position_entries.json"
 _RUNTIME_STOP_LOSS_PCT = 5.0
 _RUNTIME_TAKE_PROFIT_PCT = 12.0
 _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
@@ -88,8 +84,9 @@ _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
 }
 _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
 _ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit"}
+_STALE_RUNTIME_STATE_KEYS = {"optimized_params"}
+_STALE_RUNTIME_CONFIG_KEYS = {"validation_require_optimized_reliability"}
 
-_simulated_engine: SimulatedExecutionEngine | None = None
 _auto_trader_lock = threading.Lock()
 _auto_trader_cycle_lock = threading.Lock()
 _auto_trader_stop_event: threading.Event | None = None
@@ -114,53 +111,8 @@ _auto_trader_state: dict[str, Any] = {
     "latest_cycle_id": "",
     "validation_policy": {},
 }
-_live_engine: LiveBrokerExecutionEngine | None = None
-
-
 _MARKET_TO_CALENDAR = {"KOSPI": "KR", "NASDAQ": "US"}
 _MARKET_BRIEF_LABELS = {"KR": "한국장", "US": "미국장"}
-
-
-def read_cached_live_runtime_account() -> dict[str, Any]:
-    try:
-        payload = json.loads(_LIVE_ACCOUNT_STATE_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    if str(payload.get("mode") or "").strip().lower() == "real" and "ok" not in payload:
-        payload["ok"] = True
-    if not str(payload.get("updated_at") or "").strip():
-        payload["updated_at"] = _account_positions_updated_at(payload)
-    return payload
-
-
-def _account_positions_updated_at(account: dict[str, Any]) -> str:
-    positions = account.get("positions") if isinstance(account.get("positions"), list) else []
-    timestamps = [
-        str(item.get("updated_at") or "").strip()
-        for item in positions
-        if isinstance(item, dict) and str(item.get("updated_at") or "").strip()
-    ]
-    return max(timestamps) if timestamps else _now_iso()
-
-
-def _persist_live_runtime_account(account: dict[str, Any]) -> None:
-    if not isinstance(account, dict):
-        return
-    if str(account.get("mode") or "").strip().lower() != "real":
-        return
-    if account.get("ok") is False or account.get("error"):
-        return
-    payload = dict(account)
-    payload["ok"] = True
-    if not str(payload.get("updated_at") or "").strip():
-        payload["updated_at"] = _account_positions_updated_at(payload)
-    _LIVE_ACCOUNT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _LIVE_ACCOUNT_STATE_PATH.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
 
 
 def _mask_chat_id(chat_id: str) -> str:
@@ -809,8 +761,32 @@ def _default_validation_policy() -> dict[str, Any]:
     }
 
 
+def _sanitize_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(config)
+    for key in _STALE_RUNTIME_CONFIG_KEYS:
+        sanitized.pop(key, None)
+    profiles = sanitized.get("market_profiles")
+    if isinstance(profiles, dict):
+        sanitized["market_profiles"] = {
+            str(market): _sanitize_runtime_config(profile)
+            for market, profile in profiles.items()
+            if isinstance(profile, dict)
+        }
+    return sanitized
+
+
+def _sanitize_runtime_state(state: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(state)
+    for key in _STALE_RUNTIME_STATE_KEYS:
+        sanitized.pop(key, None)
+    for key in ("current_config", "config"):
+        if isinstance(sanitized.get(key), dict):
+            sanitized[key] = _sanitize_runtime_config(sanitized[key])
+    return sanitized
+
+
 def _persist_auto_trader_state_locked() -> None:
-    snapshot = dict(_auto_trader_state)
+    snapshot = _sanitize_runtime_state(_auto_trader_state)
     snapshot["running"] = snapshot.get("engine_state") == "running"
     snapshot["config"] = dict(snapshot.get("current_config") or {})
     save_engine_state(snapshot)
@@ -823,11 +799,12 @@ def _hydrate_auto_trader_state() -> None:
     loaded = load_engine_state(default={})
     merged = dict(_auto_trader_state)
     merged.update(loaded if isinstance(loaded, dict) else {})
+    merged = _sanitize_runtime_state(merged)
     config = merged.get("current_config") or merged.get(
         "config") or _default_auto_trader_config()
     if not isinstance(config, dict):
         config = _default_auto_trader_config()
-    merged["current_config"] = _sync_primary_strategy_fields(dict(config))
+    merged["current_config"] = _sanitize_runtime_config(_sync_primary_strategy_fields(dict(config)))
     merged["config"] = dict(merged["current_config"])
 
     engine_state = str(merged.get("engine_state") or "stopped").lower()
@@ -1070,10 +1047,10 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
     today_counts = _today_order_counts(normalized_account)
     running = state.get("engine_state") == "running"
     execution_mode = _current_execution_mode()
-    payload_state = _sanitize_last_summary_for_account_mode(state, normalized_account)
+    payload_state = _sanitize_runtime_state(_sanitize_last_summary_for_account_mode(state, normalized_account))
     payload_state["running"] = running
     payload_state["execution_mode"] = execution_mode
-    payload_state["config"] = dict(state.get("current_config") or {})
+    payload_state["config"] = _sanitize_runtime_config(state.get("current_config") or {})
     payload_state["today_order_counts"] = today_counts
     payload_state["order_failure_summary"] = _order_failure_summary()
     payload_state["today_realized_pnl"] = _today_realized_pnl(normalized_account)
@@ -1096,108 +1073,14 @@ def _build_status_payload(state: dict[str, Any], account: dict[str, Any]) -> dic
 
 def _build_engine_control_payload(state: dict[str, Any]) -> dict[str, Any]:
     execution_mode = _current_execution_mode()
-    payload_state = dict(state)
+    payload_state = _sanitize_runtime_state(state)
     payload_state["running"] = payload_state.get("engine_state") == "running"
     payload_state["execution_mode"] = execution_mode
-    payload_state["config"] = dict(payload_state.get("current_config") or payload_state.get("config") or {})
+    payload_state["config"] = _sanitize_runtime_config(payload_state.get("current_config") or payload_state.get("config") or {})
     return {
         "ok": True,
         "execution_mode": execution_mode,
         "state": payload_state,
-    }
-
-
-def _resolve_validation_snapshot(signal: dict[str, Any]) -> dict[str, Any]:
-    ev = signal.get("ev_metrics") if isinstance(
-        signal.get("ev_metrics"), dict) else {}
-    reasoning = signal.get("signal_reasoning") if isinstance(
-        signal.get("signal_reasoning"), dict) else {}
-    calibration = reasoning.get("calibration") if isinstance(
-        reasoning.get("calibration"), dict) else {}
-    validation_snapshot = signal.get("validation_snapshot") if isinstance(
-        signal.get("validation_snapshot"), dict) else {}
-    reliability_detail = ev.get("reliability_detail") if isinstance(
-        ev.get("reliability_detail"), dict) else {}
-
-    trade_count = int(
-        validation_snapshot.get("trade_count")
-        or calibration.get("trade_count")
-        or signal.get("trade_count")
-        or signal.get("validation_trades")
-        or 0
-    )
-    trades = int(
-        validation_snapshot.get("validation_trades")
-        or calibration.get("sample_size")
-        or signal.get("validation_trades")
-        or 0
-    )
-    sharpe = _to_float(
-        validation_snapshot.get("validation_sharpe")
-        or calibration.get("validation_sharpe")
-        or signal.get("validation_sharpe"),
-        0.0,
-    )
-    max_drawdown_pct = validation_snapshot.get("max_drawdown_pct")
-    if max_drawdown_pct is None:
-        max_drawdown_pct = calibration.get("max_drawdown_pct")
-    if max_drawdown_pct is None:
-        max_drawdown_pct = signal.get("max_drawdown_pct")
-
-    assessment = assess_validation_reliability(
-        trade_count=trade_count if trade_count > 0 else trades,
-        validation_signals=trades,
-        validation_sharpe=sharpe,
-        max_drawdown_pct=_to_float(
-            max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
-    )
-    return {
-        "trade_count": trade_count if trade_count > 0 else trades,
-        "trades": trades,
-        "sharpe": round(sharpe, 4),
-        "max_drawdown_pct": None if max_drawdown_pct is None else round(_to_float(max_drawdown_pct, 0.0), 4),
-        "reliability": str(
-            validation_snapshot.get("strategy_reliability")
-            or reliability_detail.get("label")
-            or assessment.label
-        ),
-        "reliability_reason": str(
-            validation_snapshot.get("reliability_reason")
-            or reliability_detail.get("reason")
-            or assessment.reason
-        ),
-        "passes_minimum_gate": bool(
-            validation_snapshot.get("passes_minimum_gate", reliability_detail.get(
-                "passes_minimum_gate", assessment.passes_minimum_gate))
-        ),
-        "validation_reliable": bool(
-            validation_snapshot.get("is_reliable", reliability_detail.get(
-                "is_reliable", assessment.is_reliable))
-        ),
-        "source": str(validation_snapshot.get("validation_source") or "signal"),
-    }
-
-
-def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
-    snapshot = _resolve_validation_snapshot(signal)
-    if not bool(cfg.get("validation_gate_enabled", True)):
-        return True, [], {
-            "enabled": False,
-            **snapshot,
-        }
-
-    reasons: list[str] = []
-    if int(snapshot.get("trades") or 0) < int(cfg.get("validation_min_trades", 8)):
-        reasons.append("validation_trades_low")
-    if float(snapshot.get("sharpe") or 0.0) < float(cfg.get("validation_min_sharpe", 0.2)):
-        reasons.append("validation_sharpe_low")
-    if bool(cfg.get("validation_block_on_low_reliability", True)) and str(snapshot.get("reliability") or "insufficient") in {"low", "insufficient"}:
-        reasons.append("validation_reliability_low")
-
-    return len(reasons) == 0, reasons, {
-        "enabled": True,
-        "source": "signal",
-        **snapshot,
     }
 
 
@@ -1243,39 +1126,6 @@ def _record_execution_order(payload: dict[str, Any]) -> dict[str, Any]:
     return order_payload
 
 
-def _get_simulated_engine() -> SimulatedExecutionEngine:
-    global _simulated_engine
-    if _simulated_engine is None:
-        state_path = Path(os.getenv("RUNTIME_ACCOUNT_STATE_PATH") or str(_ACCOUNT_STATE_DIR / "simulated_account_state.json"))
-        _simulated_engine = SimulatedExecutionEngine(
-            config=EngineConfig(
-                state_path=state_path,
-                default_initial_cash_krw=10_000_000.0,
-                default_initial_cash_usd=10_000.0,
-                order_notifier=_notification_order_hook,
-            ),
-            quote_provider=_resolve_stock_quote,
-            fx_provider=_usd_krw_rate,
-        )
-    return _simulated_engine
-
-
-def _get_live_engine() -> LiveBrokerExecutionEngine:
-    """KISClient가 연결된 실거래 엔진을 반환한다."""
-    global _live_engine
-    if _live_engine is None:
-        kis = KISClient.from_env()
-        _live_engine = LiveBrokerExecutionEngine(
-            kis_client=kis,
-            quote_provider=_resolve_stock_quote,
-            fx_provider=_usd_krw_rate,
-            config=EngineConfig(
-                state_path=_ACCOUNT_STATE_DIR / "live_account_state.json",
-            ),
-        )
-    return _live_engine
-
-
 def get_execution_engine(mode: str = "paper") -> SimulatedExecutionEngine | LiveBrokerExecutionEngine:
     """실행 모드에 따라 엔진을 반환한다.
 
@@ -1283,10 +1133,7 @@ def get_execution_engine(mode: str = "paper") -> SimulatedExecutionEngine | Live
       'paper' - 내부 가상계좌 (현재 운영 중, 기본값)
       'live'  - KIS 실거래 주문 (실거래 전환 시 사용)
     """
-    normalized_mode = str(mode or "paper").strip().lower()
-    if normalized_mode == "live":
-        return _get_live_engine()
-    return _get_simulated_engine()
+    return _factory_get_execution_engine(mode, order_notifier=_notification_order_hook)
 
 
 def _normalize_pick_market(market: str) -> str:
@@ -3169,7 +3016,7 @@ def _start_auto_trader(config: dict) -> dict:
                 "error": "active_market_required",
                 "active_markets": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
             }
-        merged = _sync_primary_strategy_fields(merged)
+        merged = _sanitize_runtime_config(_sync_primary_strategy_fields(merged))
 
         _auto_trader_stop_event = threading.Event()
         _auto_trader_thread = threading.Thread(
@@ -3241,8 +3088,8 @@ def _resume_auto_trader() -> dict:
             return _build_engine_control_payload(dict(_auto_trader_state))
         if _auto_trader_thread is None or not _auto_trader_thread.is_alive():
             # 정지된 스레드는 재시작 시 start 흐름을 재사용한다.
-            start_cfg = dict(_auto_trader_state.get(
-                "current_config") or _default_auto_trader_config())
+            start_cfg = _sanitize_runtime_config(dict(_auto_trader_state.get(
+                "current_config") or _default_auto_trader_config()))
         else:
             _auto_trader_state["engine_state"] = "running"
             _auto_trader_state["running"] = True
@@ -3260,9 +3107,9 @@ def _resume_auto_trader() -> dict:
 def _auto_trader_status() -> dict:
     _hydrate_auto_trader_state()
     with _auto_trader_lock:
-        state = dict(_auto_trader_state)
+        state = _sanitize_runtime_state(_auto_trader_state)
     if not state.get("current_config"):
-        state["current_config"] = _default_auto_trader_config()
+        state["current_config"] = _sanitize_runtime_config(_default_auto_trader_config())
     if str(state.get("engine_state") or "") in {"running", "paused"} and not (_auto_trader_thread and _auto_trader_thread.is_alive()):
         state["engine_state"] = "stopped"
         state["running"] = False

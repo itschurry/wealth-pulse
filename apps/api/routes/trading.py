@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from services.execution_service import _current_execution_mode, hydrate_runtime_state, read_cached_live_runtime_account
+from services.execution_service import _current_execution_mode, hydrate_runtime_state
+from services.runtime_account_cache import read_cached_live_runtime_account
 from services.runtime_execution_service import get_execution_service
 from services.runtime_store import load_engine_state
 

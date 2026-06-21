@@ -7,7 +7,8 @@ from typing import Any
 
 from config.settings import RUNTIME_DIR
 from services.execution_lifecycle import coerce_order_id
-from services.execution_service import _current_execution_mode, _normalize_runtime_account, read_cached_live_runtime_account
+from services.execution_service import _current_execution_mode, _normalize_runtime_account
+from services.runtime_account_cache import read_cached_live_runtime_account
 from services.operations_report_service import build_operations_report
 from services.runtime_store import load_engine_state, read_execution_events, read_order_events
 
