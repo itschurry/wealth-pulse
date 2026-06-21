@@ -1,14 +1,7 @@
 from __future__ import annotations
 
-try:
-    import cache as _cache
-except ModuleNotFoundError:  # pragma: no cover - package import fallback
-    from apps.api import cache as _cache
-
-try:
-    from services.report_cache import get_cached_payload
-except ModuleNotFoundError:  # pragma: no cover - package import fallback
-    from apps.api.services.report_cache import get_cached_payload
+import cache as _cache
+from services.report_cache import get_cached_payload
 
 
 def get_market_context() -> dict:
@@ -21,9 +14,6 @@ def get_market_context() -> dict:
 
 
 def _storage_load_latest_report(key: str) -> dict | None:
-    try:
-        from reporter.storage import load_latest_report
-    except ModuleNotFoundError:  # pragma: no cover - package import fallback
-        from apps.api.reporter.storage import load_latest_report
+    from reporter.storage import load_latest_report
 
     return load_latest_report(key)

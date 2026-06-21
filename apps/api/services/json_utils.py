@@ -1,38 +1,26 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from threading import RLock
 from typing import Any
 
-try:
-    import orjson as _orjson  # type: ignore[import-not-found]
-except Exception:  # pragma: no cover - optional fast path
-    _orjson = None
+import orjson
 
 _JSON_FILE_CACHE: dict[str, tuple[tuple[int, int], Any]] = {}
 _JSON_FILE_CACHE_LOCK = RLock()
 
 
 def json_load_bytes(raw: bytes) -> Any:
-    if _orjson is not None:
-        return _orjson.loads(raw)
-    return json.loads(raw.decode("utf-8"))
+    return orjson.loads(raw)
 
 
 def json_dump_text(payload: Any, *, indent: int | None = None) -> str:
-    if _orjson is not None:
-        option = 0
-        if indent:
-            option |= _orjson.OPT_INDENT_2
-        return _orjson.dumps(payload, option=option).decode("utf-8")
-    return json.dumps(payload, ensure_ascii=False, indent=indent)
+    option = orjson.OPT_INDENT_2 if indent else 0
+    return orjson.dumps(payload, option=option).decode("utf-8")
 
 
 def json_dump_compact(payload: Any) -> str:
-    if _orjson is not None:
-        return _orjson.dumps(payload).decode("utf-8")
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return orjson.dumps(payload).decode("utf-8")
 
 
 def read_json_file_cached(path: Path) -> Any:

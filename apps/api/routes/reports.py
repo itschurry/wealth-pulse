@@ -3,10 +3,7 @@ import time
 from typing import Any
 
 import cache as _cache
-try:
-    from domains.report.market_context_service import get_market_context
-except ModuleNotFoundError:  # pragma: no cover - package import fallback
-    from apps.api.domains.report.market_context_service import get_market_context
+from domains.report.market_context_service import get_market_context
 from services.report_cache import get_cached_payload
 
 _SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ"}

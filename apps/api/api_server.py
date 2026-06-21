@@ -16,10 +16,6 @@ from api_contract import normalize_api_response
 from server import dispatch_get, dispatch_post
 
 
-def dispatch_put(path: str, payload: dict) -> tuple[int, dict] | None:
-    return dispatch_post(path, payload)
-
-
 app = FastAPI(title="WealthPulse API", version="2.0.0")
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
@@ -57,11 +53,6 @@ async def api_get(full_path: str, request: Request) -> JSONResponse:
 @app.post("/api/{full_path:path}")
 async def api_post(full_path: str, request: Request) -> JSONResponse:
     return await _body_dispatch(full_path, request, dispatch_post)
-
-
-@app.put("/api/{full_path:path}")
-async def api_put(full_path: str, request: Request) -> JSONResponse:
-    return await _body_dispatch(full_path, request, dispatch_put)
 
 
 async def _body_dispatch(full_path: str, request: Request, dispatcher) -> JSONResponse:

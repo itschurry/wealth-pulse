@@ -13,6 +13,7 @@ from market_utils import lookup_company_listing, normalize_market, resolve_marke
 from services.research_signal_service import get_today_picks as _get_today_picks
 from services.optimized_params_store import load_execution_optimized_params
 from services.universe_builder import get_universe_snapshot
+from analyzer.technical_snapshot import fetch_technical_snapshot as _fetch_technical_snapshot_impl
 
 DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]
 _ALLOWED_THEME_FOCUS = set(DEFAULT_THEME_FOCUS)
@@ -39,20 +40,8 @@ def _to_bool(raw: Any, default: bool) -> bool:
     return default
 
 
-try:
-    from analyzer.technical_snapshot import fetch_technical_snapshot as _fetch_technical_snapshot_impl
-except Exception:  # pragma: no cover - optional dependency in lightweight tests
-    _fetch_technical_snapshot_impl = None
-
-
-
 def fetch_technical_snapshot(code: str, market: str) -> dict[str, Any] | None:
-    if _fetch_technical_snapshot_impl is None:
-        return None
-    try:
-        return _fetch_technical_snapshot_impl(code, market)
-    except Exception:
-        return None
+    return _fetch_technical_snapshot_impl(code, market)
 
 
 

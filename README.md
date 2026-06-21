@@ -86,6 +86,7 @@ TELEGRAM_CHAT_ID=
 
 - `EXECUTION_MODE=paper`: 내부 가상계좌 엔진을 써. 기본값이야.
 - `EXECUTION_MODE=live`: KIS 실계좌 주문 경로를 써.
+- `/api/system/mode`: `EXECUTION_MODE`만 기준으로 모드를 보여줘. 별도 모드 변수로 우회하지 않아.
 - `WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted`: OpenAI 리서치 buy 판단이 품질/리스크를 통과하면 퀀트 entry 없이도 주문 검토로 올라갈 수 있어.
 - `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS=6000`: 리서치 JSON 잘림을 피하려고 현재 기준값으로 둬.
 - `DART_API_KEY`: 있으면 OpenDART 공시 evidence를 붙여.
@@ -101,6 +102,9 @@ TELEGRAM_CHAT_ID=
 ## API 진입 방식
 
 FastAPI 라우터를 여러 파일에 직접 등록하는 구조가 아니야. `api_server.py`가 `/api/{full_path:path}`를 받고, `server.py`의 `GET_ROUTES`, `POST_ROUTES` 테이블로 넘겨.
+지원 메서드는 `GET`, `POST`만이야. 예전처럼 `PUT`을 `POST`로 우회하지 않아.
+최적화 global overlay는 reliable 결과만 쓴다. reliable 결과가 없으면 전체/medium 결과로 넓히지 않고 저장을 건너뛰어.
+Quant candidate runtime 적용은 `base_query.market_scope`가 있어야만 진행해. 시장이 비어 있으면 전체 시장에 patch를 뿌리지 않고 실패시켜.
 
 ```text
 apps/api/api_server.py

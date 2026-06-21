@@ -2,36 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from pydantic import Field
-
-try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict
-except Exception:  # pragma: no cover - lightweight test environments may omit pydantic-settings
-    SettingsConfigDict = dict  # type: ignore[misc,assignment]
-
-    class BaseSettings:  # type: ignore[no-redef]
-        def __init__(self, **_: object) -> None:
-            for name, annotation in getattr(self.__class__, "__annotations__", {}).items():
-                default = getattr(self.__class__, name, None)
-                alias = None
-                if hasattr(default, "alias"):
-                    alias = getattr(default, "alias", None)
-                    default = getattr(default, "default", default)
-                env_name = alias or name.upper()
-                value = os.getenv(env_name, default)
-                if annotation is bool and isinstance(value, str):
-                    value = value.strip().lower() in {"1", "true", "yes", "on"}
-                elif annotation is int and isinstance(value, str):
-                    try:
-                        value = int(value)
-                    except ValueError:
-                        value = default
-                elif annotation is Path and isinstance(value, str):
-                    value = Path(value)
-                setattr(self, name, value)
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 _CURRENT_FILE = Path(__file__).resolve()

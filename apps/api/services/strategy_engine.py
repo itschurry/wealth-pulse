@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-try:
-    from domains.report.market_context_service import get_market_context
-except ModuleNotFoundError:  # pragma: no cover - package import fallback
-    from apps.api.domains.report.market_context_service import get_market_context
+from domains.report.market_context_service import get_market_context
 from helpers import _now_iso
 from services.risk_guard_service import build_risk_guard_state as _build_account_risk_guard_state
 from services.live_layers import build_layer_c_snapshot, build_layer_d_snapshot, build_layer_e_snapshot, build_layer_events

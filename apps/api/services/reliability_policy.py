@@ -22,8 +22,7 @@ BORDERLINE_REASONS: Final[set[str]] = {
 SYMBOL_OVERLAY_ALLOWED_LEVELS: Final[set[str]] = {"high"}
 GLOBAL_OVERLAY_PRIORITY: Final[tuple[str, str, str]] = (
     "high_only",
-    "medium_fallback",
-    "all_results_fallback",
+    "no_reliable_results",
 )
 
 T = TypeVar("T")
@@ -117,19 +116,12 @@ def select_global_overlay_candidates(
     is_reliable_getter: Callable[[T], bool],
     reliability_reason_getter: Callable[[T], str],
 ) -> tuple[list[T], str]:
+    _ = reliability_reason_getter
     high = [item for item in results if is_reliable_getter(item)]
     if high:
         return high, "high_only"
 
-    medium = [
-        item
-        for item in results
-        if reliability_reason_getter(item) in BORDERLINE_REASONS
-    ]
-    if medium:
-        return medium, "medium_fallback"
-
-    return list(results), "all_results_fallback"
+    return [], "no_reliable_results"
 
 
 def overlay_policy_metadata() -> dict[str, object]:

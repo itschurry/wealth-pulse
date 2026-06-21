@@ -1,16 +1,12 @@
 import datetime
 import json
-import logging
 import os
 import threading
 import uuid
 from pathlib import Path
 from typing import Any
 
-try:
-    from loguru import logger
-except Exception:  # pragma: no cover - fallback for lightweight test envs
-    logger = logging.getLogger(__name__)
+from loguru import logger
 from helpers import (
     _ACTIVE_AUTO_TRADE_MARKETS,
     _KST,
@@ -256,27 +252,14 @@ def _should_send_market_open_brief(calendar_market: str) -> tuple[bool, str]:
 
 
 def _build_market_open_brief_payload(*, calendar_market: str, finished_at: str, summary: dict[str, Any]) -> dict[str, Any]:
-    try:
-        from routes.market import _build_market
-    except Exception:
-        _build_market = None
+    from domains.report.market_context_service import get_market_context
+    from routes.market import _build_market
 
-    market_snapshot = _build_market() if callable(_build_market) else {}
+    market_snapshot = _build_market()
     market_context = {}
     summary_line = "시장 요약 수집 중"
     risk_line = ""
-    try:
-        from domains.report.market_context_service import get_market_context
-    except ModuleNotFoundError:
-        try:
-            from apps.api.domains.report.market_context_service import get_market_context
-        except ModuleNotFoundError:
-            get_market_context = None
-    if callable(get_market_context):
-        try:
-            market_context = get_market_context() or {}
-        except Exception:
-            market_context = {}
+    market_context = get_market_context() or {}
     context_payload = market_context.get("context") if isinstance(market_context.get("context"), dict) else {}
     summary_line = str(
         market_context.get("summary")
@@ -2131,15 +2114,15 @@ def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any])
     # Patch values are market-specific and must not bleed into other markets.
     base_query = candidate.get("base_query") if isinstance(candidate.get("base_query"), dict) else {}
     candidate_market = normalize_strategy_market(str(base_query.get("market_scope") or ""))
+    if not candidate_market:
+        raise ValueError("quant candidate market_scope is required")
 
     profile_map = merged.get("market_profiles") if isinstance(
         merged.get("market_profiles"), dict) else _auto_trader_profile_map(merged)
     next_profile_map: dict[str, dict[str, Any]] = {}
     for market, payload in profile_map.items():
         current_payload = dict(payload) if isinstance(payload, dict) else {}
-        # Apply patch only to the market this candidate was validated for.
-        # If candidate_market is unknown, apply to all (safe fallback).
-        if not candidate_market or normalize_strategy_market(market) == candidate_market:
+        if normalize_strategy_market(market) == candidate_market:
             for key, value in patch.items():
                 if key in _OPTIMIZABLE_KEYS and value not in (None, ""):
                     current_payload[key] = value

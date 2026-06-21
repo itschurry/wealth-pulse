@@ -346,7 +346,7 @@ def _compute_global_params(results: list[OptimizationResult]) -> tuple[dict, str
         reliability_reason_getter=lambda r: str(r.reliability_reason),
     )
     if not selected:
-        return {}, "all_results_fallback"
+        return {}, source
 
     return {
         "stop_loss_pct": round(float(np.median([r.best_params["stop_loss_pct"] for r in selected])), 1),
@@ -382,7 +382,7 @@ def _save_results(
     reliable = [r for r in results if r.is_reliable]
     medium = [r for r in results if (not r.is_reliable) and r.strategy_reliability == "medium"]
     global_params: dict = {}
-    global_overlay_source = "all_results_fallback"
+    global_overlay_source = "no_reliable_results"
     if results:
         global_params, global_overlay_source = _compute_global_params(results)
 
