@@ -232,6 +232,8 @@ export function WealthPulseHomePage({
   const tickers = [
     marketTicker('KOSPI', liveMarket.kospi, liveMarket.kospi_pct),
     marketTicker('KOSDAQ', liveMarket.kosdaq, liveMarket.kosdaq_pct),
+    marketTicker('NASDAQ', liveMarket.nasdaq, liveMarket.nasdaq_pct),
+    marketTicker('S&P100', liveMarket.sp100, liveMarket.sp100_pct),
     marketTicker('WTI', liveMarket.wti, liveMarket.wti_pct),
   ];
 
@@ -347,6 +349,11 @@ export function WealthPulseHomePage({
                   <em className={toneForNumber(item.pct)}>{safePct(item.pct)}</em>
                 </div>
               ))}
+              <div className="wealth-ticker">
+                <span>달러/원</span>
+                <strong>{liveMarket.usd_krw != null ? formatNumber(liveMarket.usd_krw, 0) : '-'}</strong>
+                <em>{liveMarket.updated_at ? '시장 흐름' : '-'}</em>
+              </div>
             </div>
             {sessionCards.length > 0 && (
               <div className="wealth-session-row">

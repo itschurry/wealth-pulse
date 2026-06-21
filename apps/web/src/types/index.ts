@@ -1,6 +1,9 @@
 export interface MarketData {
   kospi?: number; kospi_pct?: number;
   kosdaq?: number; kosdaq_pct?: number;
+  nasdaq?: number; nasdaq_pct?: number;
+  sp100?: number; sp100_pct?: number;
+  usd_krw?: number;
   wti?: number; wti_pct?: number;
   gold?: number; gold_pct?: number;
   btc?: number; btc_pct?: number;

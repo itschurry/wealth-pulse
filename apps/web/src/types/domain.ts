@@ -955,6 +955,11 @@ export interface LiveMarketResponse {
   kospi_pct?: number;
   kosdaq?: number;
   kosdaq_pct?: number;
+  nasdaq?: number;
+  nasdaq_pct?: number;
+  sp100?: number;
+  sp100_pct?: number;
+  usd_krw?: number;
   wti?: number;
   wti_pct?: number;
   updated_at?: string;

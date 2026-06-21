@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -54,6 +55,28 @@ def _stooq_spot(symbol: str):
         return close, pct
     except (ValueError, IndexError):
         return None, None
+
+
+def _yahoo_chart(symbol: str):
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
+    payload = json.loads(_get(url, timeout=4))
+    result = payload["chart"]["result"][0]
+    closes = result["indicators"]["quote"][0]["close"]
+    valid = [float(value) for value in closes if value is not None]
+    if not valid:
+        return None, None
+    close = valid[-1]
+    prev_close = valid[-2] if len(valid) >= 2 else close
+    pct = (close - prev_close) / prev_close * 100 if prev_close else None
+    return close, pct
+
+
+def _usd_krw():
+    text = _get("https://finance.naver.com/marketindex/", timeout=4)
+    match = re.search(r'class="value"[^>]*>(1[,\d]+\.\d{2})', text)
+    if match:
+        return float(match.group(1).replace(",", ""))
+    return None
 
 
 def _normalize_quote_market(code: str, market: str) -> str:
@@ -182,6 +205,9 @@ def _build_market() -> dict:
     tasks = {
         "kospi": lambda: _naver_index("KOSPI"),
         "kosdaq": lambda: _naver_index("KOSDAQ"),
+        "nasdaq": lambda: _yahoo_chart("^IXIC"),
+        "sp100": lambda: _yahoo_chart("^OEX"),
+        "usd_krw": _usd_krw,
         "wti": lambda: _stooq_spot("cl.f"),
     }
 
@@ -191,6 +217,10 @@ def _build_market() -> dict:
             key = futures[future]
             try:
                 value = future.result()
+                if key == "usd_krw":
+                    if value:
+                        result["usd_krw"] = round(value, 2)
+                    continue
                 price, change_pct = value
                 if price:
                     result[key] = round(price, 2)
