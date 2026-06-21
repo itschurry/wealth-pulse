@@ -265,7 +265,7 @@ def _build_quant_runtime_candidate(
 
 def _universe_code_set(market: str) -> set[str]:
     """유니버스 스냅샷에서 유효 종목 코드 집합을 반환한다."""
-    rule = "kospi" if normalize_market(market) == "KOSPI" else "sp500"
+    rule = "kospi"
     snapshot = get_universe_snapshot(rule, market=market)
     return {
         str(sym.get("code") or "").upper()

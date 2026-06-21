@@ -17,7 +17,6 @@ from services.trade_workflow import enrich_signal_payload
 from services.bluechip_universe import bluechip_meta
 
 
-# NASDAQ 운영은 KOSPI 검증 이후 연다. 자동 signal book 기본값은 KOSPI만 둔다.
 DEFAULT_SIGNAL_MARKETS = ("KOSPI",)
 
 

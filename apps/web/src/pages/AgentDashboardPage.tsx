@@ -15,7 +15,6 @@ import {
   formatKRW,
   formatNumber,
   formatPercent,
-  formatUSD,
 } from '../utils/format';
 
 interface AgentDashboardPageProps {
@@ -162,7 +161,6 @@ export function AgentDashboardPage({ snapshot, loading, errorMessage, onRefresh 
 
   const equityKrw = toNumber(account.equity_krw) || toNumber(performance.equity_krw) || toNumber(engineState.current_equity);
   const cashKrw = toNumber(account.cash_krw) || toNumber(performance.cash_krw);
-  const cashUsd = toNumber(account.cash_usd) || toNumber(performance.cash_usd);
   const marketValueKrw = positions.reduce((sum, item) => sum + item.valueKrw, 0) || toNumber(performance.market_value_krw);
   const unrealizedPnlKrw = positions.reduce((sum, item) => sum + item.pnlKrw, 0) || toNumber(performance.unrealized_pnl_krw);
   const realizedPnlKrw = toNumber(performance.realized_pnl_krw) || toNumber(engineState.today_realized_pnl);
@@ -218,7 +216,6 @@ export function AgentDashboardPage({ snapshot, loading, errorMessage, onRefresh 
             <div className="portfolio-subline">
               <span>투자 {formatKRW(marketValueKrw, true)}</span>
               <span>현금 {formatKRW(cashKrw, true)}</span>
-              <span>USD {formatUSD(cashUsd, true)}</span>
               <span>{formatNumber(positions.length, 0)}종목</span>
             </div>
           </div>

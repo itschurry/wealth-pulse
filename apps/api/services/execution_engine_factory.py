@@ -22,7 +22,7 @@ def _get_simulated_engine(order_notifier: Callable[[dict[str, Any], dict[str, An
             config=EngineConfig(
                 state_path=state_path,
                 default_initial_cash_krw=10_000_000.0,
-                default_initial_cash_usd=10_000.0,
+                default_initial_cash_usd=0.0,
                 order_notifier=order_notifier,
             ),
             quote_provider=resolve_stock_quote,

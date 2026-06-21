@@ -4,20 +4,15 @@ import type { RuntimeAccountData, RuntimeEngineConfig, RuntimeEngineState, Runti
 
 const EMPTY_ACCOUNT: RuntimeAccountData = {
   mode: 'paper',
-  base_currency: 'MULTI',
+  base_currency: 'KRW',
   initial_cash_krw: 0,
-  initial_cash_usd: 0,
   cash_krw: 0,
-  cash_usd: 0,
   market_value_krw: 0,
-  market_value_usd: 0,
   equity_krw: 0,
   starting_equity_krw: 0,
   fx_rate: 0,
   realized_pnl_krw: 0,
-  realized_pnl_usd: 0,
   total_fees_krw: 0,
-  total_fees_usd: 0,
   positions: [],
   orders: [],
 };
@@ -140,7 +135,7 @@ export function useRuntimeTrading(options?: { autoRefreshEnabled?: boolean }) {
   const placeOrder = useCallback(async (params: {
     side: 'buy' | 'sell';
     code: string;
-    market: 'KOSPI' | 'NASDAQ';
+    market: 'KOSPI';
     quantity: number;
     order_type: 'market' | 'limit';
     limit_price?: number | null;
@@ -170,7 +165,6 @@ export function useRuntimeTrading(options?: { autoRefreshEnabled?: boolean }) {
 
   const reset = useCallback(async (params?: {
     initial_cash_krw?: number;
-    initial_cash_usd?: number;
     seed_positions?: RuntimeSeedPositionInput[];
   }) => {
     invalidateAccountRequests();
@@ -196,7 +190,7 @@ export function useRuntimeTrading(options?: { autoRefreshEnabled?: boolean }) {
   }, [invalidateAccountRequests, invalidateEngineRequests, invalidateRuntimeLogRequests]);
 
   const autoInvest = useCallback(async (params?: {
-    market?: 'KOSPI' | 'NASDAQ';
+    market?: 'KOSPI';
     max_positions?: number;
     min_score?: number;
     include_neutral?: boolean;
@@ -311,7 +305,6 @@ export function useRuntimeTrading(options?: { autoRefreshEnabled?: boolean }) {
     clear_account_state?: boolean;
     hard_reset?: boolean;
     initial_cash_krw?: number;
-    initial_cash_usd?: number;
   } = { clear_all: true }) => {
     invalidateAccountRequests();
     invalidateEngineRequests();

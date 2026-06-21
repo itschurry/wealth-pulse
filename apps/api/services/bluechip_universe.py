@@ -8,7 +8,6 @@ from services.universe_builder import get_configured_universe_snapshot
 
 
 DEFAULT_BLUECHIP_TOP_N_KOSPI = 20
-DEFAULT_BLUECHIP_TOP_N_US = 20
 
 
 def _to_int(value: Any, default: int) -> int:
@@ -28,22 +27,17 @@ def _normalize_market(value: Any) -> str:
 
 
 def bluechip_rule_for_market(market: str) -> str:
-    normalized = _normalize_market(market)
-    return "sp500" if normalized in {"NASDAQ", "NYSE", "AMEX", "US", "USA"} else "kospi"
+    return "kospi"
 
 
 def bluechip_top_n_for_market(market: str, cfg: dict[str, Any] | None = None) -> int:
     cfg = cfg if isinstance(cfg, dict) else {}
-    normalized = _normalize_market(market)
-    if normalized in {"NASDAQ", "NYSE", "AMEX", "US", "USA"}:
-        return max(1, _to_int(cfg.get("bluechip_top_n_us"), DEFAULT_BLUECHIP_TOP_N_US))
     return max(1, _to_int(cfg.get("bluechip_top_n_kospi"), DEFAULT_BLUECHIP_TOP_N_KOSPI))
 
 
 @lru_cache(maxsize=16)
 def _bluechip_symbols(rule_name: str, market: str, top_n: int) -> tuple[str, ...]:
-    snapshot_market = None if rule_name == "sp500" else market
-    snapshot = get_configured_universe_snapshot(rule_name, market=snapshot_market)
+    snapshot = get_configured_universe_snapshot(rule_name, market=market)
     rows = snapshot.get("symbols") if isinstance(snapshot, dict) else []
     symbols: list[str] = []
     for row in rows if isinstance(rows, list) else []:

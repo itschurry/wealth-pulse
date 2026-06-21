@@ -14,11 +14,9 @@ import {
   formatDateTime,
   formatDateTimeWithAge,
   formatKRW,
-  formatLocalAmountWithKRW,
   formatNumber,
   formatPercent,
   formatSymbol,
-  formatUSD,
 } from '../utils/format';
 
 interface WealthPulseHomePageProps {
@@ -73,15 +71,9 @@ function normalizePositionArray(raw: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
-function isUsMarket(raw: string): boolean {
-  const market = raw.toUpperCase();
-  return market === 'NASDAQ' || market === 'NYSE' || market === 'AMEX' || market === 'US';
-}
-
-function marketLabel(raw: string): 'KOSPI' | 'NASDAQ' | 'OTHER' {
+function marketLabel(raw: string): 'KOSPI' | 'OTHER' {
   const market = raw.toUpperCase();
   if (market === 'KOSPI' || market === 'KOSDAQ') return 'KOSPI';
-  if (isUsMarket(market)) return 'NASDAQ';
   return 'OTHER';
 }
 
@@ -196,28 +188,22 @@ export function WealthPulseHomePage({
   const totalUnrealizedPnlKrw = positions.reduce((sum, item) => sum + item.unrealizedPnlKrw, 0);
   const totalEquityKrw = toNumber(portfolioAccount.equity_krw) || toNumber(engineState.current_equity) || toNumber(engineAccount.equity_krw);
   const cashKrw = toNumber(portfolioAccount.cash_krw) || toNumber(engineAccount.cash_krw);
-  const cashUsd = toNumber(portfolioAccount.cash_usd) || toNumber(engineAccount.cash_usd);
   const todayRealizedPnlKrw = toNumber(engineState.today_realized_pnl);
   const totalBookValueKrw = Math.max(totalEquityKrw, totalMarketValueKrw + cashKrw, 1);
   const livePerformance = snapshot.performance.live || {};
   const totalReturnPct = toOptionalNumber(livePerformance.total_return_pct);
   const positionReturnPct = toOptionalNumber(livePerformance.position_return_pct);
   const positionReturnKrwPct = toOptionalNumber(livePerformance.position_return_pct_krw);
-  const positionReturnUsdPct = toOptionalNumber(livePerformance.position_return_pct_usd);
   const startingEquityKrw = toNumber(livePerformance.starting_equity_krw);
   const performanceEquityKrw = toNumber(livePerformance.equity_krw) || totalEquityKrw;
   const positionCostKrw = toNumber(livePerformance.position_cost_krw) || Math.max(0, totalMarketValueKrw - totalUnrealizedPnlKrw);
   const positionMarketValueKrw = toNumber(livePerformance.position_market_value_krw) || totalMarketValueKrw;
   const positionUnrealizedKrwOnly = toNumber(livePerformance.position_unrealized_pnl_krw_only);
-  const positionUnrealizedUsd = toNumber(livePerformance.position_unrealized_pnl_usd);
 
   const kospiExposureKrw = positions
     .filter((item) => marketLabel(item.market) === 'KOSPI')
     .reduce((sum, item) => sum + item.marketValueKrw, 0);
-  const nasdaqExposureKrw = positions
-    .filter((item) => marketLabel(item.market) === 'NASDAQ')
-    .reduce((sum, item) => sum + item.marketValueKrw, 0);
-  const otherExposureKrw = Math.max(0, totalMarketValueKrw - kospiExposureKrw - nasdaqExposureKrw);
+  const otherExposureKrw = Math.max(0, totalMarketValueKrw - kospiExposureKrw);
   const cashAllocationKrw = Math.max(0, totalBookValueKrw - totalMarketValueKrw);
 
   const allocator = snapshot.engine.allocator || {};
@@ -242,25 +228,21 @@ export function WealthPulseHomePage({
   const liveMarket = snapshot.liveMarket || {};
   const marketCtx = snapshot.marketContext || {};
   const marketSessions = liveMarket.market_sessions || {};
-  const sessionCards = [marketSessions.KR, marketSessions.US].filter(Boolean);
+  const sessionCards = [marketSessions.KR].filter(Boolean);
   const tickers = [
     marketTicker('KOSPI', liveMarket.kospi, liveMarket.kospi_pct),
     marketTicker('KOSDAQ', liveMarket.kosdaq, liveMarket.kosdaq_pct),
-    marketTicker('NASDAQ', liveMarket.nasdaq, liveMarket.nasdaq_pct),
-    marketTicker('S&P100', liveMarket.sp100, liveMarket.sp100_pct),
     marketTicker('WTI', liveMarket.wti, liveMarket.wti_pct),
   ];
 
   const allocationRows: BarRow[] = [
     { label: '현금', value: formatKRWExact(cashAllocationKrw), meta: ratioPercent(cashAllocationKrw, totalBookValueKrw), width: ratioPercent(cashAllocationKrw, totalBookValueKrw), tone: 'is-cash' },
     { label: 'KOSPI', value: formatKRWExact(kospiExposureKrw), meta: ratioPercent(kospiExposureKrw, totalBookValueKrw), width: ratioPercent(kospiExposureKrw, totalBookValueKrw), tone: 'is-kospi' },
-    { label: 'NASDAQ', value: formatKRWExact(nasdaqExposureKrw), meta: ratioPercent(nasdaqExposureKrw, totalBookValueKrw), width: ratioPercent(nasdaqExposureKrw, totalBookValueKrw), tone: 'is-nasdaq' },
     { label: '기타', value: formatKRWExact(otherExposureKrw), meta: ratioPercent(otherExposureKrw, totalBookValueKrw), width: ratioPercent(otherExposureKrw, totalBookValueKrw), tone: 'is-other' },
   ];
   const allocationGradient = buildConicGradient([
     { value: cashAllocationKrw, color: 'var(--text-4)' },
     { value: kospiExposureKrw, color: 'var(--gold)' },
-    { value: nasdaqExposureKrw, color: 'var(--up)' },
     { value: otherExposureKrw, color: 'var(--silver)' },
   ]);
   const universeSymbolCount = (snapshot.universe.items || []).reduce((sum, item) => sum + toNumber(item.symbol_count), 0);
@@ -331,7 +313,6 @@ export function WealthPulseHomePage({
                 <div className="wealth-hero-number">{formatKRWExact(totalEquityKrw)}</div>
                 <div className="wealth-hero-subline">
                   <span>원화 현금 {formatKRWExact(cashKrw)}</span>
-                  <span>달러 현금 {formatUSD(cashUsd, true)}</span>
                   <span>{formatDateTimeWithAge(snapshot.fetchedAt)}</span>
                 </div>
               </div>
@@ -366,11 +347,6 @@ export function WealthPulseHomePage({
                   <em className={toneForNumber(item.pct)}>{safePct(item.pct)}</em>
                 </div>
               ))}
-              <div className="wealth-ticker">
-                <span>달러/원</span>
-                <strong>{liveMarket.usd_krw != null ? formatNumber(liveMarket.usd_krw, 0) : '-'}</strong>
-                <em>{liveMarket.updated_at ? '실시간' : '-'}</em>
-              </div>
             </div>
             {sessionCards.length > 0 && (
               <div className="wealth-session-row">
@@ -435,11 +411,9 @@ export function WealthPulseHomePage({
                   <div className="wealth-data-meta">투자 {formatKRWExact(positionCostKrw)} / 평가 {formatKRWExact(positionMarketValueKrw)}</div>
                 </div>
                 <div className="wealth-data-row">
-                  <div className="wealth-data-label">시장별 수익률</div>
-                  <div className="wealth-data-main">{positionReturnKrwPct == null ? '-' : formatPercent(positionReturnKrwPct, 2)} / {positionReturnUsdPct == null ? '-' : formatPercent(positionReturnUsdPct, 2)}</div>
-                  <div className="wealth-data-meta">
-                    원화 {formatKRWExact(positionUnrealizedKrwOnly)} · 달러 {formatLocalAmountWithKRW(positionUnrealizedUsd, positionUnrealizedUsd && liveMarket.usd_krw ? positionUnrealizedUsd * Number(liveMarket.usd_krw) : null, 'USD')}
-                  </div>
+                  <div className="wealth-data-label">KOSPI 수익률</div>
+                  <div className="wealth-data-main">{positionReturnKrwPct == null ? '-' : formatPercent(positionReturnKrwPct, 2)}</div>
+                  <div className="wealth-data-meta">평가손익 {formatKRWExact(positionUnrealizedKrwOnly)}</div>
                 </div>
               </div>
             </div>
@@ -523,7 +497,6 @@ export function WealthPulseHomePage({
               <div className="wealth-context-item"><span>위험도</span><strong>{marketCtx.risk_level || allocator.risk_level || '-'}</strong></div>
               <div className="wealth-context-item"><span>물가</span><strong>{marketCtx.inflation_signal || '-'}</strong></div>
               <div className="wealth-context-item"><span>정책</span><strong>{marketCtx.policy_signal || '-'}</strong></div>
-              <div className="wealth-context-item"><span>달러</span><strong>{marketCtx.dollar_signal || '-'}</strong></div>
             </section>
           )}
 

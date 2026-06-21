@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cache as _cache
 from helpers import _HEADERS, _KST, _get_kis_client, _parse_signed_number, _strip_html
-from routes.market import _overseas_exchange_candidates
 from routes.reports import (
     _get_recommendations,
     _get_today_picks,
@@ -29,6 +28,8 @@ def _sanitize_watchlist_item(item: dict) -> dict | None:
     name = str(item.get("name") or "").strip()
     market = str(item.get("market") or "").strip().upper()
     if not code or not name or not market:
+        return None
+    if market != "KOSPI":
         return None
     sanitized = {
         "code": code,

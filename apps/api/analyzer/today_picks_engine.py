@@ -5,15 +5,9 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from analyzer.utils import (
-    DYNAMIC_TICKER_BLOCKLIST as _DYNAMIC_TICKER_BLOCKLIST,
-    US_TICKER_PATTERN as _US_TICKER_PATTERN,
-    article_text as _article_text,
-    normalize_lower as _normalize,
-)
+from analyzer.utils import article_text as _article_text, normalize_lower as _normalize
 from collectors.models import DailyData, NewsArticle
 from config.company_catalog import CompanyCatalogEntry, get_company_catalog
-from market_utils import resolve_market
 from services.agent_commentary_service import build_agent_candidate_commentary
 
 _KST = ZoneInfo("Asia/Seoul")
@@ -42,7 +36,7 @@ _DISCLOSURE_NEGATIVE = {"capital", "governance", "restructuring"}
 _EVENT_RISK_CATEGORIES = {"inflation", "policy", "labor"}
 _THEME_GATE_MIN_SCORE = 2.5
 _THEME_GATE_MIN_NEWS = 1
-_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ", "NYSE", "AMEX"}
+_AUTO_TRADE_MARKETS = {"KOSPI"}
 _SECTOR_THEME_HINTS = {
     "자동차": {"automotive", "physical_ai"},
     "자동차부품": {"automotive", "robotics", "physical_ai"},
@@ -51,10 +45,6 @@ _SECTOR_THEME_HINTS = {
     "플랫폼": {"physical_ai"},
     "가전": {"robotics", "physical_ai"},
 }
-_US_CONTEXT_KEYWORDS = (
-    "nasdaq", "nyse", "amex", "미국증시", "뉴욕증시", "월가", "us stock", "u.s. stock",
-    "adr", "premarket", "after-hours", "after hours", "pre-market",
-)
 _ASCII_ALIAS_PATTERN = re.compile(r"[a-z0-9][a-z0-9 .&\\-]*")
 
 
@@ -66,11 +56,6 @@ def _alias_in_text(alias: str, text: str) -> bool:
         pattern = rf"(?<![a-z0-9]){re.escape(normalized_alias)}(?![a-z0-9])"
         return re.search(pattern, text) is not None
     return normalized_alias in text
-
-
-def _has_us_market_context(raw_text: str) -> bool:
-    lowered = str(raw_text or "").lower()
-    return any(keyword in lowered for keyword in _US_CONTEXT_KEYWORDS)
 
 
 def _score_keywords(text: str, keywords: tuple[str, ...]) -> int:
@@ -495,58 +480,7 @@ def _extract_dynamic_us_ticker_entries(
     *,
     existing_codes: set[str],
 ) -> list[CompanyCatalogEntry]:
-    mention_counts: dict[str, int] = {}
-    dollar_mentioned: set[str] = set()
-
-    for article in news:
-        raw_text = " ".join(
-            [article.title or "", article.summary or "", article.body or ""])
-        if not raw_text:
-            continue
-        has_us_context = _has_us_market_context(raw_text)
-        article_counts: dict[str, int] = {}
-        for match in _US_TICKER_PATTERN.finditer(raw_text):
-            token = str(match.group(1) or "").strip().upper()
-            if not token:
-                continue
-            if token.startswith("$"):
-                token = token[1:]
-                if token:
-                    dollar_mentioned.add(token)
-            if (
-                not token
-                or len(token) < 2
-                or token in _DYNAMIC_TICKER_BLOCKLIST
-                or token in existing_codes
-            ):
-                continue
-            resolved_market = resolve_market(
-                code=token, name=token, scope="core")
-            if resolved_market in {"KOSPI", "KOSDAQ"}:
-                continue
-            if not resolved_market:
-                if len(token) < 3 and token not in dollar_mentioned:
-                    continue
-                if token not in dollar_mentioned and not has_us_context:
-                    continue
-            article_counts[token] = article_counts.get(token, 0) + 1
-        for code, count in article_counts.items():
-            mention_counts[code] = mention_counts.get(code, 0) + count
-
-    entries: list[CompanyCatalogEntry] = []
-    for code, mentions in sorted(mention_counts.items(), key=lambda item: (-item[1], item[0])):
-        if mentions < 2 and code not in dollar_mentioned:
-            continue
-        entries.append(
-            CompanyCatalogEntry(
-                name=code,
-                code=code,
-                market="NASDAQ",
-                sector="미국주식",
-                aliases=(code, code.lower()),
-            )
-        )
-    return entries
+    return []
 
 
 def _build_pick(

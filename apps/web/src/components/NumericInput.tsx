@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { formatKRW, formatNumber, formatUSD } from '../utils/format';
+import { formatKRW, formatNumber } from '../utils/format';
 
 export interface NumericInputProps {
   value: number | null | undefined;
@@ -10,17 +10,16 @@ export interface NumericInputProps {
   step?: number;
   allowNull?: boolean;
   decimals?: number;
-  currency?: 'KRW' | 'USD' | null;
+  currency?: 'KRW' | null;
   className?: string;
   style?: CSSProperties;
 }
 
 function formatNumericDisplay(
   value: number | null | undefined,
-  options?: { decimals?: number; currency?: 'KRW' | 'USD' | null },
+  options?: { decimals?: number; currency?: 'KRW' | null },
 ) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '';
-  if (options?.currency === 'USD') return formatUSD(value, false);
   if (options?.currency === 'KRW') return formatKRW(value, false);
   return formatNumber(value, options?.decimals ?? 0);
 }

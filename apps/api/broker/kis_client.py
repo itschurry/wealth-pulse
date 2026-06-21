@@ -82,15 +82,6 @@ class KISClient:
     """토큰 발급과 시세/거래 조회를 위한 최소 REST 클라이언트."""
 
     _TOKEN_CACHE_PATH = CACHE_DIR / "secrets" / "kis_token_cache.json"
-    _OVERSEAS_PRICE_PATH = "/uapi/overseas-price/v1/quotations/price-detail"
-    _OVERSEAS_DAILY_PATH = "/uapi/overseas-price/v1/quotations/dailyprice"
-    _OVERSEAS_PRICE_TR_IDS = ("HHDFS76200200",)
-    _OVERSEAS_DAILY_TR_IDS = ("HHDFS76240000",)
-    _OVERSEAS_EXCHANGE_MAP = {
-        "NASDAQ": ("NAS", "NASD", "NASQ"),
-        "NYSE": ("NYS", "NYSE"),
-        "AMEX": ("AMS", "AMEX"),
-    }
     _GLOBAL_RATE_LOCK = threading.Lock()
     _GLOBAL_LAST_REQUEST_AT = 0.0
 
@@ -501,14 +492,13 @@ class KISClient:
             end_date=end_date,
         )
 
-    # ── 해외주식 시세 ─────────────────────────────────────────────────────────
-
     def get_overseas_price(
         self,
         symbol: str,
         *,
-        exchange: str = "NASDAQ",
+        exchange: str = "",
     ) -> dict[str, Any]:
+        raise KISAPIError("overseas_quote_not_supported")
         normalized_symbol = symbol.strip().upper()
         if not normalized_symbol:
             raise ValueError("symbol is required")
@@ -574,10 +564,11 @@ class KISClient:
         self,
         symbol: str,
         *,
-        exchange: str = "NASDAQ",
+        exchange: str = "",
         start_date: str = "",
         end_date: str = "",
     ) -> list[dict[str, Any]]:
+        raise KISAPIError("overseas_history_not_supported")
         normalized_symbol = symbol.strip().upper()
         if not normalized_symbol:
             raise ValueError("symbol is required")
@@ -690,15 +681,6 @@ class KISClient:
 
         return [history_by_date[date] for date in sorted(history_by_date)]
 
-    def _normalize_overseas_exchange(self, exchange: str) -> tuple[str, ...]:
-        normalized = (exchange or "").strip().upper()
-        if normalized in self._OVERSEAS_EXCHANGE_MAP:
-            return self._OVERSEAS_EXCHANGE_MAP[normalized]
-        for _, exchange_codes in self._OVERSEAS_EXCHANGE_MAP.items():
-            if normalized in exchange_codes:
-                return exchange_codes
-        return self._OVERSEAS_EXCHANGE_MAP["NASDAQ"]
-
     # ── 잔고 / 주문가능금액 ───────────────────────────────────────────────────
 
     def get_balance(
@@ -750,16 +732,6 @@ class KISClient:
             nk100 = str(payload.get("ctx_area_nk100") or "")
             if tr_cont not in {"M", "F"}:
                 break
-
-        def _market_from_exchange_code(exchange_code: str) -> str:
-            normalized = str(exchange_code or "").strip().upper()
-            if normalized.startswith("NAS"):
-                return "NASDAQ"
-            if normalized.startswith("NYS") or normalized == "NYSE":
-                return "NYSE"
-            if normalized.startswith("AMS") or normalized == "AMEX":
-                return "AMEX"
-            return "NASDAQ"
 
         def _summary_row(payload: Any) -> dict[str, Any]:
             if isinstance(payload, dict):
@@ -824,150 +796,16 @@ class KISClient:
             )
         )
 
-        overseas_raw_positions: list[dict[str, Any]] = []
-        overseas_raw_summaries: dict[str, list[dict[str, Any]]] = {}
-        overseas_errors: dict[str, str] = {}
-        overseas_cash_usd = 0.0
-        overseas_buy_amount_usd = 0.0
-        overseas_eval_amount_usd = 0.0
-        overseas_eval_profit_loss_usd = 0.0
-        fx_rates: list[float] = []
-
-        balance_exchange_codes = {
-            "NASDAQ": "NASD",
-            "NYSE": "NYSE",
-            "AMEX": "AMEX",
-        }
-
-        for market_name in ("NASDAQ", "NYSE", "AMEX"):
-            exchange_code = balance_exchange_codes[market_name]
-            fk200 = ""
-            nk200 = ""
-            exchange_tr_cont = ""
-            exchange_positions: list[dict[str, Any]] = []
-            exchange_summary: list[dict[str, Any]] = []
-
-            try:
-                while True:
-                    headers = self._auth_headers("TTTS3012R")
-                    if exchange_tr_cont:
-                        headers["tr_cont"] = exchange_tr_cont
-
-                    payload, response = self._request_full(
-                        "GET",
-                        "/uapi/overseas-stock/v1/trading/inquire-balance",
-                        headers=headers,
-                        params={
-                            "CANO": cano,
-                            "ACNT_PRDT_CD": product_code,
-                            "OVRS_EXCG_CD": exchange_code,
-                            "TR_CRCY_CD": "USD",
-                            "CTX_AREA_FK200": fk200,
-                            "CTX_AREA_NK200": nk200,
-                        },
-                    )
-                    exchange_positions.extend(payload.get("output1") or [])
-                    exchange_summary = payload.get("output2") or exchange_summary
-                    exchange_tr_cont = str(response.headers.get("tr_cont") or "")
-                    fk200 = str(payload.get("ctx_area_fk200") or "")
-                    nk200 = str(payload.get("ctx_area_nk200") or "")
-                    if exchange_tr_cont not in {"M", "F"}:
-                        break
-            except Exception as exc:
-                overseas_errors[market_name] = str(exc)
-                continue
-
-            overseas_raw_positions.extend(exchange_positions)
-            overseas_raw_summaries[market_name] = exchange_summary
-            exchange_summary_row = _summary_row(exchange_summary)
-            exchange_fx_rate = _pick_float(
-                exchange_summary_row,
-                "bass_exrt",
-                "base_exrt",
-                "frst_bltn_exrt",
-            )
-            if exchange_fx_rate and exchange_fx_rate > 0:
-                fx_rates.append(exchange_fx_rate)
-
-            overseas_cash_usd += _pick_float(
-                exchange_summary_row,
-                "frcr_dncl_amt_2",
-                "frcr_dncl_amt",
-                "ovrs_dncl_amt",
-                "dncl_amt",
-            ) or 0.0
-            overseas_buy_amount_usd += _pick_float(
-                exchange_summary_row,
-                "frcr_buy_amt_smtl1",
-                "frcr_pchs_amt1",
-                "frcr_pchs_amt",
-                "tot_frcr_pchs_amt",
-            ) or 0.0
-            overseas_eval_amount_usd += _pick_float(
-                exchange_summary_row,
-                "frcr_evlu_amt2",
-                "ovrs_stck_evlu_amt",
-                "frcr_evlu_amt",
-                "tot_evlu_amt",
-            ) or 0.0
-            overseas_eval_profit_loss_usd += _pick_float(
-                exchange_summary_row,
-                "frcr_evlu_pfls_amt",
-                "ovrs_tot_pfls",
-                "tot_evlu_pfls_amt",
-            ) or 0.0
-
-            for item in exchange_positions:
-                quantity = _to_int(
-                    item.get("cblc_qty13")
-                    or item.get("ovrs_cblc_qty")
-                    or item.get("cblc_qty")
-                    or item.get("ord_psbl_qty1")
-                    or item.get("ord_psbl_qty")
-                )
-                market = _market_from_exchange_code(
-                    _pick_str(item, "ovrs_excg_cd", "ovrs_excg_cd_name", "tr_mket_name") or exchange_code
-                )
-                fx_rate = _pick_float(
-                    item,
-                    "bass_exrt",
-                    "base_exrt",
-                    "frst_bltn_exrt",
-                ) or exchange_fx_rate or 0.0
-                position = {
-                    "code": _pick_str(item, "ovrs_pdno", "pdno", "prdt_no"),
-                    "name": _pick_str(item, "ovrs_item_name", "prdt_name", "prdt_abrv_name", "hts_kor_isnm"),
-                    "market": market,
-                    "currency": _pick_str(item, "tr_crcy_cd", "crcy_cd", "ovrs_crcy_cd") or "USD",
-                    "fx_rate": fx_rate,
-                    "quantity": quantity,
-                    "orderable_quantity": _to_int(item.get("ord_psbl_qty1") or item.get("ord_psbl_qty")),
-                    "avg_price": _pick_float(item, "pchs_avg_pric", "avg_unpr", "pchs_amt") ,
-                    "current_price": _pick_float(item, "now_pric2", "ovrs_nmix_prpr", "last", "trade_price"),
-                    "eval_amount": _pick_float(item, "ovrs_stck_evlu_amt", "frcr_evlu_amt2", "evlu_amt"),
-                    "profit_loss": _pick_float(item, "frcr_evlu_pfls_amt", "ovrs_evlu_pfls_amt", "evlu_pfls_amt"),
-                    "profit_loss_rate": _pick_float(item, "evlu_pfls_rt", "evlu_erng_rt", "profit_rt"),
-                }
-                if any(
-                    value not in (None, "", 0)
-                    for value in (
-                        position["quantity"],
-                        position["eval_amount"],
-                        position["profit_loss"],
-                    )
-                ):
-                    positions.append(position)
-
-        fx_rate = next((value for value in fx_rates if value and value > 0), 0.0)
-        total_eval_amount_krw = domestic_eval_amount_krw + (overseas_eval_amount_usd * fx_rate)
-        total_eval_profit_loss_krw = domestic_eval_profit_loss_krw + (overseas_eval_profit_loss_usd * fx_rate)
-        total_buy_amount_krw = domestic_buy_amount_krw + (overseas_buy_amount_usd * fx_rate)
+        fx_rate = 0.0
+        total_eval_amount_krw = domestic_eval_amount_krw
+        total_eval_profit_loss_krw = domestic_eval_profit_loss_krw
+        total_buy_amount_krw = domestic_buy_amount_krw
         domestic_total_for_rollup_krw = (
             domestic_total_amount_krw
             if domestic_total_amount_krw_raw is not None
             else (domestic_cash_krw + domestic_eval_amount_krw)
         )
-        total_amount_krw = domestic_total_for_rollup_krw + (overseas_cash_usd * fx_rate) + (overseas_eval_amount_usd * fx_rate)
+        total_amount_krw = domestic_total_for_rollup_krw
 
         summary = {
             "deposit": domestic_cash_krw,
@@ -976,13 +814,9 @@ class KISClient:
             "eval_profit_loss": total_eval_profit_loss_krw,
             "total_amount": total_amount_krw,
             "cash_krw": domestic_cash_krw,
-            "cash_usd": overseas_cash_usd,
             "buy_amount_krw": domestic_buy_amount_krw,
-            "buy_amount_usd": overseas_buy_amount_usd,
             "eval_amount_krw": domestic_eval_amount_krw,
-            "eval_amount_usd": overseas_eval_amount_usd,
             "eval_profit_loss_krw": domestic_eval_profit_loss_krw,
-            "eval_profit_loss_usd": overseas_eval_profit_loss_usd,
             "total_amount_krw": total_amount_krw,
             "fx_rate": fx_rate,
         }
@@ -994,10 +828,7 @@ class KISClient:
             "raw": {
                 "positions": raw_positions,
                 "summary": raw_summary,
-                "overseas_positions": overseas_raw_positions,
-                "overseas_summaries": overseas_raw_summaries,
             },
-            **({"overseas_errors": overseas_errors} if overseas_errors else {}),
         }
 
     def get_orderable_amount(
@@ -1106,14 +937,10 @@ class KISClient:
         quantity: int | str,
         price: float | str,
         *,
-        exchange: str = "NASDAQ",
+        exchange: str = "",
         order_division: str = "00",
     ) -> dict[str, Any]:
-        """해외주식(미국) 현금 매수/매도 주문.
-
-        국내주식과 엔드포인트 및 tr_id가 다르므로 별도 메서드로 분리.
-        hashkey를 자동 발급하여 헤더에 포함한다.
-        """
+        raise KISAPIError("overseas_order_not_supported")
         cano, product_code = self._account_parts()
         normalized_side = side.lower()
         if normalized_side not in {"buy", "sell"}:

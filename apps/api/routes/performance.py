@@ -67,16 +67,9 @@ def _position_cost_krw(position: dict[str, Any]) -> float:
     if quantity <= 0:
         return 0.0
     unit_cost = _safe_float(position.get("avg_price_krw"))
-    if unit_cost <= 0 and str(position.get("currency") or "").upper() != "USD":
+    if unit_cost <= 0:
         unit_cost = _safe_float(position.get("avg_price_local"))
     return unit_cost * quantity
-
-
-def _position_cost_local(position: dict[str, Any]) -> float:
-    quantity = _safe_float(position.get("quantity"))
-    if quantity <= 0:
-        return 0.0
-    return _safe_float(position.get("avg_price_local")) * quantity
 
 
 def _return_pct(pnl: float, cost: float) -> float | None:
@@ -93,7 +86,6 @@ def _resolve_live_performance_baseline(
     account: dict[str, Any],
     *,
     cash_krw: float,
-    cash_usd: float,
     equity_krw: float,
     realized_pnl_krw: float,
     unrealized_pnl_krw: float,
@@ -117,7 +109,6 @@ def _resolve_live_performance_baseline(
         "captured_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "starting_equity_krw": round(inferred_starting_equity, 2),
         "initial_cash_krw": round(cash_krw, 2),
-        "initial_cash_usd": round(cash_usd, 4),
     }
     _write_json_file(_LIVE_PERFORMANCE_BASELINE_PATH, payload)
     return payload
@@ -257,11 +248,8 @@ def handle_performance_summary() -> tuple[int, dict]:
         ]
 
         initial_cash = _safe_float(account.get("initial_cash_krw"))
-        initial_cash_usd = _safe_float(account.get("initial_cash_usd"))
         cash_krw = _safe_float(account.get("cash_krw"))
-        cash_usd = _safe_float(account.get("cash_usd"))
         realized_pnl = _safe_float(account.get("realized_pnl_krw"))
-        realized_pnl_usd = _safe_float(account.get("realized_pnl_usd"))
         starting_equity_krw = _safe_float(account.get("starting_equity_krw"))
         equity_krw = _safe_float(account.get("equity_krw"))
         fx_rate = _safe_float(account.get("fx_rate"))
@@ -270,35 +258,23 @@ def handle_performance_summary() -> tuple[int, dict]:
             positions = [item for item in positions_raw.values() if isinstance(item, dict)]
         else:
             positions = [item for item in positions_raw if isinstance(item, dict)]
-        krw_positions = [p for p in positions if str(p.get("currency") or "").upper() != "USD"]
-        usd_positions = [p for p in positions if str(p.get("currency") or "").upper() == "USD"]
         unrealized_pnl = sum(_safe_float(p.get("unrealized_pnl_krw")) for p in positions)
-        unrealized_pnl_krw_only = sum(_safe_float(p.get("unrealized_pnl_krw")) for p in krw_positions)
-        unrealized_pnl_usd = sum(_safe_float(p.get("unrealized_pnl_local")) for p in usd_positions)
-        kospi_market_value_krw = sum(_safe_float(p.get("market_value_krw")) for p in krw_positions)
-        us_market_value_usd = sum(_safe_float(p.get("market_value_usd")) for p in usd_positions)
-        us_market_value_krw = sum(_safe_float(p.get("market_value_krw")) for p in usd_positions)
-        position_cost_krw_only = sum(_position_cost_krw(p) for p in krw_positions)
-        position_cost_usd = sum(_position_cost_local(p) for p in usd_positions)
-        position_cost_usd_krw = sum(_position_cost_krw(p) for p in usd_positions)
-        position_cost_krw = position_cost_krw_only + position_cost_usd_krw
-        position_market_value_krw = kospi_market_value_krw + us_market_value_krw
+        kospi_market_value_krw = sum(_safe_float(p.get("market_value_krw")) for p in positions)
+        position_cost_krw = sum(_position_cost_krw(p) for p in positions)
+        position_market_value_krw = kospi_market_value_krw
         position_unrealized_pnl_krw = unrealized_pnl
         position_return_pct = _return_pct(position_unrealized_pnl_krw, position_cost_krw)
-        position_return_pct_krw = _return_pct(unrealized_pnl_krw_only, position_cost_krw_only)
-        position_return_pct_usd = _return_pct(unrealized_pnl_usd, position_cost_usd)
+        position_return_pct_krw = position_return_pct
 
         live_baseline = _resolve_live_performance_baseline(
             account,
             cash_krw=cash_krw,
-            cash_usd=cash_usd,
             equity_krw=equity_krw,
             realized_pnl_krw=realized_pnl,
             unrealized_pnl_krw=unrealized_pnl,
         )
         if live_baseline:
             initial_cash = _safe_float(live_baseline.get("initial_cash_krw"))
-            initial_cash_usd = _safe_float(live_baseline.get("initial_cash_usd"))
             starting_equity_krw = _safe_float(live_baseline.get("starting_equity_krw"))
 
         total_return_pct = (
@@ -315,10 +291,7 @@ def handle_performance_summary() -> tuple[int, dict]:
         operations_report = build_operations_report(limit=500)
 
         live = {
-            "today_signal_count": (
-                int(((engine_state.get("last_summary") or {}).get("candidate_counts_by_market") or {}).get("KOSPI", 0))
-                + int(((engine_state.get("last_summary") or {}).get("candidate_counts_by_market") or {}).get("NASDAQ", 0))
-            ),
+            "today_signal_count": int(((engine_state.get("last_summary") or {}).get("candidate_counts_by_market") or {}).get("KOSPI", 0)),
             "today_order_count": sum(1 for e in today_live if bool(e.get("success"))),
             "today_filled_count": sum(1 for row in today_order_history if bool(row.get("is_filled"))),
             "today_reject_count": sum(1 for e in today_live if not bool(e.get("success"))),
@@ -328,35 +301,23 @@ def handle_performance_summary() -> tuple[int, dict]:
             "total_reject_count": sum(1 for e in all_live if not bool(e.get("success"))),
             "total_screened_count": sum(1 for e in order_events if str(e.get("order_type") or "").lower() == "screened"),
             "realized_pnl_krw": realized_pnl,
-            "realized_pnl_usd": realized_pnl_usd,
             "unrealized_pnl_krw": unrealized_pnl,
-            "unrealized_pnl_usd": unrealized_pnl_usd,
             "total_return_pct": total_return_pct,
             "initial_cash_krw": initial_cash,
-            "initial_cash_usd": initial_cash_usd,
             "cash_krw": cash_krw,
-            "cash_usd": cash_usd,
             "equity_krw": equity_krw,
             "starting_equity_krw": starting_equity_krw,
             "fx_rate": fx_rate,
             "market_value_krw": position_market_value_krw,
-            "market_value_usd": us_market_value_usd,
             "market_value_krw_only": kospi_market_value_krw,
-            "market_value_usd_krw": us_market_value_krw,
             "position_cost_krw": position_cost_krw,
             "position_market_value_krw": position_market_value_krw,
             "position_unrealized_pnl_krw": position_unrealized_pnl_krw,
             "position_return_pct": position_return_pct,
-            "position_cost_krw_only": position_cost_krw_only,
+            "position_cost_krw_only": position_cost_krw,
             "position_market_value_krw_only": kospi_market_value_krw,
-            "position_unrealized_pnl_krw_only": unrealized_pnl_krw_only,
+            "position_unrealized_pnl_krw_only": unrealized_pnl,
             "position_return_pct_krw": position_return_pct_krw,
-            "position_cost_usd": position_cost_usd,
-            "position_cost_usd_krw": position_cost_usd_krw,
-            "position_market_value_usd": us_market_value_usd,
-            "position_market_value_usd_krw": us_market_value_krw,
-            "position_unrealized_pnl_usd": unrealized_pnl_usd,
-            "position_return_pct_usd": position_return_pct_usd,
             "avg_notional_krw": avg_notional,
             "positions": len(positions),
             "order_history": order_history,

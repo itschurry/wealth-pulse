@@ -41,12 +41,8 @@ def recommend_position_size(
     if unit_price_local <= 0:
         return {"quantity": 0, "reason": "invalid_unit_price"}
 
-    market_upper = str(market or "").upper()
-    fx_rate = 1.0
-    if market_upper == "NASDAQ":
-        fx_rate = _to_float(account.get("fx_rate"), 1300.0)
-
-    unit_price_krw = unit_price_local * fx_rate
+    market_upper = "KOSPI"
+    unit_price_krw = unit_price_local
     equity_krw = max(_to_float(account.get("equity_krw")), 1.0)
 
     concentrated_bluechip = str(allocation_mode or "").lower() == "concentrated" and bool(bluechip)
@@ -66,8 +62,6 @@ def recommend_position_size(
     qty_by_risk = int(effective_risk_budget / max(stop_distance_krw, 1e-6))
 
     available_cash_krw = _to_float(account.get("cash_krw"))
-    if market_upper == "NASDAQ":
-        available_cash_krw = _to_float(account.get("cash_usd")) * fx_rate
     qty_by_cash = int((available_cash_krw * 0.995) // max(unit_price_krw, 1.0))
 
     caps = risk_guard_state.get("exposure_caps", {}) if isinstance(risk_guard_state, dict) else {}

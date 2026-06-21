@@ -18,7 +18,6 @@ DEFAULT_POOL_LIMIT = 100
 DEFAULT_CORE_LIMIT = 20
 DEFAULT_PROMOTION_LIMIT = 4
 DEFAULT_PROMOTION_EVENT_LIMIT = 50
-_US_MARKET_GROUP = {"NASDAQ", "NYSE", "AMEX", "US", "USA"}
 
 _ACTION_WEIGHT = {
     "review_for_entry": 1000.0,
@@ -48,10 +47,6 @@ def _normalize_market(value: Any) -> str:
 
 def _normalize_symbol(value: Any) -> str:
     return str(value or "").strip().upper()
-
-
-def _is_us_market(value: Any) -> bool:
-    return _normalize_market(value) in _US_MARKET_GROUP
 
 
 def _normalize_candidate_rank(value: Any) -> int | None:
@@ -282,16 +277,14 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
 
 
 def _universe_rule_for_market(market: str) -> str:
-    normalized_market = _normalize_market(market)
-    return "sp500" if _is_us_market(normalized_market) else "kospi"
+    return "kospi"
 
 
 def _configured_universe_candidates(market: str) -> list[dict[str, Any]]:
     normalized_market = _normalize_market(market)
     from services.universe_builder import get_configured_universe_snapshot
 
-    snapshot_market = None if _is_us_market(normalized_market) else normalized_market
-    universe = get_configured_universe_snapshot(_universe_rule_for_market(normalized_market), market=snapshot_market)
+    universe = get_configured_universe_snapshot(_universe_rule_for_market(normalized_market), market=normalized_market)
 
     rows = universe.get("symbols") if isinstance(universe, dict) else []
     result: list[dict[str, Any]] = []

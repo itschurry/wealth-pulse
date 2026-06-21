@@ -172,7 +172,7 @@ PLAYBOOK_PROMPT = """아래 데이터만 사용해 오늘의 트레이딩 플레
     {{
       "name": "string",
       "code": "string",
-      "market": "KOSPI | KOSDAQ | NASDAQ | NYSE",
+      "market": "KOSPI | KOSDAQ",
       "sector": "string",
       "thesis": "string",
       "action": "buy | watch | avoid",
@@ -203,7 +203,7 @@ PLAYBOOK_PROMPT = """아래 데이터만 사용해 오늘의 트레이딩 플레
     {{
       "name": "string",
       "code": "string",
-      "market": "KOSPI | KOSDAQ | NASDAQ | NYSE",
+      "market": "KOSPI | KOSDAQ",
       "sector": "string",
       "thesis": "string",
       "action": "buy | watch | avoid",

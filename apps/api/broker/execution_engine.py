@@ -1,11 +1,4 @@
-"""실시세 기반 모의/실주문 엔진 인터페이스와 Simulated/Live 구현.
-
-변경 사항:
-  - [수정] SimulatedExecutionEngine.sell_fee_rate 계산에 증권거래세(0.18%) 반영
-  - [수정] LiveBrokerExecutionEngine: KISClient를 실제로 연결하는 구현체로 교체
-           (기존 stub → 국내/해외주식 주문 + 잔고 조회 실제 호출)
-  - [추가] EngineConfig.sell_tax_rate_domestic: 증권거래세 상수 분리
-"""
+"""KOSPI 전용 모의/실주문 엔진 인터페이스와 구현."""
 from __future__ import annotations
 
 import datetime
@@ -60,14 +53,13 @@ class ExecutionEngine(Protocol):
 class EngineConfig:
     state_path: Path
     default_initial_cash_krw: float = 10_000_000.0
-    default_initial_cash_usd: float = 10_000.0
+    default_initial_cash_usd: float = 0.0
 
     # 증권사 수수료 (매수/매도 공통, 온라인 기준 약 0.015%)
     buy_fee_rate: float = 0.00015
     sell_fee_rate: float = 0.00015
 
     # 국내주식 매도 시 증권거래세 (2025년 기준 0.18%, 코스피/코스닥 공통)
-    # 해외주식에는 적용 안 함 (양도세는 연간 정산 개념이라 실시간 차감 제외)
     sell_tax_rate_domestic: float = 0.0018
 
     slippage_bps_base: float = 8.0
@@ -80,14 +72,8 @@ class EngineConfig:
                               dict[str, Any]], None] | None = None
 
     def effective_sell_cost_rate(self, market: str) -> float:
-        """실제 매도 총비용률 = 수수료 + (국내주식이면 증권거래세).
-
-        국내: 0.00015 + 0.0018 = 0.19515%
-        해외: 0.00015 (증권거래세 없음)
-        """
-        if market == "KOSPI":
-            return self.sell_fee_rate + self.sell_tax_rate_domestic
-        return self.sell_fee_rate
+        """실제 매도 총비용률 = 수수료 + 증권거래세."""
+        return self.sell_fee_rate + self.sell_tax_rate_domestic
 
 
 # ── Simulated 엔진 ────────────────────────────────────────────────────────────────
@@ -133,11 +119,7 @@ class SimulatedExecutionEngine:
                 if initial_cash_krw is not None
                 else self.config.default_initial_cash_krw
             )
-            seed_usd = float(
-                initial_cash_usd
-                if initial_cash_usd is not None
-                else self.config.default_initial_cash_usd
-            )
+            seed_usd = 0.0
             seed_krw = max(0.0, seed_krw)
             seed_usd = max(0.0, seed_usd)
 
@@ -173,8 +155,8 @@ class SimulatedExecutionEngine:
             return {"ok": False, "error": "side는 buy/sell만 허용합니다."}
         if normalized_order_type not in {"market", "limit"}:
             return {"ok": False, "error": "order_type은 market/limit만 허용합니다."}
-        if normalized_market not in {"KOSPI", "NASDAQ"}:
-            return {"ok": False, "error": "market은 KOSPI/NASDAQ만 허용합니다."}
+        if normalized_market != "KOSPI":
+            return {"ok": False, "error": "market은 KOSPI만 허용합니다."}
         if quantity <= 0:
             return {"ok": False, "error": "quantity는 1 이상이어야 합니다."}
         if not normalized_code:
@@ -198,11 +180,7 @@ class SimulatedExecutionEngine:
             if not can_trade:
                 return {"ok": False, "error": liquidity_reason or "liquidity_guard_blocked"}
 
-            fx_rate = (
-                1.0
-                if normalized_market == "KOSPI"
-                else (_to_float(self.fx_provider()) or 1300.0)
-            )
+            fx_rate = 1.0
 
             can_fill, reject_reason = self._can_fill(
                 side=normalized_side,
@@ -255,25 +233,15 @@ class SimulatedExecutionEngine:
             position = state["positions"].get(position_key)
 
             if normalized_side == "buy":
-                if normalized_market == "KOSPI":
-                    per_share_cash = executed_krw * (1.0 + buy_fee_rate)
-                    affordable_qty = (
-                        int(float(state["cash_krw"]) // per_share_cash)
-                        if per_share_cash > 0
-                        else 0
-                    )
-                else:
-                    per_share_cash = executed_local * (1.0 + buy_fee_rate)
-                    affordable_qty = (
-                        int(float(state["cash_usd"]) // per_share_cash)
-                        if per_share_cash > 0
-                        else 0
-                    )
+                per_share_cash = executed_krw * (1.0 + buy_fee_rate)
+                affordable_qty = (
+                    int(float(state["cash_krw"]) // per_share_cash)
+                    if per_share_cash > 0
+                    else 0
+                )
                 quantity = min(quantity, affordable_qty)
                 if quantity <= 0:
-                    if normalized_market == "KOSPI":
-                        return {"ok": False, "error": "원화 주문 가능 현금이 부족합니다."}
-                    return {"ok": False, "error": "달러 주문 가능 현금이 부족합니다."}
+                    return {"ok": False, "error": "원화 주문 가능 현금이 부족합니다."}
 
             notional_local = executed_local * quantity
             notional_krw = executed_krw * quantity
@@ -281,22 +249,11 @@ class SimulatedExecutionEngine:
             fee_krw = max(0.0, notional_krw * fee_rate)
 
             if normalized_side == "buy":
-                if normalized_market == "KOSPI":
-                    required_cash_krw = notional_krw + fee_krw
-                    if float(state["cash_krw"]) < required_cash_krw:
-                        return {"ok": False, "error": "원화 주문 가능 현금이 부족합니다."}
-                    state["cash_krw"] = float(
-                        state["cash_krw"]) - required_cash_krw
-                    state["total_fees_krw"] = float(
-                        state["total_fees_krw"]) + fee_krw
-                else:
-                    required_cash_usd = notional_local + fee_local
-                    if float(state["cash_usd"]) < required_cash_usd:
-                        return {"ok": False, "error": "달러 주문 가능 현금이 부족합니다."}
-                    state["cash_usd"] = float(
-                        state["cash_usd"]) - required_cash_usd
-                    state["total_fees_usd"] = float(
-                        state["total_fees_usd"]) + fee_local
+                required_cash_krw = notional_krw + fee_krw
+                if float(state["cash_krw"]) < required_cash_krw:
+                    return {"ok": False, "error": "원화 주문 가능 현금이 부족합니다."}
+                state["cash_krw"] = float(state["cash_krw"]) - required_cash_krw
+                state["total_fees_krw"] = float(state["total_fees_krw"]) + fee_krw
 
                 prev_qty = int(position["quantity"]) if position else 0
                 prev_cost_local = (
@@ -312,7 +269,7 @@ class SimulatedExecutionEngine:
                     "code": normalized_code,
                     "name": str(quote.get("name") or normalized_code),
                     "market": normalized_market,
-                    "currency": "KRW" if normalized_market == "KOSPI" else "USD",
+                    "currency": "KRW",
                     "quantity": next_qty,
                     "entry_ts": str(position.get("entry_ts") or now) if position else now,
                     "avg_price_local": avg_price_local,
@@ -341,21 +298,11 @@ class SimulatedExecutionEngine:
                 realized_krw = (executed_krw - avg_price_krw) * \
                     quantity - fee_krw
 
-                if normalized_market == "KOSPI":
-                    state["cash_krw"] = float(state["cash_krw"]) + proceeds_krw
-                    state["realized_pnl_krw"] = (
-                        float(state["realized_pnl_krw"]) + realized_krw
-                    )
-                    state["total_fees_krw"] = float(
-                        state["total_fees_krw"]) + fee_krw
-                else:
-                    state["cash_usd"] = float(
-                        state["cash_usd"]) + proceeds_local
-                    state["realized_pnl_usd"] = (
-                        float(state["realized_pnl_usd"]) + realized_local
-                    )
-                    state["total_fees_usd"] = float(
-                        state["total_fees_usd"]) + fee_local
+                state["cash_krw"] = float(state["cash_krw"]) + proceeds_krw
+                state["realized_pnl_krw"] = (
+                    float(state["realized_pnl_krw"]) + realized_krw
+                )
+                state["total_fees_krw"] = float(state["total_fees_krw"]) + fee_krw
 
                 remain_qty = held_qty - quantity
                 if remain_qty <= 0:
@@ -424,18 +371,8 @@ class SimulatedExecutionEngine:
 
     def _market_is_opening_window(self, market: str) -> bool:
         now = datetime.datetime.now(datetime.timezone.utc)
-        if market == "KOSPI":
-            current = now.astimezone(
-                datetime.timezone(datetime.timedelta(hours=9))
-            )
-            return current.hour == 9 and current.minute < 30
-        if market == "NASDAQ":
-            et = now.astimezone(
-                datetime.timezone(datetime.timedelta(hours=-4))
-            )
-            return (et.hour == 9 and et.minute >= 30) or (
-                et.hour == 10 and et.minute < 30
-            )
+        current = now.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
+        return current.hour == 9 and current.minute < 30
         return False
 
     def _estimate_slippage_bps(
@@ -498,13 +435,9 @@ class SimulatedExecutionEngine:
         total_market_value_krw = sum(
             float(item.get("market_value_krw") or 0.0) for item in positions
         )
-        total_market_value_usd = sum(
-            float(item.get("market_value_usd") or 0.0) for item in positions
-        )
-        fx_rate = _to_float(self.fx_provider()) or 1300.0
+        fx_rate = 1.0
         cash_krw = float(state["cash_krw"])
-        cash_usd = float(state["cash_usd"])
-        equity_krw = cash_krw + (cash_usd * fx_rate) + total_market_value_krw
+        equity_krw = cash_krw + total_market_value_krw
         starting_equity_krw = float(
             state.get("starting_equity_krw") or self._baseline_equity_krw(state)
         )
@@ -513,23 +446,23 @@ class SimulatedExecutionEngine:
 
         return {
             "mode": "paper",
-            "base_currency": "MULTI",
+            "base_currency": "KRW",
             "created_at": created_at,
             "updated_at": state["updated_at"],
             "days_elapsed": days_elapsed,
             "initial_cash_krw": round(float(state["initial_cash_krw"]), 2),
-            "initial_cash_usd": round(float(state["initial_cash_usd"]), 2),
+            "initial_cash_usd": 0.0,
             "cash_krw": round(cash_krw, 2),
-            "cash_usd": round(cash_usd, 4),
+            "cash_usd": 0.0,
             "market_value_krw": round(total_market_value_krw, 2),
-            "market_value_usd": round(total_market_value_usd, 4),
+            "market_value_usd": 0.0,
             "equity_krw": round(equity_krw, 2),
             "starting_equity_krw": round(starting_equity_krw, 2),
             "fx_rate": round(fx_rate, 4),
             "realized_pnl_krw": round(float(state["realized_pnl_krw"]), 2),
-            "realized_pnl_usd": round(float(state["realized_pnl_usd"]), 4),
+            "realized_pnl_usd": 0.0,
             "total_fees_krw": round(float(state["total_fees_krw"]), 2),
-            "total_fees_usd": round(float(state["total_fees_usd"]), 4),
+            "total_fees_usd": 0.0,
             "positions": positions,
             "orders": state["orders"][:80],
         }
@@ -560,11 +493,7 @@ class SimulatedExecutionEngine:
             if quote_price is None or quote_price <= 0:
                 continue
 
-            fx_rate = (
-                1.0
-                if market == "KOSPI"
-                else (_to_float(self.fx_provider()) or float(position.get("fx_rate") or 1300.0))
-            )
+            fx_rate = 1.0
             last_price_local = quote_price
             last_price_krw = quote_price * fx_rate
             avg_price_local = float(position.get("avg_price_local") or 0.0)
@@ -591,7 +520,7 @@ class SimulatedExecutionEngine:
             position["last_price_local"] = last_price_local
             position["last_price_krw"] = last_price_krw
             position["fx_rate"] = fx_rate
-            position["market_value_usd"] = market_value_local if market == "NASDAQ" else 0.0
+            position["market_value_usd"] = 0.0
             position["market_value_krw"] = market_value_krw
             position["unrealized_pnl_local"] = unrealized_local
             position["unrealized_pnl_krw"] = unrealized_krw
@@ -659,17 +588,9 @@ class SimulatedExecutionEngine:
             quantity - fee_local
         realized_krw = (gap_price_krw - avg_price_krw) * quantity - fee_krw
 
-        if market == "KOSPI":
-            state["cash_krw"] = float(state["cash_krw"]) + proceeds_krw
-            state["realized_pnl_krw"] = float(
-                state["realized_pnl_krw"]) + realized_krw
-            state["total_fees_krw"] = float(state["total_fees_krw"]) + fee_krw
-        else:
-            state["cash_usd"] = float(state["cash_usd"]) + proceeds_local
-            state["realized_pnl_usd"] = float(
-                state["realized_pnl_usd"]) + realized_local
-            state["total_fees_usd"] = float(
-                state["total_fees_usd"]) + fee_local
+        state["cash_krw"] = float(state["cash_krw"]) + proceeds_krw
+        state["realized_pnl_krw"] = float(state["realized_pnl_krw"]) + realized_krw
+        state["total_fees_krw"] = float(state["total_fees_krw"]) + fee_krw
 
         event = {
             "order_id": f"paper-liq-{uuid.uuid4().hex[:8]}",
@@ -710,15 +631,14 @@ class SimulatedExecutionEngine:
         self, initial_cash_krw: float, initial_cash_usd: float
     ) -> dict[str, Any]:
         now = _now_iso()
-        fx_rate = _to_float(self.fx_provider()) or 1300.0
         return {
             "created_at": now,
             "updated_at": now,
             "initial_cash_krw": initial_cash_krw,
-            "initial_cash_usd": initial_cash_usd,
+            "initial_cash_usd": 0.0,
             "cash_krw": initial_cash_krw,
-            "cash_usd": initial_cash_usd,
-            "starting_equity_krw": initial_cash_krw + (initial_cash_usd * fx_rate),
+            "cash_usd": 0.0,
+            "starting_equity_krw": initial_cash_krw,
             "realized_pnl_krw": 0.0,
             "realized_pnl_usd": 0.0,
             "total_fees_krw": 0.0,
@@ -738,24 +658,20 @@ class SimulatedExecutionEngine:
             quantity = int(raw.get("quantity") or 0)
             avg_price_local = _to_float(raw.get("avg_price_local"))
             if (
-                market not in {"KOSPI", "NASDAQ"}
+                market != "KOSPI"
                 or not code
                 or quantity <= 0
                 or avg_price_local is None
                 or avg_price_local <= 0
             ):
                 continue
-            fx_rate = (
-                1.0
-                if market == "KOSPI"
-                else (_to_float(self.fx_provider()) or 1300.0)
-            )
+            fx_rate = 1.0
             key = f"{market}:{code}"
             positions[key] = {
                 "code": code,
                 "name": str(raw.get("name") or code),
                 "market": market,
-                "currency": "KRW" if market == "KOSPI" else "USD",
+                "currency": "KRW",
                 "quantity": quantity,
                 "entry_ts": str(raw.get("entry_ts") or now),
                 "avg_price_local": avg_price_local,
@@ -786,29 +702,26 @@ class SimulatedExecutionEngine:
         payload.setdefault("updated_at", _now_iso())
         payload.setdefault("initial_cash_krw",
                            self.config.default_initial_cash_krw)
-        payload.setdefault("initial_cash_usd",
-                           self.config.default_initial_cash_usd)
+        payload["initial_cash_usd"] = 0.0
         payload.setdefault("cash_krw", payload["initial_cash_krw"])
-        payload.setdefault("cash_usd", payload["initial_cash_usd"])
+        payload["cash_usd"] = 0.0
         payload.setdefault("starting_equity_krw",
                            self._baseline_equity_krw(payload))
         payload.setdefault("realized_pnl_krw", 0.0)
-        payload.setdefault("realized_pnl_usd", 0.0)
+        payload["realized_pnl_usd"] = 0.0
         payload.setdefault("total_fees_krw", 0.0)
-        payload.setdefault("total_fees_usd", 0.0)
+        payload["total_fees_usd"] = 0.0
         return payload
 
     def _baseline_equity_krw(self, state: dict[str, Any]) -> float:
-        fx_rate = _to_float(self.fx_provider()) or 1300.0
         seed_cash_krw = float(state.get("initial_cash_krw") or 0.0)
-        seed_cash_usd = float(state.get("initial_cash_usd") or 0.0)
         seed_positions_krw = sum(
             float(item.get("avg_price_krw") or 0.0)
             * float(item.get("quantity") or 0.0)
             for item in (state.get("positions") or {}).values()
             if isinstance(item, dict)
         )
-        return seed_cash_krw + (seed_cash_usd * fx_rate) + seed_positions_krw
+        return seed_cash_krw + seed_positions_krw
 
     def _persist(self, state: dict[str, Any]) -> None:
         self.config.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -868,7 +781,7 @@ class LiveBrokerExecutionEngine:
     ) -> dict[str, Any]:
         """실계좌에 주문을 집행한다. hashkey는 KISClient 내부에서 자동 처리된다.
 
-        현재 지원: KOSPI 국내주식 현금주문, NASDAQ 해외주식 현금주문
+        현재 지원: KOSPI 국내주식 현금주문
         지정가(limit) 주문: limit_price 필수
         """
         normalized_market = market.strip().upper()
@@ -876,8 +789,8 @@ class LiveBrokerExecutionEngine:
 
         if normalized_side not in {"buy", "sell"}:
             return {"ok": False, "error": "side는 buy/sell만 허용합니다."}
-        if normalized_market not in {"KOSPI", "NASDAQ"}:
-            return {"ok": False, "error": "market은 KOSPI/NASDAQ만 허용합니다."}
+        if normalized_market != "KOSPI":
+            return {"ok": False, "error": "market은 KOSPI만 허용합니다."}
         if quantity <= 0:
             return {"ok": False, "error": "quantity는 1 이상이어야 합니다."}
 
@@ -897,71 +810,52 @@ class LiveBrokerExecutionEngine:
             price = 0  # 시장가 주문 시 0 입력
 
         try:
-            if normalized_market == "KOSPI":
-                requested_order_type = normalized_order_type
-                requested_quantity = quantity
-                orderable_amount: dict[str, Any] | None = None
-                if normalized_side == "buy":
-                    quantity, price, order_division, normalized_order_type, orderable_amount = self._prepare_domestic_buy_order(
-                        code=normalized_code,
-                        requested_quantity=quantity,
-                        order_type=normalized_order_type,
-                        price=price,
-                        order_division=order_division,
-                        limit_price=limit_price,
-                    )
-                    if quantity <= 0:
-                        return {
-                            "ok": False,
-                            "mode": "live",
-                            "error": "domestic_orderable_quantity_zero",
-                            "requested": {
-                                "side": side,
-                                "code": code,
-                                "market": market,
-                                "quantity": requested_quantity,
-                                "order_type": order_type,
-                                "limit_price": limit_price,
-                            },
-                            "orderable_amount": orderable_amount,
-                        }
-                result = self._client.place_cash_order(
-                    side=normalized_side,
+            requested_order_type = normalized_order_type
+            requested_quantity = quantity
+            orderable_amount: dict[str, Any] | None = None
+            if normalized_side == "buy":
+                quantity, price, order_division, normalized_order_type, orderable_amount = self._prepare_domestic_buy_order(
                     code=normalized_code,
-                    quantity=quantity,
-                    price=price,
-                    order_division=order_division,
-                )
-                event = self._build_live_order_event(
-                    side=normalized_side,
-                    code=normalized_code,
-                    market=normalized_market,
-                    quantity=quantity,
+                    requested_quantity=quantity,
                     order_type=normalized_order_type,
                     price=price,
-                    result=result,
-                    requested_quantity=requested_quantity if normalized_side == "buy" else quantity,
-                    requested_order_type=requested_order_type if normalized_side == "buy" else normalized_order_type,
-                    orderable_amount=orderable_amount,
-                )
-            else:  # NASDAQ
-                result = self._client.place_overseas_order(
-                    side=normalized_side,
-                    symbol=normalized_code,
-                    quantity=quantity,
-                    price=price,
-                    exchange="NASDAQ",
                     order_division=order_division,
+                    limit_price=limit_price,
                 )
-                event = self._build_live_order_event(
-                    side=normalized_side,
-                    code=normalized_code,
-                    market=normalized_market,
-                    quantity=quantity,
-                    order_type=normalized_order_type,
-                    price=price,
-                    result=result,
-                )
+                if quantity <= 0:
+                    return {
+                        "ok": False,
+                        "mode": "live",
+                        "error": "domestic_orderable_quantity_zero",
+                        "requested": {
+                            "side": side,
+                            "code": code,
+                            "market": market,
+                            "quantity": requested_quantity,
+                            "order_type": order_type,
+                            "limit_price": limit_price,
+                        },
+                        "orderable_amount": orderable_amount,
+                    }
+            result = self._client.place_cash_order(
+                side=normalized_side,
+                code=normalized_code,
+                quantity=quantity,
+                price=price,
+                order_division=order_division,
+            )
+            event = self._build_live_order_event(
+                side=normalized_side,
+                code=normalized_code,
+                market=normalized_market,
+                quantity=quantity,
+                order_type=normalized_order_type,
+                price=price,
+                result=result,
+                requested_quantity=requested_quantity if normalized_side == "buy" else quantity,
+                requested_order_type=requested_order_type if normalized_side == "buy" else normalized_order_type,
+                orderable_amount=orderable_amount,
+            )
             return {"ok": True, "mode": "live", "event": event, **result}
         except Exception as exc:
             return {

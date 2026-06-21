@@ -16,7 +16,7 @@ _HEADERS = {
     "Referer": "https://finance.naver.com/",
 }
 
-_SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ"}
+_SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI"}
 _ACTIVE_RESEARCH_MARKETS = {"KOSPI"}
 _ACTIVE_AUTO_TRADE_MARKETS = {"KOSPI"}
 
@@ -36,11 +36,6 @@ def _now_iso() -> str:
 def _format_krw(value: float | int | None) -> str:
     amount = float(value or 0.0)
     return f"{amount:,.0f}원"
-
-
-def _format_usd(value: float | int | None) -> str:
-    amount = float(value or 0.0)
-    return f"${amount:,.2f}"
 
 
 def _strip_html(text: str) -> str:

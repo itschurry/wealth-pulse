@@ -32,17 +32,16 @@ interface CandidateResearchPageProps {
 
 const MARKET_OPTIONS = [
   { label: 'KOSPI', value: 'KOSPI' },
-  { label: 'NASDAQ', value: 'NASDAQ' },
 ];
 
-type SnapshotMarketView = 'ALL' | 'KOSPI' | 'NASDAQ';
+type SnapshotMarketView = 'ALL' | 'KOSPI';
 
-function normalizeSnapshotMarket(value: string | undefined): Exclude<SnapshotMarketView, 'ALL'> {
-  return String(value || '').toUpperCase() === 'KOSPI' ? 'KOSPI' : 'NASDAQ';
+function normalizeSnapshotMarket(_value: string | undefined): Exclude<SnapshotMarketView, 'ALL'> {
+  return 'KOSPI';
 }
 
 function buildMarketCounts(items: Array<{ market?: string }>): Record<SnapshotMarketView, number> {
-  const counts: Record<SnapshotMarketView, number> = { ALL: items.length, KOSPI: 0, NASDAQ: 0 };
+  const counts: Record<SnapshotMarketView, number> = { ALL: items.length, KOSPI: 0 };
   items.forEach((item) => {
     counts[normalizeSnapshotMarket(item.market)] += 1;
   });
@@ -57,14 +56,12 @@ function filterByMarket<T extends { market?: string }>(items: T[], marketView: S
 function preferredMarketView(liveMarket: LiveMarketResponse | null): SnapshotMarketView {
   const sessions = liveMarket?.market_sessions || {};
   const krOpen = Boolean(sessions.KR?.is_open);
-  const usOpen = Boolean(sessions.US?.is_open);
-  if (usOpen && !krOpen) return 'NASDAQ';
-  if (krOpen && !usOpen) return 'KOSPI';
+  if (krOpen) return 'KOSPI';
   return 'ALL';
 }
 
-function marketSessionText(liveMarket: LiveMarketResponse | null, market: Exclude<SnapshotMarketView, 'ALL'>): string {
-  const session = market === 'KOSPI' ? liveMarket?.market_sessions?.KR : liveMarket?.market_sessions?.US;
+function marketSessionText(liveMarket: LiveMarketResponse | null, _market: Exclude<SnapshotMarketView, 'ALL'>): string {
+  const session = liveMarket?.market_sessions?.KR;
   if (!session) return '';
   return session.status_label || session.status || '';
 }
@@ -381,7 +378,7 @@ function MonitorSlotSection({
         </div>
         <div className="section-toolbar">
           <div className="section-filter-row">
-            {(['ALL', 'KOSPI', 'NASDAQ'] as const).map((view) => (
+            {(['ALL', 'KOSPI'] as const).map((view) => (
               <button
                 key={view}
                 type="button"
@@ -520,7 +517,7 @@ function MarketSummarySection({ items }: { items: CandidateMonitorStatusItem[] }
       <div className="workspace-card-head section-head-row">
         <div>
           <div className="section-title">시장</div>
-          <div className="section-copy">KOSPI/NASDAQ 후보 풀과 핵심 감시, 승격 슬롯, 보유 추적 수를 따로 본다.</div>
+          <div className="section-copy">KOSPI 후보 풀과 핵심 감시, 승격 슬롯, 보유 추적 수를 따로 본다.</div>
         </div>
       </div>
       <div className="responsive-card-list">
@@ -689,7 +686,7 @@ export function CandidateResearchPage({ snapshot, loading, errorMessage, onRefre
   const loadCandidateBoards = useCallback(async (forceRefresh = false, silent = false) => {
     setTargetsLoading(true);
     try {
-      const monitorQuery = { market: ['KOSPI', 'NASDAQ'], refresh: forceRefresh };
+      const monitorQuery = { market: ['KOSPI'], refresh: forceRefresh };
       const [researchStatusPayload, liveMarketPayload, monitorStatusPayload, monitorWatchlistPayload, monitorPromotionsPayload] = await Promise.all([
         fetchResearchStatus(),
         fetchLiveMarket(),

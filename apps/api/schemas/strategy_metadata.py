@@ -27,18 +27,6 @@ _PORTFOLIO_DEFAULTS = {
         "max_positions": 5,
         "max_holding_days": 15,
     },
-    "nasdaq": {
-        "market_scope": "nasdaq",
-        "initial_cash": 10_000,
-        "max_positions": 5,
-        "max_holding_days": 30,
-    },
-    "all": {
-        "market_scope": "all",
-        "initial_cash": 10_000_000,
-        "max_positions": 6,
-        "max_holding_days": 20,
-    },
 }
 
 _STRATEGY_MARKET_DEFAULTS: dict[str, dict[str, dict[str, Any]]] = {
@@ -57,23 +45,6 @@ _STRATEGY_MARKET_DEFAULTS: dict[str, dict[str, dict[str, Any]]] = {
             "stoch_k_min": 18.0,
             "stoch_k_max": 95.0,
             "stop_loss_pct": 5.0,
-            "take_profit_pct": None,
-            "trade_suppression_threshold": None,
-        },
-        "NASDAQ": {
-            "max_positions": 5,
-            "max_holding_days": 30,
-            "rsi_min": 45.0,
-            "rsi_max": 74.0,
-            "volume_ratio_min": 1.15,
-            "adx_min": 18.0,
-            "mfi_min": 25.0,
-            "mfi_max": 84.0,
-            "bb_pct_min": 0.18,
-            "bb_pct_max": 0.99,
-            "stoch_k_min": 20.0,
-            "stoch_k_max": 95.0,
-            "stop_loss_pct": 6.0,
             "take_profit_pct": None,
             "trade_suppression_threshold": None,
         },
@@ -96,23 +67,6 @@ _STRATEGY_MARKET_DEFAULTS: dict[str, dict[str, dict[str, Any]]] = {
             "take_profit_pct": 9.0,
             "trade_suppression_threshold": None,
         },
-        "NASDAQ": {
-            "max_positions": 4,
-            "max_holding_days": 12,
-            "rsi_min": 20.0,
-            "rsi_max": 44.0,
-            "volume_ratio_min": 0.9,
-            "adx_min": 8.0,
-            "mfi_min": 0.0,
-            "mfi_max": 48.0,
-            "bb_pct_min": 0.0,
-            "bb_pct_max": 0.2,
-            "stoch_k_min": 0.0,
-            "stoch_k_max": 28.0,
-            "stop_loss_pct": 4.5,
-            "take_profit_pct": 10.0,
-            "trade_suppression_threshold": None,
-        },
     },
     "defensive": {
         "KOSPI": {
@@ -131,23 +85,6 @@ _STRATEGY_MARKET_DEFAULTS: dict[str, dict[str, dict[str, Any]]] = {
             "stop_loss_pct": 3.0,
             "take_profit_pct": 6.0,
             "trade_suppression_threshold": 5.5,
-        },
-        "NASDAQ": {
-            "max_positions": 3,
-            "max_holding_days": 9,
-            "rsi_min": 46.0,
-            "rsi_max": 64.0,
-            "volume_ratio_min": 1.25,
-            "adx_min": 16.0,
-            "mfi_min": 32.0,
-            "mfi_max": 74.0,
-            "bb_pct_min": 0.1,
-            "bb_pct_max": 0.82,
-            "stoch_k_min": 20.0,
-            "stoch_k_max": 80.0,
-            "stop_loss_pct": 3.5,
-            "take_profit_pct": 7.0,
-            "trade_suppression_threshold": 6.0,
         },
     },
 }
@@ -205,9 +142,6 @@ _STRATEGY_FIELDS = {
 
 
 def _normalize_market_scope(market: str | None) -> str:
-    normalized = str(market or "KOSPI").strip().upper()
-    if normalized in {"NASDAQ", "NYSE", "US", "USA", "AMEX"}:
-        return "NASDAQ"
     return "KOSPI"
 
 
@@ -264,15 +198,10 @@ def build_strategy_metadata_payload() -> dict[str, Any]:
                 "editable_fields": editable_fields(strategy_kind),
                 "defaults_by_market": {
                     "KOSPI": strategy_defaults(strategy_kind, market="KOSPI"),
-                    "NASDAQ": strategy_defaults(strategy_kind, market="NASDAQ"),
                 },
                 "defaults_by_market_and_risk": {
                     "KOSPI": {
                         risk_profile: strategy_defaults(strategy_kind, market="KOSPI", risk_profile=risk_profile)
-                        for risk_profile in RISK_PROFILES
-                    },
-                    "NASDAQ": {
-                        risk_profile: strategy_defaults(strategy_kind, market="NASDAQ", risk_profile=risk_profile)
                         for risk_profile in RISK_PROFILES
                     },
                 },
@@ -295,7 +224,7 @@ def build_strategy_metadata_payload() -> dict[str, Any]:
             key: portfolio_defaults(key) for key in _PORTFOLIO_DEFAULTS
         },
         "portfolio_fields": [
-            {"name": "market_scope", "label": "시장", "type": "select", "options": ["kospi", "nasdaq", "all"]},
+            {"name": "market_scope", "label": "시장", "type": "select", "options": ["kospi"]},
             {"name": "initial_cash", "label": "초기 자금", "type": "number", "min": 1, "step": 1000},
             {"name": "max_positions", "label": "최대 포지션", "type": "number", "min": 1, "max": 20, "step": 1},
             {"name": "max_holding_days", "label": "최대 보유일", "type": "number", "min": 1, "max": 180, "step": 1},

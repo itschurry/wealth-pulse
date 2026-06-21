@@ -8,7 +8,7 @@ import { useConsoleLogs } from '../hooks/useConsoleLogs';
 import { useRuntimeTrading } from '../hooks/useRuntimeTrading';
 import { useToast } from '../hooks/useToast';
 import type { ActionBarStatusItem, ConsoleSnapshot, RuntimeViewModel } from '../types/consoleView';
-import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatLocalAmountWithKRW, formatNumber, formatPercent, formatSymbol, formatUSD } from '../utils/format';
+import { explainOrderFailureReason, formatCount, formatDateTime, formatKRW, formatNumber, formatPercent, formatSymbol } from '../utils/format';
 
 interface RuntimePortfolioPageProps {
   snapshot: ConsoleSnapshot;
@@ -19,9 +19,7 @@ interface RuntimePortfolioPageProps {
 
 interface RuntimeSettings {
   initialCashKrw: number;
-  initialCashUsd: number;
   runKospi: boolean;
-  runNasdaq: boolean;
   maxPositions: number;
   dailyBuyLimit: number;
   dailySellLimit: number;
@@ -39,9 +37,7 @@ const SETTINGS_META_KEY = 'console_runtime_settings_meta_v1';
 function defaultSettings(): RuntimeSettings {
   return {
     initialCashKrw: 10_000_000,
-    initialCashUsd: 10_000,
     runKospi: true,
-    runNasdaq: true,
     maxPositions: 5,
     dailyBuyLimit: 20,
     dailySellLimit: 20,
@@ -118,40 +114,34 @@ function resolveRuntimeMode(accountMode: unknown, executionMode: unknown): 'pape
   return 'paper';
 }
 
-function marketCurrency(market: unknown): 'KRW' | 'USD' {
-  const normalized = String(market || '').toUpperCase();
-  if (normalized === 'NASDAQ' || normalized === 'NYSE' || normalized === 'AMEX' || normalized === 'US') {
-    return 'USD';
-  }
+function marketCurrency(_market: unknown): 'KRW' {
   return 'KRW';
 }
 
-function formatLocalPrice(value: number | null | undefined, market: unknown): string {
-  if (marketCurrency(market) === 'USD') return formatUSD(value, true);
+function formatLocalPrice(value: number | null | undefined, _market: unknown): string {
   return formatKRW(value, true);
 }
 
-function formatLocalPriceWithKrw(localValue: number | null | undefined, krwValue: number | null | undefined, market: unknown): string {
-  return formatLocalAmountWithKRW(localValue, krwValue, marketCurrency(market));
+function formatLocalPriceWithKrw(localValue: number | null | undefined, krwValue: number | null | undefined, _market: unknown): string {
+  return formatKRW(krwValue ?? localValue, true);
 }
 
 function positionCostKrw(position: { quantity?: unknown; avg_price_krw?: unknown; avg_price_local?: unknown; currency?: unknown }): number {
   const quantity = toNumber(position.quantity);
   if (quantity <= 0) return 0;
   let unitCost = toNumber(position.avg_price_krw);
-  if (unitCost <= 0 && String(position.currency || '').toUpperCase() !== 'USD') {
+  if (unitCost <= 0) {
     unitCost = toNumber(position.avg_price_local);
   }
   return unitCost * quantity;
 }
 
-function positionMarketValueLocal(position: { market?: unknown; market_value_krw?: unknown; market_value_usd?: unknown }): number {
-  if (marketCurrency(position.market) === 'USD') return toNumber(position.market_value_usd);
+function positionMarketValueLocal(position: { market?: unknown; market_value_krw?: unknown }): number {
   return toNumber(position.market_value_krw);
 }
 
-function normalizePortfolioMarket(value: unknown): 'KOSPI' | 'NASDAQ' {
-  return marketCurrency(value) === 'USD' ? 'NASDAQ' : 'KOSPI';
+function normalizePortfolioMarket(_value: unknown): 'KOSPI' {
+  return 'KOSPI';
 }
 
 function formatMarketWithCurrency(market: unknown): string {
@@ -461,7 +451,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
   const [workflowSearch, setWorkflowSearch] = useState('');
   const [workflowOnlyBlocked, setWorkflowOnlyBlocked] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [positionMarketView, setPositionMarketView] = useState<'ALL' | 'KOSPI' | 'NASDAQ'>('ALL');
+  const [positionMarketView, setPositionMarketView] = useState<'ALL' | 'KOSPI'>('ALL');
   const {
     account,
     engineState,
@@ -487,7 +477,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
   const runtimeLogSource = runtimeMode === 'live' ? 'live' : 'paper';
   const positions = account.positions || [];
   const positionMarketCounts = useMemo(() => {
-    const counts = { ALL: positions.length, KOSPI: 0, NASDAQ: 0 };
+    const counts = { ALL: positions.length, KOSPI: 0 };
     positions.forEach((position) => {
       counts[normalizePortfolioMarket(position.market)] += 1;
     });
@@ -751,7 +741,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
     return {
       totalEquityKrw: toNumber(account.equity_krw),
       cashKrw: toNumber(account.cash_krw),
-      cashUsd: toNumber(account.cash_usd),
+      cashUsd: 0,
       unrealizedPnlKrw: unrealized,
       realizedPnlKrw: toNumber(account.realized_pnl_krw),
       positionCount: positions.length,
@@ -759,7 +749,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       positionMarketValueKrw: positionMarketValue,
       positionReturnPct: positionCost > 0 ? (unrealized / positionCost) * 100 : null,
     };
-  }, [account.cash_krw, account.cash_usd, account.equity_krw, account.realized_pnl_krw, positions]);
+  }, [account.cash_krw, account.equity_krw, account.realized_pnl_krw, positions]);
 
   const todayOrderStats = useMemo(() => {
     const todayOrders = orders.filter((order) => {
@@ -857,15 +847,14 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
           description: '신규 평가와 자동 실행이 멈췄습니다.',
         });
       } else {
-        const markets: Array<'KOSPI' | 'NASDAQ'> = [];
+        const markets: Array<'KOSPI'> = [];
         if (settings.runKospi) markets.push('KOSPI');
-        if (settings.runNasdaq) markets.push('NASDAQ');
         if (markets.length === 0) {
-          push('warning', '시장 선택이 필요합니다.', '설정에서 KOSPI 또는 NASDAQ을 최소 1개 선택하세요.', runtimeLogSource);
+          push('warning', '시장 선택이 필요합니다.', 'KOSPI가 선택되어야 자동매매 엔진을 시작할 수 있습니다.', runtimeLogSource);
           pushToast({
             tone: 'warning',
             title: '시장 선택 필요',
-            description: 'KOSPI 또는 NASDAQ을 최소 1개 선택해야 자동매매 엔진을 시작할 수 있습니다.',
+            description: 'KOSPI가 선택되어야 자동매매 엔진을 시작할 수 있습니다.',
           });
           return;
         }
@@ -915,7 +904,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
     settings.maxOrdersPerSymbol,
     settings.maxPositions,
     settings.runKospi,
-    settings.runNasdaq,
     refreshRuntimeLogs,
     runtimeLabel,
     runtimeLogSource,
@@ -981,7 +969,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
     try {
       const result = await reset({
         initial_cash_krw: settings.initialCashKrw,
-        initial_cash_usd: settings.initialCashUsd,
       });
       if (!result.ok) {
         push('error', `${runtimeLabel} 초기화에 실패했습니다.`, result.error || '', runtimeLogSource);
@@ -995,7 +982,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
       push(
         'success',
         `${runtimeLabel} 계좌를 초기화했습니다.`,
-        `초기자금 KRW ${formatKRW(settings.initialCashKrw, true)} / USD ${formatUSD(settings.initialCashUsd, true)}`,
+        `초기자금 ${formatKRW(settings.initialCashKrw, true)}`,
         runtimeLogSource,
       );
       pushToast({
@@ -1007,7 +994,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
     } finally {
       setPendingAction(null);
     }
-  }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, runtimeLabel, runtimeLogSource, settings.initialCashKrw, settings.initialCashUsd]);
+  }, [pendingAction, push, pushToast, refresh, refreshEngineStatus, refreshRuntimeLogs, reset, runtimeLabel, runtimeLogSource, settings.initialCashKrw]);
 
   const handleClearRuntimeHistory = useCallback(async () => {
     if (pendingAction) return;
@@ -1050,7 +1037,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
         clear_all: true,
         reset_account: true,
         initial_cash_krw: settings.initialCashKrw,
-        initial_cash_usd: settings.initialCashUsd,
       });
       if (!result.ok) {
         push('error', '완전 정리 실패', result.error || '', runtimeLogSource);
@@ -1078,7 +1064,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
     } finally {
       setPendingAction(null);
     }
-  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, refresh, refreshEngineStatus, refreshRuntimeLogs, runtimeLabel, runtimeLogSource, settings.initialCashKrw, settings.initialCashUsd, push, pushToast]);
+  }, [clear, clearHistory, clearRuntimeLogs, pendingAction, refresh, refreshEngineStatus, refreshRuntimeLogs, runtimeLabel, runtimeLogSource, settings.initialCashKrw, push, pushToast]);
 
   useEffect(() => {
     if (!autoRefreshEnabled) return;
@@ -1099,18 +1085,9 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
           onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashKrw: Number(value ?? prev.initialCashKrw) }))}
         />
       </label>
-      <label style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 15, color: 'var(--text-3)' }}>초기 달러 현금</span>
-        <NumericInput
-          value={settings.initialCashUsd}
-          style={{ padding: '0 12px' }}
-          onCommit={(value) => setSettings((prev) => ({ ...prev, initialCashUsd: Number(value ?? prev.initialCashUsd) }))}
-        />
-      </label>
       <div style={{ display: 'grid', gap: 8, fontSize: 15 }}>
         <span style={{ color: 'var(--text-3)' }}>시장 선택</span>
         <label><input type="checkbox" checked={settings.runKospi} onChange={(event) => setSettings((prev) => ({ ...prev, runKospi: event.target.checked }))} /> KOSPI</label>
-        <label><input type="checkbox" checked={settings.runNasdaq} onChange={(event) => setSettings((prev) => ({ ...prev, runNasdaq: event.target.checked }))} /> NASDAQ</label>
       </div>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 15, color: 'var(--text-3)' }}>최대 포지션 수(건)</span>
@@ -1509,7 +1486,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
               <div className="detail-list">
                 <div>총자산(원화환산): {formatKRW(vm.totalEquityKrw, true)}</div>
                 <div>원화 현금: {formatKRW(vm.cashKrw, true)}</div>
-                <div>달러 현금: {formatUSD(vm.cashUsd, true)}</div>
                 <div>보유 투자금 / 평가금액: {formatKRW(vm.positionCostKrw, true)} / {formatKRW(vm.positionMarketValueKrw, true)}</div>
                 <div>보유 종목 총 수익률: {vm.positionReturnPct != null ? formatPercent(vm.positionReturnPct, 2) : '-'}</div>
                 <div>평가손익 / 실현손익: {formatKRW(vm.unrealizedPnlKrw, true)} / {formatKRW(vm.realizedPnlKrw, true)}</div>
@@ -1633,7 +1609,6 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                   {topOrderRows.map((order, index) => {
                     const item = order as Record<string, unknown>;
                     const market = String(item.market || '');
-                    const currency = normalizePortfolioMarket(market) === 'NASDAQ' ? 'USD' : 'KRW';
                     const quantity = toNumber(firstKnown(item.quantity, item.filled_quantity), NaN);
                     const filledPriceLocal = toNumber(firstKnown(item.filled_price_local, item.price), NaN);
                     const notionalLocal = toNumber(firstKnown(item.notional_local, Number.isFinite(quantity) && Number.isFinite(filledPriceLocal) ? quantity * filledPriceLocal : null), NaN);
@@ -1656,7 +1631,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
                         <td style={{ padding: 12, fontSize: 15 }}>{Number.isFinite(filledPriceLocal) ? formatLocalPrice(filledPriceLocal, market) : orderStatusCopy(item)}</td>
                         <td style={{ padding: 12, fontSize: 15 }}>
                           {Number.isFinite(notionalLocal) || Number.isFinite(notionalKrw)
-                            ? formatLocalAmountWithKRW(Number.isFinite(notionalLocal) ? notionalLocal : null, Number.isFinite(notionalKrw) ? notionalKrw : null, currency)
+                            ? formatKRW(Number.isFinite(notionalKrw) ? notionalKrw : Number.isFinite(notionalLocal) ? notionalLocal : null, true)
                             : '-'}
                         </td>
                       </tr>
@@ -1722,9 +1697,9 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
           <div id="runtime-positions-section" className="page-section" style={{ padding: 0 }}>
             <div style={{ padding: '14px 16px 0', display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 종목은 시장별로 나눠서 보는 쪽이 훨씬 덜 헷갈려. 미국장은 달러 가격 뒤에 원화 환산을 같이 붙였어.</div>
+                <div style={{ fontSize: 15, color: 'var(--text-4)' }}>보유 종목은 KOSPI 기준으로만 표시해.</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {(['ALL', 'KOSPI', 'NASDAQ'] as const).map((view) => (
+                  {(['ALL', 'KOSPI'] as const).map((view) => (
                     <button
                       key={view}
                       type="button"

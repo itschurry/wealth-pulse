@@ -168,7 +168,7 @@ def scan_strategy(
         refresh=refresh,
     )
     profile = _profile(strategy)
-    account_payload = account or {"positions": [], "orders": [], "equity_krw": 0.0, "fx_rate": 1300.0, "cash_krw": 0.0, "cash_usd": 0.0}
+    account_payload = account or {"positions": [], "orders": [], "equity_krw": 0.0, "fx_rate": 1.0, "cash_krw": 0.0}
     positions = account_payload.get("positions", []) if isinstance(account_payload.get("positions"), list) else []
     position_map = {
         f"{str(item.get('market') or '').upper()}:{str(item.get('code') or '').upper()}": item

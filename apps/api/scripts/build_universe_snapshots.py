@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Universe snapshot builder for KOSPI/SP500.
+"""Universe snapshot builder for KOSPI.
 
 Usage:
   python3 apps/api/scripts/build_universe_snapshots.py
@@ -29,10 +29,6 @@ UNIVERSE_TARGETS = {
     "kospi": {
         "listing_key": "KOSPI",
         "market": "KOSPI",
-    },
-    "sp500": {
-        "listing_key": "S&P500",
-        "market": "US",
     },
 }
 
@@ -220,7 +216,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build universe snapshots for live runtimes.")
     parser.add_argument(
         "--universe",
-        choices=["all", "kospi", "sp500"],
+        choices=["all", "kospi"],
         default="all",
         help="Build snapshot for a specific universe rule.",
     )

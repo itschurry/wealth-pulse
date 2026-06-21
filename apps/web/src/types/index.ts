@@ -1,9 +1,6 @@
 export interface MarketData {
   kospi?: number; kospi_pct?: number;
   kosdaq?: number; kosdaq_pct?: number;
-  sp100?: number; sp100_pct?: number;
-  nasdaq?: number; nasdaq_pct?: number;
-  usd_krw?: number;
   wti?: number; wti_pct?: number;
   gold?: number; gold_pct?: number;
   btc?: number; btc_pct?: number;
@@ -388,7 +385,7 @@ export type RegimeMode = 'auto' | 'manual';
 export type RiskProfile = 'conservative' | 'balanced' | 'aggressive';
 
 export interface RuntimeStrategyProfile {
-  market: 'KOSPI' | 'NASDAQ';
+  market: 'KOSPI';
   max_positions: number;
   max_holding_days: number;
   rsi_min: number;
@@ -410,8 +407,8 @@ export interface RuntimeStrategyProfile {
 export interface RuntimePosition {
   code: string;
   name: string;
-  market: 'KOSPI' | 'NASDAQ';
-  currency: 'KRW' | 'USD';
+  market: 'KOSPI';
+  currency: 'KRW';
   quantity: number;
   entry_ts?: string;
   avg_price_krw: number;
@@ -420,7 +417,6 @@ export interface RuntimePosition {
   last_price_local: number;
   fx_rate: number;
   market_value_krw: number;
-  market_value_usd?: number;
   unrealized_pnl_krw: number;
   unrealized_pnl_pct: number;
   updated_at?: string;
@@ -437,7 +433,7 @@ export interface RuntimeOrderEvent {
   order_type: 'market' | 'limit';
   code: string;
   name: string;
-  market: 'KOSPI' | 'NASDAQ';
+  market: 'KOSPI';
   quantity: number | null;
   filled_quantity?: number | null;
   filled_price_local: number | null;
@@ -459,23 +455,18 @@ export interface RuntimeOrderEvent {
 
 export interface RuntimeAccountData {
   mode: 'paper' | 'real' | 'live' | string;
-  base_currency: 'MULTI' | 'KRW' | 'USD' | string;
+  base_currency: 'KRW' | string;
   created_at?: string;
   updated_at?: string;
   days_elapsed?: number;
   initial_cash_krw: number;
-  initial_cash_usd: number;
   cash_krw: number;
-  cash_usd: number;
   market_value_krw: number;
-  market_value_usd: number;
   equity_krw: number;
   starting_equity_krw?: number;
   fx_rate: number;
   realized_pnl_krw: number;
-  realized_pnl_usd: number;
   total_fees_krw: number;
-  total_fees_usd: number;
   positions: RuntimePosition[];
   orders: RuntimeOrderEvent[];
   error?: string;
@@ -484,14 +475,14 @@ export interface RuntimeAccountData {
 export interface RuntimeSeedPositionInput {
   code: string;
   name?: string;
-  market: 'KOSPI' | 'NASDAQ';
+  market: 'KOSPI';
   quantity: number;
   avg_price_local: number;
 }
 
 export interface RuntimeEngineConfig {
   interval_seconds: number;
-  markets: Array<'KOSPI' | 'NASDAQ'>;
+  markets: Array<'KOSPI'>;
   max_positions_per_market: number;
   min_score: number;
   include_neutral: boolean;
@@ -525,7 +516,7 @@ export interface RuntimeEngineConfig {
     daily_limit?: number;
     min_holding_days?: number;
   };
-  market_profiles?: Partial<Record<'KOSPI' | 'NASDAQ', RuntimeStrategyProfile>>;
+  market_profiles?: Partial<Record<'KOSPI', RuntimeStrategyProfile>>;
 }
 
 export interface RuntimeSkippedItem {

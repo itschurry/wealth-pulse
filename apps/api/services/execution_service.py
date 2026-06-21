@@ -14,7 +14,6 @@ from helpers import (
     _now_iso,
 )
 from analyzer.technical_snapshot import fetch_technical_snapshot as _compute_technical_snapshot
-from services.market_data_service import get_usd_krw_rate as _usd_krw_rate
 from analyzer.shared_strategy import (
     build_strategy_profile,
     default_strategy_profile,
@@ -80,7 +79,6 @@ _RUNTIME_STOP_LOSS_PCT = 5.0
 _RUNTIME_TAKE_PROFIT_PCT = 12.0
 _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
     "KOSPI": _RUNTIME_TAKE_PROFIT_PCT,
-    "NASDAQ": _RUNTIME_TAKE_PROFIT_PCT,
 }
 _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
 _ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit"}
@@ -111,8 +109,8 @@ _auto_trader_state: dict[str, Any] = {
     "latest_cycle_id": "",
     "validation_policy": {},
 }
-_MARKET_TO_CALENDAR = {"KOSPI": "KR", "NASDAQ": "US"}
-_MARKET_BRIEF_LABELS = {"KR": "한국장", "US": "미국장"}
+_MARKET_TO_CALENDAR = {"KOSPI": "KR"}
+_MARKET_BRIEF_LABELS = {"KR": "한국장"}
 
 
 def _mask_chat_id(chat_id: str) -> str:
@@ -527,7 +525,7 @@ def _hydrate_live_runtime_account(
             price_krw = item.get("filled_price_krw")
             if price_krw in (None, ""):
                 price_krw = position.get("avg_price_krw") if side == "buy" else position.get("last_price_krw")
-            fx_rate = _to_float(position.get("fx_rate"), _to_float(item.get("fx_rate"), 1.0 if str(item.get("currency") or "KRW").upper() != "USD" else _usd_krw_rate()))
+            fx_rate = 1.0
             notional_local = item.get("notional_local")
             if notional_local in (None, "") and price_local not in (None, ""):
                 notional_local = round(_to_float(price_local) * reconciled_quantity, 4)
@@ -857,50 +855,39 @@ def _normalize_runtime_account(
 
     summary = account.get("summary") if isinstance(account.get("summary"), dict) else {}
     raw_positions = account.get("positions") if isinstance(account.get("positions"), list) else []
-    default_fx_rate = _to_float(
-        summary.get("fx_rate")
-        or account.get("fx_rate")
-        or _usd_krw_rate(),
-        0.0,
-    )
+    default_fx_rate = 1.0
     normalized_positions: list[dict[str, Any]] = []
     aggregated_market_value_krw = 0.0
-    aggregated_market_value_usd = 0.0
     aggregated_unrealized_pnl_krw = 0.0
 
     for item in raw_positions:
         if not isinstance(item, dict):
             continue
         quantity = int(_to_float(item.get("quantity"), 0.0) or 0)
-        market = str(item.get("market") or "KOSPI").strip().upper() or "KOSPI"
-        currency = str(item.get("currency") or ("USD" if market in {"NASDAQ", "NYSE", "AMEX", "US"} else "KRW")).strip().upper() or "KRW"
-        fx_rate = _to_float(item.get("fx_rate"), default_fx_rate if currency == "USD" else 1.0)
-        if currency != "USD":
-            fx_rate = 1.0
+        currency = "KRW"
+        fx_rate = 1.0
 
         # KIS raw positions use avg_price/current_price/eval_amount/profit_loss,
         # while hydrated live positions already use the UI contract fields below.
         # Preserve the latter when performance/status routes normalize an account twice.
-        avg_price = _to_float(item.get("avg_price"), _to_float(item.get("avg_price_local"), _to_float(item.get("avg_price_krw"), 0.0) / (fx_rate if currency == "USD" and fx_rate else 1.0)))
-        current_price = _to_float(item.get("current_price"), _to_float(item.get("last_price_local"), _to_float(item.get("last_price_krw"), 0.0) / (fx_rate if currency == "USD" and fx_rate else 1.0)))
-        eval_amount = _to_float(item.get("eval_amount"), _to_float(item.get("market_value_usd"), 0.0) if currency == "USD" else _to_float(item.get("market_value_krw"), 0.0))
-        profit_loss = _to_float(item.get("profit_loss"), _to_float(item.get("unrealized_pnl_local"), _to_float(item.get("unrealized_pnl_krw"), 0.0) / (fx_rate if currency == "USD" and fx_rate else 1.0)))
+        avg_price = _to_float(item.get("avg_price"), _to_float(item.get("avg_price_local"), _to_float(item.get("avg_price_krw"), 0.0)))
+        current_price = _to_float(item.get("current_price"), _to_float(item.get("last_price_local"), _to_float(item.get("last_price_krw"), 0.0)))
+        eval_amount = _to_float(item.get("eval_amount"), _to_float(item.get("market_value_krw"), 0.0))
+        profit_loss = _to_float(item.get("profit_loss"), _to_float(item.get("unrealized_pnl_local"), _to_float(item.get("unrealized_pnl_krw"), 0.0)))
         profit_loss_rate = _to_float(item.get("profit_loss_rate"), _to_float(item.get("unrealized_pnl_pct"), 0.0))
 
-        avg_price_krw = _to_float(item.get("avg_price_krw"), avg_price * fx_rate if currency == "USD" else avg_price)
-        current_price_krw = _to_float(item.get("last_price_krw"), current_price * fx_rate if currency == "USD" else current_price)
-        market_value_krw = _to_float(item.get("market_value_krw"), eval_amount * fx_rate if currency == "USD" else eval_amount)
-        market_value_usd = _to_float(item.get("market_value_usd"), eval_amount if currency == "USD" else 0.0)
-        unrealized_pnl_krw = _to_float(item.get("unrealized_pnl_krw"), profit_loss * fx_rate if currency == "USD" else profit_loss)
+        avg_price_krw = _to_float(item.get("avg_price_krw"), avg_price)
+        current_price_krw = _to_float(item.get("last_price_krw"), current_price)
+        market_value_krw = _to_float(item.get("market_value_krw"), eval_amount)
+        unrealized_pnl_krw = _to_float(item.get("unrealized_pnl_krw"), profit_loss)
 
         aggregated_market_value_krw += market_value_krw
-        aggregated_market_value_usd += market_value_usd
         aggregated_unrealized_pnl_krw += unrealized_pnl_krw
 
         normalized_positions.append({
             "code": str(item.get("code") or "").strip().upper(),
             "name": str(item.get("name") or "").strip(),
-            "market": "NASDAQ" if market in {"NASDAQ", "NYSE", "AMEX", "US"} else "KOSPI",
+            "market": "KOSPI",
             "currency": currency,
             "quantity": quantity,
             "entry_ts": str(item.get("entry_ts") or ""),
@@ -912,7 +899,7 @@ def _normalize_runtime_account(
             "take_profit_pct": item.get("take_profit_pct"),
             "fx_rate": fx_rate,
             "updated_at": str(item.get("updated_at") or _now_iso()),
-            "market_value_usd": market_value_usd,
+            "market_value_usd": 0.0,
             "market_value_krw": market_value_krw,
             "unrealized_pnl_local": profit_loss,
             "unrealized_pnl_krw": unrealized_pnl_krw,
@@ -921,44 +908,41 @@ def _normalize_runtime_account(
         })
 
     cash_krw = _to_float(summary.get("cash_krw"), _to_float(account.get("cash_krw"), _to_float(summary.get("deposit"), 0.0)))
-    cash_usd = _to_float(summary.get("cash_usd"), _to_float(account.get("cash_usd"), 0.0))
     account_market_value_krw = _to_float(account.get("market_value_krw"), 0.0)
-    account_market_value_usd = _to_float(account.get("market_value_usd"), 0.0)
     market_value_krw_native = _to_float(
         summary.get("eval_amount_krw"),
-        account_market_value_krw - (account_market_value_usd * default_fx_rate)
+        account_market_value_krw
         if account_market_value_krw > 0
-        else aggregated_market_value_krw - (aggregated_market_value_usd * default_fx_rate),
+        else aggregated_market_value_krw,
     )
-    market_value_usd = _to_float(summary.get("eval_amount_usd"), account_market_value_usd or aggregated_market_value_usd)
-    market_value_krw = market_value_krw_native + (market_value_usd * default_fx_rate)
+    market_value_usd = 0.0
+    market_value_krw = market_value_krw_native
     if market_value_krw == 0.0 and aggregated_market_value_krw > 0:
         market_value_krw = aggregated_market_value_krw
-    equity_krw = _to_float(summary.get("total_amount_krw"), _to_float(summary.get("total_amount"), _to_float(account.get("equity_krw"), cash_krw + cash_usd * default_fx_rate + market_value_krw)))
+    equity_krw = _to_float(summary.get("total_amount_krw"), _to_float(summary.get("total_amount"), _to_float(account.get("equity_krw"), cash_krw + market_value_krw)))
     unrealized_pnl_krw_native = _to_float(summary.get("eval_profit_loss_krw"), _to_float(account.get("unrealized_pnl_krw"), aggregated_unrealized_pnl_krw))
-    unrealized_pnl_usd = _to_float(summary.get("eval_profit_loss_usd"), _to_float(account.get("unrealized_pnl_usd"), 0.0))
-    unrealized_pnl_krw = unrealized_pnl_krw_native + (unrealized_pnl_usd * default_fx_rate)
+    unrealized_pnl_krw = unrealized_pnl_krw_native
 
     normalized = dict(account)
     normalized.update({
         "mode": "real",
-        "base_currency": "MULTI" if cash_usd > 0 else "KRW",
+        "base_currency": "KRW",
         "created_at": str(account.get("created_at") or ""),
         "updated_at": str(account.get("updated_at") or _now_iso()),
         "initial_cash_krw": _to_float(account.get("initial_cash_krw"), equity_krw),
-        "initial_cash_usd": _to_float(account.get("initial_cash_usd"), 0.0),
+        "initial_cash_usd": 0.0,
         "cash_krw": cash_krw,
-        "cash_usd": cash_usd,
+        "cash_usd": 0.0,
         "market_value_krw": market_value_krw,
         "market_value_usd": market_value_usd,
         "equity_krw": equity_krw,
         "starting_equity_krw": _to_float(account.get("starting_equity_krw"), equity_krw),
         "fx_rate": default_fx_rate,
         "realized_pnl_krw": _to_float(account.get("realized_pnl_krw"), 0.0),
-        "realized_pnl_usd": _to_float(account.get("realized_pnl_usd"), 0.0),
+        "realized_pnl_usd": 0.0,
         "unrealized_pnl_krw": unrealized_pnl_krw,
         "total_fees_krw": _to_float(account.get("total_fees_krw"), 0.0),
-        "total_fees_usd": _to_float(account.get("total_fees_usd"), 0.0),
+        "total_fees_usd": 0.0,
         "positions": normalized_positions,
         "orders": account.get("orders") if isinstance(account.get("orders"), list) else [],
     })
@@ -1167,9 +1151,8 @@ def _parse_seed_positions(raw) -> list[dict]:
         except (TypeError, ValueError):
             avg_price_local = 0.0
 
-        if market not in {"KOSPI", "NASDAQ"}:
-            raise ValueError(
-                f"seed_positions[{idx}] market은 KOSPI/NASDAQ만 허용합니다.")
+        if market != "KOSPI":
+            raise ValueError(f"seed_positions[{idx}] market은 KOSPI만 허용합니다.")
         if not code:
             raise ValueError(f"seed_positions[{idx}] code가 필요합니다.")
         if quantity <= 0:
@@ -1237,7 +1220,6 @@ def _passes_theme_gate(item: dict, cfg: dict) -> bool:
 def _default_auto_trader_config() -> dict:
     profiles = {
         profile.market: serialize_strategy_profiles([profile])[profile.market]
-        # NASDAQ 운영은 아직 막아둔다. 자동매매 기본 profile도 KOSPI만 만든다.
         for profile in default_strategy_profiles(["KOSPI"])
     }
     for market, profile in list(profiles.items()):
@@ -1848,11 +1830,11 @@ def _auto_invest_picks(
 ) -> dict:
     target_market = _normalize_pick_market(market)
     if target_market not in _SUPPORTED_AUTO_TRADE_MARKETS:
-        return {"ok": False, "error": "market은 NASDAQ/KOSPI만 허용합니다."}
+        return {"ok": False, "error": "market은 KOSPI만 허용합니다."}
     if not _is_active_auto_trade_market(target_market):
         return {"ok": False, "error": f"{target_market}은 현재 운용 시장이 아닙니다."}
 
-    calendar_market = "KR" if target_market == "KOSPI" else "US"
+    calendar_market = "KR"
     if not is_market_open(calendar_market):
         return {"ok": False, "error": f"{target_market} 정규장 시간이 아닙니다. 장중에만 거래가 가능합니다."}
 
@@ -3282,16 +3264,12 @@ def handle_runtime_reset(payload: dict) -> tuple[int, dict]:
     try:
         _hydrate_auto_trader_state()
         initial_cash_krw_raw = payload.get("initial_cash_krw")
-        initial_cash_usd_raw = payload.get("initial_cash_usd")
         seed_positions = _parse_seed_positions(payload.get("seed_positions"))
         initial_cash_krw = float(
             initial_cash_krw_raw) if initial_cash_krw_raw not in (None, "") else None
-        initial_cash_usd = float(
-            initial_cash_usd_raw) if initial_cash_usd_raw not in (None, "") else None
         engine = _runtime_engine()
         account = engine.reset(
             initial_cash_krw=initial_cash_krw,
-            initial_cash_usd=initial_cash_usd,
             seed_positions=seed_positions,
         )
         if not account.get("ok", True):
@@ -3487,7 +3465,6 @@ def handle_runtime_history_clear(payload: dict) -> tuple[int, dict]:
             else:
                 account = engine.reset(
                     initial_cash_krw=_coerce_optional_float(payload.get("initial_cash_krw")),
-                    initial_cash_usd=_coerce_optional_float(payload.get("initial_cash_usd")),
                     seed_positions=_parse_seed_positions(payload.get("seed_positions")),
                 )
                 if not account.get("ok", True):

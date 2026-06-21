@@ -26,11 +26,6 @@ class MarketSnapshot:
     kospi_change_pct: Optional[float] = None
     kosdaq: Optional[float] = None
     kosdaq_change_pct: Optional[float] = None
-    sp100: Optional[float] = None
-    sp100_change_pct: Optional[float] = None
-    nasdaq: Optional[float] = None
-    nasdaq_change_pct: Optional[float] = None
-    usd_krw: Optional[float] = None
     brent_oil: Optional[float] = None
     wti_oil: Optional[float] = None
     gold: Optional[float] = None

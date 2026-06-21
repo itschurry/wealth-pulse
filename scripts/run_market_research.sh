@@ -39,8 +39,6 @@ from config.market_calendar import get_market_local_dt, is_market_open, is_marke
 
 checks = [
     ("KOSPI", "KR"),
-    # NASDAQ 운영은 아직 열지 않는다. KOSPI 검증 전까지 야간 리서치 부하를 막는다.
-    # ("NASDAQ", "US"),
 ]
 open_markets = []
 rows = []
@@ -96,13 +94,6 @@ case "$research_market" in
     concurrency="${WEALTHPULSE_RESEARCH_CONCURRENCY:-3}"
     dry_run="${WEALTHPULSE_RESEARCH_DRY_RUN:-0}"
     ;;
-  # NASDAQ)
-  #   limit="${WEALTHPULSE_RESEARCH_LIMIT:-12}"
-  #   mode="${WEALTHPULSE_RESEARCH_MODE:-missing_or_stale}"
-  #   timeout="${WEALTHPULSE_RESEARCH_TIMEOUT:-600}"
-  #   concurrency="${WEALTHPULSE_RESEARCH_CONCURRENCY:-3}"
-  #   dry_run="${WEALTHPULSE_RESEARCH_DRY_RUN:-0}"
-  #   ;;
   *)
     printf '[%s] wealthpulse-market-research failed reason=unsupported_market market=%s\n' "$(date --iso-8601=seconds)" "$research_market"
     exit 1

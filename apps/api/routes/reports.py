@@ -6,7 +6,7 @@ import cache as _cache
 from domains.report.market_context_service import get_market_context
 from services.report_cache import get_cached_payload
 
-_SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI", "NASDAQ"}
+_SUPPORTED_AUTO_TRADE_MARKETS = {"KOSPI"}
 
 
 def _storage_list_dates(key: str) -> list[str]:
@@ -285,7 +285,7 @@ def _strategy_recommendations_payload() -> dict[str, Any]:
     _, execution_payload = get_execution_service().runtime_engine_status()
     account = execution_payload.get("account") if isinstance(execution_payload, dict) else {}
     signal_book = build_signal_book(
-        markets=["KOSPI", "NASDAQ"],
+        markets=["KOSPI"],
         cfg={},
         account=account if isinstance(account, dict) else {},
     )
@@ -303,7 +303,7 @@ def _strategy_recommendations_payload() -> dict[str, Any]:
     return {
         "generated_at": signal_book.get("generated_at"),
         "strategy": "profit-max-strategy-engine-v2",
-        "universe": "KOSPI+NASDAQ",
+        "universe": "KOSPI",
         "signal_counts": signal_counts,
         "recommendations": recommendations,
         "rejected_candidates": rejected,

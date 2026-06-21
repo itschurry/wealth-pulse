@@ -933,48 +933,10 @@ body {
       </div>
     </div>
 
-    <!-- 미국 지수 -->
-    <div class="market-group">
-      <div class="group-label">미국 지수</div>
-      <div class="market-grid market-grid-2">
-
-        {% set sp = market.sp100_change_pct or 0 %}
-        <div class="tile {% if sp > 0 %}tile-up{% elif sp < 0 %}tile-down{% endif %}" id="tile-sp100">
-          <div class="tile-label">S&amp;P 100</div>
-          {% if market.sp100 %}
-            <div class="tile-val {% if sp > 0 %}c-up{% elif sp < 0 %}c-down{% endif %}" id="live-sp100-val">{{ "{:,.2f}".format(market.sp100) }}</div>
-            <div class="tile-badge {% if sp > 0 %}b-up{% elif sp < 0 %}b-down{% else %}b-neutral{% endif %}" id="live-sp100-badge">
-              {% if sp > 0 %}▲{% elif sp < 0 %}▼{% else %}━{% endif %} {{ "%+.2f%%"|format(sp) }}
-            </div>
-          {% else %}<div class="tile-val" id="live-sp100-val">—</div>{% endif %}
-        </div>
-
-        {% set nq = market.nasdaq_change_pct or 0 %}
-        <div class="tile {% if nq > 0 %}tile-up{% elif nq < 0 %}tile-down{% endif %}" id="tile-nasdaq">
-          <div class="tile-label">NASDAQ</div>
-          {% if market.nasdaq %}
-            <div class="tile-val {% if nq > 0 %}c-up{% elif nq < 0 %}c-down{% endif %}" id="live-nasdaq-val">{{ "{:,.2f}".format(market.nasdaq) }}</div>
-            <div class="tile-badge {% if nq > 0 %}b-up{% elif nq < 0 %}b-down{% else %}b-neutral{% endif %}" id="live-nasdaq-badge">
-              {% if nq > 0 %}▲{% elif nq < 0 %}▼{% else %}━{% endif %} {{ "%+.2f%%"|format(nq) }}
-            </div>
-          {% else %}<div class="tile-val" id="live-nasdaq-val">—</div>{% endif %}
-        </div>
-
-      </div>
-    </div>
-
     <!-- 원자재 & 기타 -->
     <div class="market-group">
-      <div class="group-label">원자재 &amp; 환율</div>
-      <div class="market-grid market-grid-4">
-
-        <div class="tile" id="tile-usdkrw">
-          <div class="tile-label">USD / KRW</div>
-          {% if market.usd_krw %}
-            <div class="tile-val" id="live-usdkrw-val">{{ "{:,.1f}".format(market.usd_krw) }}</div>
-            <div class="tile-badge b-neutral" id="live-usdkrw-badge">원</div>
-          {% else %}<div class="tile-val" id="live-usdkrw-val">—</div>{% endif %}
-        </div>
+      <div class="group-label">원자재</div>
+      <div class="market-grid market-grid-3">
 
         <div class="tile" id="tile-wti">
           <div class="tile-label">WTI 원유</div>
@@ -996,7 +958,7 @@ body {
           <div class="tile-label">Bitcoin</div>
           {% if market.btc_usd %}
             <div class="tile-val" id="live-btc-val">${{ "{:,.0f}".format(market.btc_usd) }}</div>
-            <div class="tile-badge b-neutral" id="live-btc-badge">USD</div>
+            <div class="tile-badge b-neutral" id="live-btc-badge">달러</div>
           {% else %}<div class="tile-val" id="live-btc-val">—</div>{% endif %}
         </div>
 
@@ -1162,21 +1124,15 @@ body {
   const TILES = {
     kospi:   { fmt: 'n2',  hasPct: true },
     kosdaq:  { fmt: 'n2',  hasPct: true },
-    sp100:   { fmt: 'n2',  hasPct: true },
-    nasdaq:  { fmt: 'n2',  hasPct: true },
-    usdkrw:  { fmt: 'n1',  hasPct: false, badge: '원' },
     wti:     { fmt: 'd2',  hasPct: true,  badgeSuffix: '배럴' },
     gold:    { fmt: 'd0',  hasPct: true,  badgeSuffix: '온스' },
-    btc:     { fmt: 'd0',  hasPct: true,  badgeSuffix: 'USD'  },
+    btc:     { fmt: 'd0',  hasPct: true,  badgeSuffix: '달러'  },
   };
 
   /* JSON key → tile key */
   const KEY_MAP = {
     kospi: 'kospi', kospi_pct: 'kospi',
     kosdaq: 'kosdaq', kosdaq_pct: 'kosdaq',
-    sp100: 'sp100', sp100_pct: 'sp100',
-    nasdaq: 'nasdaq', nasdaq_pct: 'nasdaq',
-    usd_krw: 'usdkrw',
     wti: 'wti', wti_pct: 'wti',
     gold: 'gold', gold_pct: 'gold',
     btc: 'btc', btc_pct: 'btc',

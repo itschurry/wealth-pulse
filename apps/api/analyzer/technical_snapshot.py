@@ -583,19 +583,6 @@ def _normalize_quote_market(code: str, market: str) -> str:
     return resolve_quote_market(code=code, market=market, scope="core")
 
 
-def _overseas_exchange_candidates(market: str) -> list[str]:
-    normalized = (market or "").strip().upper()
-    if normalized in {"NYSE", "AMEX", "NASDAQ"}:
-        ordered = [normalized, "NASDAQ", "NYSE", "AMEX"]
-    else:
-        ordered = ["NASDAQ", "NYSE", "AMEX"]
-    deduped: list[str] = []
-    for item in ordered:
-        if item not in deduped:
-            deduped.append(item)
-    return deduped
-
-
 def _lookback_days(range_: str) -> int:
     normalized = (range_ or "").strip().lower()
     if normalized == "1d":
@@ -655,7 +642,7 @@ def fetch_technical_snapshot(
     resolved_market = str((listing or {}).get(
         "market") or market or "").strip()
     normalized_market = _normalize_quote_market(resolved_code, resolved_market)
-    if normalized_market not in {"KOSPI", "NASDAQ"} or interval != "1d":
+    if normalized_market != "KOSPI" or interval != "1d":
         return None
 
     cache_key = f"{resolved_market}:{resolved_code}:{range_}:{interval}"
@@ -671,7 +658,7 @@ def fetch_technical_snapshot(
         return None
 
     history_market = resolved_market.strip().upper()
-    if history_market not in {"KOSPI", "NASDAQ", "NYSE", "AMEX"}:
+    if history_market != "KOSPI":
         history_market = normalized_market
 
     end_date = datetime.datetime.now(_KST).strftime("%Y%m%d")
@@ -680,28 +667,11 @@ def fetch_technical_snapshot(
     rows: list[dict[str, Any]] = []
 
     try:
-        if history_market == "KOSPI":
-            rows = client.get_domestic_daily_history(
-                resolved_code,
-                start_date=start_date,
-                end_date=end_date,
-            )
-        else:
-            for exchange in _overseas_exchange_candidates(history_market):
-                try:
-                    rows = client.get_overseas_daily_history(
-                        resolved_code,
-                        exchange=exchange,
-                        start_date=start_date,
-                        end_date=end_date,
-                    )
-                except Exception as exc:
-                    logger.debug("KIS 해외 히스토리 조회 실패 %s/%s: %s",
-                                 resolved_code, exchange, exc)
-                    rows = []
-                    continue
-                if rows:
-                    break
+        rows = client.get_domestic_daily_history(
+            resolved_code,
+            start_date=start_date,
+            end_date=end_date,
+        )
     except Exception as exc:
         logger.warning("KIS 히스토리 조회 실패 %s (%s): %s",
                        resolved_code, history_market, exc)

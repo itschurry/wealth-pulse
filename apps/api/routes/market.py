@@ -1,6 +1,5 @@
 import datetime
 import json
-import re
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,7 +11,7 @@ from config.company_catalog import get_company_catalog
 from config.market_calendar import SESSION_WINDOWS, get_market_local_dt, is_market_open, is_market_trading_day
 from market_utils import lookup_company_listing, normalize_market, resolve_quote_market
 
-_ALLOWED_SEARCH_MARKETS = {"KOSPI", "KOSDAQ", "NASDAQ"}
+_ALLOWED_SEARCH_MARKETS = {"KOSPI", "KOSDAQ"}
 _SEARCH_CATALOG = [
     entry for entry in get_company_catalog(scope="core")
     if entry.market in _ALLOWED_SEARCH_MARKETS
@@ -38,35 +37,6 @@ def _naver_index(symbol: str):
     return price, pct
 
 
-def _stooq_daily(symbol: str):
-    url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
-    text = _get(url, timeout=4)
-    rows = [line for line in text.strip().splitlines()
-            if line and not line.startswith("Date")]
-    if len(rows) < 2:
-        return None, None
-    last = rows[-1].split(",")
-    prev = rows[-2].split(",")
-    close = float(last[4])
-    prev_close = float(prev[4])
-    pct = (close - prev_close) / prev_close * 100
-    return close, pct
-
-
-def _yahoo_chart(symbol: str):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
-    payload = json.loads(_get(url, timeout=4))
-    result = payload["chart"]["result"][0]
-    closes = result["indicators"]["quote"][0]["close"]
-    valid = [float(value) for value in closes if value is not None]
-    if not valid:
-        return None, None
-    close = valid[-1]
-    prev_close = valid[-2] if len(valid) >= 2 else close
-    pct = (close - prev_close) / prev_close * 100 if prev_close else None
-    return close, pct
-
-
 def _stooq_spot(symbol: str):
     url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcvp&h&e=csv"
     text = _get(url, timeout=4)
@@ -86,31 +56,8 @@ def _stooq_spot(symbol: str):
         return None, None
 
 
-def _usd_krw():
-    text = _get("https://finance.naver.com/marketindex/", timeout=4)
-    m = re.search(r'class="value"[^>]*>(1[,\d]+\.\d{2})', text)
-    if m:
-        return float(m.group(1).replace(",", ""))
-    return None
-
-
 def _normalize_quote_market(code: str, market: str) -> str:
     return resolve_quote_market(code=code, market=market, scope="core")
-
-
-def _overseas_exchange_candidates(market: str) -> list[str]:
-    normalized = (market or "").strip().upper()
-    if normalized in {"NYSE", "AMEX", "NASDAQ"}:
-        ordered = [normalized, "NASDAQ", "NYSE", "AMEX"]
-    elif normalized in {"NAS", "US", "USA", ""}:
-        ordered = ["NASDAQ", "NYSE", "AMEX"]
-    else:
-        ordered = ["NASDAQ", "NYSE", "AMEX"]
-    deduped: list[str] = []
-    for item in ordered:
-        if item not in deduped:
-            deduped.append(item)
-    return deduped
 
 
 def _search_catalog(query: str, limit: int = 10) -> list[dict]:
@@ -181,57 +128,20 @@ def _resolve_stock_quote(code: str, market: str = "") -> dict:
     resolved_name = str((listing or {}).get("name") or normalized_input).strip()
     resolved_market = str((listing or {}).get("market") or market or "").strip()
     normalized_market = _normalize_quote_market(resolved_code, resolved_market)
-    if normalized_market not in {"KOSPI", "NASDAQ"}:
+    if normalized_market != "KOSPI":
         raise ValueError("market could not be resolved; provide a valid market or use a known stock code")
 
     client = _get_kis_client()
     if client is None:
         raise KISConfigError("KIS가 설정되지 않았거나 비활성 상태입니다.")
 
-    if normalized_market == "KOSPI":
-        kis_price = client.get_domestic_price(resolved_code)
-        return {
-            "code": resolved_code,
-            "name": kis_price.get("name") or resolved_name,
-            "price": kis_price.get("price"),
-            "change_pct": kis_price.get("change_pct"),
-            "market": normalize_market(resolved_market) or "KOSPI",
-            "source": "KIS",
-            "fetched_at": datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds"),
-            "is_stale": False,
-        }
-
-    last_exc: Exception | None = None
-    kis_price = None
-    resolved_exchange = normalize_market(resolved_market) or "NASDAQ"
-    for exchange in _overseas_exchange_candidates(resolved_exchange):
-        try:
-            candidate_price = client.get_overseas_price(resolved_code, exchange=exchange)
-        except Exception as exc:
-            last_exc = exc
-            continue
-        quote_price = candidate_price.get("price")
-        try:
-            quote_price_value = float(quote_price) if quote_price is not None else None
-        except (TypeError, ValueError):
-            quote_price_value = None
-        if quote_price_value is None or quote_price_value <= 0:
-            last_exc = RuntimeError(f"empty overseas quote: {resolved_code}@{exchange}")
-            continue
-        kis_price = candidate_price
-        resolved_exchange = exchange
-        break
-    if kis_price is None:
-        if last_exc is not None:
-            raise last_exc
-        raise RuntimeError("해외 현재가 조회에 실패했습니다.")
-
+    kis_price = client.get_domestic_price(resolved_code)
     return {
         "code": resolved_code,
         "name": kis_price.get("name") or resolved_name,
         "price": kis_price.get("price"),
         "change_pct": kis_price.get("change_pct"),
-        "market": resolved_exchange,
+        "market": normalize_market(resolved_market) or "KOSPI",
         "source": "KIS",
         "fetched_at": datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds"),
         "is_stale": False,
@@ -272,9 +182,6 @@ def _build_market() -> dict:
     tasks = {
         "kospi": lambda: _naver_index("KOSPI"),
         "kosdaq": lambda: _naver_index("KOSDAQ"),
-        "usd_krw": _usd_krw,
-        "sp100": lambda: _yahoo_chart("^OEX"),
-        "nasdaq": lambda: _yahoo_chart("^IXIC"),
         "wti": lambda: _stooq_spot("cl.f"),
     }
 
@@ -284,10 +191,6 @@ def _build_market() -> dict:
             key = futures[future]
             try:
                 value = future.result()
-                if key == "usd_krw":
-                    if value:
-                        result["usd_krw"] = round(value, 2)
-                    continue
                 price, change_pct = value
                 if price:
                     result[key] = round(price, 2)
@@ -299,7 +202,6 @@ def _build_market() -> dict:
     result["updated_at"] = datetime.datetime.now(_KST).strftime("%H:%M:%S KST")
     result["market_sessions"] = {
         "KR": _session_payload("KR", "한국장"),
-        "US": _session_payload("US", "미국장"),
     }
     return result
 

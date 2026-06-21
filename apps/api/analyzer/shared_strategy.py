@@ -9,15 +9,11 @@ from schemas.strategy_metadata import strategy_defaults
 from services.strategy_selector import get_strategy, resolve_strategy
 from strategies.base import StrategyProfile, read_snapshot_value
 
-_US_MARKETS = {"NASDAQ", "NYSE", "AMEX", "US", "USA"}
-
 def normalize_strategy_market(market: str | None) -> str:
     normalized = str(market or "").strip().upper()
     if normalized in {"KOSPI", "KOSDAQ", "KRX", "KR", "KOREA"}:
         return "KOSPI"
-    if normalized in _US_MARKETS:
-        return "NASDAQ"
-    return normalized or "KOSPI"
+    return "KOSPI"
 
 
 def default_strategy_profile(

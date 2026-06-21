@@ -30,7 +30,7 @@ _QUOTE_FETCH_LOCK = threading.Lock()
 
 _REQUIRED_OUTPUT_FIELDS = {
     "symbol": "string; target symbol/code",
-    "market": "string; normalized market such as KOSPI, KOSDAQ, NASDAQ, NYSE",
+    "market": "string; normalized Korean market such as KOSPI or KOSDAQ",
     "confidence": "number 0..1",
     "rating": "one of strong_buy, overweight, hold, underweight, sell",
     "action": "one of buy, buy_watch, hold, reduce, sell, block",

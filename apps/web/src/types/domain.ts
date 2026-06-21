@@ -615,21 +615,15 @@ export interface PerformanceSummaryResponse {
     total_reject_count?: number;
     total_screened_count?: number;
     realized_pnl_krw?: number;
-    realized_pnl_usd?: number;
     unrealized_pnl_krw?: number;
-    unrealized_pnl_usd?: number;
     total_return_pct?: number;
     initial_cash_krw?: number;
-    initial_cash_usd?: number;
     cash_krw?: number;
-    cash_usd?: number;
     equity_krw?: number;
     starting_equity_krw?: number;
     fx_rate?: number;
     market_value_krw?: number;
-    market_value_usd?: number;
     market_value_krw_only?: number;
-    market_value_usd_krw?: number;
     position_cost_krw?: number;
     position_market_value_krw?: number;
     position_unrealized_pnl_krw?: number;
@@ -638,12 +632,6 @@ export interface PerformanceSummaryResponse {
     position_market_value_krw_only?: number;
     position_unrealized_pnl_krw_only?: number;
     position_return_pct_krw?: number | null;
-    position_cost_usd?: number;
-    position_cost_usd_krw?: number;
-    position_market_value_usd?: number;
-    position_market_value_usd_krw?: number;
-    position_unrealized_pnl_usd?: number;
-    position_return_pct_usd?: number | null;
     avg_notional_krw?: number;
     positions?: number;
     order_history?: Array<{
@@ -651,7 +639,7 @@ export interface PerformanceSummaryResponse {
       code?: string;
       name?: string;
       market?: string;
-      currency?: 'KRW' | 'USD' | string;
+      currency?: 'KRW' | string;
       side?: string;
       quantity?: number | null;
       filled_price_local?: number | null;
@@ -670,7 +658,7 @@ export interface PerformanceSummaryResponse {
       code?: string;
       name?: string;
       market?: string;
-      currency?: 'KRW' | 'USD' | string;
+      currency?: 'KRW' | string;
       side?: string;
       quantity?: number | null;
       filled_price_local?: number | null;
@@ -800,7 +788,6 @@ export interface EngineStatusResponse {
       mode?: string;
       equity_krw?: number;
       cash_krw?: number;
-      cash_usd?: number;
       positions?: Array<Record<string, unknown>>;
     };
   };
@@ -823,7 +810,6 @@ export interface PortfolioStateResponse {
   account?: {
     equity_krw?: number;
     cash_krw?: number;
-    cash_usd?: number;
     positions?: Array<Record<string, unknown>>;
   };
   regime?: string;
@@ -969,11 +955,6 @@ export interface LiveMarketResponse {
   kospi_pct?: number;
   kosdaq?: number;
   kosdaq_pct?: number;
-  usd_krw?: number;
-  nasdaq?: number;
-  nasdaq_pct?: number;
-  sp100?: number;
-  sp100_pct?: number;
   wti?: number;
   wti_pct?: number;
   updated_at?: string;

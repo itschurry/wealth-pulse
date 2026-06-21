@@ -75,7 +75,7 @@ HOLDINGS = [
 INVESTMENT_PROFILE = {
     "style": "장기 투자 (3개월 이상)",
     "risk_preference": "리스크가 크지 않은 종목 선호",
-    "markets": ["한국 KOSPI/KOSDAQ", "미국 NYSE/NASDAQ"],
+    "markets": ["한국 KOSPI/KOSDAQ"],
     "sectors": "전 섹터 (반도체/AI, 2차전지/에너지, 바이오/헬스케어 등)",
     "total_return_pct": 6.18,
     "start_date": "2026-03",

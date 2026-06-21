@@ -1,4 +1,4 @@
-"""Shared market resolution helpers for domestic and US equities."""
+"""Shared market resolution helpers for KOSPI-only runtime."""
 from __future__ import annotations
 
 import re
@@ -18,15 +18,8 @@ _MARKET_ALIASES = {
     "KQ": "KOSDAQ",
     "KOSDAQ GLOBAL": "KOSDAQ",
     "코스닥": "KOSDAQ",
-    "NASDAQ": "NASDAQ",
-    "NAS": "NASDAQ",
-    "NYSE": "NYSE",
-    "AMEX": "AMEX",
-    "US": "NASDAQ",
-    "USA": "NASDAQ",
 }
 
-_US_MARKETS = {"NASDAQ", "NYSE", "AMEX"}
 _DOMESTIC_MARKETS = {"KOSPI", "KOSDAQ"}
 
 
@@ -64,10 +57,6 @@ def infer_market_from_ticker(value: str) -> str:
         return "KOSPI"
     if suffix == "KQ":
         return "KOSDAQ"
-    if suffix in {"O", "Q"}:
-        return "NASDAQ"
-    if suffix == "N":
-        return "NYSE"
     return ""
 
 
@@ -151,8 +140,6 @@ def resolve_market(
             return catalog_market
         if normalized_market == catalog_market:
             return normalized_market
-        if normalized_market in _US_MARKETS and catalog_market in _US_MARKETS:
-            return normalized_market
         return catalog_market
 
     if normalized_market:
@@ -183,14 +170,8 @@ def resolve_quote_market(
     resolved_market = resolve_market(code=code, name=name, market=market, ticker=ticker, scope=scope)
     if resolved_market in _DOMESTIC_MARKETS:
         return "KOSPI"
-    if resolved_market in _US_MARKETS:
-        return "NASDAQ"
     return ""
 
 
 def is_domestic_market(market: str) -> bool:
     return normalize_market(market) in _DOMESTIC_MARKETS
-
-
-def is_us_market(market: str) -> bool:
-    return normalize_market(market) in _US_MARKETS

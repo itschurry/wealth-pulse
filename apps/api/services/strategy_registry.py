@@ -15,11 +15,9 @@ STRATEGY_REGISTRY_PATH = CONFIG_STATE_DIR / "strategy_registry.json"
 # status: human-readable lifecycle label, independent from enabled flag
 # enabled is the only thing the engine reads — status is for operator context
 _ALLOWED_STATUS = {"draft", "ready", "paused", "archived"}
-_ALLOWED_MARKETS = {"KOSPI", "NASDAQ"}
+_ALLOWED_MARKETS = {"KOSPI"}
 _UNIVERSE_RULE_ALIASES = {
     "top_liquidity_200": "kospi",
-    "us_mega_cap": "sp500",
-    "volatility_breakout_pool": "sp500",
     "kr_core_bluechips": "kospi",
 }
 
@@ -75,8 +73,8 @@ def _risk_limits(market: str, *, max_positions: int, position_size_pct: float, d
         "max_positions": int(max_positions),
         "position_size_pct": float(position_size_pct),
         "daily_loss_limit_pct": float(daily_loss_limit_pct),
-        "min_liquidity": 150_000 if market == "KOSPI" else 400_000,
-        "max_spread_pct": 0.6 if market == "KOSPI" else 0.45,
+        "min_liquidity": 150_000,
+        "max_spread_pct": 0.6,
     }
 
 
@@ -145,17 +143,17 @@ _DEFAULT_STRATEGIES: list[dict[str, Any]] = [
         "name": "Defensive",
         "enabled": True,
         "status": "ready",
-        "market": "NASDAQ",
-        "universe_rule": "sp500",
+        "market": "KOSPI",
+        "universe_rule": "kospi",
         "scan_cycle": "5m",
         "entry_rule": "bear or risk_off regime -> selective entry, short hold, strict guardrail",
         "exit_rule": "protect capital quickly",
         "params": {
-            **serialize_strategy_profile(default_strategy_profile("NASDAQ", strategy_kind="defensive", risk_profile="balanced")),
+            **serialize_strategy_profile(default_strategy_profile("KOSPI", strategy_kind="defensive", risk_profile="balanced")),
             "scan_limit": 20,
             "candidate_top_n": 5,
         },
-        "risk_limits": _risk_limits("NASDAQ", max_positions=3, position_size_pct=0.08, daily_loss_limit_pct=0.01),
+        "risk_limits": _risk_limits("KOSPI", max_positions=3, position_size_pct=0.08, daily_loss_limit_pct=0.01),
         "enabled_at": "2026-03-27T10:00:00+09:00",
         "version": 1,
         "research_summary": {
@@ -222,10 +220,7 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
         "enabled": enabled,
         "status": status,
         "market": market,
-        "universe_rule": _UNIVERSE_RULE_ALIASES.get(
-            str(payload.get("universe_rule") or ("kospi" if market == "KOSPI" else "sp500")).strip().lower(),
-            str(payload.get("universe_rule") or ("kospi" if market == "KOSPI" else "sp500")).strip() or ("kospi" if market == "KOSPI" else "sp500"),
-        ),
+        "universe_rule": _UNIVERSE_RULE_ALIASES.get(str(payload.get("universe_rule") or "kospi").strip().lower(), "kospi"),
         "scan_cycle": str(payload.get("scan_cycle") or "5m").strip() or "5m",
         "entry_rule": str(payload.get("entry_rule") or "").strip(),
         "exit_rule": str(payload.get("exit_rule") or "").strip(),

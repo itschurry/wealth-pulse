@@ -18,15 +18,13 @@ class CompanyCatalogEntry:
     aliases: tuple[str, ...]
 
 
-_ALLOWED_MARKETS = {"KOSPI", "KOSDAQ", "NASDAQ", "NYSE", "AMEX", "US"}
+_ALLOWED_MARKETS = {"KOSPI", "KOSDAQ"}
 _CATALOG_CACHE: dict[str, list[CompanyCatalogEntry]] = {}
 _UNIVERSE_ROOT = CACHE_DIR / "universe_snapshots"
 _CONFIG_UNIVERSE_ROOT = Path(__file__).resolve().parent / "universes"
 _SNAPSHOT_SOURCES: tuple[tuple[str, Path], ...] = (
     ("kospi", _UNIVERSE_ROOT / "kospi" / "latest.json"),
-    ("sp500", _UNIVERSE_ROOT / "sp500" / "latest.json"),
     ("kospi_config", _CONFIG_UNIVERSE_ROOT / "kospi100.json"),
-    ("sp100_config", _CONFIG_UNIVERSE_ROOT / "sp100.json"),
 )
 
 _US_SUFFIX_PATTERN = re.compile(
@@ -89,8 +87,6 @@ _STATIC_FALLBACK_ROWS: tuple[dict[str, object], ...] = (
 
 def _normalize_market(value: str) -> str:
     normalized = str(value or "").strip().upper()
-    if normalized in {"US", "NASDAQ", "NYSE", "AMEX"}:
-        return "NASDAQ"
     if normalized == "KRX":
         return "KOSPI"
     return normalized
@@ -128,7 +124,7 @@ def _normalize_sector(value: str | None, market: str) -> str:
     sector = str(value or "").strip()
     if sector:
         return sector
-    return "국내주식" if market in {"KOSPI", "KOSDAQ"} else "미국주식"
+    return "국내주식"
 
 
 def _append_entry(entries: list[CompanyCatalogEntry], seen: set[tuple[str, str]], row: dict[str, object], default_market: str = "") -> None:

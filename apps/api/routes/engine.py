@@ -100,7 +100,6 @@ def _compact_execution_payload(execution_payload: dict | None) -> dict:
         "mode": account.get("mode"),
         "equity_krw": account.get("equity_krw"),
         "cash_krw": account.get("cash_krw"),
-        "cash_usd": account.get("cash_usd"),
         "updated_at": account.get("updated_at"),
         "positions": account.get("positions") if isinstance(account.get("positions"), list) else [],
     }

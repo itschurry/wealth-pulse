@@ -11,8 +11,6 @@ from services.json_utils import read_json_file_cached
 
 UNIVERSE_RULE_ALIASES = {
     "top_liquidity_200": "kospi",
-    "us_mega_cap": "sp500",
-    "volatility_breakout_pool": "sp500",
     "kr_core_bluechips": "kospi",
 }
 _ALIASES_BY_RULE = {}
@@ -21,19 +19,16 @@ for _alias_rule, _canonical_rule in UNIVERSE_RULE_ALIASES.items():
 
 UNIVERSE_RULE_LABELS = {
     "kospi": "KOSPI",
-    "sp500": "S&P500",
 }
 
 UNIVERSE_MARKET_BY_RULE = {
     "kospi": "KOSPI",
-    "sp500": "US",
 }
 
 UNIVERSE_ROOT = CACHE_DIR / "universe_snapshots"
 CONFIG_UNIVERSE_DIR = API_DIR / "config" / "universes"
 CONFIG_UNIVERSE_FILES = {
     "kospi": "kospi100.json",
-    "sp500": "sp100.json",
 }
 
 _DEFAULT_MAX_AGE_MINUTES = 60
@@ -225,7 +220,7 @@ def _normalize_snapshot(payload: dict[str, Any], *, market: str | None = None) -
     normalized_rule = _normalize_rule(str(payload.get("rule_name") or payload.get("universe") or "kospi"))
     explicit_market = str(market or "").strip()
     normalized_market = normalize_market(explicit_market)
-    if not normalized_market and normalized_rule != "sp500":
+    if not normalized_market:
         normalized_market = normalize_market(str(payload.get("market") or "").strip())
     symbols: list[dict[str, Any]] = []
     seen_symbols: set[str] = set()
