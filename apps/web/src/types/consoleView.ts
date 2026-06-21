@@ -11,7 +11,6 @@ import type {
   ReportsExplainResponse,
   ScannerStatusResponse,
   SignalsRankResponse,
-  StrategiesResponse,
   TodayPicksResponse,
   UniverseResponse,
 } from './domain';
@@ -19,7 +18,6 @@ import type {
 export interface ConsoleSnapshot {
   engine: EngineStatusResponse;
   signals: SignalsRankResponse;
-  strategies: StrategiesResponse;
   scanner: ScannerStatusResponse;
   universe: UniverseResponse;
   performance: PerformanceSummaryResponse;

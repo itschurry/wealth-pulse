@@ -1,20 +1,10 @@
 export const UI_TEXT = {
   appName: 'WealthPulse',
-  topTabs: {
-    operations: '운영',
-    lab: '실험',
-    analysis: '분석',
-  },
   operationsTabs: {
     overview: '요약',
     scanner: '신호',
     watchDecision: '관심',
     performance: '성과',
-  },
-  labTabs: {
-    strategies: '전략',
-    validation: '검증',
-    universe: '유니버스',
   },
   analysisTabs: {
     watchlist: '관심',
@@ -51,8 +41,6 @@ export const UI_TEXT = {
     stopEngineMessage: '자동매매 엔진을 중지하면 후보 평가와 자동 집행이 멈춥니다.',
     resetRuntimeTitle: '모의계좌를 초기화하시겠습니까?',
     resetRuntimeMessage: '이 작업은 되돌릴 수 없습니다. 현재 모의계좌 상태와 포지션이 초기화됩니다.',
-    resetValidationTitle: '서버 저장된 검증 설정을 초기화하시겠습니까?',
-    resetValidationMessage: '공유 저장 기준이 기본값으로 돌아가고 현재 브라우저 초안도 함께 덮어씁니다.',
     clearLogsTitle: '로그를 비우시겠습니까?',
     clearLogsMessage: '로그를 비우면 기존 기록을 현재 화면에서 다시 확인할 수 없습니다.',
     confirmAction: '확인',
@@ -183,14 +171,6 @@ const PROVIDER_SOURCE_KR: Record<string, string> = {
   candidate_monitor_active_slots: '활성 후보 기준',
 };
 
-const STRATEGY_LIFECYCLE_KR: Record<string, string> = {
-  applied: '적용 중',
-  approved: '준비됨',
-  stale: '재확인 필요',
-  blocked: '보관됨',
-  candidate: '초안',
-};
-
 export function freshnessToKorean(value: string | null | undefined): string {
   const normalized = String(value || '').trim().toLowerCase();
   return FRESHNESS_KR[normalized] || normalized || FRESHNESS_KR.unknown;
@@ -209,11 +189,6 @@ export function providerStatusToKorean(value: string | null | undefined): string
 export function providerSourceToKorean(value: string | null | undefined): string {
   const normalized = String(value || '').trim().toLowerCase();
   return PROVIDER_SOURCE_KR[normalized] || normalized || '-';
-}
-
-export function strategyLifecycleToKorean(value: string | null | undefined): string {
-  const normalized = String(value || '').trim().toLowerCase();
-  return STRATEGY_LIFECYCLE_KR[normalized] || normalized || '-';
 }
 
 const STRATEGY_TYPE_KR: Record<string, string> = {

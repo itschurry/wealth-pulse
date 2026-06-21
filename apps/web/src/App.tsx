@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react';
-import { UI_TEXT } from './constants/uiText';
 import { useConsoleData } from './hooks/useConsoleData';
 import { RuntimePortfolioPage } from './pages/RuntimePortfolioPage';
 import { CandidateResearchPage } from './pages/CandidateResearchPage';
-import { StrategiesPage } from './pages/StrategiesPage';
-import { UniversePage } from './pages/UniversePage';
 import { WatchlistPage } from './pages/WatchlistPage';
 import { WealthPulseHomePage } from './pages/WealthPulseHomePage';
-import type { DashboardTab, LabTab, ResearchTab, WorkspacePage } from './types/navigation';
+import type { DashboardTab, ResearchTab, WorkspacePage } from './types/navigation';
 
 function formatKstClock(date: Date): string {
   return new Intl.DateTimeFormat('ko-KR', {
@@ -22,7 +19,6 @@ function formatKstClock(date: Date): string {
 interface RouteState {
   page: WorkspacePage;
   dashboardTab: DashboardTab;
-  labTab: LabTab;
   researchTab: ResearchTab;
   canonicalPath: string;
   search: string;
@@ -33,12 +29,6 @@ const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; h
   { id: 'research-ai', label: '리서치', path: '/research-ai', hint: '성공과 실패' },
   { id: 'orders-execution', label: '주문', path: '/orders-execution', hint: '주문과 보유' },
   { id: 'watchlist', label: '관심', path: '/watchlist', hint: '관심 종목' },
-  { id: 'lab', label: '관리', path: '/lab/strategies', hint: '전략과 종목군' },
-];
-
-const LAB_TABS: Array<{ id: LabTab; label: string; path: string; hint: string }> = [
-  { id: 'strategies', label: UI_TEXT.labTabs.strategies, path: '/lab/strategies', hint: '프리셋' },
-  { id: 'universe', label: UI_TEXT.labTabs.universe, path: '/lab/universe', hint: '종목군' },
 ];
 
 const PAGE_COPY: Record<WorkspacePage, string> = {
@@ -46,7 +36,6 @@ const PAGE_COPY: Record<WorkspacePage, string> = {
   'research-ai': '',
   'orders-execution': '',
   watchlist: '',
-  lab: '',
 };
 
 function normalizeSearch(search = ''): string {
@@ -61,7 +50,6 @@ function buildUrl(path: string, search = ''): string {
 function withDefaults(partial: Partial<RouteState> & Pick<RouteState, 'page' | 'canonicalPath'>, search = ''): RouteState {
   return {
     dashboardTab: 'overview',
-    labTab: 'strategies',
     researchTab: 'research',
     search: normalizeSearch(search),
     ...partial,
@@ -98,12 +86,7 @@ function toRouteState(pathname: string, search = ''): RouteState {
     return withDefaults({ page: 'agent-dashboard', canonicalPath: '/agent-dashboard' }, normalizedSearch);
   }
   if (path.startsWith('/lab/')) {
-    const segment = path.replace('/lab/', '');
-    const found = LAB_TABS.find((tab) => tab.id === segment);
-    if (found) {
-      return withDefaults({ page: 'lab', labTab: found.id, canonicalPath: found.path }, normalizedSearch);
-    }
-    return withDefaults({ page: 'lab', labTab: 'strategies', canonicalPath: '/lab/strategies' }, normalizedSearch);
+    return defaultRouteState(normalizedSearch);
   }
   return defaultRouteState(normalizedSearch);
 }
@@ -122,9 +105,8 @@ export default function App() {
   const [clockText, setClockText] = useState(() => formatKstClock(new Date()));
   const { snapshot, loading, hasError, errorMessage, refresh } = useConsoleData(route);
   const activePage = WORKSPACE_PAGES.find((page) => page.id === route.page) || WORKSPACE_PAGES[0];
-  const activeLabTab = LAB_TABS.find((tab) => tab.id === route.labTab);
-  const activeLabel = route.page === 'lab' ? activeLabTab?.label || activePage.label : activePage.label;
-  const activeHint = route.page === 'lab' ? activeLabTab?.hint || activePage.hint : activePage.hint;
+  const activeLabel = activePage.label;
+  const activeHint = activePage.hint;
 
   useEffect(() => {
     const initial = toRouteState(location.pathname, location.search);
@@ -220,26 +202,6 @@ export default function App() {
           ))}
         </div>
 
-        {route.page === 'lab' && (
-          <div className="app-sidebar-group">
-            <div className="app-sidebar-group-label">실험</div>
-            {LAB_TABS.map((tab, index) => (
-              <button
-                key={tab.id}
-                onClick={() => navigateTo(tab.path)}
-                className={`app-nav-button is-sub ${route.labTab === tab.id ? 'active' : ''}`}
-                aria-current={route.labTab === tab.id ? 'page' : undefined}
-              >
-                <span className="app-nav-step">{String(index + 1).padStart(2, '0')}</span>
-                <span className="app-nav-label-wrap">
-                  <span className="app-nav-label">{tab.label}</span>
-                  {route.labTab === tab.id ? <span className="app-nav-help">{tab.hint}</span> : null}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-
         <div className="app-sidebar-foot">
           <span className={`app-chrome-pill ${loading ? 'is-live' : ''}`}>{loading ? '동기화 중' : '준비 완료'}</span>
           <span className="app-chrome-pill">자동투자</span>
@@ -259,15 +221,12 @@ export default function App() {
           {route.page === 'agent-dashboard' && (
             <WealthPulseHomePage
               {...sharedProps}
-              onGoLab={() => navigateTo('/lab/strategies')}
             />
           )}
           {route.page === 'research-ai' && <CandidateResearchPage {...sharedProps} />}
           {route.page === 'orders-execution' && <RuntimePortfolioPage {...sharedProps} />}
           {route.page === 'watchlist' && <WatchlistPage {...sharedProps} />}
 
-          {route.page === 'lab' && route.labTab === 'strategies' && <StrategiesPage {...sharedProps} />}
-          {route.page === 'lab' && route.labTab === 'universe' && <UniversePage {...sharedProps} />}
         </div>
       </main>
     </div>

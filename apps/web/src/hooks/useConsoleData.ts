@@ -11,13 +11,12 @@ import {
   fetchResearchStatus,
   fetchScannerStatus,
   fetchSignals,
-  fetchStrategies,
   fetchTodayPicks,
   fetchUniverse,
 } from '../api/domain';
 import { UI_TEXT } from '../constants/uiText';
 import type { ConsoleDataState, ConsoleSnapshot } from '../types/consoleView';
-import type { DashboardTab, LabTab, ResearchTab, WorkspacePage } from '../types/navigation';
+import type { DashboardTab, ResearchTab, WorkspacePage } from '../types/navigation';
 
 const FAST_POLLING_MS = 15_000;
 const MID_POLLING_MS = 30_000;
@@ -28,7 +27,6 @@ type SnapshotKey = keyof Omit<ConsoleSnapshot, 'fetchedAt'>;
 interface ConsoleDataRoute {
   page: WorkspacePage;
   dashboardTab: DashboardTab;
-  labTab: LabTab;
   researchTab: ResearchTab;
 }
 
@@ -46,7 +44,6 @@ function emptySnapshot(): ConsoleSnapshot {
   return {
     engine: {},
     signals: {},
-    strategies: {},
     scanner: {},
     universe: {},
     performance: {},
@@ -94,31 +91,11 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
     };
   }
 
-  if (route.page === 'lab' && route.labTab === 'strategies') {
-    return {
-      signalLimit: 0,
-      initialTargets: ['engine', 'strategies', 'research'],
-      fastTargets: ['engine'],
-      midTargets: ['strategies'],
-      slowTargets: ['research'],
-    };
-  }
-
-  if (route.page === 'lab' && route.labTab === 'universe') {
-    return {
-      signalLimit: 0,
-      initialTargets: ['engine', 'universe'],
-      fastTargets: ['engine'],
-      midTargets: ['universe'],
-      slowTargets: [],
-    };
-  }
-
   return {
     signalLimit: 0,
-    initialTargets: ['engine', 'strategies', 'research'],
+    initialTargets: ['engine', 'research'],
     fastTargets: ['engine'],
-    midTargets: ['strategies'],
+    midTargets: [],
     slowTargets: ['research'],
   };
 }
@@ -132,17 +109,16 @@ export function useConsoleData(route: ConsoleDataRoute) {
   });
   const profile = useMemo(
     () => resolveDataProfile(route),
-    [route.dashboardTab, route.labTab, route.page, route.researchTab],
+    [route.dashboardTab, route.page, route.researchTab],
   );
   const routeKey = useMemo(
-    () => [route.page, route.dashboardTab, route.labTab, route.researchTab].join('::'),
-    [route.dashboardTab, route.labTab, route.page, route.researchTab],
+    () => [route.page, route.dashboardTab, route.researchTab].join('::'),
+    [route.dashboardTab, route.page, route.researchTab],
   );
   const routeVersionRef = useRef(0);
   const requestVersionRef = useRef<Record<SnapshotKey, number>>({
     engine: 0,
     signals: 0,
-    strategies: 0,
     scanner: 0,
     universe: 0,
     performance: 0,
@@ -161,7 +137,6 @@ export function useConsoleData(route: ConsoleDataRoute) {
     requestVersionRef.current = {
       engine: 0,
       signals: 0,
-      strategies: 0,
       scanner: 0,
       universe: 0,
       performance: 0,
@@ -216,7 +191,6 @@ export function useConsoleData(route: ConsoleDataRoute) {
     const tasks = targets.map((key) => {
       if (key === 'engine') return fetchEngineSummary();
       if (key === 'signals') return fetchSignals(profile.signalLimit);
-      if (key === 'strategies') return fetchStrategies();
       if (key === 'scanner') return fetchScannerStatus(scannerRefresh, scannerCacheOnly);
       if (key === 'universe') return fetchUniverse();
       if (key === 'performance') return fetchPerformanceSummary();

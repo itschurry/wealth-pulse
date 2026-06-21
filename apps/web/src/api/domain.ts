@@ -22,8 +22,6 @@ import type {
   ReportsExplainResponse,
   ScannerStatusResponse,
   SignalsRankResponse,
-  StrategiesResponse,
-  StrategiesMetadataResponse,
   TodayPicksResponse,
   UniverseResponse,
   WatchlistActionsResponse,
@@ -77,14 +75,6 @@ export function fetchSignals(limit = 100) {
   return getJSON<SignalsRankResponse>(`/api/signals/rank?limit=${encodeURIComponent(String(limit))}`, { noStore: true });
 }
 
-export function fetchStrategies() {
-  return getJSON<StrategiesResponse>('/api/strategies', { noStore: true });
-}
-
-export function fetchStrategyMetadata() {
-  return getJSON<StrategiesMetadataResponse>('/api/strategies/metadata', { noStore: true });
-}
-
 export function fetchScannerStatus(refresh = false, cacheOnly = false) {
   return getJSON<ScannerStatusResponse>(
     `/api/scanner/status?refresh=${refresh ? '1' : '0'}&cache_only=${cacheOnly ? '1' : '0'}`,
@@ -98,22 +88,6 @@ export function fetchUniverse(refresh = false) {
 
 export function fetchPerformanceSummary() {
   return getJSON<PerformanceSummaryResponse>('/api/performance/summary', { noStore: true });
-}
-
-export function toggleStrategyEnabled(strategyId: string, enabled: boolean) {
-  return postJSON<StrategiesResponse>('/api/strategies/toggle', { strategy_id: strategyId, enabled });
-}
-
-export function saveStrategyPreset(payload: Record<string, unknown>) {
-  return postJSON<StrategiesResponse>('/api/strategies/save', payload);
-}
-
-export function deleteStrategyPreset(strategyId: string) {
-  return postJSON<{ ok: boolean; strategy_id?: string; error?: string }>('/api/strategies/delete', { strategy_id: strategyId });
-}
-
-export function seedDefaultStrategies() {
-  return postJSON<{ ok: boolean; seeded?: string[]; count?: number; error?: string }>('/api/strategies/seed-defaults', {});
 }
 
 export function fetchPortfolioState(refresh = true) {

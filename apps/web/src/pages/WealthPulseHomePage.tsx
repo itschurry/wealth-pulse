@@ -26,7 +26,6 @@ interface WealthPulseHomePageProps {
   loading: boolean;
   errorMessage: string;
   onRefresh: () => void;
-  onGoLab: () => void;
 }
 
 interface PositionView {
@@ -166,7 +165,6 @@ export function WealthPulseHomePage({
   loading,
   errorMessage,
   onRefresh,
-  onGoLab,
 }: WealthPulseHomePageProps) {
   const engineState = snapshot.engine.execution?.state || {};
   const engineAccount = snapshot.engine.execution?.account || {};
@@ -324,7 +322,6 @@ export function WealthPulseHomePage({
               </div>
               <div className="wealth-terminal-actions">
                 <button className="ghost-button" onClick={onRefresh}>새로고침</button>
-                <button className="ghost-button" onClick={onGoLab}>관리</button>
               </div>
             </div>
 

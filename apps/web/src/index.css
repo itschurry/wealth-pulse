@@ -2374,33 +2374,7 @@ button:disabled {
 }
 
 
-.validation-layout {
-  display: grid;
-  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.18fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.validation-console-column,
-.validation-report-column {
-  display: grid;
-  gap: 16px;
-}
-
-.validation-console-card,
-.validation-report-card {
-  display: grid;
-  gap: 14px;
-}
-
-.validation-report-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
 .console-page-shell,
-.strategies-shell,
 .runtime-ops-shell,
 .performance-shell {
   gap: 18px;
@@ -2416,35 +2390,6 @@ button:disabled {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}
-
-.strategy-detail-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.strategy-param-grid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}
-
-.strategy-link-button {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-}
-
-.strategy-link-button:hover .signal-cell-copy,
-.strategy-link-button:hover {
-  color: var(--accent);
 }
 
 .console-page-shell .page-section {
@@ -2497,12 +2442,6 @@ button:disabled {
 .runtime-ops-summary-grid > *,
 .runtime-ops-log-grid > * {
   min-width: 0;
-}
-
-.validation-history-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
 }
 
 .summary-rail.is-compact {
@@ -2887,33 +2826,7 @@ button:disabled {
 }
 
 
-.validation-layout {
-  display: grid;
-  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.18fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.validation-console-column,
-.validation-report-column {
-  display: grid;
-  gap: 16px;
-}
-
-.validation-console-card,
-.validation-report-card {
-  display: grid;
-  gap: 14px;
-}
-
-.validation-report-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
 .console-page-shell,
-.strategies-shell,
 .runtime-ops-shell,
 .performance-shell {
   gap: 18px;
@@ -2929,35 +2842,6 @@ button:disabled {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}
-
-.strategy-detail-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.strategy-param-grid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}
-
-.strategy-link-button {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-}
-
-.strategy-link-button:hover .signal-cell-copy,
-.strategy-link-button:hover {
-  color: var(--accent);
 }
 
 .console-page-shell .page-section {
@@ -3010,12 +2894,6 @@ button:disabled {
 .runtime-ops-summary-grid > *,
 .runtime-ops-log-grid > * {
   min-width: 0;
-}
-
-.validation-history-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
 }
 
 .summary-rail.is-compact {
@@ -3804,10 +3682,6 @@ button:disabled {
   .console-metric-grid {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   }
-  .validation-layout {
-    grid-template-columns: 1fr;
-  }
-
   .tab-shell-row {
     grid-template-columns: 1fr;
   }
@@ -3921,8 +3795,6 @@ button:disabled {
   .report-grid-3,
   .report-grid-2,
   .action-checklist-grid,
-  .validation-report-grid,
-  .validation-history-grid,
   .process-grid,
   .runtime-ops-overview-grid,
   .runtime-ops-summary-grid,
@@ -3984,9 +3856,7 @@ button:disabled {
     font-size: 12px;
   }
 
-  .console-actionbar-shell,
-  .validation-console-card,
-  .validation-report-card {
+  .console-actionbar-shell {
     gap: 10px;
     padding: 14px;
   }
@@ -4106,9 +3976,7 @@ button:disabled {
   .runtime-ops-overview-grid,
   .runtime-ops-summary-grid,
   .runtime-ops-log-grid,
-  .console-metric-grid,
-  .strategy-detail-grid,
-  .strategy-param-grid {
+  .console-metric-grid {
     grid-template-columns: 1fr;
   }
 
@@ -6523,10 +6391,9 @@ textarea {
   .runtime-ops-summary-grid,
   .runtime-ops-log-grid,
   .operator-note-grid,
-  .validation-history-grid,
   .process-grid,
   .report-decision-strip,
-  .validation-report-grid {
+  .report-decision-strip {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
