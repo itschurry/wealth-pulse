@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { UI_TEXT } from './constants/uiText';
 import { useConsoleData } from './hooks/useConsoleData';
-import { BacktestValidationPage } from './pages/BacktestValidationPage';
 import { RuntimePortfolioPage } from './pages/RuntimePortfolioPage';
 import { CandidateResearchPage } from './pages/CandidateResearchPage';
 import { StrategiesPage } from './pages/StrategiesPage';
@@ -34,11 +33,10 @@ const WORKSPACE_PAGES: Array<{ id: WorkspacePage; label: string; path: string; h
   { id: 'research-ai', label: '리서치', path: '/research-ai', hint: '성공과 실패' },
   { id: 'orders-execution', label: '주문', path: '/orders-execution', hint: '주문과 보유' },
   { id: 'watchlist', label: '관심', path: '/watchlist', hint: '관심 종목' },
-  { id: 'lab', label: '실험', path: '/lab/validation', hint: '검증' },
+  { id: 'lab', label: '관리', path: '/lab/strategies', hint: '전략과 종목군' },
 ];
 
 const LAB_TABS: Array<{ id: LabTab; label: string; path: string; hint: string }> = [
-  { id: 'validation', label: UI_TEXT.labTabs.validation, path: '/lab/validation', hint: '백테스트' },
   { id: 'strategies', label: UI_TEXT.labTabs.strategies, path: '/lab/strategies', hint: '프리셋' },
   { id: 'universe', label: UI_TEXT.labTabs.universe, path: '/lab/universe', hint: '종목군' },
 ];
@@ -63,7 +61,7 @@ function buildUrl(path: string, search = ''): string {
 function withDefaults(partial: Partial<RouteState> & Pick<RouteState, 'page' | 'canonicalPath'>, search = ''): RouteState {
   return {
     dashboardTab: 'overview',
-    labTab: 'validation',
+    labTab: 'strategies',
     researchTab: 'research',
     search: normalizeSearch(search),
     ...partial,
@@ -105,7 +103,7 @@ function toRouteState(pathname: string, search = ''): RouteState {
     if (found) {
       return withDefaults({ page: 'lab', labTab: found.id, canonicalPath: found.path }, normalizedSearch);
     }
-    return withDefaults({ page: 'lab', labTab: 'validation', canonicalPath: '/lab/validation' }, normalizedSearch);
+    return withDefaults({ page: 'lab', labTab: 'strategies', canonicalPath: '/lab/strategies' }, normalizedSearch);
   }
   return defaultRouteState(normalizedSearch);
 }
@@ -261,14 +259,13 @@ export default function App() {
           {route.page === 'agent-dashboard' && (
             <WealthPulseHomePage
               {...sharedProps}
-              onGoLab={() => navigateTo('/lab/validation')}
+              onGoLab={() => navigateTo('/lab/strategies')}
             />
           )}
           {route.page === 'research-ai' && <CandidateResearchPage {...sharedProps} />}
           {route.page === 'orders-execution' && <RuntimePortfolioPage {...sharedProps} />}
           {route.page === 'watchlist' && <WatchlistPage {...sharedProps} />}
 
-          {route.page === 'lab' && route.labTab === 'validation' && <BacktestValidationPage {...sharedProps} />}
           {route.page === 'lab' && route.labTab === 'strategies' && <StrategiesPage {...sharedProps} />}
           {route.page === 'lab' && route.labTab === 'universe' && <UniversePage {...sharedProps} />}
         </div>

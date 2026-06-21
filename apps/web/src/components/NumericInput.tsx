@@ -40,7 +40,7 @@ export function NumericInput({
   allowNull = false,
   decimals = 0,
   currency = null,
-  className = 'backtest-input-wrap',
+  className = 'numeric-input-wrap',
   style,
 }: NumericInputProps) {
   const [focused, setFocused] = useState(false);

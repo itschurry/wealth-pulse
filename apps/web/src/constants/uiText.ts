@@ -39,10 +39,8 @@ export const UI_TEXT = {
     noLogs: '로그 없음',
     noSkipReasons: '사유 없음',
     noRunHistory: '이력 없음',
-    noOptimizationHistory: '최적화 없음',
     noSaveHistory: '저장 없음',
     noReasonBreakdown: '데이터 없음',
-    noOptimizedParams: '결과 없음',
   },
   confirm: {
     defaultTitle: '작업을 진행하시겠습니까?',
@@ -123,7 +121,6 @@ export const REASON_CODE_KR: Record<string, string> = {
   validation_trades_low: '검증 거래수 부족',
   validation_sharpe_low: '검증 샤프 부족',
   validation_reliability_low: '검증 신뢰도 낮음',
-  optimized_symbol_unreliable: '최적화 신뢰도 미달',
   max_positions_reached: '시장별 최대 포지션 도달',
   market_closed: '시장 휴장/장마감',
   exposure_or_cash_limit: '현금 또는 익스포저 한도',

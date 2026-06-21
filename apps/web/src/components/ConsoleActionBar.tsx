@@ -53,8 +53,6 @@ interface ConsoleConfirmDialogProps {
 }
 
 function sourceLabel(source: string): string {
-  if (source === 'backtest') return '백테스트';
-  if (source === 'optimization') return '최적화';
   if (source === 'settings') return '설정';
   if (source === 'paper') return '모의';
   if (source === 'live') return '실전';

@@ -30,11 +30,6 @@ from config.market_calendar import SESSION_WINDOWS, get_market_local_dt, is_mark
 from config.settings import RUNTIME_DIR
 from market_utils import normalize_market, resolve_market
 from services.notification_service import get_notification_service
-from services.optimized_params_store import (
-    RUNTIME_OPTIMIZED_PARAMS_PATH as STORE_RUNTIME_OPTIMIZED_PARAMS_PATH,
-    SEARCH_OPTIMIZED_PARAMS_PATH as STORE_SEARCH_OPTIMIZED_PARAMS_PATH,
-    load_execution_optimized_params,
-)
 from services.runtime_store import (
     append_account_snapshot,
     append_engine_cycle,
@@ -62,7 +57,6 @@ from services.trade_workflow import (
     enrich_signal_payload,
 )
 from services.reliability_service import assess_validation_reliability
-from services.reliability_policy import overlay_policy_metadata, should_apply_symbol_overlay
 from services.signal_service import (
     collect_pick_candidates as _signal_collect_pick_candidates,
     normalize_theme_focus as _signal_normalize_theme_focus,
@@ -83,12 +77,9 @@ from broker.execution_engine import (
 _DEFAULT_THEME_FOCUS = ["automotive", "robotics", "physical_ai"]
 _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
 
-_OPTIMIZED_PARAMS_PATH = STORE_SEARCH_OPTIMIZED_PARAMS_PATH
-_RUNTIME_OPTIMIZED_PARAMS_PATH = STORE_RUNTIME_OPTIMIZED_PARAMS_PATH
 _ACCOUNT_STATE_DIR = RUNTIME_DIR / "accounts"
 _LIVE_ACCOUNT_STATE_PATH = _ACCOUNT_STATE_DIR / "live_account_state.json"
 _LIVE_POSITION_ENTRY_PATH = _ACCOUNT_STATE_DIR / "live_position_entries.json"
-_OPTIMIZED_PARAMS_MAX_AGE_DAYS = 30
 _RUNTIME_STOP_LOSS_PCT = 5.0
 _RUNTIME_TAKE_PROFIT_PCT = 12.0
 _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
@@ -97,21 +88,6 @@ _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
 }
 _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
 _ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit"}
-_OPTIMIZABLE_KEYS = {
-    "stop_loss_pct",
-    "take_profit_pct",
-    "max_holding_days",
-    "rsi_min",
-    "rsi_max",
-    "volume_ratio_min",
-    "adx_min",
-    "mfi_min",
-    "mfi_max",
-    "bb_pct_min",
-    "bb_pct_max",
-    "stoch_k_min",
-    "stoch_k_max",
-}
 
 _simulated_engine: SimulatedExecutionEngine | None = None
 _auto_trader_lock = threading.Lock()
@@ -137,7 +113,6 @@ _auto_trader_state: dict[str, Any] = {
     "config": {},
     "latest_cycle_id": "",
     "validation_policy": {},
-    "optimized_params": {},
 }
 _live_engine: LiveBrokerExecutionEngine | None = None
 
@@ -831,25 +806,6 @@ def _default_validation_policy() -> dict[str, Any]:
         "validation_min_trades": 8,
         "validation_min_sharpe": 0.2,
         "validation_block_on_low_reliability": True,
-        "validation_require_optimized_reliability": True,
-    }
-
-
-def _optimized_params_status() -> dict[str, Any]:
-    return {
-        "version": "strategy_registry",
-        "optimized_at": "",
-        "is_stale": False,
-        "source": "strategy_registry",
-        "effective_source": "strategy_registry",
-        "search_version": "",
-        "search_optimized_at": "",
-        "search_source": "",
-        "runtime_candidate_id": "",
-        "runtime_applied_at": "",
-        "runtime_source": "",
-        "global_overlay_source": "strategy_registry",
-        "overlay_policy": overlay_policy_metadata(),
     }
 
 
@@ -887,7 +843,6 @@ def _hydrate_auto_trader_state() -> None:
         if key in merged["current_config"]
     })
     merged["validation_policy"] = policy
-    merged["optimized_params"] = _optimized_params_status()
     _auto_trader_state = merged
     _auto_trader_state_loaded = True
     _persist_auto_trader_state_locked()
@@ -1215,19 +1170,12 @@ def _resolve_validation_snapshot(signal: dict[str, Any]) -> dict[str, Any]:
             validation_snapshot.get("passes_minimum_gate", reliability_detail.get(
                 "passes_minimum_gate", assessment.passes_minimum_gate))
         ),
-        "optimized_reliable": bool(
+        "validation_reliable": bool(
             validation_snapshot.get("is_reliable", reliability_detail.get(
                 "is_reliable", assessment.is_reliable))
         ),
         "source": str(validation_snapshot.get("validation_source") or "signal"),
     }
-
-
-def _optimized_validation_baseline(optimized: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(optimized, dict):
-        return {}
-    baseline = optimized.get("validation_baseline")
-    return baseline if isinstance(baseline, dict) else {}
 
 
 def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
@@ -1238,72 +1186,6 @@ def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple
             **snapshot,
         }
 
-    code = str(signal.get("code") or "").upper()
-    optimized = _load_optimized_params() or {}
-    per_symbol = optimized.get("per_symbol", {}) if isinstance(
-        optimized, dict) else {}
-    raw_symbol_payload = per_symbol.get(
-        code, {}) if isinstance(per_symbol, dict) else {}
-    symbol_payload = raw_symbol_payload if isinstance(raw_symbol_payload, dict) and should_apply_symbol_overlay(
-        is_reliable=bool(raw_symbol_payload.get("is_reliable", False)),
-        reliability_reason=str(raw_symbol_payload.get("reliability_reason") or ""),
-    ) else {}
-    global_baseline = _optimized_validation_baseline(optimized)
-    optimized_validation_payload = symbol_payload if symbol_payload else global_baseline
-    validation_source = "signal"
-
-    if optimized_validation_payload:
-        trade_count = int(
-            optimized_validation_payload.get("trade_count")
-            or snapshot.get("trade_count")
-            or optimized_validation_payload.get("validation_trades")
-            or 0
-        )
-        trades = int(
-            optimized_validation_payload.get("validation_trades")
-            or snapshot.get("trades")
-            or trade_count
-            or 0
-        )
-        sharpe = _to_float(
-            optimized_validation_payload.get("validation_sharpe"),
-            snapshot.get("sharpe", 0.0),
-        )
-        max_drawdown_pct = optimized_validation_payload.get(
-            "max_drawdown_pct", snapshot.get("max_drawdown_pct")
-        )
-        assessment = assess_validation_reliability(
-            trade_count=trade_count if trade_count > 0 else trades,
-            validation_signals=trades,
-            validation_sharpe=sharpe,
-            max_drawdown_pct=_to_float(
-                max_drawdown_pct, 0.0) if max_drawdown_pct is not None else None,
-        )
-        snapshot = {
-            "trade_count": trade_count if trade_count > 0 else trades,
-            "trades": trades,
-            "sharpe": round(sharpe, 4),
-            "max_drawdown_pct": None if max_drawdown_pct is None else round(_to_float(max_drawdown_pct, 0.0), 4),
-            "reliability": str(
-                optimized_validation_payload.get("strategy_reliability")
-                or optimized_validation_payload.get("reliability")
-                or assessment.label
-            ),
-            "reliability_reason": str(
-                optimized_validation_payload.get("reliability_reason")
-                or assessment.reason
-            ),
-            "passes_minimum_gate": bool(
-                optimized_validation_payload.get(
-                    "passes_minimum_gate", assessment.passes_minimum_gate)
-            ),
-            "optimized_reliable": bool(
-                optimized_validation_payload.get(
-                    "is_reliable", assessment.is_reliable)
-            ),
-        }
-        validation_source = "symbol" if symbol_payload else "global"
-
     reasons: list[str] = []
     if int(snapshot.get("trades") or 0) < int(cfg.get("validation_min_trades", 8)):
         reasons.append("validation_trades_low")
@@ -1311,12 +1193,10 @@ def _apply_validation_gate(signal: dict[str, Any], cfg: dict[str, Any]) -> tuple
         reasons.append("validation_sharpe_low")
     if bool(cfg.get("validation_block_on_low_reliability", True)) and str(snapshot.get("reliability") or "insufficient") in {"low", "insufficient"}:
         reasons.append("validation_reliability_low")
-    if bool(cfg.get("validation_require_optimized_reliability", True)) and optimized_validation_payload and not bool(snapshot.get("passes_minimum_gate")):
-        reasons.append("optimized_validation_failed")
 
     return len(reasons) == 0, reasons, {
         "enabled": True,
-        "source": validation_source,
+        "source": "signal",
         **snapshot,
     }
 
@@ -1361,56 +1241,6 @@ def _record_execution_order(payload: dict[str, Any]) -> dict[str, Any]:
     append_order_event(order_payload)
     append_execution_events(build_execution_events(order_payload))
     return order_payload
-
-
-def _load_optimized_params() -> dict | None:
-    """실행 경로에서는 quant-ops/runtime로 승인된 payload만 사용한다."""
-    try:
-        data = load_execution_optimized_params()
-        if not data:
-            return None
-        optimized_at = datetime.datetime.fromisoformat(
-            data.get("optimized_at", "2000-01-01"))
-        age_days = (datetime.datetime.now(datetime.timezone.utc)
-                    - optimized_at.astimezone(datetime.timezone.utc)).days
-        if age_days > _OPTIMIZED_PARAMS_MAX_AGE_DAYS:
-            logger.warning("최적화 파라미터가 {}일 지났습니다. 재실행 권장.", age_days)
-        return data
-    except Exception as exc:
-        logger.warning("optimized_params payload 로드 실패: {}", exc)
-        return None
-
-
-def _get_symbol_optimized_params(code: str) -> dict:
-    """per_symbol에서 해당 종목의 신뢰할 수 있는 파라미터를 반환한다. 없으면 빈 dict."""
-    optimized = _load_optimized_params()
-    if not optimized:
-        return {}
-    symbol_data = optimized.get("per_symbol", {}).get(code, {})
-    if not should_apply_symbol_overlay(
-        is_reliable=bool(symbol_data.get("is_reliable", False)),
-        reliability_reason=str(symbol_data.get("reliability_reason") or ""),
-    ):
-        return {}
-    return {
-        k: symbol_data[k]
-        for k in (
-            "stop_loss_pct",
-            "take_profit_pct",
-            "max_holding_days",
-            "rsi_min",
-            "rsi_max",
-            "volume_ratio_min",
-            "adx_min",
-            "mfi_min",
-            "mfi_max",
-            "bb_pct_min",
-            "bb_pct_max",
-            "stoch_k_min",
-            "stoch_k_max",
-        )
-        if k in symbol_data
-    }
 
 
 def _get_simulated_engine() -> SimulatedExecutionEngine:
@@ -1612,7 +1442,6 @@ def _default_auto_trader_config() -> dict:
         "validation_min_trades": 8,
         "validation_min_sharpe": 0.2,
         "validation_block_on_low_reliability": True,
-        "validation_require_optimized_reliability": True,
         "min_avg_volume": 100000,
         "min_avg_notional_krw": 50000000,
         "slippage_bps_base": 8.0,
@@ -2100,66 +1929,6 @@ def _infer_strategy_position_counts(account: dict[str, Any], market: str) -> dic
         if strategy_id:
             counts[strategy_id] = counts.get(strategy_id, 0) + 1
     return counts
-
-
-def _apply_quant_candidate_patch(cfg: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(cfg or _default_auto_trader_config())
-    patch = candidate.get("patch") if isinstance(
-        candidate.get("patch"), dict) else {}
-    settings = candidate.get("settings") if isinstance(
-        candidate.get("settings"), dict) else {}
-    decision = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
-
-    # Determine which market this candidate was optimized for.
-    # Patch values are market-specific and must not bleed into other markets.
-    base_query = candidate.get("base_query") if isinstance(candidate.get("base_query"), dict) else {}
-    candidate_market = normalize_strategy_market(str(base_query.get("market_scope") or ""))
-    if not candidate_market:
-        raise ValueError("quant candidate market_scope is required")
-
-    profile_map = merged.get("market_profiles") if isinstance(
-        merged.get("market_profiles"), dict) else _auto_trader_profile_map(merged)
-    next_profile_map: dict[str, dict[str, Any]] = {}
-    for market, payload in profile_map.items():
-        current_payload = dict(payload) if isinstance(payload, dict) else {}
-        if normalize_strategy_market(market) == candidate_market:
-            for key, value in patch.items():
-                if key in _OPTIMIZABLE_KEYS and value not in (None, ""):
-                    current_payload[key] = value
-        next_profile_map[market] = current_payload
-    merged["market_profiles"] = next_profile_map
-
-    if settings.get("minTrades") not in (None, ""):
-        merged["validation_min_trades"] = max(
-            0, min(200, int(settings.get("minTrades") or 0)))
-    if settings.get("walkForward") is not None:
-        merged["validation_gate_enabled"] = _coerce_bool(
-            merged.get("validation_gate_enabled"), True)
-
-    if str(decision.get("status") or "") == "limited_adopt":
-        runtime_restrictions = candidate.get("runtime_restrictions") if isinstance(candidate.get("runtime_restrictions"), dict) else {}
-        if not runtime_restrictions:
-            policy = candidate.get("guardrail_policy") if isinstance(candidate.get("guardrail_policy"), dict) else {}
-            thresholds = policy.get("thresholds") if isinstance(policy.get("thresholds"), dict) else {}
-            runtime_restrictions = thresholds.get("limited_adopt_runtime") if isinstance(thresholds.get("limited_adopt_runtime"), dict) else {}
-
-        multiplier = max(0.0, _to_float(runtime_restrictions.get("risk_per_trade_pct_multiplier"), 0.5))
-        risk_cap = max(0.0, _to_float(runtime_restrictions.get("risk_per_trade_pct_cap"), 0.2))
-        positions_cap = max(1, int(_to_float(runtime_restrictions.get("max_positions_per_market_cap"), 2)))
-        symbol_weight_cap = max(0.0, _to_float(runtime_restrictions.get("max_symbol_weight_pct_cap"), 10.0))
-        market_exposure_cap = max(0.0, _to_float(runtime_restrictions.get("max_market_exposure_pct_cap"), 35.0))
-
-        base_risk = float(merged.get("risk_per_trade_pct") or 0.35)
-        merged["risk_per_trade_pct"] = min(base_risk * multiplier, risk_cap)
-        merged["max_positions_per_market"] = min(int(merged.get("max_positions_per_market") or 5), positions_cap)
-        merged["max_symbol_weight_pct"] = min(float(merged.get("max_symbol_weight_pct") or 20.0), symbol_weight_cap)
-        merged["max_market_exposure_pct"] = min(float(merged.get("max_market_exposure_pct") or 70.0), market_exposure_cap)
-        merged["validation_require_optimized_reliability"] = True
-        merged["quant_candidate_approval_level"] = str(decision.get("approval_level") or "probationary")
-    else:
-        merged["quant_candidate_approval_level"] = str(decision.get("approval_level") or "full")
-    merged = _sync_primary_strategy_fields(merged)
-    return merged
 
 
 def _should_enter_by_indicators(technicals: dict, cfg: dict, market: str) -> bool:
@@ -3252,8 +3021,6 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
                     "cycle_id") or ""
                 _auto_trader_state["next_run_at"] = _next_run_at(
                     int(cfg.get("interval_seconds") or 300))
-                _auto_trader_state["optimized_params"] = _optimized_params_status(
-                )
                 _persist_auto_trader_state_locked()
         except Exception as exc:
             logger.warning("auto trader cycle 실패: {}", exc)
@@ -3374,8 +3141,6 @@ def _start_auto_trader(config: dict) -> dict:
             -5.0, min(10.0, float(merged.get("validation_min_sharpe") or 0.2)))
         merged["validation_block_on_low_reliability"] = _coerce_bool(
             merged.get("validation_block_on_low_reliability"), True)
-        merged["validation_require_optimized_reliability"] = _coerce_bool(
-            merged.get("validation_require_optimized_reliability"), True)
         merged.update(_parse_theme_gate_config(merged))
         requested_markets = merged.get("markets")
         markets = requested_markets or ["KOSPI"]
@@ -3424,7 +3189,6 @@ def _start_auto_trader(config: dict) -> dict:
             key: merged.get(key)
             for key in _default_validation_policy().keys()
         }
-        _auto_trader_state["optimized_params"] = _optimized_params_status()
         _auto_trader_state["last_error"] = ""
         _auto_trader_state["last_error_at"] = ""
         _persist_auto_trader_state_locked()
@@ -3508,25 +3272,6 @@ def _auto_trader_status() -> dict:
             _persist_auto_trader_state_locked()
     engine = _runtime_engine()
     account = engine.get_account(refresh_quotes=False)
-    return _build_status_payload(state, account)
-
-
-def apply_quant_candidate_runtime_config(candidate: dict[str, Any]) -> dict[str, Any]:
-    _hydrate_auto_trader_state()
-    with _auto_trader_lock:
-        base_cfg = dict(_auto_trader_state.get("current_config")
-                        or _default_auto_trader_config())
-        merged = _apply_quant_candidate_patch(base_cfg, candidate)
-        _auto_trader_state["current_config"] = merged
-        _auto_trader_state["config"] = dict(merged)
-        _auto_trader_state["validation_policy"] = {
-            key: merged.get(key)
-            for key in _default_validation_policy().keys()
-        }
-        _auto_trader_state["optimized_params"] = _optimized_params_status()
-        _persist_auto_trader_state_locked()
-        state = dict(_auto_trader_state)
-    account = _runtime_account_snapshot(refresh_quotes=False)
     return _build_status_payload(state, account)
 
 

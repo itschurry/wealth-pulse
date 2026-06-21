@@ -213,19 +213,17 @@ export function buildSignalRows(snapshot: ConsoleSnapshot): SignalTableRow[] {
 function classifyMode(snapshot: ConsoleSnapshot): Pick<WatchDecisionView, 'mode' | 'rationale' | 'stanceTitle' | 'stanceSummary'> {
   const riskLevel = String(snapshot.engine.allocator?.risk_level || snapshot.portfolio.risk_level || '');
   const guardAllowed = isRiskEntryAllowed(snapshot);
-  const oosReliabilityRaw = String(snapshot.validation.summary?.oos_reliability || '').toLowerCase();
-  const oosReliabilityLabel = reliabilityToKorean(oosReliabilityRaw);
   const signals = snapshot.signals.signals || [];
   const allowedCount = signals.filter((item) => item.entry_allowed).length;
   const allowRatio = signals.length > 0 ? allowedCount / signals.length : 0;
 
-  if (!guardAllowed || riskLevel === '높음' || oosReliabilityRaw === 'low') {
+  if (!guardAllowed || riskLevel === '높음') {
     return {
       mode: '관망',
       stanceTitle: '신규 진입보다 방어 우선',
       stanceSummary: '이 탭은 매수 확정 화면이 아니라 오늘 무엇을 계속 볼지 정리하는 관찰 보드로 쓰는 편이 맞습니다. 차단 사유 해소 전까지는 허용 후보보다 리스크 관리가 먼저입니다.',
       rationale: [
-        `리스크 가드 또는 검증 신뢰도(${oosReliabilityLabel}) 조건이 보수 구간입니다.`,
+        '리스크 가드 조건이 보수 구간입니다.',
         '신규 진입보다 기존 포지션 방어와 손실 제한을 우선합니다.',
       ],
     };
@@ -241,13 +239,13 @@ function classifyMode(snapshot: ConsoleSnapshot): Pick<WatchDecisionView, 'mode'
       ],
     };
   }
-  if (riskLevel === '낮음' && oosReliabilityRaw === 'high' && allowRatio >= 0.6) {
+  if (riskLevel === '낮음' && allowRatio >= 0.6) {
     return {
       mode: '공격',
       stanceTitle: '허용 후보 빠르게 검토 가능',
       stanceSummary: '공격 모드여도 이 화면의 역할은 우선순위 정리입니다. 상위 허용 후보를 먼저 보고, 막힌 후보는 왜 빠졌는지만 짧게 확인하면 충분합니다.',
       rationale: [
-        '시장 위험도와 OOS 신뢰도가 양호해 적극 운용 가능한 구간입니다.',
+        '시장 위험도와 허용 신호 비율이 양호해 적극 운용 가능한 구간입니다.',
         '단, 일일 손실 한도와 섹터 익스포저 캡은 동일하게 준수합니다.',
       ],
     };

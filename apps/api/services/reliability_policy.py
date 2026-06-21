@@ -1,9 +1,8 @@
-"""Shared reliability policy used across optimization, reporting, and execution gates."""
+"""Shared reliability policy used across validation, reporting, and execution gates."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from typing import Final, TypeVar
+from typing import Final
 
 MIN_TRAIN_TRADES: Final[int] = 20
 MIN_RELIABLE_TRAIN_TRADES: Final[int] = 30
@@ -19,16 +18,7 @@ BORDERLINE_REASONS: Final[set[str]] = {
     "borderline_validation_sharpe",
 }
 
-SYMBOL_OVERLAY_ALLOWED_LEVELS: Final[set[str]] = {"high"}
-GLOBAL_OVERLAY_PRIORITY: Final[tuple[str, str, str]] = (
-    "high_only",
-    "no_reliable_results",
-)
-
-T = TypeVar("T")
-
-
-def classify_optimization_reliability(
+def classify_validation_reliability(
     *,
     trade_count: int,
     validation_signals: int,
@@ -52,14 +42,14 @@ def classify_optimization_reliability(
     return True, "passed"
 
 
-def should_keep_optimization_result(
+def should_keep_validation_result(
     *,
     trade_count: int,
     validation_signals: int,
     validation_sharpe: float,
     max_drawdown_pct: float,
 ) -> bool:
-    is_reliable, reason = classify_optimization_reliability(
+    is_reliable, reason = classify_validation_reliability(
         trade_count=trade_count,
         validation_signals=validation_signals,
         validation_sharpe=validation_sharpe,
@@ -82,7 +72,7 @@ def reliability_level_from_validation(
     return "medium"
 
 
-def reliability_level_from_optimization(
+def reliability_level_from_signal(
     *,
     is_reliable: bool,
     reliability_reason: str,
@@ -101,32 +91,3 @@ def reliability_level_from_optimization(
         validation_trades=validation_trades,
         validation_sharpe=validation_sharpe,
     )
-
-
-def should_apply_symbol_overlay(*, is_reliable: bool, reliability_reason: str) -> bool:
-    if is_reliable:
-        return True
-    _ = reliability_reason
-    return False
-
-
-def select_global_overlay_candidates(
-    results: Sequence[T],
-    *,
-    is_reliable_getter: Callable[[T], bool],
-    reliability_reason_getter: Callable[[T], str],
-) -> tuple[list[T], str]:
-    _ = reliability_reason_getter
-    high = [item for item in results if is_reliable_getter(item)]
-    if high:
-        return high, "high_only"
-
-    return [], "no_reliable_results"
-
-
-def overlay_policy_metadata() -> dict[str, object]:
-    return {
-        "symbol_overlay_allowed_levels": sorted(SYMBOL_OVERLAY_ALLOWED_LEVELS),
-        "medium_policy": "passes_minimum_gate_but_symbol_overlay_disabled",
-        "global_overlay_priority": list(GLOBAL_OVERLAY_PRIORITY),
-    }

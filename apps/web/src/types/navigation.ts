@@ -7,6 +7,6 @@ export type WorkspacePage =
 
 export type DashboardTab = 'overview';
 
-export type LabTab = 'validation' | 'strategies' | 'universe';
+export type LabTab = 'strategies' | 'universe';
 
 export type ResearchTab = 'research';

@@ -2,8 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import { ConsoleActionBar } from '../components/ConsoleActionBar';
 import { deleteStrategyPreset, saveStrategyPreset, seedDefaultStrategies, toggleStrategyEnabled } from '../api/domain';
 import { useConsoleLogs } from '../hooks/useConsoleLogs';
-import { loadBacktestQuery } from '../hooks/useBacktest';
-import { VALIDATION_TRANSFER_STORAGE_KEY } from '../lib/validationConfigStorage';
 import { strategyLifecycleToKorean } from '../constants/uiText';
 import type { StrategyRegistryItem } from '../types/domain';
 import type { ConsoleSnapshot } from '../types/consoleView';
@@ -39,17 +37,6 @@ function slugifyStrategyId(value: string): string {
     .replace(/^_+|_+$/g, '') || 'strategy_preset';
 }
 
-function strategyContextFromValidationLab() {
-  const query = loadBacktestQuery();
-  if (query.market_scope === 'nasdaq') {
-    return { market: 'NASDAQ', universe_rule: 'sp500', scan_cycle: '5m' };
-  }
-  if (query.market_scope === 'all') {
-    return { market: 'KOSPI', universe_rule: 'multi_market', scan_cycle: '10m' };
-  }
-  return { market: 'KOSPI', universe_rule: 'kospi', scan_cycle: '5m' };
-}
-
 const PRESET_PARAMS_CONTEXT_FIELDS = new Set([
   'market', 'strategy_kind', 'regime_mode',
   'signal_interval', 'signal_range',
@@ -61,7 +48,6 @@ function buildPresetPayload(
   options: { strategyId: string; name: string },
 ): Record<string, unknown> {
   const { strategyId, name } = options;
-  const validationContext = strategyContextFromValidationLab();
   // strip context fields — backend fills these from the outer strategy fields
   const rawParams = source?.params && typeof source.params === 'object' ? source.params : {};
   const params = Object.fromEntries(
@@ -76,9 +62,9 @@ function buildPresetPayload(
     enabled: false,
     status: 'draft',
     enabled_at: '',
-    market: validationContext.market,
-    universe_rule: validationContext.universe_rule,
-    scan_cycle: validationContext.scan_cycle,
+    market: String(source?.market || 'KOSPI'),
+    universe_rule: String(source?.universe_rule || 'kospi'),
+    scan_cycle: String(source?.scan_cycle || '5m'),
     params,
     risk_limits: riskLimits,
     research_summary: {},
@@ -280,7 +266,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                     <th style={{ padding: 12, fontSize: 15 }}>시장</th>
                     <th style={{ padding: 12, fontSize: 15 }}>유니버스</th>
                     <th style={{ padding: 12, fontSize: 15 }}>주기</th>
-                    <th style={{ padding: 12, fontSize: 15 }}>성과</th>
+                    <th style={{ padding: 12, fontSize: 15 }}>리스크</th>
                     <th style={{ padding: 12, fontSize: 15 }}>활성</th>
                     <th style={{ padding: 12, fontSize: 15 }}>액션</th>
                   </tr>
@@ -309,8 +295,8 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{item.universe_rule || '-'}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{item.scan_cycle || '-'}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>
-                          <div>{formatPercent(research.backtest_return_pct, 1)}</div>
-                          <div className="signal-cell-copy">WF {formatPercent(research.walk_forward_return_pct, 1)} · Sharpe {research.sharpe ?? '-'}</div>
+                          <div>DD {formatPercent(research.max_drawdown_pct, 1)}</div>
+                          <div className="signal-cell-copy">승률 {formatPercent(research.win_rate_pct, 1)} · Sharpe {research.sharpe ?? '-'}</div>
                         </td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>{formatDateTime(item.enabled_at)}</td>
                         <td style={{ padding: 12, verticalAlign: 'top' }}>
@@ -362,7 +348,7 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                       <div><div className="responsive-card-label">시장</div><div className="responsive-card-value">{item.market || '-'}</div></div>
                       <div><div className="responsive-card-label">유니버스</div><div className="responsive-card-value">{item.universe_rule || '-'}</div></div>
                       <div><div className="responsive-card-label">주기</div><div className="responsive-card-value">{item.scan_cycle || '-'}</div></div>
-                      <div><div className="responsive-card-label">성과</div><div className="responsive-card-value">{formatPercent(research.backtest_return_pct, 1)} · WF {formatPercent(research.walk_forward_return_pct, 1)}</div></div>
+                      <div><div className="responsive-card-label">리스크</div><div className="responsive-card-value">DD {formatPercent(research.max_drawdown_pct, 1)} · 승률 {formatPercent(research.win_rate_pct, 1)}</div></div>
                       <div><div className="responsive-card-label">활성</div><div className="responsive-card-value">{formatDateTime(item.enabled_at)}</div></div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -393,19 +379,13 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
               <div className="section-head-row">
                 <div>
                   <div className="section-title">상세</div>
-                  <div className="section-copy">전략 관리와 전략 검증 랩 사이를 이어주는 현재 저장값 요약이야. 여기서 전략 정체성과 현재 프리셋을 먼저 보고, 검증 랩에서 백테스트/최적화 흐름으로 넘어가면 돼.</div>
+                  <div className="section-copy">전략 정체성과 현재 프리셋을 관리하는 화면이야.</div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <span className={lifecycleBadge(selectedStrategy).className}>{lifecycleBadge(selectedStrategy).label}</span>
                   <>
                     <button className="ghost-button" onClick={() => { void handleClonePreset(); }} disabled={!selectedStrategy.strategy_id}>
                       복제
-                    </button>
-                    <button className="ghost-button" onClick={() => {
-                      localStorage.setItem(VALIDATION_TRANSFER_STORAGE_KEY, JSON.stringify(selectedStrategy));
-                      window.location.href = '/lab/validation';
-                    }}>
-                      검증
                     </button>
                     <button className="ghost-button" onClick={() => { void handleDeletePreset(); }} disabled={!selectedStrategy.strategy_id || pendingId === String(selectedStrategy.strategy_id)}>
                       삭제
@@ -438,9 +418,9 @@ export function StrategiesPage({ snapshot, loading, errorMessage, onRefresh }: S
                   </div>
                 </div>
                 <div className="summary-metric-card">
-                  <div className="summary-metric-label">연구 성과</div>
-                  <div className="summary-metric-value">{formatPercent(selectedStrategy.research_summary?.backtest_return_pct, 1)}</div>
-                  <div className="summary-metric-detail">WF {formatPercent(selectedStrategy.research_summary?.walk_forward_return_pct, 1)} · Sharpe {selectedStrategy.research_summary?.sharpe ?? '-'}</div>
+                  <div className="summary-metric-label">리스크 요약</div>
+                  <div className="summary-metric-value">{formatPercent(selectedStrategy.research_summary?.max_drawdown_pct, 1)}</div>
+                  <div className="summary-metric-detail">승률 {formatPercent(selectedStrategy.research_summary?.win_rate_pct, 1)} · Sharpe {selectedStrategy.research_summary?.sharpe ?? '-'}</div>
                 </div>
               </div>
 

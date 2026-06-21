@@ -123,7 +123,7 @@ export function describeScoreDecision(scorecard: StrategyScorecardView | null): 
     return {
       label: '점수 미확정',
       tone: 'neutral',
-      detail: '백테스트/최적화 결과가 더 쌓이면 투입 판단을 고정할 수 있습니다.',
+      detail: '리서치와 리스크 지표가 더 쌓이면 투입 판단을 고정할 수 있습니다.',
     };
   }
 

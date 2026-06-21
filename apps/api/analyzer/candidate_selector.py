@@ -1,4 +1,4 @@
-"""Shared candidate selection helpers for auto-trading and backtests."""
+"""Shared candidate selection helpers for auto-trading."""
 
 from __future__ import annotations
 

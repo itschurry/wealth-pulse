@@ -1,4 +1,4 @@
-"""Shared reliability thresholds for optimizer, execution, calibration, and reporting."""
+"""Shared reliability thresholds for execution, calibration, and reporting."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from services.reliability_policy import (
     MIN_VALIDATION_SHARPE_FILTER,
     MIN_VALIDATION_SHARPE_RELIABLE,
     MIN_VALIDATION_SIGNALS,
-    classify_optimization_reliability,
+    classify_validation_reliability,
 )
 
 
@@ -28,19 +28,6 @@ class ValidationReliabilityAssessment:
     max_drawdown_pct: float | None
     passes_minimum_gate: bool
     is_reliable: bool
-
-    def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class WalkForwardReliabilityAssessment:
-    label: str
-    trade_count: int
-    profit_factor: float
-    sharpe: float
-    total_return_pct: float
-    positive_window_ratio: float
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -62,23 +49,6 @@ def reliability_thresholds() -> dict[str, float]:
         "min_sharpe_reliable": MIN_VALIDATION_SHARPE_RELIABLE,
         "max_drawdown_filter": MAX_DRAWDOWN_FILTER_PCT,
         "max_drawdown_reliable": MAX_DRAWDOWN_RELIABLE_PCT,
-    }
-
-
-def walk_forward_reliability_thresholds() -> dict[str, float]:
-    return {
-        "min_trade_count": MIN_VALIDATION_SIGNALS,
-        "medium_trade_count": 12,
-        "high_trade_count": MIN_TRAIN_TRADES,
-        "min_profit_factor": 1.0,
-        "medium_profit_factor": 1.15,
-        "high_profit_factor": 1.3,
-        "min_sharpe": MIN_VALIDATION_SHARPE_FILTER,
-        "medium_sharpe": MIN_VALIDATION_SHARPE_RELIABLE,
-        "high_sharpe": 0.75,
-        "min_total_return_pct": 0.0,
-        "medium_positive_window_ratio": 0.5,
-        "high_positive_window_ratio": 0.6,
     }
 
 
@@ -117,7 +87,7 @@ def assess_validation_reliability(
     validation_sharpe = _to_float(validation_sharpe, 0.0)
     max_drawdown = None if max_drawdown_pct is None else _to_float(max_drawdown_pct, 0.0)
 
-    is_reliable, reason = classify_optimization_reliability(
+    is_reliable, reason = classify_validation_reliability(
         trade_count=trade_count,
         validation_signals=validation_signals,
         validation_sharpe=validation_sharpe,
@@ -573,218 +543,3 @@ def build_reliability_diagnostic(
         "raw_diagnostic": diagnostic,
     }
     return payload
-
-
-def classify_walk_forward_reliability(
-    *,
-    trade_count: int,
-    profit_factor: float,
-    sharpe: float,
-    total_return_pct: float,
-    positive_window_ratio: float,
-) -> WalkForwardReliabilityAssessment:
-    trade_count = max(0, int(trade_count or 0))
-    profit_factor = _to_float(profit_factor, 0.0)
-    sharpe = _to_float(sharpe, 0.0)
-    total_return_pct = _to_float(total_return_pct, 0.0)
-    positive_window_ratio = _to_float(positive_window_ratio, 0.0)
-
-    label = "low"
-    if trade_count < MIN_VALIDATION_SIGNALS:
-        label = "insufficient"
-    elif total_return_pct <= 0.0 or profit_factor < 1.0 or sharpe < MIN_VALIDATION_SHARPE_FILTER:
-        label = "low"
-    elif (
-        trade_count >= MIN_TRAIN_TRADES
-        and profit_factor >= 1.3
-        and sharpe >= 0.75
-        and positive_window_ratio >= 0.6
-    ):
-        label = "high"
-    elif (
-        trade_count >= 12
-        and profit_factor >= 1.15
-        and sharpe >= MIN_VALIDATION_SHARPE_RELIABLE
-        and positive_window_ratio >= 0.5
-    ):
-        label = "medium"
-
-    return WalkForwardReliabilityAssessment(
-        label=label,
-        trade_count=trade_count,
-        profit_factor=round(profit_factor, 4),
-        sharpe=round(sharpe, 4),
-        total_return_pct=round(total_return_pct, 4),
-        positive_window_ratio=round(positive_window_ratio, 4),
-    )
-
-
-def explain_walk_forward_reliability(
-    *,
-    trade_count: int,
-    profit_factor: float,
-    sharpe: float,
-    total_return_pct: float,
-    positive_window_ratio: float,
-) -> dict[str, Any]:
-    assessment = classify_walk_forward_reliability(
-        trade_count=trade_count,
-        profit_factor=profit_factor,
-        sharpe=sharpe,
-        total_return_pct=total_return_pct,
-        positive_window_ratio=positive_window_ratio,
-    )
-    thresholds = walk_forward_reliability_thresholds()
-
-    blockers: list[dict[str, Any]] = []
-    strengths: list[str] = []
-
-    if assessment.trade_count >= thresholds["medium_trade_count"]:
-        strengths.append(f"표본 수는 medium 기준 통과 ({assessment.trade_count}건)")
-    if assessment.profit_factor >= thresholds["medium_profit_factor"]:
-        strengths.append(f"profit factor는 medium 기준 통과 ({assessment.profit_factor:.2f})")
-    if assessment.sharpe >= thresholds["medium_sharpe"]:
-        strengths.append(f"샤프는 medium 기준 통과 ({assessment.sharpe:.2f})")
-    if positive_window_ratio >= thresholds["medium_positive_window_ratio"]:
-        strengths.append(f"양수 윈도우 비율은 medium 기준 통과 ({positive_window_ratio:.2f})")
-    if assessment.total_return_pct > thresholds["min_total_return_pct"]:
-        strengths.append(f"OOS 수익률은 0% 초과 ({assessment.total_return_pct:.2f}%)")
-
-    if assessment.trade_count < thresholds["min_trade_count"]:
-        blockers.append(
-            {
-                "metric": "trade_count",
-                "current": assessment.trade_count,
-                "threshold": thresholds["min_trade_count"],
-                "direction": "increase",
-                "severity": "hard_gate",
-                "summary": f"OOS 거래 수가 최소 기준보다 부족함 ({assessment.trade_count} < {int(thresholds['min_trade_count'])})",
-            }
-        )
-    elif assessment.trade_count < thresholds["medium_trade_count"]:
-        blockers.append(
-            {
-                "metric": "trade_count",
-                "current": assessment.trade_count,
-                "threshold": thresholds["medium_trade_count"],
-                "direction": "increase",
-                "severity": "medium_gap",
-                "summary": f"거래 수가 low 게이트는 통과했지만 medium 기준에는 부족함 ({assessment.trade_count} < {int(thresholds['medium_trade_count'])})",
-            }
-        )
-
-    if assessment.total_return_pct <= thresholds["min_total_return_pct"]:
-        blockers.append(
-            {
-                "metric": "total_return_pct",
-                "current": assessment.total_return_pct,
-                "threshold": thresholds["min_total_return_pct"],
-                "direction": "increase",
-                "severity": "hard_gate",
-                "summary": f"OOS 수익률이 0% 이하라서 low 판정이 유지됨 ({assessment.total_return_pct:.2f}%)",
-            }
-        )
-
-    if assessment.profit_factor < thresholds["min_profit_factor"]:
-        blockers.append(
-            {
-                "metric": "profit_factor",
-                "current": assessment.profit_factor,
-                "threshold": thresholds["min_profit_factor"],
-                "direction": "increase",
-                "severity": "hard_gate",
-                "summary": f"profit factor가 1.0 미만이라 손익비가 깨짐 ({assessment.profit_factor:.2f})",
-            }
-        )
-    elif assessment.profit_factor < thresholds["medium_profit_factor"]:
-        blockers.append(
-            {
-                "metric": "profit_factor",
-                "current": assessment.profit_factor,
-                "threshold": thresholds["medium_profit_factor"],
-                "direction": "increase",
-                "severity": "medium_gap",
-                "summary": f"profit factor가 medium 기준에는 부족함 ({assessment.profit_factor:.2f} < {thresholds['medium_profit_factor']:.2f})",
-            }
-        )
-
-    if assessment.sharpe < thresholds["min_sharpe"]:
-        blockers.append(
-            {
-                "metric": "sharpe",
-                "current": assessment.sharpe,
-                "threshold": thresholds["min_sharpe"],
-                "direction": "increase",
-                "severity": "hard_gate",
-                "summary": f"샤프가 최소 기준보다 낮아 low 판정이 유지됨 ({assessment.sharpe:.2f} < {thresholds['min_sharpe']:.2f})",
-            }
-        )
-    elif assessment.sharpe < thresholds["medium_sharpe"]:
-        blockers.append(
-            {
-                "metric": "sharpe",
-                "current": assessment.sharpe,
-                "threshold": thresholds["medium_sharpe"],
-                "direction": "increase",
-                "severity": "medium_gap",
-                "summary": f"샤프가 medium 기준에는 부족함 ({assessment.sharpe:.2f} < {thresholds['medium_sharpe']:.2f})",
-            }
-        )
-
-    if positive_window_ratio < thresholds["medium_positive_window_ratio"]:
-        blockers.append(
-            {
-                "metric": "positive_window_ratio",
-                "current": round(positive_window_ratio, 4),
-                "threshold": thresholds["medium_positive_window_ratio"],
-                "direction": "increase",
-                "severity": "medium_gap",
-                "summary": f"양수 OOS 윈도우 비율이 medium 기준에는 부족함 ({positive_window_ratio:.2f} < {thresholds['medium_positive_window_ratio']:.2f})",
-            }
-        )
-
-    target_adjustments: list[dict[str, Any]] = []
-    for metric, current, target, direction, label in (
-        ("trade_count", float(assessment.trade_count), thresholds["medium_trade_count"], "increase", "medium 달성에 필요한 OOS 거래 수"),
-        ("profit_factor", assessment.profit_factor, thresholds["medium_profit_factor"], "increase", "medium 달성에 필요한 profit factor"),
-        ("sharpe", assessment.sharpe, thresholds["medium_sharpe"], "increase", "medium 달성에 필요한 샤프"),
-        ("positive_window_ratio", positive_window_ratio, thresholds["medium_positive_window_ratio"], "increase", "medium 달성에 필요한 양수 윈도우 비율"),
-    ):
-        if current < target:
-            target_adjustments.append(
-                _improvement_item(
-                    metric=metric,
-                    current=current,
-                    target=target,
-                    direction=direction,
-                    label=label,
-                )
-            )
-    if assessment.total_return_pct <= thresholds["min_total_return_pct"]:
-        target_adjustments.append(
-            _improvement_item(
-                metric="total_return_pct",
-                current=assessment.total_return_pct,
-                target=0.01,
-                direction="increase",
-                label="medium 달성을 위해 필요한 양수 OOS 수익률",
-            )
-        )
-
-    summary_lines = [
-        f"현재 OOS 판정: {assessment.label}",
-        f"거래 {assessment.trade_count}건 / PF {assessment.profit_factor:.2f} / 샤프 {assessment.sharpe:.2f} / 수익률 {assessment.total_return_pct:.2f}%",
-        f"양수 윈도우 비율 {positive_window_ratio:.2f}",
-    ]
-    if blockers:
-        summary_lines.append(f"medium 미달 핵심: {', '.join(str(item['metric']) for item in blockers[:4])}")
-
-    return {
-        "label": assessment.label,
-        "thresholds": thresholds,
-        "summary_lines": summary_lines,
-        "strengths": strengths,
-        "blockers": blockers,
-        "target_label": "medium",
-        "target_adjustments": target_adjustments,
-    }

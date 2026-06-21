@@ -11,7 +11,6 @@ from analyzer.candidate_selector import (
 )
 from market_utils import lookup_company_listing, normalize_market, resolve_market
 from services.research_signal_service import get_today_picks as _get_today_picks
-from services.optimized_params_store import load_execution_optimized_params
 from services.universe_builder import get_universe_snapshot
 from analyzer.technical_snapshot import fetch_technical_snapshot as _fetch_technical_snapshot_impl
 
@@ -275,64 +274,8 @@ def _universe_code_set(market: str) -> set[str]:
     }
 
 
-def collect_quant_runtime_candidates(market: str, cfg: dict | None = None) -> list[dict]:
-    payload = load_execution_optimized_params() or {}
-    per_symbol = payload.get("per_symbol") if isinstance(payload.get("per_symbol"), dict) else {}
-    normalized_market = normalize_market(market)
-    if not per_symbol or not normalized_market:
-        return []
-
-    # 실거래 유니버스를 소스로 사용한다. 스냅샷이 비었거나 누락되면 fail-closed 로 후보 생성을 중단한다.
-    universe_codes = _universe_code_set(normalized_market)
-    if not universe_codes:
-        return []
-
-    raw_cfg = cfg or {}
-    try:
-        min_quant_score = float(raw_cfg.get("quant_min_score", 0.0))
-    except (TypeError, ValueError):
-        min_quant_score = 0.0
-
-    candidates: list[dict[str, Any]] = []
-    for raw_code, raw_item in per_symbol.items():
-        code = str(raw_code or "").strip().upper()
-        item = raw_item if isinstance(raw_item, dict) else {}
-        if not code:
-            continue
-        # 유니버스 스냅샷이 로드됐을 때만 유니버스 필터 적용 (스냅샷 없으면 pass-through)
-        if universe_codes and code not in universe_codes:
-            continue
-        try:
-            item_market = resolve_market(code=code, market=str(item.get("market") or ""), scope="core")
-        except Exception:
-            item_market = str(item.get("market") or normalized_market)
-        if normalize_market(item_market) != normalized_market:
-            continue
-        try:
-            listing = lookup_company_listing(code=code, market=item_market, scope="core") or {}
-        except Exception:
-            listing = {}
-        score = _quant_candidate_score(item)
-        if score < min_quant_score:
-            continue
-        candidates.append(
-            _build_quant_runtime_candidate(
-                code=code,
-                item=item,
-                item_market=item_market,
-                listing=listing,
-            )
-        )
-
-    return sorted(
-        candidates,
-        key=lambda item: (float(item.get("priority_score") or 0.0), float(item.get("score") or 0.0), str(item.get("code") or "")),
-        reverse=True,
-    )
-
-
 def collect_runtime_candidates(market: str, cfg: dict | None = None) -> list[dict]:
-    return collect_quant_runtime_candidates(market, cfg or {})
+    return collect_research_candidates(market, cfg or {})
 
 
 def collect_pick_candidates(market: str, cfg: dict) -> list[dict]:

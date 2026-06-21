@@ -11,28 +11,12 @@ from routes.agent import (
     handle_agent_run_detail,
     handle_agent_runs,
 )
-from routes.backtest import handle_backtest_run, handle_kospi_backtest
 from routes.broker import handle_kis_status
 from routes.candidate_monitor import handle_candidate_monitor_promotions, handle_candidate_monitor_status, handle_candidate_monitor_watchlist
 from routes.engine import handle_engine_status, handle_engine_summary
 from routes.market import handle_live_market, handle_stock_price, handle_stock_search
-from routes.optimization import (
-    handle_get_optimization_status,
-    handle_get_optimized_params,
-    handle_run_optimization,
-)
 from routes.performance import handle_performance_summary
 from routes.portfolio import handle_portfolio_state
-from routes.quant_ops import (
-    handle_get_quant_ops_policy,
-    handle_get_quant_ops_workflow,
-    handle_quant_ops_apply_runtime,
-    handle_quant_ops_reset_workflow,
-    handle_quant_ops_revalidate,
-    handle_quant_ops_reset_policy,
-    handle_quant_ops_save_candidate,
-    handle_quant_ops_save_policy,
-)
 from routes.research import handle_research_ingest_bulk, handle_research_latest_snapshot, handle_research_run_status_save, handle_research_status
 from routes.research import handle_research_snapshots
 from routes.risk import handle_risk_config_get, handle_risk_config_save
@@ -76,14 +60,6 @@ from routes.trading import (
 )
 from routes.system import handle_system_mode
 from routes.universe import handle_universe_list
-from routes.validation import (
-    handle_validation_backtest,
-    handle_validation_diagnostics,
-    handle_validation_settings_get,
-    handle_validation_settings_reset,
-    handle_validation_settings_save,
-    handle_validation_walk_forward,
-)
 from routes.watchlist import (
     handle_watchlist_actions,
     handle_watchlist_get,
@@ -148,12 +124,6 @@ GET_ROUTES: tuple[Route, ...] = (
         "/api/portfolio/state",
         lambda _path, query: handle_portfolio_state(_query_bool(query, "refresh", True)),
     ),
-    Route("/api/validation/backtest", lambda _path, query: handle_validation_backtest(query)),
-    Route("/api/validation/walk-forward", lambda _path, query: handle_validation_walk_forward(query)),
-    Route("/api/validation/diagnostics", lambda _path, query: handle_validation_diagnostics(query)),
-    Route("/api/validation/settings", lambda _path, _query: handle_validation_settings_get()),
-    Route("/api/quant-ops/workflow", lambda _path, _query: handle_get_quant_ops_workflow()),
-    Route("/api/quant-ops/policy", lambda _path, _query: handle_get_quant_ops_policy()),
     Route("/api/reports/explain", lambda _path, query: handle_reports_explain(_query_value(query, "date") or None)),
     Route("/api/reports/index", lambda _path, _query: handle_reports_index()),
     Route("/api/reports/operations", lambda _path, query: handle_reports_operations(_query_int(query, "limit", 500))),
@@ -181,8 +151,6 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/macro/latest", lambda _path, _query: handle_macro()),
     Route("/api/market-context/latest", lambda _path, query: handle_market_context(_query_value(query, "date") or None)),
     Route("/api/market-dashboard", lambda _path, _query: handle_market_dashboard()),
-    Route("/api/backtest/run", lambda _path, query: handle_backtest_run(query)),
-    Route("/api/backtest/kospi", lambda _path, _query: handle_kospi_backtest()),
     Route("/api/stock-search", lambda _path, query: handle_stock_search(_query_value(query, "q")), prefix=True),
     Route(
         "/api/stock/",
@@ -200,8 +168,6 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/runtime/workflow", lambda _path, query: handle_runtime_workflow(query)),
     Route("/api/runtime/account/history", lambda _path, query: handle_runtime_account_history(query)),
     Route("/api/system/mode", lambda _path, _query: handle_system_mode()),
-    Route("/api/optimized-params", lambda _path, _query: handle_get_optimized_params()),
-    Route("/api/optimization-status", lambda _path, _query: handle_get_optimization_status()),
 )
 
 POST_ROUTES: tuple[Route, ...] = (
@@ -223,15 +189,6 @@ POST_ROUTES: tuple[Route, ...] = (
     Route("/api/strategies/seed-defaults", lambda _path, payload: handle_strategy_seed_defaults(payload)),
     Route("/api/research/ingest/bulk", lambda _path, payload: handle_research_ingest_bulk(payload)),
     Route("/api/research/run-status", lambda _path, payload: handle_research_run_status_save(payload)),
-    Route("/api/run-optimization", lambda _path, _payload: handle_run_optimization(_payload)),
-    Route("/api/validation/settings/save", lambda _path, payload: handle_validation_settings_save(payload)),
-    Route("/api/validation/settings/reset", lambda _path, _payload: handle_validation_settings_reset()),
-    Route("/api/quant-ops/policy/save", lambda _path, payload: handle_quant_ops_save_policy(payload)),
-    Route("/api/quant-ops/policy/reset", lambda _path, _payload: handle_quant_ops_reset_policy()),
-    Route("/api/quant-ops/revalidate", lambda _path, payload: handle_quant_ops_revalidate(payload)),
-    Route("/api/quant-ops/save-candidate", lambda _path, payload: handle_quant_ops_save_candidate(payload)),
-    Route("/api/quant-ops/apply-runtime", lambda _path, payload: handle_quant_ops_apply_runtime(payload)),
-    Route("/api/quant-ops/reset-workflow", lambda _path, payload: handle_quant_ops_reset_workflow(payload)),
 )
 
 

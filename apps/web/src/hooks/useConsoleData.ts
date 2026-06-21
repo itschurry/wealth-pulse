@@ -14,7 +14,6 @@ import {
   fetchStrategies,
   fetchTodayPicks,
   fetchUniverse,
-  fetchValidationWalkForwardWithOptions,
 } from '../api/domain';
 import { UI_TEXT } from '../constants/uiText';
 import type { ConsoleDataState, ConsoleSnapshot } from '../types/consoleView';
@@ -53,7 +52,6 @@ function emptySnapshot(): ConsoleSnapshot {
     performance: {},
     portfolio: {},
     research: {},
-    validation: {},
     reports: {},
     liveMarket: {},
     marketContext: {},
@@ -68,11 +66,11 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
   if (route.page === 'agent-dashboard') {
     return {
       signalLimit: 80,
-      initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'marketContext', 'validation', 'reports', 'universe', 'performance'],
+      initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'marketContext', 'reports', 'universe', 'performance'],
       initialAwaitTargets: ['engine'],
       fastTargets: ['engine', 'liveMarket'],
       midTargets: ['signals', 'portfolio'],
-      slowTargets: ['research', 'marketContext', 'validation', 'reports', 'universe', 'performance'],
+      slowTargets: ['research', 'marketContext', 'reports', 'universe', 'performance'],
     };
   }
 
@@ -93,16 +91,6 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
       fastTargets: ['engine'],
       midTargets: [],
       slowTargets: [],
-    };
-  }
-
-  if (route.page === 'lab' && route.labTab === 'validation') {
-    return {
-      signalLimit: 0,
-      initialTargets: ['engine', 'strategies', 'research', 'validation'],
-      fastTargets: ['engine'],
-      midTargets: ['strategies'],
-      slowTargets: ['research', 'validation'],
     };
   }
 
@@ -160,7 +148,6 @@ export function useConsoleData(route: ConsoleDataRoute) {
     performance: 0,
     portfolio: 0,
     research: 0,
-    validation: 0,
     reports: 0,
     liveMarket: 0,
     marketContext: 0,
@@ -180,7 +167,6 @@ export function useConsoleData(route: ConsoleDataRoute) {
       performance: 0,
       portfolio: 0,
       research: 0,
-      validation: 0,
       reports: 0,
       liveMarket: 0,
       marketContext: 0,
@@ -236,7 +222,6 @@ export function useConsoleData(route: ConsoleDataRoute) {
       if (key === 'performance') return fetchPerformanceSummary();
       if (key === 'portfolio') return fetchPortfolioState(false);
       if (key === 'research') return fetchResearchStatus();
-      if (key === 'validation') return fetchValidationWalkForwardWithOptions(undefined, undefined, { cacheOnly: true });
       if (key === 'reports') return fetchReportsExplain();
       if (key === 'liveMarket') return fetchLiveMarket();
       if (key === 'marketContext') return fetchMarketContext();

@@ -8,7 +8,6 @@ import {
   providerSourceToKorean,
   providerStatusToKorean,
   reasonCodeToKorean,
-  reliabilityToKorean,
 } from '../constants/uiText';
 import type { ConsoleSnapshot } from '../types/consoleView';
 import {
@@ -232,8 +231,6 @@ export function WealthPulseHomePage({
   const riskGuard = getRiskGuardState(snapshot);
   const riskGuardAllowed = isRiskEntryAllowed(snapshot);
   const riskReasons = Array.isArray(riskGuard.reasons) ? riskGuard.reasons.map((reason) => reasonCodeToKorean(String(reason))) : [];
-  const validationSummary = snapshot.validation.summary || {};
-  const validationReliability = reliabilityToKorean(String(validationSummary.oos_reliability || '').toLowerCase()) || '-';
   const engineRunning = Boolean(engineState.running);
   const engineStatusLabel = engineRunning ? '실행' : engineState.engine_state === 'paused' ? '일시정지' : engineState.engine_state === 'error' ? '오류' : '정지';
   const failedOrders = toNumber(engineState.today_order_counts?.failed);
@@ -327,7 +324,7 @@ export function WealthPulseHomePage({
               </div>
               <div className="wealth-terminal-actions">
                 <button className="ghost-button" onClick={onRefresh}>새로고침</button>
-                <button className="ghost-button" onClick={onGoLab}>실험</button>
+                <button className="ghost-button" onClick={onGoLab}>관리</button>
               </div>
             </div>
 
@@ -355,8 +352,8 @@ export function WealthPulseHomePage({
                   <strong className={riskGuardAllowed ? 'is-up' : 'is-down'}>{riskGuardAllowed ? '열림' : '잠김'}</strong>
                 </div>
                 <div>
-                  <span>검증</span>
-                  <strong>{validationReliability}</strong>
+                  <span>리서치</span>
+                  <strong>{researchSourceLabel}</strong>
                 </div>
               </div>
             </div>
@@ -488,10 +485,10 @@ export function WealthPulseHomePage({
                   <div className="wealth-data-main">{formatNumber(failedOrders, 0)} / {formatNumber(skippedCount, 0)}</div>
                   <div className="wealth-data-meta">{String(engineState.order_failure_summary?.top_reason || '-')}</div>
                 </div>
-                <div className={`wealth-data-row ${engineState.optimized_params?.is_stale ? 'is-bad' : 'is-good'}`.trim()}>
-                  <div className="wealth-data-label">전략값</div>
-                  <div className="wealth-data-main">{engineState.optimized_params?.is_stale ? '지연' : '정상'}</div>
-                  <div className="wealth-data-meta">{String(engineState.optimized_params?.effective_source || engineState.optimized_params?.source || '-')}</div>
+                <div className={`wealth-data-row ${riskGuardAllowed ? 'is-good' : 'is-bad'}`.trim()}>
+                  <div className="wealth-data-label">진입 게이트</div>
+                  <div className="wealth-data-main">{riskGuardAllowed ? '정상' : '차단'}</div>
+                  <div className="wealth-data-meta">{riskReasons.slice(0, 1).join(' · ') || '활성 차단 없음'}</div>
                 </div>
                 <div className="wealth-data-row is-good">
                   <div className="wealth-data-label">리서치</div>

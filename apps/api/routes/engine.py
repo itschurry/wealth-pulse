@@ -88,7 +88,6 @@ def _compact_execution_payload(execution_payload: dict | None) -> dict:
         "today_realized_pnl",
         "current_equity",
         "validation_policy",
-        "optimized_params",
         "execution_mode",
         "current_config",
         "config",

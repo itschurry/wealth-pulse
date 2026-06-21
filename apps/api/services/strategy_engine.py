@@ -9,8 +9,6 @@ from helpers import _now_iso
 from services.risk_guard_service import build_risk_guard_state as _build_account_risk_guard_state
 from services.live_layers import build_layer_c_snapshot, build_layer_d_snapshot, build_layer_e_snapshot, build_layer_events
 from services.market_data_service import resolve_stock_quote
-from services.optimized_params_store import load_execution_optimized_params
-from services.reliability_policy import should_apply_symbol_overlay
 from services.candidate_monitor_service import list_market_watchlists
 from services.research_store import DEFAULT_RESEARCH_PROVIDER, load_latest_research_snapshot
 from services.signal_service import collect_pick_candidates
@@ -151,11 +149,6 @@ def _monitor_active_slot_candidates(market: str, *, cfg: dict[str, Any]) -> list
     return candidates[: max(1, int(cfg.get("candidate_pool_limit") or 40))]
 
 
-def _load_optimized_params() -> dict[str, Any] | None:
-    payload = load_execution_optimized_params()
-    return payload if isinstance(payload, dict) else None
-
-
 def determine_strategy_type(candidate: dict[str, Any]) -> str:
     return str(candidate.get("strategy_type") or candidate.get("source") or "quant").strip() or "quant"
 
@@ -257,23 +250,11 @@ def compute_ev_metrics(*, candidate: dict[str, Any], validation_snapshot: dict[s
     }
 
 
-def _validation_snapshot_for_candidate(candidate: dict[str, Any], optimized_payload: dict[str, Any] | None) -> dict[str, Any]:
+def _validation_snapshot_for_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     base_snapshot = candidate.get("validation_snapshot") if isinstance(candidate.get("validation_snapshot"), dict) else {}
-    code = str(candidate.get("code") or "").upper()
-    optimized_payload = optimized_payload if isinstance(optimized_payload, dict) else {}
-    per_symbol = optimized_payload.get("per_symbol") if isinstance(optimized_payload.get("per_symbol"), dict) else {}
-    global_baseline = optimized_payload.get("validation_baseline") if isinstance(optimized_payload.get("validation_baseline"), dict) else {}
-    symbol_payload = per_symbol.get(code) if isinstance(per_symbol.get(code), dict) else {}
-
-    use_symbol = bool(symbol_payload) and should_apply_symbol_overlay(
-        is_reliable=bool(symbol_payload.get("is_reliable", False)),
-        reliability_reason=str(symbol_payload.get("reliability_reason") or ""),
-    )
-    overlay = symbol_payload if use_symbol else global_baseline
-    source = "symbol" if use_symbol else "global" if overlay else str(base_snapshot.get("validation_source") or "signal")
-
-    trade_count = overlay.get("trade_count") if overlay else base_snapshot.get("trade_count")
-    validation_trades = overlay.get("validation_trades") if overlay else base_snapshot.get("validation_trades")
+    source = str(base_snapshot.get("validation_source") or "signal")
+    trade_count = base_snapshot.get("trade_count")
+    validation_trades = base_snapshot.get("validation_trades")
     if trade_count in (None, ""):
         trade_count = validation_trades or 0
     if validation_trades in (None, ""):
@@ -284,13 +265,13 @@ def _validation_snapshot_for_candidate(candidate: dict[str, Any], optimized_payl
         "validation_source": source,
         "trade_count": int(trade_count or 0),
         "validation_trades": int(validation_trades or 0),
-        "validation_sharpe": _to_float((overlay or {}).get("validation_sharpe"), _to_float(base_snapshot.get("validation_sharpe"), 0.0)),
-        "max_drawdown_pct": (overlay or {}).get("max_drawdown_pct", base_snapshot.get("max_drawdown_pct")),
-        "strategy_reliability": str((overlay or {}).get("strategy_reliability") or base_snapshot.get("strategy_reliability") or "insufficient"),
-        "reliability_reason": str((overlay or {}).get("reliability_reason") or base_snapshot.get("reliability_reason") or "validation_snapshot"),
-        "passes_minimum_gate": bool((overlay or {}).get("passes_minimum_gate", base_snapshot.get("passes_minimum_gate", False))),
-        "is_reliable": bool((overlay or {}).get("is_reliable", base_snapshot.get("is_reliable", False))),
-        "composite_score": (overlay or {}).get("composite_score", base_snapshot.get("composite_score")),
+        "validation_sharpe": _to_float(base_snapshot.get("validation_sharpe"), 0.0),
+        "max_drawdown_pct": base_snapshot.get("max_drawdown_pct"),
+        "strategy_reliability": str(base_snapshot.get("strategy_reliability") or "insufficient"),
+        "reliability_reason": str(base_snapshot.get("reliability_reason") or "validation_snapshot"),
+        "passes_minimum_gate": bool(base_snapshot.get("passes_minimum_gate", False)),
+        "is_reliable": bool(base_snapshot.get("is_reliable", False)),
+        "composite_score": base_snapshot.get("composite_score"),
     }
     freshness = "derived"
     grade = "D" if int(result.get("validation_trades") or 0) <= 0 and int(result.get("trade_count") or 0) <= 0 else "A" if str(result.get("strategy_reliability") or "") == "high" else "B" if str(result.get("strategy_reliability") or "") == "medium" else "C"
@@ -312,28 +293,12 @@ def _validation_snapshot_for_candidate(candidate: dict[str, Any], optimized_payl
     return result
 
 
-def _risk_inputs_for_candidate(candidate: dict[str, Any], optimized_payload: dict[str, Any] | None, cfg: dict[str, Any]) -> dict[str, Any]:
-    code = str(candidate.get("code") or "").upper()
-    optimized_payload = optimized_payload if isinstance(optimized_payload, dict) else {}
-    per_symbol = optimized_payload.get("per_symbol") if isinstance(optimized_payload.get("per_symbol"), dict) else {}
-    global_baseline = optimized_payload.get("validation_baseline") if isinstance(optimized_payload.get("validation_baseline"), dict) else {}
-    symbol_payload = per_symbol.get(code) if isinstance(per_symbol.get(code), dict) else {}
-
-    use_symbol = bool(symbol_payload) and should_apply_symbol_overlay(
-        is_reliable=bool(symbol_payload.get("is_reliable", False)),
-        reliability_reason=str(symbol_payload.get("reliability_reason") or ""),
-    )
-    overlay = symbol_payload if use_symbol else global_baseline
-
-    stop_loss_pct = overlay.get("stop_loss_pct") if isinstance(overlay, dict) else None
-    if stop_loss_pct in (None, ""):
-        stop_loss_pct = candidate.get("stop_loss_pct")
+def _risk_inputs_for_candidate(candidate: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    stop_loss_pct = candidate.get("stop_loss_pct")
     if stop_loss_pct in (None, ""):
         stop_loss_pct = cfg.get("stop_loss_pct", 5.0)
 
-    take_profit_pct = overlay.get("take_profit_pct") if isinstance(overlay, dict) else None
-    if take_profit_pct in (None, ""):
-        take_profit_pct = candidate.get("take_profit_pct")
+    take_profit_pct = candidate.get("take_profit_pct")
     if take_profit_pct in (None, ""):
         take_profit_pct = cfg.get("take_profit_pct")
 
@@ -350,14 +315,13 @@ def _build_signal_from_candidate(
     market: str,
     cfg: dict[str, Any],
     account: dict[str, Any],
-    optimized_payload: dict[str, Any] | None,
 ) -> dict[str, Any]:
     normalized_market = str(candidate.get("market") or market).upper()
     code = str(candidate.get("code") or candidate.get("symbol") or "").upper()
     bluechip = bluechip_meta(code, normalized_market, cfg)
     candidate = {**candidate, **bluechip, "allocation_mode": str(cfg.get("allocation_mode") or candidate.get("allocation_mode") or "concentrated")}
-    validation_snapshot = _validation_snapshot_for_candidate(candidate, optimized_payload)
-    risk_inputs = _risk_inputs_for_candidate(candidate, optimized_payload, cfg)
+    validation_snapshot = _validation_snapshot_for_candidate(candidate)
+    risk_inputs = _risk_inputs_for_candidate(candidate, cfg)
     risk_guard_state = build_risk_guard_state(candidate=candidate, cfg=cfg, account=account)
     ev_metrics = compute_ev_metrics(candidate=candidate, validation_snapshot=validation_snapshot, cfg=cfg)
     technical_snapshot = candidate.get("technical_snapshot") if isinstance(candidate.get("technical_snapshot"), dict) else {}
@@ -492,7 +456,6 @@ def build_signal_book(
     normalized_markets = [str(item or "").strip().upper() for item in (markets or []) if str(item or "").strip()]
     if not normalized_markets:
         normalized_markets = list(DEFAULT_SIGNAL_MARKETS)
-    optimized_payload = _load_optimized_params()
     regime, risk_level = _context_snapshot()
     signals: list[dict[str, Any]] = []
     risk_guard_state: dict[str, Any] = {}
@@ -519,7 +482,6 @@ def build_signal_book(
                 market=market,
                 cfg=cfg,
                 account=account,
-                optimized_payload=optimized_payload,
             )
             signals.append(signal)
             if not risk_guard_state and isinstance(signal.get("risk_guard_state"), dict):

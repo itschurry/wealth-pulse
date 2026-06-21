@@ -30,6 +30,11 @@ _PARAMS_CONTEXT_FIELDS = {
     "signal_interval", "signal_range",
     "scan_limit", "candidate_top_n",
 }
+_RESEARCH_SUMMARY_FIELDS = {
+    "max_drawdown_pct",
+    "win_rate_pct",
+    "sharpe",
+}
 
 
 def _now_iso() -> str:
@@ -75,6 +80,14 @@ def _risk_limits(market: str, *, max_positions: int, position_size_pct: float, d
     }
 
 
+def _research_summary(raw: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: raw[key]
+        for key in _RESEARCH_SUMMARY_FIELDS
+        if key in raw
+    }
+
+
 _DEFAULT_STRATEGIES: list[dict[str, Any]] = [
     {
         "strategy_id": "trend_following",
@@ -96,11 +109,9 @@ _DEFAULT_STRATEGIES: list[dict[str, Any]] = [
         "enabled_at": "2026-04-01T08:45:00+09:00",
         "version": 3,
         "research_summary": {
-            "backtest_return_pct": 18.4,
             "max_drawdown_pct": -8.1,
             "win_rate_pct": 54.2,
             "sharpe": 1.31,
-            "walk_forward_return_pct": 9.8,
         },
     },
     {
@@ -123,11 +134,9 @@ _DEFAULT_STRATEGIES: list[dict[str, Any]] = [
         "enabled_at": "2026-03-29T21:10:00+09:00",
         "version": 2,
         "research_summary": {
-            "backtest_return_pct": 14.1,
             "max_drawdown_pct": -7.2,
             "win_rate_pct": 58.4,
             "sharpe": 1.22,
-            "walk_forward_return_pct": 8.6,
         },
     },
     {
@@ -150,11 +159,9 @@ _DEFAULT_STRATEGIES: list[dict[str, Any]] = [
         "enabled_at": "2026-03-27T10:00:00+09:00",
         "version": 1,
         "research_summary": {
-            "backtest_return_pct": 8.3,
             "max_drawdown_pct": -4.9,
             "win_rate_pct": 62.1,
             "sharpe": 0.98,
-            "walk_forward_return_pct": 5.1,
         },
     },
 ]
@@ -229,7 +236,7 @@ def _normalize_strategy(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "enabled_at": enabled_at,
         "version": max(1, version),
-        "research_summary": research_summary,
+        "research_summary": _research_summary(research_summary),
         "updated_at": str(payload.get("updated_at") or now_iso),
     }
 

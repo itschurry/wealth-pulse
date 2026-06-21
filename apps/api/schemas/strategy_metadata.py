@@ -299,7 +299,7 @@ def build_strategy_metadata_payload() -> dict[str, Any]:
             {"name": "initial_cash", "label": "초기 자금", "type": "number", "min": 1, "step": 1000},
             {"name": "max_positions", "label": "최대 포지션", "type": "number", "min": 1, "max": 20, "step": 1},
             {"name": "max_holding_days", "label": "최대 보유일", "type": "number", "min": 1, "max": 180, "step": 1},
-            {"name": "lookback_days", "label": "백테스트 기간", "type": "number", "min": 180, "max": 1825, "step": 30},
+            {"name": "lookback_days", "label": "분석 기간", "type": "number", "min": 180, "max": 1825, "step": 30},
         ],
         "available_strategies": available,
         "default_request": {

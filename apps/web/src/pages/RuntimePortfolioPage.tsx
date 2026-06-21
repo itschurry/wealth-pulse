@@ -1909,7 +1909,7 @@ export function RuntimePortfolioPage({ snapshot, loading, errorMessage, onRefres
             <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <input
-                  className="backtest-input-wrap"
+                  className="numeric-input-wrap"
                   style={{ padding: '0 12px', minWidth: 220 }}
                   type="text"
                   placeholder="검색"

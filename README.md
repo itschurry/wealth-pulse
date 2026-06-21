@@ -103,8 +103,7 @@ TELEGRAM_CHAT_ID=
 
 FastAPI 라우터를 여러 파일에 직접 등록하는 구조가 아니야. `api_server.py`가 `/api/{full_path:path}`를 받고, `server.py`의 `GET_ROUTES`, `POST_ROUTES` 테이블로 넘겨.
 지원 메서드는 `GET`, `POST`만이야. 예전처럼 `PUT`을 `POST`로 우회하지 않아.
-최적화 global overlay는 reliable 결과만 쓴다. reliable 결과가 없으면 전체/medium 결과로 넓히지 않고 저장을 건너뛰어.
-Quant candidate runtime 적용은 `base_query.market_scope`가 있어야만 진행해. 시장이 비어 있으면 전체 시장에 patch를 뿌리지 않고 실패시켜.
+폐기된 실험 API와 UI는 더 이상 제공하지 않아. 주문 런타임도 저장된 실험 산출물을 읽지 않아.
 
 ```text
 apps/api/api_server.py
@@ -134,7 +133,6 @@ React 앱은 라우터 라이브러리 없이 `App.tsx`에서 URL path를 해석
 - `/research-ai`: 후보 모니터, 리서치 상태, 스냅샷 상세. 모바일/데스크톱 레이아웃 보정은 `apps/web/src/index.css`의 research responsive 규칙을 봐.
 - `/orders-execution`: 런타임 엔진 제어, 포지션, 주문 이벤트, 워크플로우. 보유 포지션은 평가금액, 투자원금, 자산비중을 같이 보여줘.
 - `/watchlist`: 사용자 관심 종목
-- `/lab/validation`: 백테스트/워크포워드/Quant Ops
 - `/lab/strategies`: 전략 프리셋
 - `/lab/universe`: 유니버스
 
@@ -142,7 +140,7 @@ React 앱은 라우터 라이브러리 없이 `App.tsx`에서 URL path를 해석
 
 - 빠른 polling: 엔진, 실시간 시장
 - 중간 polling: 신호, 포트폴리오
-- 느린 polling: 리서치, 검증, 리포트, 유니버스, 성과
+- 느린 polling: 리서치, 리포트, 유니버스, 성과
 
 API client는 `apps/web/src/api/domain.ts`에 모여 있어. 화면에서 직접 `/api/*` 문자열을 만들기보다 여기 함수를 우선 봐.
 
@@ -154,7 +152,6 @@ API client는 `apps/web/src/api/domain.ts`에 모여 있어. 화면에서 직접
 storage/
   reports/
     market_brief.db
-    kospi_backtest_latest.json
   logs/
     runtime/
       engine_state.json
@@ -486,13 +483,11 @@ curl http://127.0.0.1:8001/api/broker/kis/status
 curl http://127.0.0.1:8001/api/portfolio/state
 ```
 
-전략/검증:
+전략:
 
 ```bash
 curl http://127.0.0.1:8001/api/strategies
 curl http://127.0.0.1:8001/api/strategies/metadata
-curl http://127.0.0.1:8001/api/validation/walk-forward
-curl http://127.0.0.1:8001/api/quant-ops/workflow
 ```
 
 ## 디렉터리 구조

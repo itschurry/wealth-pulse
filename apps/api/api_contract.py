@@ -10,7 +10,6 @@ ApiPayload = dict[str, Any]
 _WRAPPED_PREFIXES: tuple[str, ...] = (
     "/api/signals",
     "/api/validation",
-    "/api/quant-ops",
     "/api/runtime",
     "/api/performance/summary",
     "/api/reports/operations",

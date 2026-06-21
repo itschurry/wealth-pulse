@@ -39,7 +39,6 @@ def _compact_engine_payload(payload: dict) -> dict:
         "today_realized_pnl",
         "current_equity",
         "validation_policy",
-        "optimized_params",
         "current_config",
         "config",
     }

@@ -2751,42 +2751,7 @@ button:disabled {
   gap: 10px;
 }
 
-.backtest-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
-}
-
-.backtest-pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.backtest-pill {
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  padding: 6px 0;
-  background: transparent;
-  color: var(--text-3);
-  cursor: pointer;
-  transition: background .18s ease, color .18s ease, transform .18s ease;
-}
-
-.backtest-pill:hover {
-  transform: translateY(-1px);
-  color: var(--accent);
-}
-
-.backtest-pill.active {
-  background: var(--gold-mid);
-  border-color: rgba(200,169,110,0.30);
-  color: var(--gold);
-  box-shadow: none;
-}
-
-.backtest-input-wrap {
+.numeric-input-wrap {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2795,20 +2760,6 @@ button:disabled {
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--bg-soft);
-}
-
-.backtest-input {
-  width: 100%;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text-1);
-}
-
-.backtest-input-suffix {
-  flex: 0 0 auto;
-  font-size: 15px;
-  color: var(--text-4);
 }
 
 @keyframes shimmer {
@@ -3313,42 +3264,7 @@ button:disabled {
   gap: 10px;
 }
 
-.backtest-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
-}
-
-.backtest-pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.backtest-pill {
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  padding: 6px 0;
-  background: transparent;
-  color: var(--text-3);
-  cursor: pointer;
-  transition: background .18s ease, color .18s ease, transform .18s ease;
-}
-
-.backtest-pill:hover {
-  transform: translateY(-1px);
-  color: var(--accent);
-}
-
-.backtest-pill.active {
-  background: var(--gold-mid);
-  border-color: rgba(200,169,110,0.30);
-  color: var(--gold);
-  box-shadow: none;
-}
-
-.backtest-input-wrap {
+.numeric-input-wrap {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3357,20 +3273,6 @@ button:disabled {
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--bg-soft);
-}
-
-.backtest-input {
-  width: 100%;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text-1);
-}
-
-.backtest-input-suffix {
-  flex: 0 0 auto;
-  font-size: 15px;
-  color: var(--text-4);
 }
 
 @keyframes shimmer {
@@ -4022,7 +3924,6 @@ button:disabled {
   .validation-report-grid,
   .validation-history-grid,
   .process-grid,
-  .backtest-grid,
   .runtime-ops-overview-grid,
   .runtime-ops-summary-grid,
   .runtime-ops-log-grid {
@@ -4032,8 +3933,7 @@ button:disabled {
   .report-decision-chip,
   .inline-badge,
   .filter-chip,
-  .checklist-toggle,
-  .backtest-pill {
+  .checklist-toggle {
     padding: 6px 9px;
     font-size: 13px;
   }
@@ -4331,61 +4231,6 @@ button:disabled {
   background: transparent;
   font-size: 15px;
   color: var(--text-3);
-}
-
-.quant-ops-stage-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-}
-
-.quant-ops-stage-card {
-  display: grid;
-  gap: 6px;
-  padding: 12px 0 0;
-  border-radius: 0;
-  border: 0;
-  border-top: 1px solid var(--border);
-  background: transparent;
-}
-
-.quant-ops-stage-card.is-good {
-  border-top-color: var(--up-border);
-  background: transparent;
-}
-
-.quant-ops-stage-card.is-bad {
-  border-top-color: var(--down-border);
-  background: transparent;
-}
-
-.quant-ops-stage-title {
-  font-size: 14px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-4);
-}
-
-.quant-ops-stage-status {
-  font-size: 19px;
-  font-weight: 800;
-  color: var(--text-1);
-}
-
-.quant-ops-stage-copy {
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--text-3);
-}
-
-.quant-ops-guardrail-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.quant-ops-guardrail-list .summary-rail-item {
-  margin: 0;
 }
 
 .decision-state-card.is-good {
@@ -4709,7 +4554,6 @@ body {
 .summary-rail-item,
 .summary-metric-card,
 .process-card,
-.quant-ops-stage-card,
 .operator-note-card,
 .scorecard-panel,
 .scorecard-tail-card,
@@ -4762,14 +4606,14 @@ body {
   background: var(--surface-alt);
 }
 
-.backtest-input-wrap,
+.numeric-input-wrap,
 .console-search-input {
   border-color: var(--border);
   background: var(--bg-surface);
   color: var(--text-1);
 }
 
-.backtest-input-wrap::placeholder,
+.numeric-input-wrap::placeholder,
 .console-search-input::placeholder {
   color: var(--text-4);
 }
@@ -5661,7 +5505,6 @@ body {
 .summary-rail-item,
 .summary-metric-card,
 .process-card,
-.quant-ops-stage-card,
 .operator-note-card,
 .scorecard-panel,
 .scorecard-tail-card,
@@ -6632,8 +6475,7 @@ textarea {
   .action-button,
   .filter-chip,
   .tab-launch-button,
-  .checklist-toggle,
-  .backtest-pill {
+  .checklist-toggle {
     min-height: 44px;
     padding: 10px 12px;
     border: 1px solid var(--border);
@@ -6683,7 +6525,6 @@ textarea {
   .operator-note-grid,
   .validation-history-grid,
   .process-grid,
-  .backtest-grid,
   .report-decision-strip,
   .validation-report-grid {
     grid-template-columns: minmax(0, 1fr) !important;
@@ -6809,7 +6650,6 @@ textarea {
   .filter-chip,
   .tab-launch-button,
   .checklist-toggle,
-  .backtest-pill,
   .page-section,
   .responsive-card,
   .workspace-summary-card,

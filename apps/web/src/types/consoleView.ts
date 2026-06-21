@@ -14,7 +14,6 @@ import type {
   StrategiesResponse,
   TodayPicksResponse,
   UniverseResponse,
-  ValidationResponse,
 } from './domain';
 
 export interface ConsoleSnapshot {
@@ -26,7 +25,6 @@ export interface ConsoleSnapshot {
   performance: PerformanceSummaryResponse;
   portfolio: PortfolioStateResponse;
   research: ResearchStatusResponse;
-  validation: ValidationResponse;
   reports: ReportsExplainResponse;
   liveMarket: LiveMarketResponse;
   marketContext: MarketContextResponse;
@@ -139,14 +137,4 @@ export interface RuntimeViewModel {
   positionCostKrw: number;
   positionMarketValueKrw: number;
   positionReturnPct: number | null;
-}
-
-export interface BacktestViewModel {
-  totalReturnPct: number | null;
-  oosReturnPct: number | null;
-  maxDrawdownPct: number | null;
-  profitFactor: number | null;
-  winRatePct: number | null;
-  tradeCount: number | null;
-  reliability: string;
 }

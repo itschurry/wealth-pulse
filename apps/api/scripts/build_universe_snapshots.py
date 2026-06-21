@@ -217,7 +217,7 @@ def build_snapshot(rule: str, *, dry_run: bool = False) -> tuple[dict[str, Any],
 
 
 def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Build universe snapshots for backtest/live runtimes.")
+    parser = argparse.ArgumentParser(description="Build universe snapshots for live runtimes.")
     parser.add_argument(
         "--universe",
         choices=["all", "kospi", "sp500"],
