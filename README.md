@@ -365,12 +365,14 @@ _auto_trader_loop()
   -> 기술지표 보조 exit 조건 확인
   -> build_signal_book()
   -> allowed entry 후보 선택
+  -> 보유 한도 초과 시 우량 watch 후보 rotation 검토
   -> sizing/risk/order limit 확인
   -> engine.place_order()
   -> order_events, signal_snapshots, account_snapshots, engine_cycles 저장
 ```
 
 런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
+보유 종목 수가 꽉 찬 상태에서는 `bluechip_core` 우량 후보가 점수 `90` 이상이거나 리서치 점수 `0.75` 이상이면 `watch_only`라도 rotation 후보로 올린다. 기존 보유 종목보다 점수 차가 rotation 기준을 넘고 매도 후 사이징이 가능하면 약한 보유 종목을 팔고 새 우량 후보를 산다.
 
 `paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.
 

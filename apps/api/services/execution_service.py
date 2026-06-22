@@ -81,7 +81,9 @@ _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
     "KOSPI": _RUNTIME_TAKE_PROFIT_PCT,
 }
 _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
-_ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit"}
+_ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit", "signal_only"}
+_ROTATION_PRIORITY_MIN_SCORE = 90.0
+_ROTATION_PRIORITY_MIN_RESEARCH_SCORE = 0.75
 _STALE_RUNTIME_STATE_KEYS = {"optimized_params"}
 _STALE_RUNTIME_CONFIG_KEYS = {"validation_require_optimized_reliability"}
 
@@ -1501,9 +1503,77 @@ def _candidate_rotation_score(candidate: dict[str, Any]) -> float:
     return expected_value * 100.0
 
 
+def _candidate_research_score(candidate: dict[str, Any]) -> float:
+    for value in (
+        candidate.get("research_score"),
+        candidate.get("snapshot_research_score"),
+        (candidate.get("layer_c") if isinstance(candidate.get("layer_c"), dict) else {}).get("research_score"),
+    ):
+        score = _to_float(value, 0.0)
+        if score > 1.0:
+            score = score / 100.0
+        if score > 0:
+            return max(0.0, min(1.0, score))
+    return 0.0
+
+
+def _candidate_sources(candidate: dict[str, Any]) -> set[str]:
+    raw_sources = candidate.get("candidate_sources") if isinstance(candidate.get("candidate_sources"), list) else []
+    return {str(item or "").strip().lower() for item in raw_sources if str(item or "").strip()}
+
+
+def _is_priority_rotation_candidate(candidate: dict[str, Any]) -> bool:
+    final_action = str(candidate.get("final_action") or "").strip().lower()
+    if final_action in {"blocked", "do_not_touch"}:
+        return False
+    if bool(candidate.get("research_unavailable")):
+        return False
+    research_status = str(candidate.get("research_status") or "").strip().lower()
+    if research_status in {"missing", "stale", "stale_ingest", "research_unavailable"}:
+        return False
+    layer_e = candidate.get("final_action_snapshot") if isinstance(candidate.get("final_action_snapshot"), dict) else {}
+    agent_decision = layer_e.get("agent_decision") if isinstance(layer_e.get("agent_decision"), dict) else {}
+    if str(agent_decision.get("decision") or "").strip().lower() in {"agent_exit_or_block", "agent_hold"}:
+        return False
+
+    sources = _candidate_sources(candidate)
+    is_bluechip = bool(candidate.get("bluechip")) or "bluechip_core" in sources
+    score = _candidate_rotation_score(candidate)
+    research_score = _candidate_research_score(candidate)
+    return is_bluechip and (score >= _ROTATION_PRIORITY_MIN_SCORE or research_score >= _ROTATION_PRIORITY_MIN_RESEARCH_SCORE)
+
+
 def _rotation_candidate_needs_resizing(candidate: dict[str, Any]) -> bool:
     size_recommendation = candidate.get("size_recommendation") if isinstance(candidate.get("size_recommendation"), dict) else {}
-    return str(size_recommendation.get("reason") or "").strip() in _ROTATION_RESIZABLE_SIZE_REASONS
+    reason = str(size_recommendation.get("reason") or "").strip()
+    if reason == "signal_only":
+        return _is_priority_rotation_candidate(candidate)
+    return reason in _ROTATION_RESIZABLE_SIZE_REASONS
+
+
+def _allows_rotation_candidate(
+    candidate: dict[str, Any],
+    *,
+    signal_state: str,
+    entry_allowed: bool,
+    order_qty: int,
+    position_only_blocked: bool,
+) -> bool:
+    if signal_state == "entry":
+        return (order_qty > 0 or _rotation_candidate_needs_resizing(candidate)) and (
+            entry_allowed or position_only_blocked or _rotation_candidate_needs_resizing(candidate)
+        )
+    if signal_state == "exit":
+        return False
+    return _is_priority_rotation_candidate(candidate) and (order_qty > 0 or _rotation_candidate_needs_resizing(candidate))
+
+
+def _rotation_candidate_reason(candidate: dict[str, Any], *, signal_state: str) -> str:
+    if signal_state == "entry":
+        return "entry_signal"
+    if _is_priority_rotation_candidate(candidate):
+        return "priority_bluechip_upgrade"
+    return ""
 
 
 def _candidate_allows_additional_buy(candidate: dict[str, Any], cfg: dict[str, Any]) -> bool:
@@ -2245,7 +2315,15 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 and bool(rotation_blockers)
                 and rotation_blockers.issubset(_ROTATION_POSITION_ONLY_BLOCKERS)
             )
-            if signal_state == "entry" and (order_qty > 0 or _rotation_candidate_needs_resizing(candidate)) and (entry_allowed or position_only_blocked or _rotation_candidate_needs_resizing(candidate)):
+            if _allows_rotation_candidate(
+                candidate,
+                signal_state=signal_state,
+                entry_allowed=entry_allowed,
+                order_qty=order_qty,
+                position_only_blocked=position_only_blocked,
+            ):
+                candidate["rotation_eligible"] = True
+                candidate["rotation_reason"] = _rotation_candidate_reason(candidate, signal_state=signal_state)
                 rotation_candidates.append(candidate)
             if entry_allowed:
                 effective_candidates.append(candidate)
@@ -2301,6 +2379,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 "final_action": candidate.get("final_action"),
                 "final_action_snapshot": candidate.get("final_action_snapshot"),
                 "layer_events": candidate.get("layer_events"),
+                "rotation_eligible": bool(candidate.get("rotation_eligible")),
+                "rotation_reason": candidate.get("rotation_reason") or "",
                 "technical_snapshot": technical_snapshot,
                 "validation_snapshot": candidate.get("validation_snapshot"),
                 "quote_source": technical_snapshot.get("quote_source"),
