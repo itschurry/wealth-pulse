@@ -81,9 +81,10 @@ _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
     "KOSPI": _RUNTIME_TAKE_PROFIT_PCT,
 }
 _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
-_ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit", "signal_only"}
+_ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit", "invalid_unit_price", "signal_only"}
 _ROTATION_PRIORITY_MIN_SCORE = 90.0
 _ROTATION_PRIORITY_MIN_RESEARCH_SCORE = 0.75
+_ACTIVE_TRADING_INTERVAL_SECONDS = 60
 _STALE_RUNTIME_STATE_KEYS = {"optimized_params"}
 _STALE_RUNTIME_CONFIG_KEYS = {"validation_require_optimized_reliability"}
 
@@ -1231,7 +1232,7 @@ def _default_auto_trader_config() -> dict:
             profiles[market] = profile
     primary = profiles["KOSPI"]
     base = {
-        "interval_seconds": 300,
+        "interval_seconds": _ACTIVE_TRADING_INTERVAL_SECONDS,
         "markets": ["KOSPI"],
         "max_positions_per_market": int(primary["max_positions"]),
         "min_score": 50.0,
@@ -1524,7 +1525,7 @@ def _candidate_sources(candidate: dict[str, Any]) -> set[str]:
 
 def _is_priority_rotation_candidate(candidate: dict[str, Any]) -> bool:
     final_action = str(candidate.get("final_action") or "").strip().lower()
-    if final_action in {"blocked", "do_not_touch"}:
+    if final_action == "do_not_touch":
         return False
     if bool(candidate.get("research_unavailable")):
         return False
@@ -1576,6 +1577,26 @@ def _rotation_candidate_reason(candidate: dict[str, Any], *, signal_state: str) 
     return ""
 
 
+def _should_attempt_rotation(slots: int, rotation_candidates: list[dict[str, Any]]) -> bool:
+    if slots <= 0:
+        return True
+    return any(_rotation_candidate_needs_resizing(candidate) for candidate in rotation_candidates)
+
+
+def _promote_priority_candidate_for_entry(candidate: dict[str, Any], account: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    if not _is_priority_rotation_candidate(candidate):
+        return dict(candidate)
+    promoted = _resize_rotation_buy_candidate(candidate, account, cfg)
+    size_recommendation = promoted.get("size_recommendation") if isinstance(promoted.get("size_recommendation"), dict) else {}
+    if int(size_recommendation.get("quantity") or 0) <= 0:
+        return promoted
+    reasons = [str(item) for item in (promoted.get("reason_codes") or []) if str(item)]
+    promoted["entry_allowed"] = True
+    promoted["active_entry_reason"] = "priority_bluechip_entry"
+    promoted["reason_codes"] = list(dict.fromkeys([*reasons, "priority_bluechip_entry"]))
+    return promoted
+
+
 def _candidate_allows_additional_buy(candidate: dict[str, Any], cfg: dict[str, Any]) -> bool:
     if bool(cfg.get("allow_additional_buy", False)):
         return True
@@ -1585,14 +1606,14 @@ def _candidate_allows_additional_buy(candidate: dict[str, Any], cfg: dict[str, A
 
 def _candidate_unit_price_local(candidate: dict[str, Any]) -> float:
     technical_snapshot = candidate.get("technical_snapshot") if isinstance(candidate.get("technical_snapshot"), dict) else {}
-    for key in ("price", "current_price", "last_price_local"):
-        value = _to_float(candidate.get(key), 0.0)
-        if value > 0:
-            return value
-    for key in ("current_price", "close"):
-        value = _to_float(technical_snapshot.get(key), 0.0)
-        if value > 0:
-            return value
+    layer_c = candidate.get("layer_c") if isinstance(candidate.get("layer_c"), dict) else {}
+    technical_features = layer_c.get("technical_features") if isinstance(layer_c.get("technical_features"), dict) else {}
+    trade_plan = layer_c.get("trade_plan") if isinstance(layer_c.get("trade_plan"), dict) else {}
+    for source in (candidate, technical_snapshot, technical_features, trade_plan):
+        for key in ("price", "current_price", "last_price_local", "close", "last_price", "entry_price", "target_entry"):
+            value = _to_float(source.get(key), 0.0)
+            if value > 0:
+                return value
     return 0.0
 
 
@@ -2315,6 +2336,16 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 and bool(rotation_blockers)
                 and rotation_blockers.issubset(_ROTATION_POSITION_ONLY_BLOCKERS)
             )
+            if not entry_allowed and signal_state not in {"entry", "exit"} and slots > 0 and _is_priority_rotation_candidate(candidate):
+                candidate = _promote_priority_candidate_for_entry(candidate, account, cfg)
+                size_reco = candidate.get("size_recommendation") if isinstance(
+                    candidate.get("size_recommendation"), dict) else {}
+                order_qty = int(size_reco.get("quantity") or 0)
+                if order_qty > 0:
+                    entry_allowed = True
+                    merged_reasons = [str(item) for item in (candidate.get("reason_codes") or []) if str(item)]
+                    candidate["entry_allowed"] = True
+                    candidate["reason_codes"] = merged_reasons
             if _allows_rotation_candidate(
                 candidate,
                 signal_state=signal_state,
@@ -2381,6 +2412,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 "layer_events": candidate.get("layer_events"),
                 "rotation_eligible": bool(candidate.get("rotation_eligible")),
                 "rotation_reason": candidate.get("rotation_reason") or "",
+                "active_entry_reason": candidate.get("active_entry_reason") or "",
                 "technical_snapshot": technical_snapshot,
                 "validation_snapshot": candidate.get("validation_snapshot"),
                 "quote_source": technical_snapshot.get("quote_source"),
@@ -2399,7 +2431,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             for item in market_signals
             if isinstance(item, dict) and str(item.get("code") or "").upper()
         }
-        if slots <= 0:
+        if _should_attempt_rotation(slots, rotation_candidates):
             rotation_summary["attempted_count"] += 1
             rotation_plan = _select_rotation_plan(
                 account=account,
@@ -2650,7 +2682,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "market": market,
                     "reason": "max_positions_reached",
                 })
-                continue
+                if slots <= 0:
+                    continue
         for candidate in effective_candidates:
             code = str(candidate.get("code") or "").upper()
             additional_buy = bool(code and code in held_codes and _candidate_allows_additional_buy(candidate, cfg))
@@ -2929,7 +2962,7 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
                 _auto_trader_state["latest_cycle_id"] = summary.get(
                     "cycle_id") or ""
                 _auto_trader_state["next_run_at"] = _next_run_at(
-                    int(cfg.get("interval_seconds") or 300))
+                    int(cfg.get("interval_seconds") or _ACTIVE_TRADING_INTERVAL_SECONDS))
                 _persist_auto_trader_state_locked()
         except Exception as exc:
             logger.warning("auto trader cycle 실패: {}", exc)
@@ -2957,7 +2990,7 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
             break
         finally:
             _auto_trader_cycle_lock.release()
-        interval = int((cfg.get("interval_seconds") or 300))
+        interval = int((cfg.get("interval_seconds") or _ACTIVE_TRADING_INTERVAL_SECONDS))
         interval = max(30, min(3600, interval))
         with _auto_trader_lock:
             _auto_trader_state["next_run_at"] = _next_run_at(interval)
@@ -2998,7 +3031,7 @@ def _start_auto_trader(config: dict) -> dict:
         merged = _default_auto_trader_config()
         merged.update(config or {})
         merged["interval_seconds"] = max(
-            30, min(3600, int(merged.get("interval_seconds") or 300)))
+            30, min(3600, int(merged.get("interval_seconds") or _ACTIVE_TRADING_INTERVAL_SECONDS)))
         merged["max_positions_per_market"] = max(
             1, min(20, int(merged.get("max_positions_per_market") or 5)))
         merged["daily_buy_limit"] = max(
@@ -3091,7 +3124,7 @@ def _start_auto_trader(config: dict) -> dict:
         _auto_trader_state["paused_at"] = ""
         _auto_trader_state["stopped_at"] = ""
         _auto_trader_state["next_run_at"] = _next_run_at(
-            int(merged.get("interval_seconds") or 300))
+            int(merged.get("interval_seconds") or _ACTIVE_TRADING_INTERVAL_SECONDS))
         _auto_trader_state["current_config"] = merged
         _auto_trader_state["config"] = dict(merged)
         _auto_trader_state["validation_policy"] = {
@@ -3157,7 +3190,7 @@ def _resume_auto_trader() -> dict:
             _auto_trader_state["running"] = True
             _auto_trader_state["paused_at"] = ""
             _auto_trader_state["next_run_at"] = _next_run_at(int(
-                (_auto_trader_state.get("current_config") or {}).get("interval_seconds") or 300))
+                (_auto_trader_state.get("current_config") or {}).get("interval_seconds") or _ACTIVE_TRADING_INTERVAL_SECONDS))
             _persist_auto_trader_state_locked()
             state = dict(_auto_trader_state)
     if start_cfg is not None:

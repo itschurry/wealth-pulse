@@ -190,6 +190,20 @@ class KISClient:
             raise KISAPIError(message) from exc
 
         payload = response.json()
+        if payload.get("error_code"):
+            if self._is_rate_limit_error(payload) and _rate_limit_retries < len(_KIS_RATE_LIMIT_RETRY_DELAYS):
+                delay = _KIS_RATE_LIMIT_RETRY_DELAYS[_rate_limit_retries]
+                time.sleep(delay)
+                return self._request_full(
+                    method,
+                    path,
+                    headers=headers,
+                    params=params,
+                    json_body=json_body,
+                    _retry_with_fresh_token=_retry_with_fresh_token,
+                    _rate_limit_retries=_rate_limit_retries + 1,
+                )
+            raise KISAPIError(payload.get("error_description") or payload.get("message") or str(payload.get("error_code")))
         rt_cd = str(payload.get("rt_cd") or "")
         if rt_cd and rt_cd != "0":
             if (
@@ -312,7 +326,7 @@ class KISClient:
         else:
             message = str(payload or "")
         normalized = message.lower()
-        return "egw00201" in normalized or "초당 거래건수를 초과" in message
+        return "egw00133" in normalized or "egw00201" in normalized or "접근토큰 발급 잠시 후" in message or "초당 거래건수를 초과" in message
 
     # ── 헤더 빌더 ────────────────────────────────────────────────────────────
 
@@ -1014,6 +1028,7 @@ def _read_json_file(path: Path) -> dict[str, Any] | None:
 
 def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload), encoding="utf-8")
     except OSError:
         return
