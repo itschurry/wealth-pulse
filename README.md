@@ -285,7 +285,9 @@ OpenAI 출력 계약:
 - 뉴스는 URL과 `published_at`이 있어야 해
 - 공식 evidence나 허용 domain evidence가 있어야 해
 - `data_quality.has_news`, `has_recent_price`, `has_technical_features`가 true여야 해
-- `bear_case`, `catalysts`, `invalidation_trigger.condition`, `stop_loss`, `trade_plan.stop_loss`, `trade_plan.take_profit`이 있어야 해
+- `bear_case`, `catalysts`, `invalidation_trigger.condition`이 있어야 해
+- `technical_features`나 `trade_plan`에서 현재가를 읽을 수 있어야 해
+- `invalidation_trigger.stop_loss`, `trade_plan.stop_loss`, `trade_plan.take_profit`이 0이거나 비어 있으면 현재가 기준 손절 -5%, 익절 +12% 가격으로 정규화해
 
 품질 게이트 위치:
 
