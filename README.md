@@ -242,6 +242,18 @@ docker compose exec api python scripts/openai_research_runner.py \
   --concurrency 3
 ```
 
+컨테이너 안에서 wrapper를 직접 돌릴 수도 있어.
+
+```bash
+docker compose exec api /app/scripts/run_market_research.sh
+```
+
+호스트 cron에서 계정명을 박지 말고 repo 위치만 변수로 둬.
+
+```cron
+*/5 * * * 1-5 REPO_DIR=/path/to/wealth-pulse; cd "$REPO_DIR" && docker compose exec -T api /app/scripts/run_market_research.sh
+```
+
 드라이런:
 
 ```bash
@@ -251,7 +263,7 @@ docker compose exec api python scripts/openai_research_runner.py \
   --dry-run
 ```
 
-루트의 `scripts/run_market_research.sh`는 현재 호스트 cron용 wrapper야. 앱 기본 실행은 Docker지만, 이 wrapper는 API 컨테이너의 HTTP 표면을 때리는 운영 배치로 남아 있어.
+루트의 `scripts/run_market_research.sh`는 호스트 cron과 API 컨테이너 양쪽에서 쓸 수 있는 wrapper야. 컨테이너에서는 `/app/scripts/run_market_research.sh`로 실행해.
 현재 wrapper와 `openai_research_runner.py`는 운용 리서치 시장을 `KOSPI`로 제한해.
 
 리서치 source pack 구성:
@@ -577,6 +589,12 @@ docker compose exec api python scripts/openai_research_runner.py \
   --market KOSPI \
   --limit 3 \
   --dry-run
+```
+
+wrapper까지 확인할 땐 이렇게 돌려.
+
+```bash
+docker compose exec -e WEALTHPULSE_RESEARCH_DRY_RUN=1 api /app/scripts/run_market_research.sh
 ```
 
 ## 문서 보관

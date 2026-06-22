@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-REPO_DIR="/home/user/wealth-pulse"
-LOG_DIR="$REPO_DIR/storage/logs/runtime"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${WEALTHPULSE_REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+LOG_ROOT="${LOGS_DIR:-$REPO_DIR/storage/logs}"
+LOG_DIR="$LOG_ROOT/runtime"
 LOG_FILE="$LOG_DIR/openai_research_runner.log"
 LOCK_FILE="/tmp/wealthpulse_market_research.lock"
 
@@ -11,7 +13,7 @@ exec >>"$LOG_FILE" 2>&1
 
 printf '\n[%s] wealthpulse-market-research start\n' "$(date --iso-8601=seconds)"
 
-export PATH="/home/user/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="${HOME:-}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export WEALTHPULSE_API_BASE_URL="${WEALTHPULSE_API_BASE_URL:-http://127.0.0.1:8001}"
 export PYTHONUNBUFFERED=1
 
@@ -23,7 +25,13 @@ if ! flock -n 9; then
   exit 0
 fi
 
-PYTHON_BIN="${WEALTHPULSE_PYTHON_BIN:-$REPO_DIR/.venv/bin/python}"
+if [[ -n "${WEALTHPULSE_PYTHON_BIN:-}" ]]; then
+  PYTHON_BIN="$WEALTHPULSE_PYTHON_BIN"
+elif [[ -x "$REPO_DIR/.venv/bin/python" ]]; then
+  PYTHON_BIN="$REPO_DIR/.venv/bin/python"
+else
+  PYTHON_BIN="python"
+fi
 printf '[%s] wealthpulse-market-research python_bin=%s\n' "$(date --iso-8601=seconds)" "$PYTHON_BIN"
 
 set +e
@@ -32,7 +40,7 @@ import json
 import sys
 from pathlib import Path
 
-repo = Path("/home/user/wealth-pulse")
+repo = Path.cwd()
 sys.path.insert(0, str(repo / "apps/api"))
 
 from config.market_calendar import get_market_local_dt, is_market_open, is_market_trading_day
