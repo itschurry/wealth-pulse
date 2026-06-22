@@ -11,10 +11,33 @@ if str(API_ROOT) not in sys.path:
 
 from services.execution_service import (
     _allows_rotation_candidate,
+    _candidate_leadership_rank,
     _candidate_unit_price_local,
     _promote_priority_candidate_for_entry,
     _should_attempt_rotation,
 )
+
+
+def _buy_research_layer() -> dict:
+    return {
+        "rating": "overweight",
+        "action": "buy_watch",
+        "technical_features": {
+            "close_vs_sma20": 1.03,
+            "close_vs_sma60": 1.06,
+            "volume_ratio": 1.25,
+        },
+    }
+
+
+def _buy_agent_snapshot() -> dict:
+    return {
+        "agent_decision": {
+            "decision": "agent_buy_watch",
+            "rating": "overweight",
+            "action": "buy_watch",
+        },
+    }
 
 
 class ExecutionRotationTests(unittest.TestCase):
@@ -28,9 +51,8 @@ class ExecutionRotationTests(unittest.TestCase):
             "research_status": "healthy",
             "final_action": "watch_only",
             "size_recommendation": {"quantity": 0, "reason": "signal_only"},
-            "final_action_snapshot": {
-                "agent_decision": {"decision": "agent_buy_watch"},
-            },
+            "final_action_snapshot": _buy_agent_snapshot(),
+            "layer_c": _buy_research_layer(),
         }
 
         allowed = _allows_rotation_candidate(
@@ -78,9 +100,8 @@ class ExecutionRotationTests(unittest.TestCase):
             "technical_snapshot": {"current_price": 100000},
             "risk_inputs": {"stop_loss_pct": 5},
             "ev_metrics": {"expected_value": 6.0, "reliability": "high"},
-            "final_action_snapshot": {
-                "agent_decision": {"decision": "agent_buy_watch"},
-            },
+            "final_action_snapshot": _buy_agent_snapshot(),
+            "layer_c": _buy_research_layer(),
         }
         account = {
             "cash_krw": 10000000,
@@ -112,9 +133,8 @@ class ExecutionRotationTests(unittest.TestCase):
             "research_status": "healthy",
             "final_action": "review_for_entry",
             "size_recommendation": {"quantity": 0, "reason": "exposure_or_cash_limit"},
-            "final_action_snapshot": {
-                "agent_decision": {"decision": "agent_buy_watch"},
-            },
+            "final_action_snapshot": _buy_agent_snapshot(),
+            "layer_c": _buy_research_layer(),
         }
 
         self.assertTrue(_should_attempt_rotation(1, [candidate]))
@@ -142,11 +162,110 @@ class ExecutionRotationTests(unittest.TestCase):
             "final_action": "blocked",
             "size_recommendation": {"quantity": 0, "reason": "invalid_unit_price"},
             "final_action_snapshot": {
-                "agent_decision": {"decision": "agent_primary_buy"},
+                "agent_decision": {"decision": "agent_primary_buy", "rating": "overweight", "action": "buy"},
             },
+            "layer_c": _buy_research_layer(),
         }
 
         self.assertTrue(_should_attempt_rotation(1, [candidate]))
+
+    def test_hold_research_candidate_does_not_rotate_even_when_quant_score_is_high(self) -> None:
+        candidate = {
+            "code": "034020",
+            "market": "KOSPI",
+            "score": 91,
+            "bluechip": True,
+            "research_score": 0.62,
+            "research_status": "healthy",
+            "final_action": "review_for_entry",
+            "size_recommendation": {"quantity": 1, "reason": "ok"},
+            "final_action_snapshot": {
+                "agent_decision": {"decision": "agent_hold", "rating": "hold", "action": "hold"},
+            },
+            "layer_c": {
+                "rating": "hold",
+                "action": "hold",
+                "technical_features": {
+                    "close_vs_sma20": 1.02,
+                    "close_vs_sma60": 1.04,
+                    "volume_ratio": 1.1,
+                },
+            },
+        }
+
+        self.assertFalse(
+            _allows_rotation_candidate(
+                candidate,
+                signal_state="watch",
+                entry_allowed=False,
+                order_qty=1,
+                position_only_blocked=False,
+            )
+        )
+
+    def test_weak_trend_candidate_does_not_rotate_even_when_bluechip_score_is_high(self) -> None:
+        candidate = {
+            "code": "034020",
+            "market": "KOSPI",
+            "score": 91,
+            "bluechip": True,
+            "research_score": 0.82,
+            "research_status": "healthy",
+            "final_action": "watch_only",
+            "size_recommendation": {"quantity": 0, "reason": "signal_only"},
+            "final_action_snapshot": _buy_agent_snapshot(),
+            "layer_c": {
+                "rating": "overweight",
+                "action": "buy_watch",
+                "technical_features": {
+                    "close_vs_sma20": 0.94,
+                    "close_vs_sma60": 0.88,
+                    "volume_ratio": 0.42,
+                },
+            },
+        }
+
+        self.assertFalse(
+            _allows_rotation_candidate(
+                candidate,
+                signal_state="watch",
+                entry_allowed=False,
+                order_qty=0,
+                position_only_blocked=False,
+            )
+        )
+
+    def test_positive_change_and_volume_rank_a_candidate_first(self) -> None:
+        leader = {
+            "code": "000660",
+            "score": 90,
+            "research_score": 0.7,
+            "technical_snapshot": {"change_pct": 4.2},
+            "layer_c": {
+                "technical_features": {
+                    "close_vs_sma20": 1.05,
+                    "close_vs_sma60": 1.08,
+                    "volume_ratio": 1.7,
+                },
+            },
+        }
+        laggard = {
+            "code": "034020",
+            "score": 95,
+            "research_score": 0.8,
+            "technical_snapshot": {"change_pct": -1.1},
+            "layer_c": {
+                "technical_features": {
+                    "close_vs_sma20": 1.01,
+                    "close_vs_sma60": 1.02,
+                    "volume_ratio": 1.0,
+                },
+            },
+        }
+
+        ranked = sorted([laggard, leader], key=_candidate_leadership_rank, reverse=True)
+
+        self.assertEqual(ranked[0]["code"], "000660")
 
 
 if __name__ == "__main__":

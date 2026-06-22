@@ -84,6 +84,10 @@ _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
 _ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit", "invalid_unit_price", "signal_only"}
 _ROTATION_PRIORITY_MIN_SCORE = 90.0
 _ROTATION_PRIORITY_MIN_RESEARCH_SCORE = 0.75
+_ENTRY_BUY_RATINGS = {"strong_buy", "overweight"}
+_ENTRY_BUY_ACTIONS = {"buy", "buy_watch"}
+_ENTRY_MIN_CLOSE_VS_SMA = 1.0
+_ENTRY_MIN_VOLUME_RATIO = 0.8
 _ACTIVE_TRADING_INTERVAL_SECONDS = 60
 _STALE_RUNTIME_STATE_KEYS = {"optimized_params"}
 _STALE_RUNTIME_CONFIG_KEYS = {"validation_require_optimized_reliability"}
@@ -1518,6 +1522,66 @@ def _candidate_research_score(candidate: dict[str, Any]) -> float:
     return 0.0
 
 
+def _candidate_layer_c(candidate: dict[str, Any]) -> dict[str, Any]:
+    return candidate.get("layer_c") if isinstance(candidate.get("layer_c"), dict) else {}
+
+
+def _candidate_agent_decision(candidate: dict[str, Any]) -> dict[str, Any]:
+    layer_e = candidate.get("final_action_snapshot") if isinstance(candidate.get("final_action_snapshot"), dict) else {}
+    decision = layer_e.get("agent_decision") if isinstance(layer_e.get("agent_decision"), dict) else {}
+    return decision
+
+
+def _candidate_research_rating_action(candidate: dict[str, Any]) -> tuple[str, str]:
+    layer_c = _candidate_layer_c(candidate)
+    agent_decision = _candidate_agent_decision(candidate)
+    rating = str(candidate.get("rating") or layer_c.get("rating") or agent_decision.get("rating") or "").strip().lower()
+    action = str(candidate.get("action") or layer_c.get("action") or agent_decision.get("action") or "").strip().lower()
+    return rating, action
+
+
+def _candidate_has_buy_research_intent(candidate: dict[str, Any]) -> bool:
+    rating, action = _candidate_research_rating_action(candidate)
+    return rating in _ENTRY_BUY_RATINGS and action in _ENTRY_BUY_ACTIONS
+
+
+def _candidate_technical_features(candidate: dict[str, Any]) -> dict[str, Any]:
+    layer_c = _candidate_layer_c(candidate)
+    features = layer_c.get("technical_features") if isinstance(layer_c.get("technical_features"), dict) else {}
+    technical_snapshot = candidate.get("technical_snapshot") if isinstance(candidate.get("technical_snapshot"), dict) else {}
+    return {**technical_snapshot, **features}
+
+
+def _candidate_entry_trend_ok(candidate: dict[str, Any]) -> bool:
+    features = _candidate_technical_features(candidate)
+    close_vs_sma20 = _to_float(features.get("close_vs_sma20"), 0.0)
+    close_vs_sma60 = _to_float(features.get("close_vs_sma60"), 0.0)
+    volume_ratio = _to_float(features.get("volume_ratio"), 0.0)
+    return (
+        close_vs_sma20 >= _ENTRY_MIN_CLOSE_VS_SMA
+        and close_vs_sma60 >= _ENTRY_MIN_CLOSE_VS_SMA
+        and volume_ratio >= _ENTRY_MIN_VOLUME_RATIO
+    )
+
+
+def _candidate_leadership_rank(candidate: dict[str, Any]) -> tuple[float, ...]:
+    features = _candidate_technical_features(candidate)
+    change_pct = _to_float(features.get("change_pct"), 0.0)
+    volume_ratio = _to_float(features.get("volume_ratio"), 0.0)
+    close_vs_sma20 = _to_float(features.get("close_vs_sma20"), 0.0)
+    close_vs_sma60 = _to_float(features.get("close_vs_sma60"), 0.0)
+    return (
+        1.0 if change_pct > 0 else 0.0,
+        change_pct,
+        volume_ratio,
+        close_vs_sma20,
+        close_vs_sma60,
+        _candidate_research_score(candidate),
+        _candidate_rotation_score(candidate),
+        _to_float(candidate.get("candidate_source_priority"), 0.0),
+    )
+
+
 def _candidate_sources(candidate: dict[str, Any]) -> set[str]:
     raw_sources = candidate.get("candidate_sources") if isinstance(candidate.get("candidate_sources"), list) else []
     return {str(item or "").strip().lower() for item in raw_sources if str(item or "").strip()}
@@ -1535,6 +1599,10 @@ def _is_priority_rotation_candidate(candidate: dict[str, Any]) -> bool:
     layer_e = candidate.get("final_action_snapshot") if isinstance(candidate.get("final_action_snapshot"), dict) else {}
     agent_decision = layer_e.get("agent_decision") if isinstance(layer_e.get("agent_decision"), dict) else {}
     if str(agent_decision.get("decision") or "").strip().lower() in {"agent_exit_or_block", "agent_hold"}:
+        return False
+    if not _candidate_has_buy_research_intent(candidate):
+        return False
+    if not _candidate_entry_trend_ok(candidate):
         return False
 
     sources = _candidate_sources(candidate)
@@ -2426,6 +2494,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
 
         blocked_counts_by_market[market] = blocked_count
         candidate_counts_by_market[market] = len(market_signals)
+        effective_candidates.sort(key=_candidate_leadership_rank, reverse=True)
+        rotation_candidates.sort(key=_candidate_leadership_rank, reverse=True)
         signal_map = {
             str(item.get("code") or "").upper(): dict(item)
             for item in market_signals

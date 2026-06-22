@@ -12,6 +12,8 @@ _BUY_RATINGS = {"strong_buy", "overweight"}
 _BUY_ACTIONS = {"buy", "buy_watch"}
 _NEGATIVE_RATINGS = {"underweight", "sell"}
 _NEGATIVE_ACTIONS = {"reduce", "sell", "block"}
+_ENTRY_MIN_CLOSE_VS_SMA = 1.0
+_ENTRY_MIN_VOLUME_RATIO = 0.8
 
 
 def _normalized_execution_mode(source_context: dict[str, Any] | None) -> str:
@@ -31,6 +33,13 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _truthy(value: Any) -> bool:
@@ -62,6 +71,20 @@ def _technical_sanity_ok(research: dict[str, Any]) -> bool:
     if rsi14 >= 88.0:
         return False
     return True
+
+
+def _entry_trend_ok(research: dict[str, Any]) -> bool:
+    features = research.get("technical_features") if isinstance(research.get("technical_features"), dict) else {}
+    close_vs_sma20 = _optional_float(features.get("close_vs_sma20"))
+    close_vs_sma60 = _optional_float(features.get("close_vs_sma60"))
+    volume_ratio = _optional_float(features.get("volume_ratio"))
+    if close_vs_sma20 is None or close_vs_sma60 is None or volume_ratio is None:
+        return False
+    return (
+        close_vs_sma20 >= _ENTRY_MIN_CLOSE_VS_SMA
+        and close_vs_sma60 >= _ENTRY_MIN_CLOSE_VS_SMA
+        and volume_ratio >= _ENTRY_MIN_VOLUME_RATIO
+    )
 
 
 def _evidence_ok(research: dict[str, Any]) -> bool:
@@ -218,7 +241,28 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     research_score_num = _as_float(research_score, -1.0) if research_score is not None else None
     research_freshness = str(research.get("freshness") or "").strip().lower()
     research_available = not bool(research.get("research_unavailable")) and research_score_num is not None and research_freshness in {"fresh", "healthy", "derived"}
-    quant_entry_ready = signal_state == "entry" and normalized_quant >= 0.5 and research_available and research_score_num >= 0.45 and not warnings
+    rating = str(research.get("rating") or "").strip().lower()
+    action = str(research.get("action") or "").strip().lower()
+    confidence = _as_float(research.get("confidence"), 0.0)
+    validation = research.get("validation") if isinstance(research.get("validation"), dict) else {}
+    confidence_threshold = 0.75 if action == "buy" else 0.65
+    technical_ok = _technical_sanity_ok(research)
+    entry_trend_ok = _entry_trend_ok(research)
+    evidence_ok = _evidence_ok(research)
+    quality = research.get("research_quality") if isinstance(research.get("research_quality"), dict) else {}
+    validation_ok = _grade_allows_entry(validation)
+    buy_intent = rating in _BUY_RATINGS and action in _BUY_ACTIONS
+    negative_intent = rating in _NEGATIVE_RATINGS or action in _NEGATIVE_ACTIONS
+
+    quant_entry_ready = (
+        signal_state == "entry"
+        and normalized_quant >= 0.5
+        and research_available
+        and research_score_num >= 0.45
+        and buy_intent
+        and entry_trend_ok
+        and not warnings
+    )
     if signal_state == "exit":
         quant_decision = {"decision": "exit_signal", "order_ready": False, "reason": "exit_signal", "score": round(normalized_quant, 4)}
     elif quant_entry_ready:
@@ -230,25 +274,13 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     else:
         quant_decision = {"decision": "do_not_touch", "order_ready": False, "reason": "weak_quant", "score": round(normalized_quant, 4)}
 
-    rating = str(research.get("rating") or "").strip().lower()
-    action = str(research.get("action") or "").strip().lower()
-    confidence = _as_float(research.get("confidence"), 0.0)
-    validation = research.get("validation") if isinstance(research.get("validation"), dict) else {}
-    confidence_threshold = 0.75 if action == "buy" else 0.65
-    technical_ok = _technical_sanity_ok(research)
-    evidence_ok = _evidence_ok(research)
-    quality = research.get("research_quality") if isinstance(research.get("research_quality"), dict) else {}
-    validation_ok = _grade_allows_entry(validation)
-    buy_intent = rating in _BUY_RATINGS and action in _BUY_ACTIONS
-    negative_intent = rating in _NEGATIVE_RATINGS or action in _NEGATIVE_ACTIONS
-
     if not rating and not action:
         agent_decision = {"decision": "no_agent_signal", "order_ready": False, "reason": "agent_fields_missing"}
     elif negative_intent:
         agent_decision = {"decision": "agent_exit_or_block", "order_ready": False, "reason": "negative_rating_or_action", "rating": rating, "action": action}
     elif action == "hold" or rating == "hold":
         agent_decision = {"decision": "agent_hold", "order_ready": False, "reason": "hold_rating_or_action", "rating": rating, "action": action}
-    elif buy_intent and confidence >= confidence_threshold and validation_ok and technical_ok and evidence_ok and not warnings:
+    elif buy_intent and confidence >= confidence_threshold and validation_ok and technical_ok and entry_trend_ok and evidence_ok and not warnings:
         order_ready = execution_mode in {"agent_primary_quant_assisted", "agent_only"} or quant_entry_ready
         reason = "agent_buy_confirmed" if order_ready else "agent_buy_without_quant_entry"
         agent_decision = {
@@ -267,6 +299,8 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
             quality_reason = str(quality.get("blocked_reason"))
         elif not validation_ok:
             quality_reason = "research_quality_gate_failed"
+        elif not entry_trend_ok:
+            quality_reason = "weak_trend_or_volume"
         elif not technical_ok:
             quality_reason = "research_quality_gate_failed"
         elif not evidence_ok:
@@ -296,6 +330,9 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     elif agent_decision.get("decision") == "agent_exit_or_block":
         final_action = "do_not_touch"
         decision_reason = "agent_negative_rating"
+    elif agent_decision.get("decision") == "agent_hold":
+        final_action = "watch_only"
+        decision_reason = "agent_hold"
     elif agent_decision.get("order_ready"):
         final_action = "review_for_entry"
         decision_reason = "agent_primary_buy" if not quant_entry_ready else "agent_and_quant_aligned"
@@ -311,9 +348,6 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     elif signal_state == "exit":
         final_action = "do_not_touch"
         decision_reason = "exit_signal"
-    elif agent_decision.get("decision") == "agent_hold":
-        final_action = "watch_only"
-        decision_reason = "agent_hold"
     else:
         final_action = str(quant_decision.get("decision") or "do_not_touch")
         decision_reason = str(quant_decision.get("reason") or "weak_quant")

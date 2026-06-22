@@ -39,6 +39,28 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _candidate_technical_features(candidate: dict[str, Any]) -> dict[str, Any]:
+    layer_c = candidate.get("layer_c") if isinstance(candidate.get("layer_c"), dict) else {}
+    features = layer_c.get("technical_features") if isinstance(layer_c.get("technical_features"), dict) else {}
+    technical_snapshot = candidate.get("technical_snapshot") if isinstance(candidate.get("technical_snapshot"), dict) else {}
+    return {**technical_snapshot, **features}
+
+
+def _candidate_leadership_rank(candidate: dict[str, Any]) -> tuple[float, ...]:
+    features = _candidate_technical_features(candidate)
+    change_pct = _to_float(features.get("change_pct"), 0.0)
+    return (
+        1.0 if change_pct > 0 else 0.0,
+        change_pct,
+        _to_float(features.get("volume_ratio"), 0.0),
+        _to_float(features.get("close_vs_sma20"), 0.0),
+        _to_float(features.get("close_vs_sma60"), 0.0),
+        _to_float(candidate.get("research_score"), 0.0),
+        _to_float(candidate.get("score"), 0.0),
+        _to_float(candidate.get("candidate_source_priority"), 0.0),
+    )
+
+
 def _snapshot_is_fresh(symbol: str, market: str) -> tuple[bool, dict[str, Any]]:
     snapshot = load_latest_research_snapshot(symbol, market, provider=DEFAULT_RESEARCH_PROVIDER)
     if not isinstance(snapshot, dict):
@@ -521,4 +543,5 @@ def select_entry_candidates(
         and str(item.get("signal_state") or "") == "entry"
         and bool(item.get("entry_allowed"))
     ]
+    allowed.sort(key=_candidate_leadership_rank, reverse=True)
     return allowed[: max(0, int(max_count))]
