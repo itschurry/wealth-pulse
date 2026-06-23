@@ -373,7 +373,7 @@ _auto_trader_loop()
 
 런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
 장중 자동매매 기본 주기는 `60`초야. 신규 매수와 rotation 매수는 리서치가 `buy` 또는 `buy_watch` 계열일 때만 허용한다. 리서치 `hold`는 퀀트 점수가 높아도 신규 매수로 승격하지 않는다. 또 `technical_features.close_vs_sma20 >= 1.0`, `close_vs_sma60 >= 1.0`, `volume_ratio >= 0.8`을 만족하지 못하면 우량 후보라도 진입하지 않는다. 통과 후보가 여러 개면 당일 상승률, 거래량, 20/60일선 상대 위치가 강한 종목을 먼저 산다.
-`bluechip_core` 우량 후보가 점수 `90` 이상이거나 리서치 점수 `0.75` 이상이어도 위 리서치/추세 게이트를 통과해야 `watch_only`에서 매수 후보로 승격한다. 보유 종목 수가 꽉 찼거나 강한 후보가 현금/노출 제한 때문에 못 사는 상태면 rotation 후보로 올리고, 기존 보유 종목보다 점수 차가 rotation 기준을 넘고 매도 후 사이징이 가능하면 약한 보유 종목을 팔고 새 우량 후보를 산다.
+`bluechip_core` 우량 후보가 점수 `90` 이상이거나 리서치 점수 `0.75` 이상이어도 위 리서치/추세 게이트를 통과해야 매수 후보로 승격한다. rotation 매수 후보는 `final_action=review_for_entry`, `agent_primary_buy`, `quant_entry`가 모두 맞아야 한다. `watch_only`, `operator_review`, `agent_hold` 후보는 rotation으로 사지 않는다. 교체 매도는 현재 계좌 기준으로 교체 매수 수량이 이미 1주 이상 나올 때만 실행하고, 매도해서 생길 현금을 가정하지 않는다. rotation 매도는 기본 `min_holding_minutes=30`을 지나야 가능하다. 손절/익절은 이 제한보다 먼저 처리된다.
 후보 현재가 조회가 일시 실패해도 저장된 리서치 `technical_features.current_price`나 `close`가 있으면 rotation 사이징에 쓴다.
 
 `paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.

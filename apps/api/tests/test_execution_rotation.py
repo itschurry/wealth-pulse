@@ -14,8 +14,10 @@ from services.execution_service import (
     _candidate_leadership_rank,
     _candidate_unit_price_local,
     _promote_priority_candidate_for_entry,
+    _select_rotation_plan,
     _should_attempt_rotation,
 )
+from datetime import datetime, timedelta, timezone
 
 
 def _buy_research_layer() -> dict:
@@ -40,8 +42,22 @@ def _buy_agent_snapshot() -> dict:
     }
 
 
+def _primary_buy_snapshot() -> dict:
+    return {
+        "agent_decision": {
+            "decision": "agent_primary_buy",
+            "rating": "overweight",
+            "action": "buy_watch",
+        },
+        "quant_decision": {
+            "decision": "quant_entry",
+            "order_ready": True,
+        },
+    }
+
+
 class ExecutionRotationTests(unittest.TestCase):
-    def test_watch_bluechip_high_score_can_rotate_when_position_limit_blocks_entry(self) -> None:
+    def test_watch_bluechip_high_score_does_not_rotate(self) -> None:
         candidate = {
             "code": "000660",
             "market": "KOSPI",
@@ -60,6 +76,30 @@ class ExecutionRotationTests(unittest.TestCase):
             signal_state="watch",
             entry_allowed=False,
             order_qty=0,
+            position_only_blocked=False,
+        )
+
+        self.assertFalse(allowed)
+
+    def test_primary_buy_bluechip_can_rotate_when_position_limit_blocks_entry(self) -> None:
+        candidate = {
+            "code": "000660",
+            "market": "KOSPI",
+            "score": 98,
+            "bluechip": True,
+            "research_score": 0.82,
+            "research_status": "healthy",
+            "final_action": "review_for_entry",
+            "size_recommendation": {"quantity": 1},
+            "final_action_snapshot": _primary_buy_snapshot(),
+            "layer_c": _buy_research_layer(),
+        }
+
+        allowed = _allows_rotation_candidate(
+            candidate,
+            signal_state="entry",
+            entry_allowed=True,
+            order_qty=1,
             position_only_blocked=False,
         )
 
@@ -87,7 +127,7 @@ class ExecutionRotationTests(unittest.TestCase):
 
         self.assertFalse(allowed)
 
-    def test_watch_bluechip_is_promoted_to_entry_when_slot_and_cash_exist(self) -> None:
+    def test_primary_buy_bluechip_is_promoted_to_entry_when_slot_and_cash_exist(self) -> None:
         candidate = {
             "code": "000660",
             "market": "KOSPI",
@@ -95,12 +135,12 @@ class ExecutionRotationTests(unittest.TestCase):
             "bluechip": True,
             "research_score": 0.82,
             "research_status": "healthy",
-            "final_action": "watch_only",
+            "final_action": "review_for_entry",
             "size_recommendation": {"quantity": 0, "reason": "signal_only"},
             "technical_snapshot": {"current_price": 100000},
             "risk_inputs": {"stop_loss_pct": 5},
             "ev_metrics": {"expected_value": 6.0, "reliability": "high"},
-            "final_action_snapshot": _buy_agent_snapshot(),
+            "final_action_snapshot": _primary_buy_snapshot(),
             "layer_c": _buy_research_layer(),
         }
         account = {
@@ -133,7 +173,7 @@ class ExecutionRotationTests(unittest.TestCase):
             "research_status": "healthy",
             "final_action": "review_for_entry",
             "size_recommendation": {"quantity": 0, "reason": "exposure_or_cash_limit"},
-            "final_action_snapshot": _buy_agent_snapshot(),
+            "final_action_snapshot": _primary_buy_snapshot(),
             "layer_c": _buy_research_layer(),
         }
 
@@ -151,7 +191,7 @@ class ExecutionRotationTests(unittest.TestCase):
 
         self.assertEqual(_candidate_unit_price_local(candidate), 289000)
 
-    def test_blocked_priority_candidate_can_rotate_when_block_is_size_related(self) -> None:
+    def test_blocked_priority_candidate_does_not_rotate_when_block_is_size_related(self) -> None:
         candidate = {
             "code": "000660",
             "market": "KOSPI",
@@ -167,7 +207,7 @@ class ExecutionRotationTests(unittest.TestCase):
             "layer_c": _buy_research_layer(),
         }
 
-        self.assertTrue(_should_attempt_rotation(1, [candidate]))
+        self.assertFalse(_should_attempt_rotation(1, [candidate]))
 
     def test_hold_research_candidate_does_not_rotate_even_when_quant_score_is_high(self) -> None:
         candidate = {
@@ -213,7 +253,7 @@ class ExecutionRotationTests(unittest.TestCase):
             "research_status": "healthy",
             "final_action": "watch_only",
             "size_recommendation": {"quantity": 0, "reason": "signal_only"},
-            "final_action_snapshot": _buy_agent_snapshot(),
+            "final_action_snapshot": _primary_buy_snapshot(),
             "layer_c": {
                 "rating": "overweight",
                 "action": "buy_watch",
@@ -266,6 +306,130 @@ class ExecutionRotationTests(unittest.TestCase):
         ranked = sorted([laggard, leader], key=_candidate_leadership_rank, reverse=True)
 
         self.assertEqual(ranked[0]["code"], "000660")
+
+    def test_rotation_plan_ignores_candidate_that_only_sizes_after_selling(self) -> None:
+        now = datetime.now(timezone.utc)
+        account = {
+            "cash_krw": 1000,
+            "equity_krw": 2000000,
+            "market_value_krw": 1000000,
+            "positions": [
+                {
+                    "code": "111111",
+                    "name": "약한보유",
+                    "market": "KOSPI",
+                    "quantity": 1,
+                    "entry_ts": (now - timedelta(hours=2)).isoformat(),
+                    "market_value_krw": 1000000,
+                    "last_price_local": 1000000,
+                    "orderable_quantity": 1,
+                }
+            ],
+        }
+        candidate = {
+            "code": "000660",
+            "name": "SK하이닉스",
+            "market": "KOSPI",
+            "score": 98,
+            "bluechip": True,
+            "research_score": 0.86,
+            "research_status": "healthy",
+            "final_action": "review_for_entry",
+            "technical_snapshot": {"current_price": 200000},
+            "risk_inputs": {"stop_loss_pct": 5},
+            "ev_metrics": {"expected_value": 1.2, "reliability": "high"},
+            "size_recommendation": {"quantity": 0, "reason": "exposure_or_cash_limit"},
+            "final_action_snapshot": _primary_buy_snapshot(),
+            "layer_c": _buy_research_layer(),
+        }
+        signal_map = {
+            "111111": {"code": "111111", "market": "KOSPI", "score": 90},
+            "000660": candidate,
+        }
+        cfg = {
+            "allocation_mode": "concentrated",
+            "risk_per_trade_pct": 0.8,
+            "bluechip_risk_per_trade_pct": 1.5,
+            "max_symbol_weight_pct": 30.0,
+            "max_sector_weight_pct": 50.0,
+            "max_market_exposure_pct": 95.0,
+            "rotation": {"enabled": True, "min_score_gap": 2.0, "daily_limit": 0, "min_holding_minutes": 30},
+        }
+
+        plan = _select_rotation_plan(
+            account=account,
+            market="KOSPI",
+            cfg=cfg,
+            rotation_candidates=[candidate],
+            signal_map=signal_map,
+            held_codes={"111111"},
+            strategy_position_counts={},
+            strategy_position_caps={},
+            max_orders_per_symbol=3,
+        )
+
+        self.assertFalse(plan["ok"])
+        self.assertEqual(plan["reason"], "rotation_no_buy_candidate")
+
+    def test_rotation_plan_respects_min_holding_minutes(self) -> None:
+        now = datetime.now(timezone.utc)
+        account = {
+            "cash_krw": 1000000,
+            "equity_krw": 2000000,
+            "market_value_krw": 1000000,
+            "positions": [
+                {
+                    "code": "111111",
+                    "name": "방금산보유",
+                    "market": "KOSPI",
+                    "quantity": 1,
+                    "entry_ts": (now - timedelta(minutes=5)).isoformat(),
+                    "market_value_krw": 1000000,
+                    "last_price_local": 1000000,
+                    "orderable_quantity": 1,
+                }
+            ],
+        }
+        candidate = {
+            "code": "000660",
+            "name": "SK하이닉스",
+            "market": "KOSPI",
+            "score": 98,
+            "bluechip": True,
+            "research_score": 0.86,
+            "research_status": "healthy",
+            "final_action": "review_for_entry",
+            "technical_snapshot": {"current_price": 200000},
+            "risk_inputs": {"stop_loss_pct": 5},
+            "ev_metrics": {"expected_value": 1.2, "reliability": "high"},
+            "size_recommendation": {"quantity": 1},
+            "final_action_snapshot": _primary_buy_snapshot(),
+            "layer_c": _buy_research_layer(),
+        }
+        cfg = {
+            "allocation_mode": "concentrated",
+            "risk_per_trade_pct": 0.8,
+            "bluechip_risk_per_trade_pct": 1.5,
+            "max_symbol_weight_pct": 30.0,
+            "max_sector_weight_pct": 50.0,
+            "max_market_exposure_pct": 95.0,
+            "rotation": {"enabled": True, "min_score_gap": 2.0, "daily_limit": 0, "min_holding_minutes": 30},
+        }
+
+        plan = _select_rotation_plan(
+            account=account,
+            market="KOSPI",
+            cfg=cfg,
+            rotation_candidates=[candidate],
+            signal_map={"111111": {"code": "111111", "market": "KOSPI", "score": 90}},
+            held_codes={"111111"},
+            strategy_position_counts={},
+            strategy_position_caps={},
+            max_orders_per_symbol=3,
+        )
+
+        self.assertFalse(plan["ok"])
+        self.assertEqual(plan["reason"], "rotation_no_sellable_position")
 
 
 if __name__ == "__main__":

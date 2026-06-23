@@ -84,6 +84,7 @@ _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
 _ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit", "invalid_unit_price", "signal_only"}
 _ROTATION_PRIORITY_MIN_SCORE = 90.0
 _ROTATION_PRIORITY_MIN_RESEARCH_SCORE = 0.75
+_ROTATION_MIN_HOLDING_MINUTES = 30
 _ENTRY_BUY_RATINGS = {"strong_buy", "overweight"}
 _ENTRY_BUY_ACTIONS = {"buy", "buy_watch"}
 _ENTRY_MIN_CLOSE_VS_SMA = 1.0
@@ -1286,6 +1287,7 @@ def _default_auto_trader_config() -> dict:
             "min_score_gap": 2.0,
             "daily_limit": 6,
             "min_holding_days": 0,
+            "min_holding_minutes": _ROTATION_MIN_HOLDING_MINUTES,
         },
         "candidate_monitor": {
             "pool_limit": 100,
@@ -1317,6 +1319,17 @@ def _position_holding_days(position: dict) -> int:
     except Exception:
         return 0
     return max(0, (datetime.datetime.now(_KST).date() - entry_date).days)
+
+
+def _position_holding_minutes(position: dict) -> int:
+    entry_ts = str(position.get("entry_ts")
+                   or position.get("updated_at") or "")
+    try:
+        entry_dt = datetime.datetime.fromisoformat(
+            entry_ts).astimezone(_KST)
+    except Exception:
+        return 0
+    return max(0, int((datetime.datetime.now(_KST) - entry_dt).total_seconds() // 60))
 
 
 def _auto_trader_profile_map(cfg: dict, markets: list[str] | None = None) -> dict[str, dict]:
@@ -1431,6 +1444,10 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
         "min_score_gap": min(5.0, _to_float(rotation_raw.get("min_score_gap"), 2.0)),
         "daily_limit": max(6, int(_to_float(rotation_raw.get("daily_limit"), 6))),
         "min_holding_days": max(0, int(_to_float(rotation_raw.get("min_holding_days"), 0))),
+        "min_holding_minutes": max(
+            _ROTATION_MIN_HOLDING_MINUTES,
+            int(_to_float(rotation_raw.get("min_holding_minutes"), _ROTATION_MIN_HOLDING_MINUTES)),
+        ),
     }
     return cfg
 
@@ -1449,7 +1466,11 @@ def _rotation_config(cfg: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(raw.get("enabled", True)),
         "min_score_gap": _to_float(raw.get("min_score_gap"), 5.0),
         "daily_limit": max(0, int(_to_float(raw.get("daily_limit"), 3))),
-        "min_holding_days": max(0, int(_to_float(raw.get("min_holding_days"), 1))),
+        "min_holding_days": max(0, int(_to_float(raw.get("min_holding_days"), 0))),
+        "min_holding_minutes": max(
+            0,
+            int(_to_float(raw.get("min_holding_minutes"), _ROTATION_MIN_HOLDING_MINUTES)),
+        ),
     }
 
 
@@ -1587,24 +1608,29 @@ def _candidate_sources(candidate: dict[str, Any]) -> set[str]:
     return {str(item or "").strip().lower() for item in raw_sources if str(item or "").strip()}
 
 
+def _candidate_rotation_entry_ready(candidate: dict[str, Any]) -> bool:
+    if str(candidate.get("final_action") or "").strip().lower() != "review_for_entry":
+        return False
+    layer_e = candidate.get("final_action_snapshot") if isinstance(candidate.get("final_action_snapshot"), dict) else {}
+    agent_decision = layer_e.get("agent_decision") if isinstance(layer_e.get("agent_decision"), dict) else {}
+    quant_decision = layer_e.get("quant_decision") if isinstance(layer_e.get("quant_decision"), dict) else {}
+    if str(agent_decision.get("decision") or "").strip().lower() != "agent_primary_buy":
+        return False
+    if str(quant_decision.get("decision") or "").strip().lower() != "quant_entry":
+        return False
+    if not bool(quant_decision.get("order_ready")):
+        return False
+    return _candidate_has_buy_research_intent(candidate) and _candidate_entry_trend_ok(candidate)
+
+
 def _is_priority_rotation_candidate(candidate: dict[str, Any]) -> bool:
-    final_action = str(candidate.get("final_action") or "").strip().lower()
-    if final_action == "do_not_touch":
+    if not _candidate_rotation_entry_ready(candidate):
         return False
     if bool(candidate.get("research_unavailable")):
         return False
     research_status = str(candidate.get("research_status") or "").strip().lower()
     if research_status in {"missing", "stale", "stale_ingest", "research_unavailable"}:
         return False
-    layer_e = candidate.get("final_action_snapshot") if isinstance(candidate.get("final_action_snapshot"), dict) else {}
-    agent_decision = layer_e.get("agent_decision") if isinstance(layer_e.get("agent_decision"), dict) else {}
-    if str(agent_decision.get("decision") or "").strip().lower() in {"agent_exit_or_block", "agent_hold"}:
-        return False
-    if not _candidate_has_buy_research_intent(candidate):
-        return False
-    if not _candidate_entry_trend_ok(candidate):
-        return False
-
     sources = _candidate_sources(candidate)
     is_bluechip = bool(candidate.get("bluechip")) or "bluechip_core" in sources
     score = _candidate_rotation_score(candidate)
@@ -1613,6 +1639,8 @@ def _is_priority_rotation_candidate(candidate: dict[str, Any]) -> bool:
 
 
 def _rotation_candidate_needs_resizing(candidate: dict[str, Any]) -> bool:
+    if not _candidate_rotation_entry_ready(candidate):
+        return False
     size_recommendation = candidate.get("size_recommendation") if isinstance(candidate.get("size_recommendation"), dict) else {}
     reason = str(size_recommendation.get("reason") or "").strip()
     if reason == "signal_only":
@@ -1628,6 +1656,8 @@ def _allows_rotation_candidate(
     order_qty: int,
     position_only_blocked: bool,
 ) -> bool:
+    if not _candidate_rotation_entry_ready(candidate):
+        return False
     if signal_state == "entry":
         return (order_qty > 0 or _rotation_candidate_needs_resizing(candidate)) and (
             entry_allowed or position_only_blocked or _rotation_candidate_needs_resizing(candidate)
@@ -1741,13 +1771,21 @@ def _resize_rotation_buy_candidate(candidate: dict[str, Any], account: dict[str,
     return updated
 
 
-def _held_rotation_snapshot(position: dict[str, Any], signal_map: dict[str, dict[str, Any]], min_holding_days: int) -> dict[str, Any] | None:
+def _held_rotation_snapshot(
+    position: dict[str, Any],
+    signal_map: dict[str, dict[str, Any]],
+    min_holding_days: int,
+    min_holding_minutes: int,
+) -> dict[str, Any] | None:
     code = str(position.get("code") or "").upper()
     market = str(position.get("market") or "").upper()
     if not code or not market:
         return None
     holding_days = _position_holding_days(position)
     if holding_days < min_holding_days:
+        return None
+    holding_minutes = _position_holding_minutes(position)
+    if holding_minutes < min_holding_minutes:
         return None
     signal = signal_map.get(code) if isinstance(signal_map.get(code), dict) else {}
     reason_codes = [str(item or "") for item in (signal.get("reason_codes") or []) if str(item or "")]
@@ -1761,6 +1799,7 @@ def _held_rotation_snapshot(position: dict[str, Any], signal_map: dict[str, dict
         "strategy_id": str(signal.get("strategy_id") or "").strip(),
         "strategy_name": str(signal.get("strategy_name") or "").strip(),
         "holding_days": holding_days,
+        "holding_minutes": holding_minutes,
         "score": _candidate_rotation_score(signal),
     }
 
@@ -1785,11 +1824,12 @@ def _select_rotation_plan(
         return {"ok": False, "reason": "rotation_daily_limit_reached"}
 
     min_holding_days = int(rotation_cfg.get("min_holding_days") or 0)
+    min_holding_minutes = int(rotation_cfg.get("min_holding_minutes") or 0)
     held_candidates: list[dict[str, Any]] = []
     for position in account.get("positions", []):
         if str(position.get("market") or "").upper() != market:
             continue
-        snapshot = _held_rotation_snapshot(position, signal_map, min_holding_days)
+        snapshot = _held_rotation_snapshot(position, signal_map, min_holding_days, min_holding_minutes)
         if snapshot is None:
             continue
         if _sell_blocked_by_trading_halt_today(market=market, code=str(snapshot.get("code") or "")):
@@ -1808,25 +1848,24 @@ def _select_rotation_plan(
         strategy_position_count = strategy_position_counts.get(strategy_id, 0)
         if strategy_cap is not None and strategy_position_count >= strategy_cap:
             continue
-        size_recommendation = candidate.get("size_recommendation") if isinstance(candidate.get("size_recommendation"), dict) else {}
-        if int(size_recommendation.get("quantity") or 0) <= 0 and not _rotation_candidate_needs_resizing(candidate):
+        current_sized = _resize_rotation_buy_candidate(candidate, account, cfg)
+        size_recommendation = current_sized.get("size_recommendation") if isinstance(current_sized.get("size_recommendation"), dict) else {}
+        if int(size_recommendation.get("quantity") or 0) <= 0:
             continue
-        buy_candidates.append(candidate)
+        buy_candidates.append(current_sized)
     if not buy_candidates:
         return {"ok": False, "reason": "rotation_no_buy_candidate"}
 
     pairs: list[tuple[float, dict[str, Any], dict[str, Any], dict[str, Any]]] = []
     for sell_candidate in held_candidates:
-        provisional_account = _account_after_rotation_sell(account, sell_candidate)
         sell_score = _to_float(sell_candidate.get("score"), 0.0)
         for buy_candidate in buy_candidates:
-            resized_buy = _resize_rotation_buy_candidate(buy_candidate, provisional_account, cfg)
-            size_recommendation = resized_buy.get("size_recommendation") if isinstance(resized_buy.get("size_recommendation"), dict) else {}
+            size_recommendation = buy_candidate.get("size_recommendation") if isinstance(buy_candidate.get("size_recommendation"), dict) else {}
             if int(size_recommendation.get("quantity") or 0) <= 0:
                 continue
-            score_gap = round(_candidate_rotation_score(resized_buy) - sell_score, 4)
+            score_gap = round(_candidate_rotation_score(buy_candidate) - sell_score, 4)
             if score_gap >= float(rotation_cfg.get("min_score_gap") or 0.0):
-                pairs.append((score_gap, sell_candidate, resized_buy, size_recommendation))
+                pairs.append((score_gap, sell_candidate, buy_candidate, size_recommendation))
     if not pairs:
         weakest = min(held_candidates, key=lambda item: (float(item.get("score") or 0.0), str(item.get("code") or "")))
         strongest = max(buy_candidates, key=lambda item: (_candidate_rotation_score(item), str(item.get("code") or "")))
@@ -2587,12 +2626,6 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                         strategy_position_counts[strategy_id] = max(0, strategy_position_counts.get(strategy_id, 0) - 1)
                     market_position_count = max(0, market_position_count - 1)
                     slots = max(0, max_positions - market_position_count)
-                    post_sell_account = _normalize_runtime_account(
-                        engine.get_account(refresh_quotes=True),
-                        persist_live_reconciled_fills=True,
-                        notify_live_fills=True,
-                    )
-                    buy_candidate = _resize_rotation_buy_candidate(buy_candidate, post_sell_account, cfg)
                     size_recommendation = buy_candidate.get("size_recommendation") if isinstance(buy_candidate.get("size_recommendation"), dict) else {}
                     quantity = int(size_recommendation.get("quantity") or 0)
                     if quantity <= 0:
