@@ -1130,6 +1130,129 @@ button:disabled {
   font-weight: 500;
 }
 
+.wealth-index-sparkline {
+  display: grid;
+  grid-template-columns: minmax(170px, 250px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+}
+
+.wealth-index-sparkline > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.wealth-index-sparkline span,
+.wealth-index-sparkline em,
+.wealth-index-sparkline small {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-index-sparkline small {
+  text-transform: none;
+}
+
+.wealth-index-sparkline strong {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.wealth-index-chart-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.wealth-index-sparkline svg {
+  display: block;
+  min-width: 640px;
+  width: 100%;
+  height: 156px;
+  overflow: visible;
+}
+
+.wealth-index-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.wealth-index-day-line {
+  stroke: var(--border-light);
+  stroke-width: 1;
+}
+
+.wealth-index-sparkline path {
+  fill: none;
+  stroke: var(--silver);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wealth-index-sparkline circle {
+  fill: var(--silver);
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+
+.wealth-index-sparkline circle.is-up {
+  fill: var(--up);
+}
+
+.wealth-index-sparkline circle.is-down {
+  fill: var(--down);
+}
+
+.wealth-index-sparkline path.is-up {
+  stroke: var(--up);
+}
+
+.wealth-index-sparkline path.is-down {
+  stroke: var(--down);
+}
+
+.wealth-index-price-label,
+.wealth-index-pct-label,
+.wealth-index-date-label {
+  fill: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-anchor: middle;
+}
+
+.wealth-index-price-label {
+  fill: var(--text-3);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wealth-index-pct-label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wealth-index-pct-label.is-up {
+  fill: var(--up);
+}
+
+.wealth-index-pct-label.is-down {
+  fill: var(--down);
+}
+
+.wealth-index-pct-label.is-neutral {
+  fill: var(--silver);
+}
+
 .wealth-dashboard-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5115,6 +5238,7 @@ body {
   .wealth-terminal-topbar,
   .wealth-hero-metrics,
   .wealth-ticker-grid,
+  .wealth-index-sparkline,
   .wealth-table-row,
   .wealth-table.is-positions .wealth-table-row {
     grid-template-columns: minmax(0, 1fr);

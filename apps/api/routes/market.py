@@ -38,6 +38,28 @@ def _naver_index(symbol: str):
     return price, pct
 
 
+def _naver_index_prices(symbol: str, page_size: int = 10) -> list[dict]:
+    url = f"https://m.stock.naver.com/api/index/{symbol}/price?pageSize={page_size}&page=1"
+    rows = json.loads(_get(url, timeout=4))
+    points = []
+    for row in reversed(rows):
+        close_price = row.get("closePrice")
+        if not close_price:
+            continue
+        pct = float(row["fluctuationsRatio"])
+        code = row.get("compareToPreviousPrice", {}).get("code", "3")
+        if code == "5":
+            pct = -abs(pct)
+        elif code == "2":
+            pct = abs(pct)
+        points.append({
+            "date": row.get("localTradedAt"),
+            "close": round(float(str(close_price).replace(",", "")), 2),
+            "pct": round(pct, 2),
+        })
+    return points
+
+
 def _stooq_spot(symbol: str):
     url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcvp&h&e=csv"
     text = _get(url, timeout=4)
@@ -204,6 +226,7 @@ def _build_market() -> dict:
 
     tasks = {
         "kospi": lambda: _naver_index("KOSPI"),
+        "kospi_history": lambda: _naver_index_prices("KOSPI"),
         "kosdaq": lambda: _naver_index("KOSDAQ"),
         "nasdaq": lambda: _yahoo_chart("^IXIC"),
         "sp100": lambda: _yahoo_chart("^OEX"),
@@ -217,6 +240,9 @@ def _build_market() -> dict:
             key = futures[future]
             try:
                 value = future.result()
+                if key == "kospi_history":
+                    result["kospi_history"] = value
+                    continue
                 if key == "usd_krw":
                     if value:
                         result["usd_krw"] = round(value, 2)

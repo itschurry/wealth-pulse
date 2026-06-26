@@ -52,6 +52,26 @@ interface FlowStep {
   tone: 'good' | 'bad' | 'neutral' | 'warning';
 }
 
+interface IndexHistoryPoint {
+  date?: string;
+  close?: number;
+  pct?: number;
+}
+
+interface IndexChartPoint extends IndexHistoryPoint {
+  close: number;
+  x: number;
+  y: number;
+  dateLabel: string;
+}
+
+interface IndexChart {
+  path: string;
+  points: IndexChartPoint[];
+  min: number;
+  max: number;
+}
+
 function toNumber(value: unknown): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
@@ -152,6 +172,44 @@ function marketTicker(label: string, price: number | undefined, pct: number | un
   return { label, price, pct };
 }
 
+function formatIndexDate(value: string | undefined): string {
+  if (!value) return '-';
+  return value.slice(5).replace('-', '/');
+}
+
+function buildIndexChart(points: IndexHistoryPoint[], width = 720, chartTop = 42, chartBottom = 112): IndexChart | null {
+  const values = points
+    .map((point) => ({ ...point, close: toOptionalNumber(point.close) }))
+    .filter((point): point is IndexHistoryPoint & { close: number } => point.close != null);
+  if (values.length < 2) return null;
+
+  const closes = values.map((point) => point.close);
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const spread = max - min || 1;
+  const paddingX = 18;
+  const step = (width - paddingX * 2) / Math.max(values.length - 1, 1);
+  const chartHeight = chartBottom - chartTop;
+
+  const chartPoints = values.map((point, index) => {
+    const x = paddingX + index * step;
+    const y = chartTop + (1 - ((point.close - min) / spread)) * chartHeight;
+    return {
+      ...point,
+      x,
+      y,
+      dateLabel: formatIndexDate(point.date),
+    };
+  });
+
+  return {
+    path: chartPoints.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' '),
+    points: chartPoints,
+    min,
+    max,
+  };
+}
+
 export function WealthPulseHomePage({
   snapshot,
   loading,
@@ -236,6 +294,14 @@ export function WealthPulseHomePage({
     marketTicker('S&P100', liveMarket.sp100, liveMarket.sp100_pct),
     marketTicker('WTI', liveMarket.wti, liveMarket.wti_pct),
   ];
+  const kospiHistory = Array.isArray(liveMarket.kospi_history) ? liveMarket.kospi_history : [];
+  const kospiChart = buildIndexChart(kospiHistory);
+  const kospiFirst = kospiHistory[0]?.close;
+  const kospiLast = kospiHistory[kospiHistory.length - 1]?.close;
+  const kospiTrendPct = kospiFirst && kospiLast ? ((kospiLast - kospiFirst) / kospiFirst) * 100 : undefined;
+  const kospiRange = kospiHistory.length > 0
+    ? `${kospiHistory[0]?.date || '-'} → ${kospiHistory[kospiHistory.length - 1]?.date || '-'}`
+    : '-';
 
   const allocationRows: BarRow[] = [
     { label: '현금', value: formatKRWExact(cashAllocationKrw), meta: ratioPercent(cashAllocationKrw, totalBookValueKrw), width: ratioPercent(cashAllocationKrw, totalBookValueKrw), tone: 'is-cash' },
@@ -367,6 +433,35 @@ export function WealthPulseHomePage({
                 ))}
               </div>
             )}
+            <div className="wealth-index-sparkline">
+              <div>
+                <span>KOSPI 10거래일</span>
+                <strong>{liveMarket.kospi != null ? formatNumber(liveMarket.kospi, 2) : '-'}</strong>
+                <em className={toneForNumber(kospiTrendPct)}>
+                  {kospiHistory.length > 1 ? `${safePct(kospiTrendPct)} · ${kospiRange}` : '-'}
+                </em>
+                {kospiChart && (
+                  <small>
+                    저점 {formatNumber(kospiChart.min, 2)} / 고점 {formatNumber(kospiChart.max, 2)}
+                  </small>
+                )}
+              </div>
+              <div className="wealth-index-chart-scroll">
+                <svg viewBox="0 0 720 156" role="img" aria-label="KOSPI 최근 10거래일 가격 흐름">
+                  <line className="wealth-index-axis" x1="18" y1="116" x2="702" y2="116" />
+                  {kospiChart?.points.map((point) => (
+                    <g key={`${point.date || '-'}-${point.close}`}>
+                      <line className="wealth-index-day-line" x1={point.x} y1="36" x2={point.x} y2="116" />
+                      <text className="wealth-index-price-label" x={point.x} y="18">{formatNumber(point.close, 0)}</text>
+                      <text className={`wealth-index-pct-label ${toneForNumber(point.pct)}`.trim()} x={point.x} y="32">{safePct(point.pct)}</text>
+                      <circle className={toneForNumber(point.pct)} cx={point.x} cy={point.y} r="4.2" />
+                      <text className="wealth-index-date-label" x={point.x} y="145">{point.dateLabel}</text>
+                    </g>
+                  ))}
+                  {kospiChart && <path className={toneForNumber(kospiTrendPct)} d={kospiChart.path} />}
+                </svg>
+              </div>
+            </div>
           </section>
 
           <section className="page-section wealth-dashboard-grid">

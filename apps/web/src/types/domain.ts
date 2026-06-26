@@ -953,6 +953,11 @@ export interface ReportsExplainResponse {
 export interface LiveMarketResponse {
   kospi?: number;
   kospi_pct?: number;
+  kospi_history?: Array<{
+    date?: string;
+    close?: number;
+    pct?: number;
+  }>;
   kosdaq?: number;
   kosdaq_pct?: number;
   nasdaq?: number;
