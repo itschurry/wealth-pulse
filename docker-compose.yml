@@ -37,3 +37,28 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+
+  research-loop:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["/app/scripts/run_market_research_loop.sh"]
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./storage/reports:/reports
+      - ./storage/logs:/logs
+    environment:
+      PYTHONPATH: /app/apps/api
+      REPORT_OUTPUT_DIR: /reports
+      LOGS_DIR: /logs
+      RUNTIME_ACCOUNT_STATE_PATH: /logs/runtime/accounts/simulated_account_state.json
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      WEALTHPULSE_REPO_DIR: /app
+      WEALTHPULSE_API_BASE_URL: http://api:8001
+    env_file:
+      - ./apps/api/.env
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

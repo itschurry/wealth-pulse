@@ -36,10 +36,17 @@ curl http://127.0.0.1:8001/health
 open http://127.0.0.1:8081
 ```
 
+장중에 후보 발굴과 OpenAI 리서치를 계속 돌릴 때는 `research-loop`까지 올려.
+
+```bash
+docker compose up -d --build api web research-loop
+```
+
 서비스는 이렇게 떠.
 
 - `api`: Python 3.11, FastAPI, `uvicorn api_server:app --host 0.0.0.0 --port 8001`
 - `web`: React 빌드 산출물을 Nginx가 서빙
+- `research-loop`: `scripts/run_market_research_loop.sh`가 장중에 후보 갱신과 OpenAI 리서치를 반복 실행
 - API 포트: `8001`
 - Web 포트: `8081`
 - API 컨테이너 볼륨: `./storage/reports:/reports`, `./storage/logs:/logs`
@@ -63,6 +70,14 @@ API는 `apps/api/.env`와 루트 `.env`를 읽어. Docker에선 `docker-compose.
 OPENAI_API_KEY=
 OPENAI_RESEARCH_MODEL=gpt-4.1
 OPENAI_RESEARCH_MAX_OUTPUT_TOKENS=6000
+WEALTHPULSE_RESEARCH_LIMIT=30
+WEALTHPULSE_RESEARCH_MARKET=KOSPI
+WEALTHPULSE_RESEARCH_MODE=missing_or_stale
+WEALTHPULSE_RESEARCH_TIMEOUT=600
+WEALTHPULSE_RESEARCH_CONCURRENCY=3
+WEALTHPULSE_RESEARCH_LOOP_INTERVAL_SECONDS=60
+WEALTHPULSE_RESEARCH_CLOSED_INTERVAL_SECONDS=600
+WEALTHPULSE_RESEARCH_DRY_RUN=0
 
 FRED_API_KEY=
 ECOS_API_KEY=
@@ -91,6 +106,14 @@ TELEGRAM_CHAT_ID=
 - `/api/system/mode`: `EXECUTION_MODE`만 기준으로 모드를 보여줘. 별도 모드 변수로 우회하지 않아.
 - `WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted`: OpenAI 리서치 buy 판단이 품질/리스크를 통과하면 퀀트 entry 없이도 주문 검토로 올라갈 수 있어.
 - `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS=6000`: 리서치 JSON 잘림을 피하려고 현재 기준값으로 둬.
+- `WEALTHPULSE_RESEARCH_LIMIT=30`: loop 1회에서 분석할 pending 후보 수야.
+- `WEALTHPULSE_RESEARCH_MARKET=KOSPI`: loop가 장 시간 체크에 쓰는 시장이야.
+- `WEALTHPULSE_RESEARCH_MODE=missing_or_stale`: 비어 있거나 낡은 리서치만 다시 채워.
+- `WEALTHPULSE_RESEARCH_TIMEOUT=600`: 종목 1개 OpenAI 리서치 timeout 초야.
+- `WEALTHPULSE_RESEARCH_CONCURRENCY=3`: 동시에 돌릴 종목 리서치 수야. 처음엔 3으로 둬.
+- `WEALTHPULSE_RESEARCH_LOOP_INTERVAL_SECONDS=60`: 장중 `research-loop` 반복 간격 초야.
+- `WEALTHPULSE_RESEARCH_CLOSED_INTERVAL_SECONDS=600`: 장 마감/휴장 때 다시 확인하기까지 대기할 초야.
+- `WEALTHPULSE_RESEARCH_DRY_RUN=0`: `1`이면 후보만 모으고 OpenAI 호출은 안 해.
 - `DART_API_KEY`: 있으면 OpenDART 공시 evidence를 붙여.
 - `KIS_*`: 현재가 조회, 실계좌 모드, 브로커 상태 확인에 필요해.
 
@@ -235,7 +258,7 @@ strategy scans + configured universe + held positions + user watchlist + latest 
   -> research_store latest/history snapshot
 ```
 
-실행:
+한 번만 실행:
 
 ```bash
 docker compose exec api python scripts/openai_research_runner.py \
@@ -253,11 +276,15 @@ docker compose exec api python scripts/openai_research_runner.py \
 docker compose exec api /app/scripts/run_market_research.sh
 ```
 
-호스트 cron에서 계정명을 박지 말고 repo 위치만 변수로 둬.
+장중 상시 실행은 crontab이 아니라 Compose 서비스로 돌려. 서비스는 계속 떠 있고, KRX 정규장인 평일 09:00~15:30에만 runner를 실행해. 장 마감/휴장에는 OpenAI 호출 없이 `WEALTHPULSE_RESEARCH_CLOSED_INTERVAL_SECONDS`만큼 잔다.
 
-```cron
-*/5 * * * 1-5 REPO_DIR=/path/to/wealth-pulse; cd "$REPO_DIR" && docker compose exec -T api /app/scripts/run_market_research.sh
+```bash
+docker compose up -d --build research-loop
+docker compose logs -f research-loop
+tail -f storage/logs/runtime/openai_research_runner.log
 ```
+
+리서치 crontab이 남아 있으면 지워. `research-loop`와 cron을 같이 켜면 같은 종목을 중복 분석하고 OpenAI 비용이 늘어.
 
 드라이런:
 
@@ -268,8 +295,9 @@ docker compose exec api python scripts/openai_research_runner.py \
   --dry-run
 ```
 
-루트의 `scripts/run_market_research.sh`는 호스트 cron과 API 컨테이너 양쪽에서 쓸 수 있는 wrapper야. 컨테이너에서는 `/app/scripts/run_market_research.sh`로 실행해.
-현재 wrapper와 `openai_research_runner.py`는 운용 리서치 시장을 `KOSPI`로 제한해. wrapper의 기본 리서치 처리량은 `WEALTHPULSE_RESEARCH_LIMIT=30`이고, 활성 후보 슬롯을 장중에 최대한 신선하게 유지하는 용도야.
+루트의 `scripts/run_market_research.sh`는 1회 실행 wrapper야. `scripts/run_market_research_loop.sh`는 KRX 정규장에만 이 wrapper를 반복 호출하는 장중 loop runner야.
+컨테이너에서는 `/app/scripts/run_market_research.sh`, `/app/scripts/run_market_research_loop.sh`로 실행해.
+현재 wrapper와 `openai_research_runner.py`는 운용 리서치 시장을 `KOSPI`로 제한해. wrapper의 기본 리서치 처리량은 `WEALTHPULSE_RESEARCH_LIMIT=30`이고, loop runner는 활성 후보 슬롯을 장중에 계속 신선하게 유지하는 용도야.
 
 리서치 source pack 구성:
 
@@ -528,7 +556,8 @@ curl http://127.0.0.1:8001/api/strategies/metadata
 │       ├── public/
 │       └── nginx.conf
 ├── scripts/
-│   └── run_market_research.sh
+│   ├── run_market_research.sh
+│   └── run_market_research_loop.sh
 ├── storage/
 │   ├── reports/
 │   └── logs/
@@ -606,6 +635,13 @@ wrapper까지 확인할 땐 이렇게 돌려.
 
 ```bash
 docker compose exec -e WEALTHPULSE_RESEARCH_DRY_RUN=1 api /app/scripts/run_market_research.sh
+```
+
+loop runner 구문과 Compose 서비스는 이렇게 확인해.
+
+```bash
+docker compose config
+docker compose run --rm --no-deps research-loop sh -lc 'bash -n /app/scripts/run_market_research_loop.sh && bash -n /app/scripts/run_market_research.sh'
 ```
 
 ## 문서 보관
