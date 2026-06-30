@@ -978,6 +978,26 @@ export interface LiveMarketResponse {
   }>;
 }
 
+export interface OpenAIBillingResponse {
+  ok?: boolean;
+  period?: string;
+  month_start?: string;
+  end_time?: string;
+  cost?: {
+    amount?: number;
+    currency?: string;
+  };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    requests?: number;
+  };
+  error?: string;
+  message?: string;
+  error_code?: string;
+}
+
 export interface MarketContextResponse {
   regime?: string;
   risk_level?: string;

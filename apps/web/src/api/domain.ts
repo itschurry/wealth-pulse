@@ -10,6 +10,7 @@ import type {
   LiveMarketResponse,
   MacroLatestResponse,
   MarketContextResponse,
+  OpenAIBillingResponse,
   PerformanceSummaryResponse,
   PortfolioStateResponse,
   RecommendationsResponse,
@@ -170,6 +171,10 @@ export function fetchReportsExplain() {
 
 export function fetchLiveMarket() {
   return getJSON<LiveMarketResponse>('/api/live-market', { noStore: true });
+}
+
+export function fetchOpenAIBilling() {
+  return getJSON<OpenAIBillingResponse>('/api/openai/billing', { noStore: true });
 }
 
 export function fetchMarketContext() {

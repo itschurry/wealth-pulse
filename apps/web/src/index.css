@@ -1026,6 +1026,44 @@ button:disabled {
   font-weight: 500;
 }
 
+.wealth-openai-corner {
+  min-width: 160px;
+  max-width: 260px;
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.wealth-openai-corner span,
+.wealth-openai-corner em {
+  color: var(--text-4);
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-openai-corner strong {
+  color: var(--gold);
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.wealth-openai-corner em {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-transform: none;
+}
+
+.wealth-openai-corner.is-error strong,
+.wealth-openai-corner.is-error em {
+  color: var(--down);
+}
+
 .wealth-status-dot {
   width: 7px;
   height: 7px;
@@ -5246,6 +5284,12 @@ body {
 
   .wealth-terminal-actions .ghost-button {
     flex: 1 1 90px;
+  }
+
+  .wealth-openai-corner {
+    max-width: none;
+    justify-items: start;
+    text-align: left;
   }
 
   .wealth-hero-number {

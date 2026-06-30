@@ -68,6 +68,7 @@ API는 `apps/api/.env`와 루트 `.env`를 읽어. Docker에선 `docker-compose.
 
 ```bash
 OPENAI_API_KEY=
+OPENAI_ADMIN_KEY=
 OPENAI_RESEARCH_MODEL=gpt-4.1
 OPENAI_RESEARCH_MAX_OUTPUT_TOKENS=6000
 WEALTHPULSE_RESEARCH_LIMIT=30
@@ -106,6 +107,7 @@ TELEGRAM_CHAT_ID=
 - `/api/system/mode`: `EXECUTION_MODE`만 기준으로 모드를 보여줘. 별도 모드 변수로 우회하지 않아.
 - `WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted`: OpenAI 리서치 buy 판단이 품질/리스크를 통과하면 퀀트 entry 없이도 주문 검토로 올라갈 수 있어.
 - `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS=6000`: 리서치 JSON 잘림을 피하려고 현재 기준값으로 둬.
+- `OPENAI_ADMIN_KEY`: `/api/openai/billing`이 OpenAI Usage/Costs API를 조회할 때 써. OpenAI Admin key가 아니면 사용량/비용 조회가 실패해.
 - `WEALTHPULSE_RESEARCH_LIMIT=30`: loop 1회에서 분석할 pending 후보 수야.
 - `WEALTHPULSE_RESEARCH_MARKET=KOSPI`: loop가 장 시간 체크에 쓰는 시장이야.
 - `WEALTHPULSE_RESEARCH_MODE=missing_or_stale`: 비어 있거나 낡은 리서치만 다시 채워.
@@ -123,6 +125,7 @@ TELEGRAM_CHAT_ID=
 - 자동매매/수동 주문 대상: `KOSPI`
 - 시장 캘린더, 리서치 wrapper, 자동매매 엔진, 수동 주문, 시세 조회는 KOSPI 기준으로만 동작해.
 - 운용 대시보드의 시장 흐름 지표는 판단 보조용으로 일별 등락률이 붙은 `KOSPI` 미니 그래프, `NASDAQ`, `S&P100`, `USD/KRW`를 같이 보여줘. 이 값들은 주문/리서치 대상 시장을 늘리지 않아.
+- 운용 대시보드 상단 우측은 `/api/openai/billing`에서 이번 달 누적 OpenAI 비용, 토큰, 요청 수를 보여줘. 이 값은 `OPENAI_ADMIN_KEY`가 있어야 조회돼.
 
 ## API 진입 방식
 
@@ -147,6 +150,12 @@ apps/api/api_server.py
 1. `apps/api/routes/<domain>.py`에 handler 추가
 2. `apps/api/server.py`의 `GET_ROUTES` 또는 `POST_ROUTES`에 route 추가
 3. 프런트에서 쓰면 `apps/web/src/api/domain.ts`에 client 함수 추가
+
+OpenAI 비용/사용량 확인:
+
+```bash
+curl http://127.0.0.1:8001/api/openai/billing
+```
 
 ## 프런트 구조
 

@@ -127,6 +127,23 @@ function formatSignedKRWExact(value: number): string {
   return `${prefix}${formatKRWExact(value)}`;
 }
 
+function formatUSD(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '-';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: value >= 10 ? 2 : 4,
+  }).format(value);
+}
+
+function formatCompactNumber(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '-';
+  return new Intl.NumberFormat('ko-KR', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 function sessionTone(status: string | undefined): string {
   if (status === 'open') return 'is-success';
   if (status === 'pre_open') return 'is-warning';
@@ -284,6 +301,12 @@ export function WealthPulseHomePage({
   const skipReasonRows = topRecordRows(lastSummary.skip_reason_counts);
 
   const liveMarket = snapshot.liveMarket || {};
+  const openaiBilling = snapshot.openaiBilling || {};
+  const openaiCost = toOptionalNumber(openaiBilling.cost?.amount);
+  const openaiCurrency = String(openaiBilling.cost?.currency || 'usd').toUpperCase();
+  const openaiTokens = toOptionalNumber(openaiBilling.usage?.total_tokens);
+  const openaiRequests = toOptionalNumber(openaiBilling.usage?.requests);
+  const openaiBillingError = String(openaiBilling.error || openaiBilling.message || '');
   const marketCtx = snapshot.marketContext || {};
   const marketSessions = liveMarket.market_sessions || {};
   const sessionCards = [marketSessions.KR].filter(Boolean);
@@ -371,6 +394,15 @@ export function WealthPulseHomePage({
                 <strong>{engineStatusLabel}</strong>
               </div>
               <div className="wealth-terminal-actions">
+                <div className={`wealth-openai-corner ${openaiBilling.ok === false ? 'is-error' : ''}`.trim()}>
+                  <span>OpenAI</span>
+                  <strong>{openaiBilling.ok === false ? '확인 실패' : formatUSD(openaiCost)}</strong>
+                  <em>
+                    {openaiBilling.ok === false
+                      ? openaiBillingError
+                      : `${openaiCurrency} · ${formatCompactNumber(openaiTokens)} tok · ${formatCompactNumber(openaiRequests)} req`}
+                  </em>
+                </div>
                 <button className="ghost-button" onClick={onRefresh}>새로고침</button>
               </div>
             </div>

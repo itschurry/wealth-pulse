@@ -4,6 +4,7 @@ import type {
   LiveMarketResponse,
   MacroLatestResponse,
   MarketContextResponse,
+  OpenAIBillingResponse,
   PerformanceSummaryResponse,
   PortfolioStateResponse,
   RecommendationsResponse,
@@ -25,6 +26,7 @@ export interface ConsoleSnapshot {
   research: ResearchStatusResponse;
   reports: ReportsExplainResponse;
   liveMarket: LiveMarketResponse;
+  openaiBilling: OpenAIBillingResponse;
   marketContext: MarketContextResponse;
   todayPicks: TodayPicksResponse;
   recommendations: RecommendationsResponse;

@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     opendart_api_key: str = Field(default="", alias="OPENDART_API_KEY")
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_admin_key: str = Field(default="", alias="OPENAI_ADMIN_KEY")
     openai_research_model: str = Field(default="gpt-4.1", alias="OPENAI_RESEARCH_MODEL")
     openai_research_max_output_tokens: int = Field(default=2200, alias="OPENAI_RESEARCH_MAX_OUTPUT_TOKENS")
 
@@ -104,6 +105,7 @@ FRED_API_KEY = settings.effective_fred_api_key
 ECOS_API_KEY = settings.effective_ecos_api_key
 DART_API_KEY = settings.effective_dart_api_key
 OPENAI_API_KEY = settings.openai_api_key
+OPENAI_ADMIN_KEY = settings.openai_admin_key
 OPENAI_RESEARCH_MODEL = settings.openai_research_model
 OPENAI_RESEARCH_MAX_OUTPUT_TOKENS = settings.openai_research_max_output_tokens
 LIVE_PERFORMANCE_STARTING_EQUITY_KRW = settings.live_performance_starting_equity_krw

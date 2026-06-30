@@ -4,6 +4,7 @@ import {
   fetchLiveMarket,
   fetchMacroLatest,
   fetchMarketContext,
+  fetchOpenAIBilling,
   fetchPerformanceSummary,
   fetchPortfolioState,
   fetchRecommendations,
@@ -51,6 +52,7 @@ function emptySnapshot(): ConsoleSnapshot {
     research: {},
     reports: {},
     liveMarket: {},
+    openaiBilling: {},
     marketContext: {},
     todayPicks: {},
     recommendations: {},
@@ -63,11 +65,11 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
   if (route.page === 'agent-dashboard') {
     return {
       signalLimit: 80,
-      initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'marketContext', 'reports', 'universe', 'performance'],
+      initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'openaiBilling', 'marketContext', 'reports', 'universe', 'performance'],
       initialAwaitTargets: ['engine'],
       fastTargets: ['engine', 'liveMarket'],
       midTargets: ['signals', 'portfolio'],
-      slowTargets: ['research', 'marketContext', 'reports', 'universe', 'performance'],
+      slowTargets: ['research', 'openaiBilling', 'marketContext', 'reports', 'universe', 'performance'],
     };
   }
 
@@ -126,6 +128,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
     research: 0,
     reports: 0,
     liveMarket: 0,
+    openaiBilling: 0,
     marketContext: 0,
     todayPicks: 0,
     recommendations: 0,
@@ -144,6 +147,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
       research: 0,
       reports: 0,
       liveMarket: 0,
+      openaiBilling: 0,
       marketContext: 0,
       todayPicks: 0,
       recommendations: 0,
@@ -198,6 +202,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
       if (key === 'research') return fetchResearchStatus();
       if (key === 'reports') return fetchReportsExplain();
       if (key === 'liveMarket') return fetchLiveMarket();
+      if (key === 'openaiBilling') return fetchOpenAIBilling();
       if (key === 'marketContext') return fetchMarketContext();
       if (key === 'todayPicks') return fetchTodayPicks();
       if (key === 'recommendations') return fetchRecommendations();
@@ -215,7 +220,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
         return;
       }
       if (result.status === 'fulfilled') {
-        if (isFailedPayload(result.value)) {
+        if (key !== 'openaiBilling' && isFailedPayload(result.value)) {
           hasError = true;
           return;
         }
