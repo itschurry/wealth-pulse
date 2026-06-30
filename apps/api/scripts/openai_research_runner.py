@@ -106,6 +106,13 @@ def handle_candidate_monitor_watchlist(query: dict[str, list[str]], *, base_url:
     return _http_json("GET", "/api/monitor/watchlist", base_url=base_url, query=query)
 
 
+def handle_candidate_monitor_refresh(payload: dict[str, Any], *, base_url: str | None = None) -> tuple[int, dict[str, Any]]:
+    if _use_direct_routes(base_url):
+        from routes.candidate_monitor import handle_candidate_monitor_refresh as route_handler  # type: ignore
+        return route_handler(payload)
+    return _http_json("POST", "/api/monitor/refresh", base_url=base_url, payload=payload)
+
+
 def handle_research_ingest_bulk(payload: dict[str, Any], *, base_url: str | None = None) -> tuple[int, dict[str, Any]]:
     if _use_direct_routes(base_url):
         from routes.research import handle_research_ingest_bulk as route_handler  # type: ignore
@@ -122,8 +129,6 @@ def handle_research_run_status_save(payload: dict[str, Any], *, base_url: str | 
 
 def _market_query(markets: list[str], *, limit: int, mode: str) -> dict[str, list[str]]:
     query: dict[str, list[str]] = {
-        "refresh": ["1"],
-        "persist": ["1"],
         "limit": [str(max(1, int(limit)))],
         "mode": [mode],
     }
@@ -329,8 +334,21 @@ def run(
             "inactive_markets": inactive_markets,
             "active_research_markets": sorted(_ACTIVE_RESEARCH_MARKETS),
         }
-    query = _market_query(markets, limit=limit, mode=mode)
-    _log(f"[research] collect targets markets={markets or ['KOSPI']} limit={limit} mode={mode}", enabled=progress)
+    selected_markets = markets or ["KOSPI"]
+    refresh_payload = {"markets": selected_markets, "limit": max(1, int(limit)), "mode": mode}
+    _log(f"[research] refresh monitor markets={selected_markets} limit={limit} mode={mode}", enabled=progress)
+    refresh_status, refresh_result = handle_candidate_monitor_refresh(refresh_payload, base_url=api_base_url)
+    if refresh_status != 200:
+        _log(f"[research] monitor refresh failed status={refresh_status}", enabled=progress)
+        return refresh_status, {
+            "ok": False,
+            "stage": "monitor_refresh",
+            "error": refresh_result.get("error") if isinstance(refresh_result, dict) else "monitor_refresh_failed",
+            "details": refresh_result,
+        }
+
+    query = _market_query(selected_markets, limit=limit, mode=mode)
+    _log(f"[research] collect targets markets={selected_markets} limit={limit} mode={mode}", enabled=progress)
     status_code, target_payload = handle_candidate_monitor_watchlist(query, base_url=api_base_url)
     if status_code != 200:
         _log(f"[research] target collection failed status={status_code}", enabled=progress)

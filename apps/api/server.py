@@ -12,7 +12,12 @@ from routes.agent import (
     handle_agent_runs,
 )
 from routes.broker import handle_kis_status
-from routes.candidate_monitor import handle_candidate_monitor_promotions, handle_candidate_monitor_status, handle_candidate_monitor_watchlist
+from routes.candidate_monitor import (
+    handle_candidate_monitor_promotions,
+    handle_candidate_monitor_refresh,
+    handle_candidate_monitor_status,
+    handle_candidate_monitor_watchlist,
+)
 from routes.engine import handle_engine_status, handle_engine_summary
 from routes.market import handle_live_market, handle_stock_price, handle_stock_search
 from routes.performance import handle_performance_summary
@@ -172,6 +177,7 @@ GET_ROUTES: tuple[Route, ...] = (
 
 POST_ROUTES: tuple[Route, ...] = (
     Route("/api/agent/run", lambda _path, payload: handle_agent_run(payload)),
+    Route("/api/monitor/refresh", lambda _path, payload: handle_candidate_monitor_refresh(payload)),
     Route("/api/risk/config", lambda _path, payload: handle_risk_config_save(payload)),
     Route("/api/watchlist-actions", lambda _path, payload: handle_watchlist_actions(payload)),
     Route("/api/watchlist/save", lambda _path, payload: handle_watchlist_save(payload)),

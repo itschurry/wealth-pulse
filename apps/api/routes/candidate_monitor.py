@@ -45,9 +45,11 @@ def handle_candidate_monitor_watchlist(query: dict[str, list[str]]) -> tuple[int
     try:
         refresh = _to_bool((query.get("refresh") or ["0"])[0], False)
         persist = _to_bool((query.get("persist") or ["0"])[0], False)
+        if persist:
+            return 400, {"ok": False, "error": "persist_requires_post_refresh"}
         markets = _normalize_markets(query)
         account = _load_runtime_account()
-        items = list_market_watchlists(markets, refresh=refresh, account=account, persist=persist)
+        items = list_market_watchlists(markets, refresh=refresh, account=account, persist=False)
         mode = ((query.get("mode") or ["missing_or_stale"])[0] or "missing_or_stale").strip().lower()
         limit_raw = (query.get("limit") or ["30"])[0]
         try:
@@ -62,9 +64,9 @@ def handle_candidate_monitor_watchlist(query: dict[str, list[str]]) -> tuple[int
             "items": items,
             "pending_count": len(pending_items),
             "pending_items": pending_items,
-            "source": "candidate_monitor_sqlite",
+            "source": "dynamic_trading_pipeline",
             "refresh": refresh,
-            "persist": bool(refresh and persist),
+            "persist": False,
         }
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
@@ -74,18 +76,20 @@ def handle_candidate_monitor_status(query: dict[str, list[str]]) -> tuple[int, d
     try:
         refresh = _to_bool((query.get("refresh") or ["0"])[0], False)
         persist = _to_bool((query.get("persist") or ["0"])[0], False)
+        if persist:
+            return 400, {"ok": False, "error": "persist_requires_post_refresh"}
         markets = _normalize_markets(query)
         account = _load_runtime_account()
-        items = list_market_watchlists(markets, refresh=refresh, account=account, persist=persist)
+        items = list_market_watchlists(markets, refresh=refresh, account=account, persist=False)
         summary = summarize_market_watchlists(items)
         return 200, {
             "ok": True,
             "markets": markets,
             "items": summary,
             "count": len(summary),
-            "source": "candidate_monitor_sqlite",
+            "source": "dynamic_trading_pipeline",
             "refresh": refresh,
-            "persist": bool(refresh and persist),
+            "persist": False,
         }
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
@@ -97,7 +101,7 @@ def handle_candidate_monitor_promotions(query: dict[str, list[str]]) -> tuple[in
         markets = _normalize_markets(query)
         account = _load_runtime_account()
         if refresh:
-            list_market_watchlists(markets, refresh=True, account=account)
+            list_market_watchlists(markets, refresh=True, account=account, persist=False)
         limit_raw = (query.get("limit") or ["50"])[0]
         try:
             limit = max(1, min(200, int(limit_raw or 50)))
@@ -109,8 +113,37 @@ def handle_candidate_monitor_promotions(query: dict[str, list[str]]) -> tuple[in
             "markets": markets,
             "items": items,
             "count": len(items),
-            "source": "candidate_monitor_sqlite",
+            "source": "dynamic_trading_pipeline",
             "refresh": refresh,
+        }
+    except Exception as exc:
+        return 500, {"ok": False, "error": str(exc)}
+
+
+def handle_candidate_monitor_refresh(payload: dict[str, Any] | None) -> tuple[int, dict]:
+    try:
+        body = payload if isinstance(payload, dict) else {}
+        raw_markets = body.get("markets")
+        if isinstance(raw_markets, list):
+            markets = [str(item or "").strip().upper() for item in raw_markets if str(item or "").strip()]
+        else:
+            market = str(body.get("market") or "KOSPI").strip().upper()
+            markets = [market] if market else list(_DEFAULT_MARKETS)
+        account = _load_runtime_account()
+        items = list_market_watchlists(markets, refresh=True, account=account, persist=True)
+        mode = str(body.get("mode") or "missing_or_stale").strip().lower()
+        limit = max(1, min(200, int(body.get("limit") or 30)))
+        pending_items = list_pending_research_targets(items, mode=mode, limit=limit)
+        return 200, {
+            "ok": True,
+            "markets": markets,
+            "count": len(items),
+            "items": items,
+            "pending_count": len(pending_items),
+            "pending_items": pending_items,
+            "source": "dynamic_trading_pipeline",
+            "refresh": True,
+            "persist": True,
         }
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}

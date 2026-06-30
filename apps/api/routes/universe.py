@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from services.strategy_registry import list_strategies
-from services.universe_builder import get_universe_snapshot, list_current_universes
-from market_utils import normalize_market
+from services.trading_pipeline.orchestrator import read_market_pipeline, refresh_market_pipeline
 
 
 def _to_bool(raw: object, default: bool) -> bool:
@@ -14,34 +12,22 @@ def _to_bool(raw: object, default: bool) -> bool:
             return True
         if value in {"0", "false", "f", "no", "n", "off", ""}:
             return False
-        return default
-    if raw is None:
-        return default
-    if isinstance(raw, (int, float)):
-        return bool(raw)
     return default
+
+
+def _markets(query: dict[str, list[str]]) -> list[str]:
+    items = [str(item or "").strip().upper() for item in query.get("market", []) if str(item or "").strip()]
+    return items or ["KOSPI"]
 
 
 def handle_universe_list(query: dict[str, list[str]]) -> tuple[int, dict]:
     try:
         refresh = _to_bool((query.get("refresh", ["0"])[0] or "0"), False)
-        rule_name = (query.get("rule_name", [""])[0] or "").strip()
-        market = (query.get("market", [""])[0] or "").strip()
-        if rule_name:
-            item = get_universe_snapshot(rule_name, market=normalize_market(market) or None, refresh=refresh)
-            return 200, {"ok": True, "items": [item], "count": 1}
-
-        rows = list_current_universes()
-        if refresh or not rows:
-            refreshed: list[dict] = []
-            seen: set[tuple[str, str]] = set()
-            for strategy in list_strategies():
-                key = (str(strategy.get("universe_rule") or ""), str(strategy.get("market") or ""))
-                if key in seen:
-                    continue
-                seen.add(key)
-                refreshed.append(get_universe_snapshot(key[0], market=normalize_market(key[1]) or None, refresh=True))
-            rows = refreshed
-        return 200, {"ok": True, "items": rows, "count": len(rows)}
+        rows: list[dict] = []
+        for market in _markets(query):
+            payload = refresh_market_pipeline(market, persist=False)["universe"] if refresh else read_market_pipeline(market)["universe"]
+            if payload:
+                rows.append(payload)
+        return 200, {"ok": True, "items": rows, "count": len(rows), "source": "dynamic_trading_pipeline", "refresh": refresh, "persist": False}
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}

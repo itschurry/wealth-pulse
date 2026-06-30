@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from routes.candidate_monitor import (  # noqa: E402
     handle_candidate_monitor_promotions,
+    handle_candidate_monitor_refresh,
     handle_candidate_monitor_status,
     handle_candidate_monitor_watchlist,
 )
@@ -55,15 +56,27 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_monitor_status(args: argparse.Namespace) -> int:
-    return _print_payload(*handle_candidate_monitor_status(_market_query(args.market, refresh=args.refresh, persist=args.persist)))
+    if args.persist:
+        status_code, payload = handle_candidate_monitor_refresh({"markets": args.market or ["KOSPI"]})
+        if status_code != 200:
+            return _print_payload(status_code, payload)
+    return _print_payload(*handle_candidate_monitor_status(_market_query(args.market, refresh=args.refresh, persist=False)))
 
 
 def cmd_watchlist(args: argparse.Namespace) -> int:
-    return _print_payload(*handle_candidate_monitor_watchlist(_market_query(args.market, limit=args.limit, refresh=args.refresh, persist=args.persist, mode=args.mode)))
+    if args.persist:
+        status_code, payload = handle_candidate_monitor_refresh({"markets": args.market or ["KOSPI"], "limit": args.limit, "mode": args.mode})
+        if status_code != 200:
+            return _print_payload(status_code, payload)
+    return _print_payload(*handle_candidate_monitor_watchlist(_market_query(args.market, limit=args.limit, refresh=args.refresh, persist=False, mode=args.mode)))
 
 
 def cmd_pending(args: argparse.Namespace) -> int:
-    status_code, payload = handle_candidate_monitor_watchlist(_market_query(args.market, limit=args.limit, refresh=args.refresh, persist=args.persist, mode=args.mode))
+    if args.persist:
+        refresh_status, refresh_payload = handle_candidate_monitor_refresh({"markets": args.market or ["KOSPI"], "limit": args.limit, "mode": args.mode})
+        if refresh_status != 200:
+            return _print_payload(refresh_status, refresh_payload)
+    status_code, payload = handle_candidate_monitor_watchlist(_market_query(args.market, limit=args.limit, refresh=args.refresh, persist=False, mode=args.mode))
     if status_code != 200:
         return _print_payload(status_code, payload)
     return _print_payload(status_code, {
@@ -72,7 +85,7 @@ def cmd_pending(args: argparse.Namespace) -> int:
         "mode": args.mode,
         "count": payload.get("pending_count") or 0,
         "items": payload.get("pending_items") or [],
-        "source": payload.get("source") or "candidate_monitor_sqlite",
+        "source": payload.get("source") or "dynamic_trading_pipeline",
         "refresh": payload.get("refresh"),
         "persist": payload.get("persist"),
     })

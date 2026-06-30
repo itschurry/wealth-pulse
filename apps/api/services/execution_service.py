@@ -60,11 +60,6 @@ from services.runtime_account_cache import (
     persist_live_runtime_account as _persist_live_runtime_account,
 )
 from services.runtime_validation_gate import apply_validation_gate as _apply_validation_gate
-from services.signal_service import (
-    collect_pick_candidates as _signal_collect_pick_candidates,
-    normalize_theme_focus as _signal_normalize_theme_focus,
-    parse_theme_gate_config as _signal_parse_theme_gate_config,
-)
 from services.risk_guard_service import build_risk_guard_state as _build_account_risk_guard_state
 from services.sizing_service import recommend_position_size
 from services.strategy_engine import build_signal_book, select_entry_candidates
@@ -1181,11 +1176,38 @@ def _parse_seed_positions(raw) -> list[dict]:
 
 
 def _normalize_theme_focus(raw) -> list[str]:
-    return _signal_normalize_theme_focus(raw)
+    if not isinstance(raw, list):
+        return list(_DEFAULT_THEME_FOCUS)
+    normalized: list[str] = []
+    for item in raw:
+        key = str(item or "").strip().lower()
+        if key in _ALLOWED_THEME_FOCUS and key not in normalized:
+            normalized.append(key)
+    return normalized or list(_DEFAULT_THEME_FOCUS)
 
 
 def _parse_theme_gate_config(raw: dict | None = None) -> dict:
-    return _signal_parse_theme_gate_config(raw)
+    payload = raw or {}
+    try:
+        min_score = float(payload.get("theme_min_score", 2.5))
+    except (TypeError, ValueError):
+        min_score = 2.5
+    try:
+        min_news = int(payload.get("theme_min_news", 1))
+    except (TypeError, ValueError):
+        min_news = 1
+    try:
+        priority_bonus = float(payload.get("theme_priority_bonus", 2.0))
+    except (TypeError, ValueError):
+        priority_bonus = 2.0
+    theme_gate_raw = str(payload.get("theme_gate_enabled", "1")).strip().lower()
+    return {
+        "theme_gate_enabled": theme_gate_raw not in {"0", "false", "f", "no", "n", "off", ""},
+        "theme_min_score": max(0.0, min(30.0, min_score)),
+        "theme_min_news": max(0, min(10, min_news)),
+        "theme_priority_bonus": max(0.0, min(10.0, priority_bonus)),
+        "theme_focus": _normalize_theme_focus(payload.get("theme_focus")),
+    }
 
 
 def _to_float(value, default: float = 0.0) -> float:
@@ -2054,10 +2076,6 @@ def _position_exit_reason_by_pnl(position: dict[str, Any], _cfg: dict, _market: 
     if take_profit_pct is not None and pnl_pct >= abs(take_profit_pct):
         return "익절"
     return None
-
-
-def _collect_pick_candidates(market: str, cfg: dict) -> list[dict]:
-    return _signal_collect_pick_candidates(market=market, cfg=cfg)
 
 
 def _auto_invest_picks(
