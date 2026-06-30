@@ -45,11 +45,18 @@ def resolve_stock_quote(code: str, market: str = "") -> dict[str, Any]:
     now_iso = datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds")
 
     kis_price = client.get_domestic_price(resolved_code)
+    price = kis_price.get("price")
+    volume = kis_price.get("volume")
+    trading_value = None
+    if price not in (None, "") and volume not in (None, ""):
+        trading_value = float(price) * float(volume)
     return {
         "code": resolved_code,
         "name": kis_price.get("name") or resolved_name,
-        "price": kis_price.get("price"),
+        "price": price,
         "change_pct": kis_price.get("change_pct"),
+        "volume": volume,
+        "trading_value": trading_value,
         "market": normalize_market(resolved_market) or "KOSPI",
         "source": "KIS",
         "fetched_at": now_iso,

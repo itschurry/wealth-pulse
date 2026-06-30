@@ -188,11 +188,12 @@ storage/
 
 ## 후보 생성 흐름
 
-후보 생성은 한 번에 끝나는 단순 ranking이 아니야. 전략 스캔, 기존 보유, 관심 종목, 리서치 freshness, 거래대금/등락률/뉴스 점수가 섞여.
+후보 생성은 한 번에 끝나는 단순 ranking이 아니야. 전략 스캔, 기존 보유, 관심 종목, 리서치 freshness, 실시간 거래대금/등락률/거래량, 뉴스 점수가 섞여.
 
 ```text
 strategy scans + configured universe + held positions + user watchlist + latest research
   -> candidate_monitor_service._dedupe_market_candidates()
+  -> KIS realtime quote evidence(current_price/change_pct/volume/trading_value)
   -> candidate_monitor_service.build_market_watchlist()
   -> candidate_monitor_store.candidate_pool
   -> candidate_monitor_store.active_slots
@@ -210,7 +211,9 @@ strategy scans + configured universe + held positions + user watchlist + latest 
 
 - `held`: 이미 보유 중인 종목
 - `core`: 상시 감시할 핵심 후보
-- `promotion`: 뉴스/거래대금/등락률/리서치 점수로 승격된 후보
+- `promotion`: 실시간 mover, 뉴스, 거래대금, 등락률, 리서치 점수로 승격된 후보
+
+장중 watchlist refresh는 운용 KOSPI 유니버스의 현재가, 등락률, 거래량, 누적 거래대금을 KIS로 붙인다. `change_pct >= 2.0` 또는 `trading_value >= 500억`이면 `realtime_mover` 후보로 본다. 기본 active slot은 `held + core 20 + promotion 12`이고, promotion은 `realtime_mover`를 먼저 채운다. 강한 mover인데 active slot에 못 들어간 종목은 `promotion_events`에 `missed_mover`로 남긴다.
 
 `/api/monitor/watchlist`는 리서치 runner가 읽는 핵심 API야. 응답 안의 `pending_items`가 OpenAI 리서치 대상이 돼.
 
@@ -235,7 +238,7 @@ strategy scans + configured universe + held positions + user watchlist + latest 
 ```bash
 docker compose exec api python scripts/openai_research_runner.py \
   --market KOSPI \
-  --limit 12 \
+  --limit 30 \
   --mode missing_or_stale \
   --api-base-url http://127.0.0.1:8001 \
   --timeout 600 \
@@ -264,7 +267,7 @@ docker compose exec api python scripts/openai_research_runner.py \
 ```
 
 루트의 `scripts/run_market_research.sh`는 호스트 cron과 API 컨테이너 양쪽에서 쓸 수 있는 wrapper야. 컨테이너에서는 `/app/scripts/run_market_research.sh`로 실행해.
-현재 wrapper와 `openai_research_runner.py`는 운용 리서치 시장을 `KOSPI`로 제한해.
+현재 wrapper와 `openai_research_runner.py`는 운용 리서치 시장을 `KOSPI`로 제한해. wrapper의 기본 리서치 처리량은 `WEALTHPULSE_RESEARCH_LIMIT=30`이고, 활성 후보 슬롯을 장중에 최대한 신선하게 유지하는 용도야.
 
 리서치 source pack 구성:
 
@@ -373,7 +376,7 @@ _auto_trader_loop()
 
 런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
 장중 자동매매 기본 주기는 `60`초야. 신규 매수와 rotation 매수는 리서치가 `buy` 또는 `buy_watch` 계열일 때만 허용한다. 리서치 `hold`는 퀀트 점수가 높아도 신규 매수로 승격하지 않는다. 또 `technical_features.close_vs_sma20 >= 1.0`, `close_vs_sma60 >= 1.0`, `volume_ratio >= 0.8`을 만족하지 못하면 우량 후보라도 진입하지 않는다. 통과 후보가 여러 개면 당일 상승률, 거래량, 20/60일선 상대 위치가 강한 종목을 먼저 산다.
-`bluechip_core` 우량 후보가 점수 `90` 이상이거나 리서치 점수 `0.75` 이상이어도 위 리서치/추세 게이트를 통과해야 매수 후보로 승격한다. rotation 매수 후보는 `final_action=review_for_entry`, `agent_primary_buy`, `quant_entry`가 모두 맞아야 한다. `watch_only`, `operator_review`, `agent_hold` 후보는 rotation으로 사지 않는다. 교체 매도는 현재 계좌 기준으로 교체 매수 수량이 이미 1주 이상 나올 때만 실행하고, 매도해서 생길 현금을 가정하지 않는다. rotation 매도는 기본 `min_holding_minutes=30`을 지나야 가능하다. 손절/익절은 이 제한보다 먼저 처리된다.
+`bluechip_core` 우량 후보가 점수 `90` 이상이거나 리서치 점수 `0.75` 이상이어도 위 리서치/추세 게이트를 통과해야 매수 후보로 승격한다. `operator_review`에 걸린 후보라도 `entry` 신호, 우량 후보, `buy`/`buy_watch` 리서치, 신선한 리서치, 추세/거래량 조건, 주문 수량을 모두 만족하면 `operator_review_high_momentum_entry`로 신규 매수 후보에 올린다. 리서치 `hold`는 이 승격 대상이 아니다. rotation 매수 후보는 `final_action=review_for_entry`, `agent_primary_buy`, `quant_entry`가 모두 맞아야 한다. `watch_only`, `operator_review`, `agent_hold` 후보는 rotation으로 사지 않는다. 교체 매도는 현재 계좌 기준으로 교체 매수 수량이 이미 1주 이상 나올 때만 실행하고, 매도해서 생길 현금을 가정하지 않는다. rotation 매도는 기본 `min_holding_minutes=30`을 지나야 가능하다. 손절/익절은 이 제한보다 먼저 처리된다.
 후보 현재가 조회가 일시 실패해도 저장된 리서치 `technical_features.current_price`나 `close`가 있으면 rotation 사이징에 쓴다.
 
 `paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.

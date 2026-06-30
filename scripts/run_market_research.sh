@@ -96,7 +96,7 @@ PY
 
 case "$research_market" in
   KOSPI)
-    limit="${WEALTHPULSE_RESEARCH_LIMIT:-12}"
+    limit="${WEALTHPULSE_RESEARCH_LIMIT:-30}"
     mode="${WEALTHPULSE_RESEARCH_MODE:-missing_or_stale}"
     timeout="${WEALTHPULSE_RESEARCH_TIMEOUT:-600}"
     concurrency="${WEALTHPULSE_RESEARCH_CONCURRENCY:-3}"

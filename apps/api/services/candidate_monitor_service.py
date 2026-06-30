@@ -11,13 +11,18 @@ from market_utils import lookup_company_listing
 from services import candidate_monitor_store as store
 from services.agent_config import default_risk_config_store
 from services.bluechip_universe import bluechip_meta
+from services.market_data_service import resolve_stock_quote
 from services.research_store import DEFAULT_RESEARCH_PROVIDER, load_latest_research_snapshot
 from services.runtime_store import list_strategy_scans
 
 DEFAULT_POOL_LIMIT = 100
 DEFAULT_CORE_LIMIT = 20
-DEFAULT_PROMOTION_LIMIT = 4
+DEFAULT_PROMOTION_LIMIT = 12
 DEFAULT_PROMOTION_EVENT_LIMIT = 50
+DEFAULT_MARKET_EVIDENCE_LIMIT = 100
+DEFAULT_MISSED_MOVER_LIMIT = 12
+MOVER_MIN_CHANGE_PCT = 2.0
+MOVER_MIN_TRADING_VALUE_KRW = 50_000_000_000.0
 
 _ACTION_WEIGHT = {
     "review_for_entry": 1000.0,
@@ -276,6 +281,124 @@ def _selection_meta(candidate: dict[str, Any], *, held_symbols: set[str], intere
     }
 
 
+def _append_source(row: dict[str, Any], source: str) -> None:
+    normalized = str(source or "").strip()
+    if not normalized:
+        return
+    sources = row.get("candidate_sources") if isinstance(row.get("candidate_sources"), list) else []
+    if normalized not in sources:
+        sources.append(normalized)
+    row["candidate_sources"] = sources
+
+
+def _apply_realtime_market_evidence(row: dict[str, Any], quote: dict[str, Any]) -> dict[str, Any]:
+    updated = dict(row)
+    technical = dict(updated.get("technical_snapshot")) if isinstance(updated.get("technical_snapshot"), dict) else {}
+    price = quote.get("price")
+    volume = quote.get("volume")
+    trading_value = quote.get("trading_value")
+    if trading_value in (None, "") and price not in (None, "") and volume not in (None, ""):
+        trading_value = float(price) * float(volume)
+
+    if price not in (None, ""):
+        updated["price"] = price
+        updated["current_price"] = price
+        technical["current_price"] = price
+        technical["close"] = price
+    if quote.get("change_pct") not in (None, ""):
+        updated["change_pct"] = quote.get("change_pct")
+        technical["change_pct"] = quote.get("change_pct")
+    if volume not in (None, ""):
+        updated["volume"] = volume
+        technical["volume"] = volume
+    if trading_value not in (None, ""):
+        updated["trading_value"] = trading_value
+        technical["trading_value"] = trading_value
+    technical["quote_source"] = str(quote.get("source") or "KIS")
+    technical["quote_fetched_at"] = str(quote.get("fetched_at") or _now_local().isoformat(timespec="seconds"))
+    technical["freshness"] = "fresh"
+    technical["quote_is_stale"] = bool(quote.get("is_stale", False))
+    updated["technical_snapshot"] = technical
+    updated["last_scanned_at"] = technical["quote_fetched_at"]
+    if _is_market_mover(updated):
+        _append_source(updated, "realtime_mover")
+    return updated
+
+
+def _with_realtime_market_evidence(rows: list[dict[str, Any]], *, limit: int = DEFAULT_MARKET_EVIDENCE_LIMIT) -> list[dict[str, Any]]:
+    capped = max(0, int(limit or 0))
+    if capped <= 0:
+        return rows
+    enriched: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if index >= capped:
+            enriched.append(row)
+            continue
+        symbol = _normalize_symbol(row.get("code") or row.get("symbol"))
+        market = _normalize_market(row.get("market"))
+        quote = resolve_stock_quote(symbol, market)
+        enriched.append(_apply_realtime_market_evidence(row, quote))
+    return enriched
+
+
+def _is_market_mover(candidate: dict[str, Any]) -> bool:
+    technical = _technical_payload(candidate)
+    change_pct = _first_number(candidate, technical, "change_pct", "change_rate", "fluctuation_rate")
+    trading_value = _first_number(candidate, technical, "trading_value", "trade_value", "accumulated_trade_value", "acml_tr_pbmn")
+    return change_pct >= MOVER_MIN_CHANGE_PCT or trading_value >= MOVER_MIN_TRADING_VALUE_KRW
+
+
+def _has_market_evidence(candidate: dict[str, Any]) -> bool:
+    technical = _technical_payload(candidate)
+    trading_value = _first_number(candidate, technical, "trading_value", "trade_value", "accumulated_trade_value", "acml_tr_pbmn")
+    change_pct = _first_number(candidate, technical, "change_pct", "change_rate", "fluctuation_rate")
+    volume = _first_number(candidate, technical, "volume", "accumulated_volume", "acml_vol")
+    volume_ratio = _first_number(candidate, technical, "volume_ratio")
+    return trading_value > 0 or change_pct != 0.0 or volume > 0 or volume_ratio > 0
+
+
+def _market_mover_rank(candidate: dict[str, Any]) -> tuple[float, ...]:
+    technical = _technical_payload(candidate)
+    change_pct = _first_number(candidate, technical, "change_pct", "change_rate", "fluctuation_rate")
+    trading_value = _first_number(candidate, technical, "trading_value", "trade_value", "accumulated_trade_value", "acml_tr_pbmn")
+    volume_ratio = _first_number(candidate, technical, "volume_ratio")
+    return (
+        1.0 if _is_market_mover(candidate) else 0.0,
+        1.0 if change_pct > 0 else 0.0,
+        change_pct,
+        min(trading_value / 1_000_000_000.0, 1000.0),
+        volume_ratio,
+        _to_float(candidate.get("news_surge_score"), 0.0),
+        _normalized_research_score(candidate.get("snapshot_research_score") or candidate.get("research_score")),
+        _to_float(candidate.get("score"), 0.0),
+    )
+
+
+def _select_promotion_candidates(pool: list[dict[str, Any]], used_symbols: set[str], limit: int) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    eligible: list[dict[str, Any]] = []
+    for candidate in pool:
+        symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
+        if not symbol or symbol in used_symbols:
+            continue
+        sources = candidate.get("candidate_sources") if isinstance(candidate.get("candidate_sources"), list) else []
+        if _is_market_mover(candidate) or "realtime_mover" in sources or "news_surge" in sources or "research_high_score" in sources:
+            eligible.append(candidate)
+    eligible.sort(key=_market_mover_rank, reverse=True)
+    return eligible[:limit]
+
+
+def _missed_market_movers(pool: list[dict[str, Any]], active_symbols: set[str], *, limit: int = DEFAULT_MISSED_MOVER_LIMIT) -> list[dict[str, Any]]:
+    missed = [
+        candidate for candidate in pool
+        if _normalize_symbol(candidate.get("code") or candidate.get("symbol")) not in active_symbols
+        and _is_market_mover(candidate)
+    ]
+    missed.sort(key=_market_mover_rank, reverse=True)
+    return missed[: max(0, int(limit or 0))]
+
+
 def _universe_rule_for_market(market: str) -> str:
     return "kospi"
 
@@ -373,15 +496,21 @@ def _candidate_priority(candidate: dict[str, Any], *, held_symbols: set[str], in
         bonus += 520.0
     elif research_score > 0:
         bonus += research_score * 260.0
-    if "news_surge" in sources:
+    has_market_evidence = _has_market_evidence(candidate)
+    if "realtime_mover" in sources:
+        bonus += 1200.0
+    if "news_surge" in sources and has_market_evidence:
         bonus += 1400.0 + min(news_score, 360.0)
+    elif "news_surge" in sources:
+        bonus += min(news_score, 120.0)
     if "trading_value_top" in sources:
         bonus += 620.0
     if "change_rate_top" in sources:
         bonus += 420.0 + max(0.0, min(change_pct, 30.0)) * 10.0
     if change_pct < 0:
         bonus -= min(abs(change_pct), 20.0) * 8.0
-    has_market_evidence = trading_value > 0 or change_pct != 0.0 or news_score > 0.0
+    if not has_market_evidence and "held_position" not in sources:
+        bonus -= 350.0
     if source_hint == "config_universe" and not is_bluechip and not fresh and not has_market_evidence and research_score <= 0:
         bonus -= 220.0
     return (
@@ -436,7 +565,10 @@ def _annotate_standard_sources(rows: list[dict[str, Any]], *, held_symbols: set[
             filtered = [item for item in filtered if _to_float(item.get(key), 0.0) >= min_value]
         filtered.sort(key=lambda item: (_to_float(item.get(key), 0.0), _to_float(item.get("score"), 0.0)), reverse=True)
         return filtered[:limit]
+    realtime_movers = [item for item in rows if _is_market_mover(item)]
+    realtime_movers.sort(key=_market_mover_rank, reverse=True)
     source_rankings = {
+        "realtime_mover": realtime_movers[:28],
         "news_surge": _ranked(rows, "news_surge_score", 24),
         "trading_value_top": _ranked(rows, "trading_value", 28),
         "change_rate_top": _ranked(rows, "change_pct", 24),
@@ -464,7 +596,7 @@ def _annotate_standard_sources(rows: list[dict[str, Any]], *, held_symbols: set[
         if not sources:
             sources = ["strategy_scan"]
         item["candidate_sources"] = sources
-        item["candidate_source"] = "news_surge" if "news_surge" in sources else sources[0]
+        item["candidate_source"] = "realtime_mover" if "realtime_mover" in sources else "news_surge" if "news_surge" in sources else sources[0]
         item["selection_reason"] = ",".join(sources)
         item["selection_criteria"] = {
             "trading_value": item.get("trading_value"),
@@ -487,6 +619,7 @@ def _dedupe_market_candidates(
     market: str,
     *,
     account: dict[str, Any] | None = None,
+    market_evidence_limit: int = DEFAULT_MARKET_EVIDENCE_LIMIT,
 ) -> list[dict[str, Any]]:
     normalized_market = _normalize_market(market)
     held_symbols = _held_symbols(account, normalized_market)
@@ -532,7 +665,11 @@ def _dedupe_market_candidates(
             }
     for symbol, row in interest_rows.items():
         best_by_symbol[symbol] = _merge_candidate(best_by_symbol.get(symbol), row)
-    rows = _annotate_standard_sources(list(best_by_symbol.values()), held_symbols=held_symbols, interest_symbols=interest_symbols)
+    rows_with_market_evidence = _with_realtime_market_evidence(
+        list(best_by_symbol.values()),
+        limit=market_evidence_limit,
+    )
+    rows = _annotate_standard_sources(rows_with_market_evidence, held_symbols=held_symbols, interest_symbols=interest_symbols)
     rows.sort(
         key=lambda item: (
             float(item.get("monitor_priority") or 0.0),
@@ -563,7 +700,11 @@ def build_market_watchlist(
     now_iso = _now_local().isoformat(timespec="seconds")
 
     previous_active = {row["symbol"]: row for row in store.list_active_slots(normalized_market)}
-    pool = _dedupe_market_candidates(normalized_market, account=account)[:pool_limit]
+    pool = _dedupe_market_candidates(
+        normalized_market,
+        account=account,
+        market_evidence_limit=max(pool_limit, DEFAULT_MARKET_EVIDENCE_LIMIT),
+    )[:pool_limit]
     store.replace_candidate_pool(normalized_market, pool, updated_at=now_iso)
 
     active_rows: list[dict[str, Any]] = []
@@ -588,10 +729,9 @@ def build_market_watchlist(
         used_symbols.add(symbol)
         core_selected += 1
 
+    promotion_candidates = _select_promotion_candidates(pool, used_symbols, promotion_limit)
     promotion_selected = 0
-    for candidate in pool:
-        if promotion_selected >= promotion_limit:
-            break
+    for candidate in promotion_candidates:
         symbol = _normalize_symbol(candidate.get("code") or candidate.get("symbol"))
         if symbol in used_symbols:
             continue
@@ -601,6 +741,12 @@ def build_market_watchlist(
         promotion_selected += 1
 
     store.replace_active_slots(normalized_market, active_rows, selected_at=now_iso)
+    current_symbols_for_audit = {
+        _normalize_symbol(row.get("symbol") or row.get("code"))
+        for row in active_rows
+        if _normalize_symbol(row.get("symbol") or row.get("code"))
+    }
+    missed_movers = _missed_market_movers(pool, current_symbols_for_audit)
     source_counts: dict[str, int] = {}
     for row in pool:
         for source_name in row.get("candidate_sources") if isinstance(row.get("candidate_sources"), list) else []:
@@ -623,6 +769,7 @@ def build_market_watchlist(
             "standard_candidate_sources": [
                 "bluechip_core",
                 "research_high_score",
+                "realtime_mover",
                 "trading_value_top",
                 "change_rate_top",
                 "news_surge",
@@ -630,7 +777,19 @@ def build_market_watchlist(
                 "user_watchlist",
             ],
             "source_counts": source_counts,
-            "news_surge_priority": "highest",
+            "news_surge_priority": "requires_market_evidence_for_top_priority",
+            "market_evidence_limit": max(pool_limit, DEFAULT_MARKET_EVIDENCE_LIMIT),
+            "missed_mover_count": len(missed_movers),
+            "missed_movers": [
+                {
+                    "symbol": _normalize_symbol(row.get("code") or row.get("symbol")),
+                    "name": row.get("name"),
+                    "change_pct": row.get("change_pct"),
+                    "trading_value": row.get("trading_value"),
+                    "monitor_priority": row.get("monitor_priority"),
+                }
+                for row in missed_movers
+            ],
         },
     )
 
@@ -642,6 +801,10 @@ def build_market_watchlist(
         store.append_promotion_event(normalized_market, symbol, "entered_watch", str(row.get("slot_type") or "watch"), row, created_at=now_iso)
     for symbol in sorted(previous_symbols - current_symbols):
         store.append_promotion_event(normalized_market, symbol, "left_watch", str(previous_active[symbol].get("slot_type") or "watch"), previous_active[symbol], created_at=now_iso)
+    for row in missed_movers:
+        symbol = _normalize_symbol(row.get("code") or row.get("symbol"))
+        if symbol:
+            store.append_promotion_event(normalized_market, symbol, "missed_mover", "mover_not_active", row, created_at=now_iso)
 
     return get_market_watchlist(normalized_market)
 

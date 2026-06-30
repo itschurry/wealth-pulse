@@ -1638,6 +1638,31 @@ def _is_priority_rotation_candidate(candidate: dict[str, Any]) -> bool:
     return is_bluechip and (score >= _ROTATION_PRIORITY_MIN_SCORE or research_score >= _ROTATION_PRIORITY_MIN_RESEARCH_SCORE)
 
 
+def _is_aggressive_operator_review_entry_candidate(candidate: dict[str, Any]) -> bool:
+    if str(candidate.get("signal_state") or "").strip().lower() != "entry":
+        return False
+    if str(candidate.get("final_action") or "").strip().lower() != "watch_only":
+        return False
+    layer_e = candidate.get("final_action_snapshot") if isinstance(candidate.get("final_action_snapshot"), dict) else {}
+    quant_decision = layer_e.get("quant_decision") if isinstance(layer_e.get("quant_decision"), dict) else {}
+    if str(quant_decision.get("decision") or "").strip().lower() != "operator_review":
+        return False
+    if bool(candidate.get("research_unavailable")):
+        return False
+    research_status = str(candidate.get("research_status") or "").strip().lower()
+    if research_status in {"missing", "stale", "stale_ingest", "research_unavailable"}:
+        return False
+    if not _candidate_has_buy_research_intent(candidate):
+        return False
+    if not _candidate_entry_trend_ok(candidate):
+        return False
+    sources = _candidate_sources(candidate)
+    is_bluechip = bool(candidate.get("bluechip")) or "bluechip_core" in sources
+    if not is_bluechip:
+        return False
+    return _candidate_rotation_score(candidate) >= _ROTATION_PRIORITY_MIN_SCORE or _candidate_research_score(candidate) >= _ROTATION_PRIORITY_MIN_RESEARCH_SCORE
+
+
 def _rotation_candidate_needs_resizing(candidate: dict[str, Any]) -> bool:
     if not _candidate_rotation_entry_ready(candidate):
         return False
@@ -1692,6 +1717,27 @@ def _promote_priority_candidate_for_entry(candidate: dict[str, Any], account: di
     promoted["entry_allowed"] = True
     promoted["active_entry_reason"] = "priority_bluechip_entry"
     promoted["reason_codes"] = list(dict.fromkeys([*reasons, "priority_bluechip_entry"]))
+    return promoted
+
+
+def _promote_operator_review_candidate_for_entry(candidate: dict[str, Any], account: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    if not _is_aggressive_operator_review_entry_candidate(candidate):
+        return dict(candidate)
+    promoted = _resize_rotation_buy_candidate(candidate, account, cfg)
+    size_recommendation = promoted.get("size_recommendation") if isinstance(promoted.get("size_recommendation"), dict) else {}
+    if int(size_recommendation.get("quantity") or 0) <= 0:
+        return promoted
+    reasons = [str(item) for item in (promoted.get("reason_codes") or []) if str(item)]
+    promoted["entry_allowed"] = True
+    promoted["final_action"] = "review_for_entry"
+    promoted["active_entry_reason"] = "operator_review_high_momentum_entry"
+    promoted["reason_codes"] = list(dict.fromkeys([*reasons, "operator_review_high_momentum_entry"]))
+    layer_e = promoted.get("final_action_snapshot") if isinstance(promoted.get("final_action_snapshot"), dict) else {}
+    promoted["final_action_snapshot"] = {
+        **layer_e,
+        "final_action": "review_for_entry",
+        "decision_reason": "operator_review_high_momentum_entry",
+    }
     return promoted
 
 
@@ -2452,6 +2498,15 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     entry_allowed = True
                     merged_reasons = [str(item) for item in (candidate.get("reason_codes") or []) if str(item)]
                     candidate["entry_allowed"] = True
+                    candidate["reason_codes"] = merged_reasons
+            if not entry_allowed and signal_state == "entry" and slots > 0 and reason_code == "operator_review":
+                candidate = _promote_operator_review_candidate_for_entry(candidate, account, cfg)
+                size_reco = candidate.get("size_recommendation") if isinstance(
+                    candidate.get("size_recommendation"), dict) else {}
+                order_qty = int(size_reco.get("quantity") or 0)
+                if order_qty > 0 and bool(candidate.get("entry_allowed")):
+                    entry_allowed = True
+                    merged_reasons = [str(item) for item in (candidate.get("reason_codes") or []) if str(item)]
                     candidate["reason_codes"] = merged_reasons
             if _allows_rotation_candidate(
                 candidate,
