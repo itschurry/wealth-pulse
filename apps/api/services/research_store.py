@@ -23,6 +23,7 @@ RESEARCH_LATEST_DIR = RESEARCH_DIR / "latest"
 RESEARCH_INGEST_LOG_PATH = RESEARCH_DIR / "ingest_history.jsonl"
 RESEARCH_PROVIDER_STATE_PATH = RESEARCH_DIR / "provider_state.json"
 DEFAULT_RESEARCH_PROVIDER = "default"
+DEFAULT_RESEARCH_TTL_MINUTES = 15
 LEGACY_RESEARCH_PROVIDER_ALIASES = {"openclaw"}
 RESEARCH_SCHEMA_VERSION = "v1"
 SUPPORTED_RESEARCH_SCHEMA_VERSIONS = {"v1", "v2"}
@@ -501,7 +502,7 @@ def _normalize_item(
 
     ttl_raw = item.get("ttl_minutes")
     if ttl_raw is None:
-        ttl_minutes = 120
+        ttl_minutes = DEFAULT_RESEARCH_TTL_MINUTES
     else:
         try:
             ttl_minutes = int(ttl_raw)

@@ -123,6 +123,7 @@ def handle_research_run_status_save(payload: dict[str, Any], *, base_url: str | 
 def _market_query(markets: list[str], *, limit: int, mode: str) -> dict[str, list[str]]:
     query: dict[str, list[str]] = {
         "refresh": ["1"],
+        "persist": ["1"],
         "limit": [str(max(1, int(limit)))],
         "mode": [mode],
     }

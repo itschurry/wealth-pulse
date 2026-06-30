@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 from services.research_contract import normalize_components, normalize_tags, normalize_warning_codes
-from services.research_store import DEFAULT_RESEARCH_PROVIDER, load_research_snapshot_for_timestamp
+from services.research_store import DEFAULT_RESEARCH_PROVIDER, DEFAULT_RESEARCH_TTL_MINUTES, load_research_snapshot_for_timestamp
 
 
 def _parse_datetime(value: Any):
@@ -154,7 +154,7 @@ class StoredResearchScorer:
                 },
             )
 
-        ttl_minutes = max(1, min(1440, int(snapshot.get("ttl_minutes") or 120)))
+        ttl_minutes = max(1, min(1440, int(snapshot.get("ttl_minutes") or DEFAULT_RESEARCH_TTL_MINUTES)))
         generated_at = str(snapshot.get("generated_at") or request.timestamp)
         generated_dt = _parse_datetime(generated_at)
         reference_dt = _parse_datetime(request.timestamp)

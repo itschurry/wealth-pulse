@@ -110,6 +110,8 @@ def _read_config_snapshot(rule_name: str) -> dict[str, Any]:
         "meta": {
             "listing_key": UNIVERSE_RULE_LABELS.get(normalized_rule, normalized_rule),
             "status": "configured",
+            "generation_mode": "static_config",
+            "config_file": filename,
         },
     }
 

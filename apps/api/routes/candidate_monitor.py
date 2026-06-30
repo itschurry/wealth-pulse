@@ -44,9 +44,10 @@ def _load_runtime_account() -> dict[str, Any]:
 def handle_candidate_monitor_watchlist(query: dict[str, list[str]]) -> tuple[int, dict]:
     try:
         refresh = _to_bool((query.get("refresh") or ["0"])[0], False)
+        persist = _to_bool((query.get("persist") or ["0"])[0], False)
         markets = _normalize_markets(query)
         account = _load_runtime_account()
-        items = list_market_watchlists(markets, refresh=refresh, account=account)
+        items = list_market_watchlists(markets, refresh=refresh, account=account, persist=persist)
         mode = ((query.get("mode") or ["missing_or_stale"])[0] or "missing_or_stale").strip().lower()
         limit_raw = (query.get("limit") or ["30"])[0]
         try:
@@ -63,6 +64,7 @@ def handle_candidate_monitor_watchlist(query: dict[str, list[str]]) -> tuple[int
             "pending_items": pending_items,
             "source": "candidate_monitor_sqlite",
             "refresh": refresh,
+            "persist": bool(refresh and persist),
         }
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
@@ -71,9 +73,10 @@ def handle_candidate_monitor_watchlist(query: dict[str, list[str]]) -> tuple[int
 def handle_candidate_monitor_status(query: dict[str, list[str]]) -> tuple[int, dict]:
     try:
         refresh = _to_bool((query.get("refresh") or ["0"])[0], False)
+        persist = _to_bool((query.get("persist") or ["0"])[0], False)
         markets = _normalize_markets(query)
         account = _load_runtime_account()
-        items = list_market_watchlists(markets, refresh=refresh, account=account)
+        items = list_market_watchlists(markets, refresh=refresh, account=account, persist=persist)
         summary = summarize_market_watchlists(items)
         return 200, {
             "ok": True,
@@ -82,6 +85,7 @@ def handle_candidate_monitor_status(query: dict[str, list[str]]) -> tuple[int, d
             "count": len(summary),
             "source": "candidate_monitor_sqlite",
             "refresh": refresh,
+            "persist": bool(refresh and persist),
         }
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}

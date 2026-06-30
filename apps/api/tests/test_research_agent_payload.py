@@ -10,6 +10,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services.research_agent_payload import build_agent_research_ingest_payload
+from services.research_store import DEFAULT_RESEARCH_TTL_MINUTES
 
 
 class ResearchAgentPayloadTests(unittest.TestCase):
@@ -73,6 +74,7 @@ class ResearchAgentPayloadTests(unittest.TestCase):
         self.assertEqual(item["invalidation_trigger"]["stop_loss"], 95000)
         self.assertEqual(item["trade_plan"]["stop_loss"], 95000)
         self.assertEqual(item["trade_plan"]["take_profit"], 112000)
+        self.assertEqual(item["ttl_minutes"], DEFAULT_RESEARCH_TTL_MINUTES)
 
 
 if __name__ == "__main__":
