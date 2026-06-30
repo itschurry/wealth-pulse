@@ -75,6 +75,7 @@ KIS_ACCOUNT_ACNT_PRDT_CD=01
 KIS_BASE_URL=https://openapi.koreainvestment.com:9443
 
 EXECUTION_MODE=paper
+LIVE_PERFORMANCE_STARTING_EQUITY_KRW=5000000
 WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted
 
 TELEGRAM_ENABLED=false
@@ -86,6 +87,7 @@ TELEGRAM_CHAT_ID=
 
 - `EXECUTION_MODE=paper`: 내부 가상계좌 엔진을 써. 기본값이야.
 - `EXECUTION_MODE=live`: KIS 실계좌 주문 경로를 써.
+- `LIVE_PERFORMANCE_STARTING_EQUITY_KRW=5000000`: 실계좌 통합 수익률 기준 평가금액이야. `/api/performance/summary`는 이 값을 시작 자산으로 보고 현재 총 평가금액 대비 수익률을 계산해.
 - `/api/system/mode`: `EXECUTION_MODE`만 기준으로 모드를 보여줘. 별도 모드 변수로 우회하지 않아.
 - `WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted`: OpenAI 리서치 buy 판단이 품질/리스크를 통과하면 퀀트 entry 없이도 주문 검토로 올라갈 수 있어.
 - `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS=6000`: 리서치 JSON 잘림을 피하려고 현재 기준값으로 둬.

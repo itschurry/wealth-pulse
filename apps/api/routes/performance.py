@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config.settings import RUNTIME_DIR
+from config.settings import LIVE_PERFORMANCE_STARTING_EQUITY_KRW, RUNTIME_DIR
 from services.execution_lifecycle import coerce_order_id
 from services.execution_service import _current_execution_mode, _normalize_runtime_account
 from services.runtime_account_cache import read_cached_live_runtime_account
@@ -96,6 +96,22 @@ def _resolve_live_performance_baseline(
     current_key = _baseline_account_key(account)
     existing = _read_json_file(_LIVE_PERFORMANCE_BASELINE_PATH)
     existing_key = str(existing.get("account_key") or "")
+    configured_starting_equity = _safe_float(LIVE_PERFORMANCE_STARTING_EQUITY_KRW)
+    if configured_starting_equity > 0:
+        payload = dict(existing) if existing_key == current_key else {}
+        payload.update({
+            "account_key": current_key,
+            "captured_at": str(
+                existing.get("captured_at")
+                if existing_key == current_key
+                else datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+            ),
+            "starting_equity_krw": round(configured_starting_equity, 2),
+            "initial_cash_krw": round(configured_starting_equity, 2),
+        })
+        _write_json_file(_LIVE_PERFORMANCE_BASELINE_PATH, payload)
+        return payload
+
     existing_equity = _safe_float(existing.get("starting_equity_krw"))
     if existing_key == current_key and existing_equity > 0:
         return existing
@@ -108,7 +124,7 @@ def _resolve_live_performance_baseline(
         "account_key": current_key,
         "captured_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "starting_equity_krw": round(inferred_starting_equity, 2),
-        "initial_cash_krw": round(cash_krw, 2),
+        "initial_cash_krw": round(inferred_starting_equity, 2),
     }
     _write_json_file(_LIVE_PERFORMANCE_BASELINE_PATH, payload)
     return payload

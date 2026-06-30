@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     telegram_enabled: bool = Field(default=False, alias="TELEGRAM_ENABLED")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+    live_performance_starting_equity_krw: float = Field(
+        default=0.0,
+        alias="LIVE_PERFORMANCE_STARTING_EQUITY_KRW",
+    )
 
     @property
     def effective_fred_api_key(self) -> str:
@@ -102,6 +106,7 @@ DART_API_KEY = settings.effective_dart_api_key
 OPENAI_API_KEY = settings.openai_api_key
 OPENAI_RESEARCH_MODEL = settings.openai_research_model
 OPENAI_RESEARCH_MAX_OUTPUT_TOKENS = settings.openai_research_max_output_tokens
+LIVE_PERFORMANCE_STARTING_EQUITY_KRW = settings.live_performance_starting_equity_krw
 
 KIS_APP_KEY = settings.kis_app_key
 KIS_APP_SECRET = settings.kis_app_secret
