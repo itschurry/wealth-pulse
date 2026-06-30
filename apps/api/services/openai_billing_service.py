@@ -5,13 +5,16 @@ import json
 import os
 import urllib.parse
 import urllib.request
+import urllib.error
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from config.settings import OPENAI_ADMIN_KEY
 
 
 OPENAI_USAGE_URL = "https://api.openai.com/v1/organization/usage/completions"
 OPENAI_COSTS_URL = "https://api.openai.com/v1/organization/costs"
+KST = ZoneInfo("Asia/Seoul")
 
 
 def _admin_key() -> str:
@@ -21,10 +24,13 @@ def _admin_key() -> str:
     return key
 
 
-def _month_bounds() -> tuple[int, int, str]:
-    now = datetime.now(UTC)
-    start = datetime(now.year, now.month, 1, tzinfo=UTC)
-    return int(start.timestamp()), int(now.timestamp()), start.date().isoformat()
+def _month_bounds() -> tuple[int, int, int, str]:
+    now = datetime.now(KST)
+    start = datetime(now.year, now.month, 1, tzinfo=KST)
+    start_time = int(start.timestamp())
+    end_time = int(now.timestamp())
+    query_end_time = max(end_time, start_time + 86400)
+    return start_time, end_time, query_end_time, start.date().isoformat()
 
 
 def _get_json(url: str, params: dict[str, str | int], *, timeout: int = 20) -> dict[str, Any]:
@@ -37,8 +43,12 @@ def _get_json(url: str, params: dict[str, str | int], *, timeout: int = 20) -> d
             "Accept": "application/json",
         },
     )
-    with urllib.request.urlopen(request, timeout=max(1, int(timeout))) as response:
-        parsed = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=max(1, int(timeout))) as response:
+            parsed = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"openai_billing_http_{exc.code}:{body}") from None
     if not isinstance(parsed, dict):
         raise RuntimeError("openai_billing_response_invalid")
     return parsed
@@ -84,10 +94,10 @@ def _sum_costs(data: dict[str, Any]) -> tuple[float, str]:
 
 
 def get_openai_billing_summary() -> dict[str, Any]:
-    start_time, end_time, month_start = _month_bounds()
+    start_time, end_time, query_end_time, month_start = _month_bounds()
     common_params = {
         "start_time": start_time,
-        "end_time": end_time,
+        "end_time": query_end_time,
         "bucket_width": "1d",
         "limit": 31,
     }
@@ -98,8 +108,9 @@ def get_openai_billing_summary() -> dict[str, Any]:
     return {
         "ok": True,
         "period": "month_to_date",
+        "timezone": "Asia/Seoul",
         "month_start": month_start,
-        "end_time": datetime.fromtimestamp(end_time, tz=UTC).isoformat(),
+        "end_time": datetime.fromtimestamp(end_time, tz=KST).isoformat(),
         "cost": {
             "amount": round(cost_total, 6),
             "currency": currency,
