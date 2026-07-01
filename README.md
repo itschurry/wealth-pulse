@@ -31,15 +31,15 @@ browser
 
 ```bash
 cp apps/api/.env.example apps/api/.env
-docker compose up -d --build api web
+docker compose up -d --build api web research-loop
 curl http://127.0.0.1:8001/health
 open http://127.0.0.1:8081
 ```
 
-장중에 후보 발굴과 OpenAI 리서치를 계속 돌릴 때는 `research-loop`까지 올려.
+자동매매 운영 배포에선 `research-loop`를 같이 빌드해야 해. `api web`만 빌드하면 리서치 루프 이미지가 예전 코드로 남을 수 있어.
 
 ```bash
-docker compose up -d --build api web research-loop
+docker compose logs -f research-loop
 ```
 
 서비스는 이렇게 떠.
@@ -55,7 +55,7 @@ docker compose up -d --build api web research-loop
 재기동은 이거면 돼.
 
 ```bash
-docker compose up -d --force-recreate api web
+docker compose up -d --force-recreate api web research-loop
 docker compose ps
 curl http://127.0.0.1:8001/health
 ```
@@ -660,8 +660,8 @@ OpenAI 리서치를 볼 때:
 기본 검증은 Docker 기준으로 해.
 
 ```bash
-docker compose build api web
-docker compose up -d --force-recreate api web
+docker compose build api web research-loop
+docker compose up -d --force-recreate api web research-loop
 curl http://127.0.0.1:8001/health
 git diff --check
 ```
