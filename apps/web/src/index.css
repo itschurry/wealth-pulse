@@ -1301,6 +1301,30 @@ button:disabled {
   min-width: 0;
 }
 
+.wealth-portfolio-total {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.wealth-portfolio-total span {
+  color: var(--text-4);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wealth-portfolio-total strong {
+  color: var(--text-1);
+  font-size: 23px;
+  font-weight: 500;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 .wealth-chart-body {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);
@@ -1771,6 +1795,19 @@ button:disabled {
   font-size: 17px;
   font-weight: 700;
   color: var(--text-1);
+}
+
+.wealth-data-main.is-return {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.wealth-return-amount {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .wealth-data-meta {
@@ -5270,6 +5307,14 @@ body {
   .wealth-summary-cell {
     gap: 5px;
     padding-top: 14px;
+  }
+
+  .wealth-portfolio-total {
+    justify-items: start;
+  }
+
+  .wealth-portfolio-total strong {
+    text-align: left;
   }
 
   .wealth-summary-cell .wealth-kpi-label {

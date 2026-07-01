@@ -263,17 +263,16 @@ export function WealthPulseHomePage({
   const totalUnrealizedPnlKrw = positions.reduce((sum, item) => sum + item.unrealizedPnlKrw, 0);
   const totalEquityKrw = toNumber(portfolioAccount.equity_krw) || toNumber(engineState.current_equity) || toNumber(engineAccount.equity_krw);
   const cashKrw = toNumber(portfolioAccount.cash_krw) || toNumber(engineAccount.cash_krw);
-  const todayRealizedPnlKrw = toNumber(engineState.today_realized_pnl);
   const totalBookValueKrw = Math.max(totalEquityKrw, totalMarketValueKrw + cashKrw, 1);
   const livePerformance = snapshot.performance.live || {};
   const totalReturnPct = toOptionalNumber(livePerformance.total_return_pct);
   const positionReturnPct = toOptionalNumber(livePerformance.position_return_pct);
-  const positionReturnKrwPct = toOptionalNumber(livePerformance.position_return_pct_krw);
   const startingEquityKrw = toNumber(livePerformance.starting_equity_krw);
   const performanceEquityKrw = toNumber(livePerformance.equity_krw) || totalEquityKrw;
+  const totalReturnKrw = performanceEquityKrw - startingEquityKrw;
   const positionCostKrw = toNumber(livePerformance.position_cost_krw) || Math.max(0, totalMarketValueKrw - totalUnrealizedPnlKrw);
   const positionMarketValueKrw = toNumber(livePerformance.position_market_value_krw) || totalMarketValueKrw;
-  const positionUnrealizedKrwOnly = toNumber(livePerformance.position_unrealized_pnl_krw_only);
+  const positionReturnKrw = toNumber(livePerformance.position_unrealized_pnl_krw);
 
   const kospiExposureKrw = positions
     .filter((item) => marketLabel(item.market) === 'KOSPI')
@@ -409,22 +408,13 @@ export function WealthPulseHomePage({
 
             <div className="wealth-hero-grid">
               <div>
-                <div className="wealth-kpi-label">총자산</div>
-                <div className="wealth-hero-number">{formatKRWExact(totalEquityKrw)}</div>
+                <div className="wealth-kpi-label">운용 상태</div>
+                <div className="wealth-hero-number">{engineStatusLabel}</div>
                 <div className="wealth-hero-subline">
-                  <span>원화 현금 {formatKRWExact(cashKrw)}</span>
                   <span>{formatDateTimeWithAge(snapshot.fetchedAt)}</span>
                 </div>
               </div>
               <div className="wealth-hero-metrics">
-                <div>
-                  <span>오늘 손익</span>
-                  <strong className={toneForNumber(todayRealizedPnlKrw)}>{formatSignedKRWExact(todayRealizedPnlKrw)}</strong>
-                </div>
-                <div>
-                  <span>평가손익</span>
-                  <strong className={toneForNumber(totalUnrealizedPnlKrw)}>{formatSignedKRWExact(totalUnrealizedPnlKrw)}</strong>
-                </div>
                 <div>
                   <span>리스크</span>
                   <strong className={riskGuardAllowed ? 'is-up' : 'is-down'}>{riskGuardAllowed ? '열림' : '잠김'}</strong>
@@ -432,6 +422,14 @@ export function WealthPulseHomePage({
                 <div>
                   <span>리서치</span>
                   <strong>{researchSourceLabel}</strong>
+                </div>
+                <div>
+                  <span>보유</span>
+                  <strong>{formatNumber(positions.length, 0)}종목</strong>
+                </div>
+                <div>
+                  <span>오늘 주문</span>
+                  <strong>매수 {formatNumber(buyOrders, 0)} / 매도 {formatNumber(sellOrders, 0)}</strong>
                 </div>
               </div>
             </div>
@@ -501,7 +499,11 @@ export function WealthPulseHomePage({
               <div className="section-head-row">
                 <div>
                   <div className="section-title">포트폴리오</div>
-                  <div className="section-copy">보유 {formatNumber(positions.length, 0)}종목 · 평가 {formatKRWExact(totalMarketValueKrw)}</div>
+                  <div className="section-copy">보유 {formatNumber(positions.length, 0)}종목 · 평가 {formatKRWExact(totalMarketValueKrw)} · 현금 {formatKRWExact(cashKrw)}</div>
+                </div>
+                <div className="wealth-portfolio-total">
+                  <span>총자산</span>
+                  <strong>{formatKRWExact(totalEquityKrw)}</strong>
                 </div>
               </div>
               <div className="wealth-chart-body">
@@ -536,18 +538,27 @@ export function WealthPulseHomePage({
               <div className="wealth-data-list">
                 <div className={`wealth-data-row ${toneForNumber(totalReturnPct)}`.trim()}>
                   <div className="wealth-data-label">통합 수익률</div>
-                  <div className="wealth-data-main">{totalReturnPct == null ? '-' : formatPercent(totalReturnPct, 2)}</div>
+                  <div className="wealth-data-main is-return">
+                    {totalReturnPct == null ? '-' : (
+                      <>
+                        {formatPercent(totalReturnPct, 2)}
+                        <span className="wealth-return-amount">({formatSignedKRWExact(totalReturnKrw)})</span>
+                      </>
+                    )}
+                  </div>
                   <div className="wealth-data-meta">{formatKRWExact(startingEquityKrw)} → {formatKRWExact(performanceEquityKrw)}</div>
                 </div>
                 <div className={`wealth-data-row ${toneForNumber(positionReturnPct)}`.trim()}>
                   <div className="wealth-data-label">보유 수익률</div>
-                  <div className="wealth-data-main">{positionReturnPct == null ? '-' : formatPercent(positionReturnPct, 2)}</div>
+                  <div className="wealth-data-main is-return">
+                    {positionReturnPct == null ? '-' : (
+                      <>
+                        {formatPercent(positionReturnPct, 2)}
+                        <span className="wealth-return-amount">({formatSignedKRWExact(positionReturnKrw)})</span>
+                      </>
+                    )}
+                  </div>
                   <div className="wealth-data-meta">투자 {formatKRWExact(positionCostKrw)} / 평가 {formatKRWExact(positionMarketValueKrw)}</div>
-                </div>
-                <div className="wealth-data-row">
-                  <div className="wealth-data-label">KOSPI 수익률</div>
-                  <div className="wealth-data-main">{positionReturnKrwPct == null ? '-' : formatPercent(positionReturnKrwPct, 2)}</div>
-                  <div className="wealth-data-meta">평가손익 {formatKRWExact(positionUnrealizedKrwOnly)}</div>
                 </div>
               </div>
             </div>
