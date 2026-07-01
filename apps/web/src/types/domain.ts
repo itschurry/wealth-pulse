@@ -464,15 +464,31 @@ export interface CandidateMonitorSlot {
   snapshot_generated_at?: string;
   snapshot_research_score?: number | null;
   validation_grade?: string;
+  snapshot_rating?: string;
+  snapshot_action?: string;
   final_action?: string;
   signal_state?: string;
   slot_type?: 'held' | 'core' | 'promotion' | string;
   priority?: number;
+  monitor_priority?: number;
   reason?: string;
+  selection_reason?: string;
+  reason_codes?: string[];
+  candidate_sources?: string[];
   bluechip?: boolean;
   bluechip_reason?: string;
   allocation_mode?: string;
   cap_source?: string;
+  technical_snapshot?: {
+    current_price?: number | null;
+    close?: number | null;
+    change_pct?: number | null;
+    trading_value?: number | null;
+    volume?: number | null;
+    source?: string;
+    fetched_at?: string;
+    quote_fetched_at?: string;
+  };
 }
 
 export interface CandidateMonitorPromotionEvent {

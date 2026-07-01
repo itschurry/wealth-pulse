@@ -50,7 +50,7 @@ def build_market_watchlist(
             promotion_limit=promotion_limit,
             source=source,
         )
-        return dict(result["watchlist"])
+        return _with_research_state(dict(result["watchlist"]))
     result = read_market_pipeline(
         normalized_market,
         account=account,
@@ -58,7 +58,7 @@ def build_market_watchlist(
         core_limit=core_limit,
         promotion_limit=promotion_limit,
     )
-    return dict(result["watchlist"])
+    return _with_research_state(dict(result["watchlist"]))
 
 
 def get_market_watchlist(market: str) -> dict[str, Any]:
@@ -108,6 +108,38 @@ def _ranked_from_watchlist(watchlist: Mapping[str, Any]) -> dict[str, Any]:
         "candidates": list(watchlist.get("candidate_pool") or []),
         "active_slots": list(watchlist.get("active_slots") or []),
     }
+
+
+def _with_research_state(watchlist: dict[str, Any]) -> dict[str, Any]:
+    queue = build_research_queue(
+        _ranked_from_watchlist(watchlist),
+        provider=DEFAULT_RESEARCH_PROVIDER,
+        mode="all",
+        limit=len(watchlist.get("active_slots") or []),
+    )
+    reviewed = [item for item in queue.get("reviewed_items") or [] if isinstance(item, dict)]
+    if not reviewed:
+        return watchlist
+    by_symbol = {
+        str(item.get("symbol") or item.get("code") or "").strip().upper(): item
+        for item in reviewed
+        if str(item.get("symbol") or item.get("code") or "").strip()
+    }
+
+    def enrich(rows: list[Any]) -> list[dict[str, Any]]:
+        enriched: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            symbol = str(row.get("symbol") or row.get("code") or "").strip().upper()
+            enriched.append(dict(by_symbol.get(symbol) or row))
+        return enriched
+
+    watchlist["active_slots"] = enrich(list(watchlist.get("active_slots") or []))
+    watchlist["core_slots"] = enrich(list(watchlist.get("core_slots") or []))
+    watchlist["promotion_slots"] = enrich(list(watchlist.get("promotion_slots") or []))
+    watchlist["held_slots"] = enrich(list(watchlist.get("held_slots") or []))
+    return watchlist
 
 
 def list_pending_research_targets(

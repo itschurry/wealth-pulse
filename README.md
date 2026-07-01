@@ -228,7 +228,7 @@ storage/
 후보 생성은 `services/trading_pipeline` 하나로 고정했어. 예전처럼 정적 유니버스, 전략별 스캔, 별도 후보 DB를 섞지 않아.
 
 ```text
-FinanceDataReader KOSPI listing
+Naver mobile stock list: marketValue + up
   -> trading_pipeline.universe.build_dynamic_universe()
   -> trading_pipeline.scanner.scan_universe()
   -> trading_pipeline.ranker.rank_candidates()
@@ -239,7 +239,7 @@ FinanceDataReader KOSPI listing
 
 핵심 파일:
 
-- `services/trading_pipeline/universe.py`: KRX 상장 목록에서 가격/거래대금 기준 동적 유니버스 생성
+- `services/trading_pipeline/universe.py`: 네이버 장중 종목 리스트에서 보통주만 읽고 가격/거래대금 기준 동적 유니버스 생성
 - `services/trading_pipeline/scanner.py`: 거래대금, 등락률, 거래량으로 후보 발굴
 - `services/trading_pipeline/ranker.py`: scanner 점수를 active slot 우선순위로 변환
 - `services/trading_pipeline/research_queue.py`: 리서치 snapshot이 없거나 낡은 후보만 pending으로 분리
@@ -251,7 +251,7 @@ FinanceDataReader KOSPI listing
 
 - 시장: `KOSPI`
 - 최소 가격: `1,000원`
-- 최소 거래대금: `50억`
+- 최소 거래대금: `50억`. 상승률이 보여도 거래대금이 이 기준보다 낮으면 보유 종목이 아닌 이상 후보에서 빠진다.
 - 기본 pool: `100`
 - active slot: `core 24 + promotion 8 + held`
 

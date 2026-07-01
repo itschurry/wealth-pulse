@@ -91,6 +91,7 @@ def scan_universe(universe: Mapping[str, Any], *, max_candidates: int = 120) -> 
                     "market_cap": row.get("market_cap"),
                     "source": row.get("source"),
                     "fetched_at": universe.get("generated_at"),
+                    "quote_fetched_at": row.get("quote_fetched_at"),
                 },
             }
         )

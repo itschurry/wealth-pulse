@@ -21,7 +21,7 @@ import type {
   CandidateResearchSnapshot,
   LiveMarketResponse,
 } from '../types/domain';
-import { formatDateTime, formatDateTimeWithAge, formatNumber, formatPercent } from '../utils/format';
+import { formatDateTime, formatDateTimeWithAge, formatKRW, formatNumber, formatPercent } from '../utils/format';
 
 interface CandidateResearchPageProps {
   snapshot: ConsoleSnapshot;
@@ -125,6 +125,10 @@ function ratioPercentValue(value: number | null | undefined): string {
 }
 
 function candidateStatusBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
+  const status = String(item.research_status || '').toLowerCase();
+  if (status === 'fresh' || status === 'healthy' || status === 'derived') return { label: '최신', tone: 'inline-badge is-success' };
+  if (status === 'stale' || status === 'stale_ingest' || status === 'invalid') return { label: '지연', tone: 'inline-badge is-danger' };
+  if (status === 'missing') return { label: '없음', tone: 'inline-badge' };
   if (!item.snapshot_exists) return { label: '없음', tone: 'inline-badge' };
   if (item.snapshot_fresh) return { label: '최신', tone: 'inline-badge is-success' };
   return { label: '지연', tone: 'inline-badge is-danger' };
@@ -136,9 +140,12 @@ function pendingCandidateBadge(item: CandidateMonitorSlot): { label: string; ton
 }
 
 function candidateActionBadge(item: CandidateMonitorSlot): { label: string; tone: string } {
-  const action = String(item.final_action || '').trim().toLowerCase();
+  const action = String(item.final_action || item.snapshot_action || '').trim().toLowerCase();
   if (action === 'review_for_entry') return { label: '진입 검토', tone: 'inline-badge is-success' };
+  if (action === 'buy') return { label: '매수', tone: 'inline-badge is-success' };
+  if (action === 'buy_watch') return { label: '매수 관찰', tone: 'inline-badge is-success' };
   if (action === 'watch_only') return { label: '관찰', tone: 'inline-badge' };
+  if (action === 'hold') return { label: '보류', tone: 'inline-badge' };
   if (action === 'blocked') return { label: '차단', tone: 'inline-badge is-danger' };
   if (action === 'do_not_touch') return { label: '보류', tone: 'inline-badge' };
   return { label: action || '-', tone: 'inline-badge' };
@@ -170,6 +177,47 @@ function candidateRankDisplay(value: number | null | undefined): string {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0 || numeric >= 999999) return '-';
   return formatNumber(numeric, 0);
+}
+
+function candidatePrice(item: CandidateMonitorSlot): number | null {
+  const technical = item.technical_snapshot || {};
+  const value = Number(technical.current_price ?? technical.close);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function candidateChangePct(item: CandidateMonitorSlot): number | null {
+  const value = Number(item.technical_snapshot?.change_pct);
+  return Number.isFinite(value) ? value : null;
+}
+
+function candidateTradingValue(item: CandidateMonitorSlot): number | null {
+  const value = Number(item.technical_snapshot?.trading_value);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function formatCompactKRW(value: number | null): string {
+  if (value == null) return '-';
+  if (value >= 1_000_000_000_000) return `${formatNumber(value / 1_000_000_000_000, 1)}조`;
+  if (value >= 100_000_000) return `${formatNumber(value / 100_000_000, 0)}억`;
+  return formatKRW(value, true);
+}
+
+function changeTone(value: number | null): string {
+  if (value == null || value === 0) return 'is-neutral';
+  return value > 0 ? 'is-up' : 'is-down';
+}
+
+function researchScoreDisplay(item: CandidateMonitorSlot): string {
+  const value = Number(item.snapshot_research_score);
+  return Number.isFinite(value) ? formatNumber(value, 2) : '-';
+}
+
+function candidateReasonDisplay(item: CandidateMonitorSlot): string {
+  const sources = Array.isArray(item.candidate_sources) && item.candidate_sources.length > 0
+    ? item.candidate_sources
+    : item.reason_codes;
+  const reason = item.selection_reason || item.reason || (Array.isArray(sources) ? sources[0] : '');
+  return reasonCodeToKorean(String(reason || '-'));
 }
 
 function promotionEventBadge(item: CandidateMonitorPromotionEvent): { label: string; tone: string } {
@@ -400,17 +448,17 @@ function MonitorSlotSection({
       ) : (
         <>
           <div className="workspace-table-scroll is-ten-rows">
-            <table className="workspace-table" style={{ minWidth: 1100 }}>
+            <table className="workspace-table research-watch-table" style={{ minWidth: 1040 }}>
               <thead>
                 <tr>
                   <th>종목</th>
+                  <th>가격</th>
                   <th>슬롯</th>
-                  <th>전략</th>
                   <th>순위</th>
-                  <th>점수</th>
-                  <th>상태</th>
-                  <th>최근</th>
+                  <th>리서치</th>
                   <th>액션</th>
+                  <th>최근</th>
+                  <th>근거</th>
                 </tr>
               </thead>
               <tbody>
@@ -423,6 +471,9 @@ function MonitorSlotSection({
                   const bluechip = bluechipBadge(item);
                   const market = item.market || 'KOSPI';
                   const symbol = item.symbol || item.code || '';
+                  const price = candidatePrice(item);
+                  const changePct = candidateChangePct(item);
+                  const tradingValue = candidateTradingValue(item);
                   return (
                     <tr
                       key={`${market}-${symbol}-${item.strategy_id || idx}`}
@@ -431,23 +482,34 @@ function MonitorSlotSection({
                     >
                       <td><SymbolIdentity code={symbol} name={item.name} market={item.market} /></td>
                       <td>
+                        <div className="research-price-stack">
+                          <strong>{formatCompactKRW(price)}</strong>
+                          <span className={`research-change ${changeTone(changePct)}`}>{changePct == null ? '-' : formatPercent(changePct, 2)}</span>
+                        </div>
+                      </td>
+                      <td>
                         <div className="workspace-chip-row">
                           <span className={slot.tone}>{slot.label}</span>
                         </div>
                       </td>
-                      <td>{item.strategy_name || item.strategy_id || '-'}</td>
                       <td>{candidateRankDisplay(item.candidate_rank)}</td>
-                      <td className="workspace-number-cell">{item.snapshot_research_score == null ? '-' : formatNumber(item.snapshot_research_score, 2)}</td>
                       <td>
-                        <div className="workspace-chip-row">
-                          <span className={status.tone}>{status.label}</span>
-                          {grade ? <span className={grade.tone}>{grade.label}</span> : null}
-                          {bluechip ? <span className={bluechip.tone}>{bluechip.label}</span> : null}
-                          {highlightPending ? <span className={pending.tone}>{pending.label}</span> : null}
+                        <div className="research-score-stack">
+                          <strong>{researchScoreDisplay(item)}</strong>
+                          <div className="workspace-chip-row">
+                            <span className={status.tone}>{status.label}</span>
+                            {grade ? <span className={grade.tone}>{grade.label}</span> : null}
+                            {bluechip ? <span className={bluechip.tone}>{bluechip.label}</span> : null}
+                            {highlightPending ? <span className={pending.tone}>{pending.label}</span> : null}
+                          </div>
                         </div>
                       </td>
-                      <td>{item.snapshot_generated_at ? formatDateTime(item.snapshot_generated_at) : '없음'}</td>
                       <td><span className={action.tone}>{action.label}</span></td>
+                      <td>{item.snapshot_generated_at ? formatDateTimeWithAge(item.snapshot_generated_at) : '없음'}</td>
+                      <td>
+                        <div className="signal-cell-copy">{candidateReasonDisplay(item)}</div>
+                        <div className="signal-cell-copy">거래대금 {formatCompactKRW(tradingValue)}</div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -465,6 +527,9 @@ function MonitorSlotSection({
               const bluechip = bluechipBadge(item);
               const market = item.market || 'KOSPI';
               const symbol = item.symbol || item.code || '';
+              const price = candidatePrice(item);
+              const changePct = candidateChangePct(item);
+              const tradingValue = candidateTradingValue(item);
               return (
                 <article
                   key={`${market}-${symbol}-${item.strategy_id || idx}-card`}
@@ -476,7 +541,7 @@ function MonitorSlotSection({
                       <div className="responsive-card-title">
                         <SymbolIdentity code={symbol} name={item.name} market={item.market} compact />
                       </div>
-                      <div className="signal-cell-copy">{item.strategy_name || item.strategy_id || '-'} · 순위 {candidateRankDisplay(item.candidate_rank)}</div>
+                      <div className="signal-cell-copy">순위 {candidateRankDisplay(item.candidate_rank)} · {candidateReasonDisplay(item)}</div>
                     </div>
                     <span className={action.tone}>{action.label}</span>
                   </div>
@@ -489,12 +554,20 @@ function MonitorSlotSection({
                   </div>
                   <div className="responsive-card-grid">
                     <div>
-                      <div className="responsive-card-label">시장</div>
-                      <div className="responsive-card-value">{item.market || '-'}</div>
+                      <div className="responsive-card-label">가격</div>
+                      <div className="responsive-card-value">{formatCompactKRW(price)} · <span className={`research-change ${changeTone(changePct)}`}>{changePct == null ? '-' : formatPercent(changePct, 2)}</span></div>
+                    </div>
+                    <div>
+                      <div className="responsive-card-label">리서치</div>
+                      <div className="responsive-card-value">{researchScoreDisplay(item)} · {status.label}</div>
                     </div>
                     <div>
                       <div className="responsive-card-label">최근</div>
-                      <div className="responsive-card-value">{item.snapshot_generated_at ? formatDateTime(item.snapshot_generated_at) : '없음'}</div>
+                      <div className="responsive-card-value">{item.snapshot_generated_at ? formatDateTimeWithAge(item.snapshot_generated_at) : '없음'}</div>
+                    </div>
+                    <div>
+                      <div className="responsive-card-label">거래대금</div>
+                      <div className="responsive-card-value">{formatCompactKRW(tradingValue)}</div>
                     </div>
                   </div>
                 </article>

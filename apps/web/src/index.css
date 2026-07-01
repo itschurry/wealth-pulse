@@ -5050,6 +5050,44 @@ body {
   color: var(--text-1) !important;
 }
 
+.research-watch-table th,
+.research-watch-table td {
+  vertical-align: middle;
+}
+
+.research-price-stack,
+.research-score-stack {
+  display: grid;
+  gap: 4px;
+  min-width: 92px;
+}
+
+.research-price-stack strong,
+.research-score-stack strong {
+  font-size: 15px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+
+.research-change {
+  font-size: 14px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.research-change.is-up {
+  color: var(--tone-danger-fg);
+}
+
+.research-change.is-down {
+  color: var(--tone-info-fg);
+}
+
+.research-change.is-neutral {
+  color: var(--text-3);
+}
+
 .research-snapshot-panel {
   display: grid;
   gap: 12px;
