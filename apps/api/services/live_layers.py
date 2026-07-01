@@ -9,7 +9,7 @@ from services.research_scoring import ResearchScoreRequest, get_research_scorer
 _AGENT_EXECUTION_MODES = {"quant_gated_agent", "agent_primary_quant_assisted", "agent_only"}
 DEFAULT_AGENT_EXECUTION_MODE = "agent_primary_quant_assisted"
 _BUY_RATINGS = {"strong_buy", "overweight"}
-_BUY_ACTIONS = {"buy", "buy_watch"}
+_BUY_ACTIONS = {"buy"}
 _NEGATIVE_RATINGS = {"underweight", "sell"}
 _NEGATIVE_ACTIONS = {"reduce", "sell", "block"}
 _ENTRY_MIN_CLOSE_VS_SMA = 1.0

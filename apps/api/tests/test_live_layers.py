@@ -19,7 +19,7 @@ def _base_research(**overrides: object) -> dict:
         "research_unavailable": False,
         "warnings": [],
         "rating": "overweight",
-        "action": "buy_watch",
+        "action": "buy",
         "confidence": 0.72,
         "validation": {"grade": "B"},
         "technical_features": {
@@ -79,6 +79,20 @@ class LiveLayerDecisionTests(unittest.TestCase):
         self.assertEqual(layer["final_action"], "watch_only")
         self.assertFalse(layer["quant_decision"]["order_ready"])
         self.assertEqual(layer["agent_decision"]["quality_gate"], "weak_trend_or_volume")
+
+    def test_buy_watch_never_becomes_order_ready(self) -> None:
+        layer = build_layer_e_snapshot(
+            signal_state="entry",
+            quant_score=91,
+            research=_base_research(action="buy_watch", confidence=0.9),
+            risk={"blocked": False},
+            timestamp="2026-07-01T02:25:00+00:00",
+            source_context={"execution_mode": "agent_primary_quant_assisted"},
+        )
+
+        self.assertEqual(layer["final_action"], "watch_only")
+        self.assertFalse(layer["quant_decision"]["order_ready"])
+        self.assertFalse(layer["agent_decision"]["order_ready"])
 
 
 if __name__ == "__main__":

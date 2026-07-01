@@ -351,7 +351,7 @@ OpenAI 출력 계약:
 - 허용 action: `buy`, `buy_watch`, `hold`, `reduce`, `sell`, `block`
 - 기본 snapshot TTL: 15분. agent payload와 research store 기본값이 같아.
 
-`buy` 또는 `buy_watch`가 ingest 되려면 조건이 빡세.
+`buy` 또는 `buy_watch`가 ingest 되려면 조건이 빡세. 단, live 신규 매수로 승격되는 action은 `buy`뿐이야. `buy_watch`는 감시용으로만 남긴다.
 
 - 최근 72시간 안의 신뢰 가능한 뉴스가 있어야 해
 - 뉴스는 URL과 `published_at`이 있어야 해
@@ -399,6 +399,7 @@ Layer E: quant + agent + risk를 합쳐 final_action 결정
 Layer E에서 `review_for_entry`가 나오려면 대체로 이 조건이 맞아야 해.
 
 - `signal_state`가 entry거나 agent buy 판단이 충분해야 해
+- Layer C action이 `buy`여야 해. `buy_watch`는 `watch_only`로 끝나야 해
 - Layer C research가 fresh/healthy/derived 상태여야 해
 - research validation grade가 A 또는 B여야 해
 - source quality가 충분해야 해
@@ -444,7 +445,7 @@ _auto_trader_loop()
 ```
 
 런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
-장중 자동매매 기본 주기는 `60`초야. 신규 매수는 동적 watchlist active slot만 본다. 리서치가 `buy` 또는 `buy_watch` 계열이고, Layer E가 `review_for_entry`를 내고, `size_recommendation.quantity > 0`일 때만 주문 후보가 된다. 리서치 `hold`는 점수가 높아도 신규 매수로 승격하지 않는다.
+장중 자동매매 기본 주기는 `60`초야. 신규 매수는 동적 watchlist active slot만 본다. 리서치 action이 `buy`이고, Layer E가 `review_for_entry`를 내고, `size_recommendation.quantity > 0`일 때만 주문 후보가 된다. 리서치 `buy_watch`와 `hold`는 점수가 높아도 신규 매수로 승격하지 않는다.
 교체 매도는 교체 매수 수량이 현재 계좌 기준으로 이미 1주 이상 나올 때만 실행하고, 매도해서 생길 현금을 가정하지 않는다. rotation 매도는 기본 `min_holding_minutes=30`을 지나야 가능하다. 손절/익절은 이 제한보다 먼저 처리된다.
 
 `paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.
