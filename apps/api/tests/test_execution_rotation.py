@@ -13,6 +13,7 @@ from services.execution_service import (
     _allows_rotation_candidate,
     _candidate_leadership_rank,
     _candidate_unit_price_local,
+    _buy_capacity_block_reason_from_orders,
     _promote_operator_review_candidate_for_entry,
     _promote_priority_candidate_for_entry,
     _position_exit_reason_by_pnl,
@@ -60,6 +61,51 @@ def _primary_buy_snapshot() -> dict:
 
 
 class ExecutionRotationTests(unittest.TestCase):
+    def test_buy_capacity_block_reason_after_repeated_orderable_zero(self) -> None:
+        orders = [
+            {
+                "timestamp": "2026-07-10T03:52:16+00:00",
+                "success": False,
+                "side": "buy",
+                "failure_reason": "domestic_orderable_quantity_zero",
+            },
+            {
+                "timestamp": "2026-07-10T03:53:16+00:00",
+                "success": False,
+                "side": "buy",
+                "failure_reason": "domestic_orderable_quantity_zero",
+            },
+            {
+                "timestamp": "2026-07-10T03:54:16+00:00",
+                "success": False,
+                "side": "buy",
+                "failure_reason": "domestic_orderable_quantity_zero",
+            },
+        ]
+
+        self.assertEqual(
+            _buy_capacity_block_reason_from_orders(orders, "2026-07-10"),
+            "domestic_orderable_quantity_zero",
+        )
+
+    def test_buy_capacity_block_reason_ignores_other_days_and_sells(self) -> None:
+        orders = [
+            {
+                "timestamp": "2026-07-09T03:52:16+00:00",
+                "success": False,
+                "side": "buy",
+                "failure_reason": "domestic_orderable_quantity_zero",
+            },
+            {
+                "timestamp": "2026-07-10T03:53:16+00:00",
+                "success": False,
+                "side": "sell",
+                "failure_reason": "domestic_orderable_quantity_zero",
+            },
+        ]
+
+        self.assertEqual(_buy_capacity_block_reason_from_orders(orders, "2026-07-10"), "")
+
     def test_pnl_exit_uses_stop_loss_take_profit_and_trailing_profit(self) -> None:
         self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -5.0}, {}, "KOSPI"), "손절")
         self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -4.99}, {}, "KOSPI"))

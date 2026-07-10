@@ -89,6 +89,8 @@ _ENTRY_MIN_VOLUME_RATIO = 0.8
 _ACTIVE_TRADING_INTERVAL_SECONDS = 60
 _STALE_RUNTIME_STATE_KEYS = {"optimized_params"}
 _STALE_RUNTIME_CONFIG_KEYS = {"validation_require_optimized_reliability"}
+_BUY_CAPACITY_FAILURE_REASONS = {"domestic_orderable_quantity_zero"}
+_BUY_CAPACITY_FAILURE_DAILY_BLOCK_THRESHOLD = 3
 
 _auto_trader_lock = threading.Lock()
 _auto_trader_cycle_lock = threading.Lock()
@@ -628,14 +630,51 @@ def _hydrate_live_runtime_account(
     return normalized
 
 
+def _runtime_order_attempts(account: dict, account_mode: str, *, limit: int = 500) -> list[dict[str, Any]]:
+    account_orders = account.get("orders", []) if isinstance(account.get("orders"), list) else []
+    event_orders = _filter_order_events_for_runtime_mode(read_order_events(limit=limit), account_mode)
+    attempts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for order in [*event_orders, *account_orders]:
+        if not isinstance(order, dict):
+            continue
+        key = str(order.get("order_id") or order.get("trace_id") or "").strip()
+        if not key:
+            key = "|".join(
+                str(order.get(field) or "")
+                for field in ("timestamp", "submitted_at", "filled_at", "side", "market", "code", "quantity", "failure_reason")
+            )
+        if key in seen:
+            continue
+        seen.add(key)
+        attempts.append(order)
+    return attempts
+
+
+def _buy_capacity_block_reason_from_orders(orders: list[dict[str, Any]], today: str) -> str:
+    reason_counts: dict[str, int] = {}
+    for order in orders:
+        if not isinstance(order, dict) or order.get("success") is not False:
+            continue
+        if str(order.get("side") or "").lower() != "buy":
+            continue
+        order_day = _order_day(str(order.get("filled_at") or order.get("ts") or order.get("submitted_at") or order.get("timestamp") or ""))
+        if order_day != today:
+            continue
+        reason = str(order.get("failure_reason") or order.get("reason_code") or order.get("message") or "").strip()
+        if reason not in _BUY_CAPACITY_FAILURE_REASONS:
+            continue
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    for reason, count in reason_counts.items():
+        if count >= _BUY_CAPACITY_FAILURE_DAILY_BLOCK_THRESHOLD:
+            return reason
+    return ""
+
 
 def _today_order_counts(account: dict) -> dict[str, int]:
     today = _today_kst_str()
     account_mode = str(account.get("mode") or _current_execution_mode()).strip().lower()
-    orders = _filter_order_events_for_runtime_mode(
-        account.get("orders", []) if isinstance(account.get("orders"), list) else [],
-        account_mode,
-    )
+    orders = _runtime_order_attempts(account, account_mode, limit=300)
     counts = {
         "buy": 0,
         "sell": 0,
@@ -651,12 +690,8 @@ def _today_order_counts(account: dict) -> dict[str, int]:
             lifecycle_state = "filled"
         if side in {"buy", "sell"} and lifecycle_state in {"filled", "partial_fill"}:
             counts[side] += 1
-    recent_failures = _filter_order_events_for_runtime_mode(
-        read_order_events(limit=300),
-        account_mode,
-    )
-    for item in recent_failures:
-        if str(item.get("timestamp") or "").startswith(today) and not bool(item.get("success")):
+    for item in orders:
+        if _order_day(str(item.get("filled_at") or item.get("ts") or item.get("submitted_at") or item.get("timestamp") or "")) == today and item.get("success") is False:
             counts["failed"] += 1
     return counts
 
@@ -690,7 +725,7 @@ def _order_failure_summary() -> dict[str, Any]:
         reason = str(item.get("failure_reason")
                      or "order_failed").strip() or "order_failed"
         reason_counts[reason] = reason_counts.get(reason, 0) + 1
-        if "현금이 부족" not in reason:
+        if "현금이 부족" not in reason and reason not in _BUY_CAPACITY_FAILURE_REASONS:
             continue
         insufficient_cash_failed += 1
         market = str(item.get("market") or "").upper()
@@ -2261,8 +2296,9 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     )
     account_mode = str(account.get("mode") or "paper").strip().lower()
 
-    orders = account.get("orders", [])
+    orders = _runtime_order_attempts(account, account_mode, limit=500)
     today = _today_kst_str()
+    buy_capacity_block_reason = _buy_capacity_block_reason_from_orders(orders, today)
     daily_buy_limit = int(cfg.get("daily_buy_limit", 20))
     daily_sell_limit = int(cfg.get("daily_sell_limit", 20))
     max_orders_per_symbol = int(cfg.get("max_orders_per_symbol_per_day", 1))
@@ -2474,6 +2510,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "failure_reason": failure_reason,
                     "reason_code": failure_reason,
                     "message": failure_reason,
+                    "orderable_amount": result.get("orderable_amount"),
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{code}",
                 })
@@ -2898,7 +2935,14 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 })
                 if slots <= 0:
                     continue
-        for candidate in effective_candidates:
+        if buy_capacity_block_reason:
+            skipped.append({
+                "market": market,
+                "reason": buy_capacity_block_reason,
+                "message": "오늘 주문가능수량 0 실패가 반복돼 신규 매수를 중단합니다.",
+            })
+
+        for candidate in ([] if buy_capacity_block_reason else effective_candidates):
             code = str(candidate.get("code") or "").upper()
             additional_buy = bool(code and code in held_codes and _candidate_allows_additional_buy(candidate, cfg))
             if buy_count >= daily_buy_limit:
