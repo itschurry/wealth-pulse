@@ -548,7 +548,7 @@ class SimulatedExecutionEngine:
                 liquidation_reason = "trailing_profit_stop"
 
             if liquidation_reason:
-                if not is_market_open(market):
+                if not is_market_open(market, include_after_hours=True):
                     position["pending_liquidation_reason"] = liquidation_reason
                     continue
                 position.pop("pending_liquidation_reason", None)

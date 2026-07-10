@@ -206,6 +206,13 @@ def _session_payload(market: str, label: str) -> dict:
     elif minutes < window.open_minutes:
         status = "pre_open"
         status_label = "장전"
+    elif (
+        window.after_hours_open_minutes is not None
+        and window.after_hours_close_minutes is not None
+        and window.after_hours_open_minutes <= minutes < window.after_hours_close_minutes
+    ):
+        status = "after_hours"
+        status_label = "애프터마켓"
     else:
         status = "after_close"
         status_label = "장마감"

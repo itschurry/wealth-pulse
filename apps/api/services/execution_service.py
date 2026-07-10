@@ -2156,8 +2156,8 @@ def _auto_invest_picks(
         return {"ok": False, "error": f"{target_market}은 현재 운용 시장이 아닙니다."}
 
     calendar_market = "KR"
-    if not is_market_open(calendar_market):
-        return {"ok": False, "error": f"{target_market} 정규장 시간이 아닙니다. 장중에만 거래가 가능합니다."}
+    if not is_market_open(calendar_market, include_after_hours=True):
+        return {"ok": False, "error": f"{target_market} 주문 가능 시간이 아닙니다. 정규장 또는 애프터마켓에만 거래가 가능합니다."}
 
     filter_cfg = _default_auto_trader_config()
     filter_cfg.update({
@@ -2389,7 +2389,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
 
     for market in markets:
         calendar_market = _MARKET_TO_CALENDAR.get(market, market)
-        if not is_market_open(calendar_market):
+        if not is_market_open(calendar_market, include_after_hours=True):
             closed_markets.append(market)
             candidate_counts_by_market[market] = 0
             skipped.append({

@@ -21,6 +21,8 @@ class MarketSessionWindow:
     time_zone: ZoneInfo
     open_minutes: int
     close_minutes: int
+    after_hours_open_minutes: int | None = None
+    after_hours_close_minutes: int | None = None
 
 
 SESSION_WINDOWS: dict[str, MarketSessionWindow] = {
@@ -29,6 +31,8 @@ SESSION_WINDOWS: dict[str, MarketSessionWindow] = {
         time_zone=KST_ZONE,
         open_minutes=9 * 60,
         close_minutes=15 * 60 + 30,
+        after_hours_open_minutes=15 * 60 + 40,
+        after_hours_close_minutes=18 * 60,
     ),
 }
 
@@ -68,15 +72,28 @@ def is_market_trading_day(market: str, now: datetime | None = None) -> bool:
     return local_dt.date() not in calendar
 
 
-def is_market_open(market: str, now: datetime | None = None) -> bool:
-    """현재 시각이 정규장(개장~폐장) 내인지 판정."""
+def is_market_open(
+    market: str,
+    now: datetime | None = None,
+    *,
+    include_after_hours: bool = False,
+) -> bool:
+    """현재 시각이 주문 가능 세션인지 판정."""
     normalized = _normalize_market(market)
     if not is_market_trading_day(normalized, now):
         return False
     local_dt = get_market_local_dt(normalized, now)
     minutes = local_dt.hour * 60 + local_dt.minute
     window = SESSION_WINDOWS[normalized]
-    return window.open_minutes <= minutes < window.close_minutes
+    if window.open_minutes <= minutes < window.close_minutes:
+        return True
+    if (
+        include_after_hours
+        and window.after_hours_open_minutes is not None
+        and window.after_hours_close_minutes is not None
+    ):
+        return window.after_hours_open_minutes <= minutes < window.after_hours_close_minutes
+    return False
 
 
 def is_market_half_hour_slot(market: str, now: datetime | None = None) -> bool:
