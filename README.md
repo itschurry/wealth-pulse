@@ -451,6 +451,7 @@ _auto_trader_loop()
 런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 추가로 한 번이라도 `+3%` 이상 수익을 본 포지션은 최고 수익률 대비 `3%p` 이상 밀리면 `트레일링익절`로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
 장중 자동매매 기본 주기는 `60`초야. 신규 매수는 동적 watchlist active slot만 본다. 리서치 action이 `buy`이거나 품질 좋은 `buy_watch`이고, Layer E가 `review_for_entry`를 내고, `size_recommendation.quantity > 0`일 때만 주문 후보가 된다. `hold`는 점수가 높아도 신규 매수로 승격하지 않는다.
 KIS가 매수 주문가능수량 `0`을 반복 반환하면 같은 날 신규 매수를 중단한다. 이 실패는 `domestic_orderable_quantity_zero`로 기록되고, 실패 주문도 일일 주문 제한과 종목별 주문 제한 카운트에 포함된다.
+실거래 주문은 KIS 접수 성공만으로 체결 완료로 보지 않는다. `filled_at`이 없는 실거래 주문은 `submitted` 상태로 남기고, 실제 보유/현금 판단은 이후 계좌 refresh 결과를 기준으로 본다.
 교체 매도는 교체 매수 수량이 현재 계좌 기준으로 이미 1주 이상 나올 때만 실행하고, 매도해서 생길 현금을 가정하지 않는다. rotation 매도는 기본 `min_holding_minutes=30`을 지나야 가능하다. 손절/익절은 이 제한보다 먼저 처리된다.
 
 `paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.
