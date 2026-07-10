@@ -434,7 +434,7 @@ _auto_trader_loop()
   -> _run_auto_trader_cycle()
   -> runtime account 조회
   -> 시장 개장 여부 확인
-  -> 보유 포지션 수익률 exit 조건 확인(-5% 손절, +12% 익절)
+  -> 보유 포지션 수익률 exit 조건 확인(-5% 손절, +12% 익절, +3% 이후 고점 대비 -3%p 트레일링익절)
   -> 기술지표 보조 exit 조건 확인
   -> build_signal_book()
   -> allowed entry 후보 선택

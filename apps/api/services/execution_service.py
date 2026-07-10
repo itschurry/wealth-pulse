@@ -72,6 +72,8 @@ _ALLOWED_THEME_FOCUS = set(_DEFAULT_THEME_FOCUS)
 
 _RUNTIME_STOP_LOSS_PCT = 5.0
 _RUNTIME_TAKE_PROFIT_PCT = 12.0
+_RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT = 3.0
+_RUNTIME_TRAILING_PROFIT_DROP_PCT = 3.0
 _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
     "KOSPI": _RUNTIME_TAKE_PROFIT_PCT,
 }
@@ -907,6 +909,7 @@ def _normalize_runtime_account(
             "unrealized_pnl_local": profit_loss,
             "unrealized_pnl_krw": unrealized_pnl_krw,
             "unrealized_pnl_pct": profit_loss_rate,
+            "peak_unrealized_pnl_pct": item.get("peak_unrealized_pnl_pct"),
             "orderable_quantity": int(_to_float(item.get("orderable_quantity"), 0.0) or 0),
         })
 
@@ -2075,7 +2078,22 @@ def _position_exit_reason_by_pnl(position: dict[str, Any], _cfg: dict, _market: 
         return "손절"
     if take_profit_pct is not None and pnl_pct >= abs(take_profit_pct):
         return "익절"
+    peak_pnl_pct = _to_float(position.get("peak_unrealized_pnl_pct"), pnl_pct)
+    if (
+        peak_pnl_pct is not None
+        and peak_pnl_pct >= _RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT
+        and peak_pnl_pct - pnl_pct >= _RUNTIME_TRAILING_PROFIT_DROP_PCT
+    ):
+        return "트레일링익절"
     return None
+
+
+def _refresh_trailing_profit_peak(position: dict[str, Any]) -> None:
+    pnl_pct = _position_pnl_pct(position)
+    if pnl_pct is None:
+        return
+    previous_peak = _to_float(position.get("peak_unrealized_pnl_pct"), pnl_pct)
+    position["peak_unrealized_pnl_pct"] = max(float(previous_peak), float(pnl_pct))
 
 
 def _auto_invest_picks(
@@ -2344,6 +2362,12 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             position for position in account.get("positions", [])
             if str(position.get("market") or "").upper() == market
         ]
+        trailing_profit_peaks = _auto_trader_state.setdefault("trailing_profit_peaks", {})
+        if isinstance(trailing_profit_peaks, dict):
+            held_keys = {f"{market}:{str(position.get('code') or '').upper()}" for position in market_positions}
+            for peak_key in list(trailing_profit_peaks.keys()):
+                if str(peak_key).startswith(f"{market}:") and peak_key not in held_keys:
+                    trailing_profit_peaks.pop(peak_key, None)
 
         sell_count = _count_orders(market, "sell")
         for position in market_positions:
@@ -2353,6 +2377,12 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             pos_name = str(position.get("name") or code)
             if _symbol_order_count(market, "sell", code) >= max_orders_per_symbol:
                 continue
+            peak_key = f"{market}:{code}"
+            if isinstance(trailing_profit_peaks, dict) and peak_key in trailing_profit_peaks:
+                position["peak_unrealized_pnl_pct"] = trailing_profit_peaks.get(peak_key)
+            _refresh_trailing_profit_peak(position)
+            if isinstance(trailing_profit_peaks, dict) and position.get("peak_unrealized_pnl_pct") not in (None, ""):
+                trailing_profit_peaks[peak_key] = position.get("peak_unrealized_pnl_pct")
             reason = _position_exit_reason_by_pnl(position, cfg, market)
             if not reason:
                 technicals, tech_error = _load_technicals(code, market)
@@ -2388,6 +2418,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 order_type="market",
             )
             if result.get("ok"):
+                if isinstance(trailing_profit_peaks, dict):
+                    trailing_profit_peaks.pop(peak_key, None)
                 sell_count += 1
                 event = result.get("event") or {}
                 executed_sells.append(
@@ -2410,7 +2442,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "message": "",
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{code}",
-                    "trigger_type": "pnl_exit" if reason in {"손절", "익절"} else "indicator_exit",
+                    "trigger_type": "pnl_exit" if reason in {"손절", "익절", "트레일링익절"} else "indicator_exit",
                     "quote_source": event.get("quote_source"),
                     "quote_fetched_at": event.get("quote_fetched_at"),
                     "quote_is_stale": event.get("quote_is_stale"),

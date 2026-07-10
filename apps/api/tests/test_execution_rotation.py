@@ -15,6 +15,8 @@ from services.execution_service import (
     _candidate_unit_price_local,
     _promote_operator_review_candidate_for_entry,
     _promote_priority_candidate_for_entry,
+    _position_exit_reason_by_pnl,
+    _refresh_trailing_profit_peak,
     _select_rotation_plan,
     _should_attempt_rotation,
 )
@@ -58,6 +60,37 @@ def _primary_buy_snapshot() -> dict:
 
 
 class ExecutionRotationTests(unittest.TestCase):
+    def test_pnl_exit_uses_stop_loss_take_profit_and_trailing_profit(self) -> None:
+        self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -5.0}, {}, "KOSPI"), "손절")
+        self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -4.99}, {}, "KOSPI"))
+        self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": 12.0}, {}, "KOSPI"), "익절")
+        self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": 11.99}, {}, "KOSPI"))
+
+        self.assertEqual(
+            _position_exit_reason_by_pnl(
+                {"unrealized_pnl_pct": 5.0, "peak_unrealized_pnl_pct": 8.0},
+                {},
+                "KOSPI",
+            ),
+            "트레일링익절",
+        )
+        self.assertIsNone(
+            _position_exit_reason_by_pnl(
+                {"unrealized_pnl_pct": 0.0, "peak_unrealized_pnl_pct": 2.99},
+                {},
+                "KOSPI",
+            )
+        )
+
+    def test_refresh_trailing_profit_peak_only_raises_peak(self) -> None:
+        position = {"unrealized_pnl_pct": 4.0}
+        _refresh_trailing_profit_peak(position)
+        self.assertEqual(position["peak_unrealized_pnl_pct"], 4.0)
+
+        position["unrealized_pnl_pct"] = 2.0
+        _refresh_trailing_profit_peak(position)
+        self.assertEqual(position["peak_unrealized_pnl_pct"], 4.0)
+
     def test_watch_bluechip_high_score_does_not_rotate(self) -> None:
         candidate = {
             "code": "000660",

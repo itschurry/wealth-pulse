@@ -15,6 +15,8 @@ from market_utils import lookup_company_listing
 
 _RUNTIME_STOP_LOSS_PCT = 5.0
 _RUNTIME_TAKE_PROFIT_PCT = 12.0
+_RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT = 3.0
+_RUNTIME_TRAILING_PROFIT_DROP_PCT = 3.0
 
 
 # ── 인터페이스 ────────────────────────────────────────────────────────────────
@@ -525,15 +527,25 @@ class SimulatedExecutionEngine:
             position["unrealized_pnl_local"] = unrealized_local
             position["unrealized_pnl_krw"] = unrealized_krw
             position["unrealized_pnl_pct"] = unrealized_pct
+            position["peak_unrealized_pnl_pct"] = max(
+                _to_float(position.get("peak_unrealized_pnl_pct")) or unrealized_pct,
+                unrealized_pct,
+            )
             position["updated_at"] = _now_iso()
 
             sl = _RUNTIME_STOP_LOSS_PCT
             tp = _RUNTIME_TAKE_PROFIT_PCT
+            peak_pct = _to_float(position.get("peak_unrealized_pnl_pct")) or unrealized_pct
             liquidation_reason = None
             if sl is not None and unrealized_pct <= -sl:
                 liquidation_reason = "stop_loss"
             elif tp is not None and unrealized_pct >= tp:
                 liquidation_reason = "take_profit"
+            elif (
+                peak_pct >= _RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT
+                and peak_pct - unrealized_pct >= _RUNTIME_TRAILING_PROFIT_DROP_PCT
+            ):
+                liquidation_reason = "trailing_profit_stop"
 
             if liquidation_reason:
                 if not is_market_open(market):

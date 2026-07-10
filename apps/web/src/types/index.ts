@@ -422,6 +422,7 @@ export interface RuntimePosition {
   market_value_krw: number;
   unrealized_pnl_krw: number;
   unrealized_pnl_pct: number;
+  peak_unrealized_pnl_pct?: number | null;
   updated_at?: string;
 }
 
