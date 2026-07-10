@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from config.market_calendar import is_market_open
+from config.market_calendar import SESSION_WINDOWS, get_market_local_dt, is_market_open
 from market_utils import lookup_company_listing
 
 
@@ -17,6 +17,8 @@ _RUNTIME_STOP_LOSS_PCT = 5.0
 _RUNTIME_TAKE_PROFIT_PCT = 12.0
 _RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT = 3.0
 _RUNTIME_TRAILING_PROFIT_DROP_PCT = 3.0
+_KIS_AFTER_HOURS_CLOSE_ORDER_DIVISION = "06"
+_KIS_AFTER_HOURS_SINGLE_PRICE_ORDER_DIVISION = "07"
 
 
 # ── 인터페이스 ────────────────────────────────────────────────────────────────
@@ -808,6 +810,8 @@ class LiveBrokerExecutionEngine:
 
         normalized_code = code.strip().upper()
         normalized_order_type = order_type.strip().lower()
+        requested_order_type = normalized_order_type
+        after_hours_order_division = _domestic_after_hours_order_division(normalized_market)
 
         # 주문 가격 결정
         if normalized_order_type == "limit":
@@ -822,7 +826,14 @@ class LiveBrokerExecutionEngine:
             price = 0  # 시장가 주문 시 0 입력
 
         try:
-            requested_order_type = normalized_order_type
+            if after_hours_order_division:
+                quote = self.quote_provider(normalized_code, "KOSPI")
+                quote_price = _to_float(quote.get("price"))
+                if quote_price is None or quote_price <= 0:
+                    raise ValueError("after_hours_quote_unavailable")
+                price = int(round(limit_price if limit_price and limit_price > 0 else quote_price))
+                order_division = after_hours_order_division
+                normalized_order_type = "limit"
             requested_quantity = quantity
             orderable_amount: dict[str, Any] | None = None
             if normalized_side == "buy":
@@ -864,8 +875,9 @@ class LiveBrokerExecutionEngine:
                 order_type=normalized_order_type,
                 price=price,
                 result=result,
+                order_division=order_division,
                 requested_quantity=requested_quantity if normalized_side == "buy" else quantity,
-                requested_order_type=requested_order_type if normalized_side == "buy" else normalized_order_type,
+                requested_order_type=requested_order_type,
                 orderable_amount=orderable_amount,
             )
             return {"ok": True, "mode": "live", "event": event, **result}
@@ -928,6 +940,7 @@ class LiveBrokerExecutionEngine:
         order_type: str,
         price: int | float,
         result: dict[str, Any],
+        order_division: str,
         requested_quantity: int | None = None,
         requested_order_type: str | None = None,
         orderable_amount: dict[str, Any] | None = None,
@@ -948,6 +961,7 @@ class LiveBrokerExecutionEngine:
             "notional_krw": None,
             "status": "submitted",
             "live_order_price": price,
+            "order_division": order_division,
             "raw": result.get("raw") or {},
         }
         if requested_quantity is not None:
@@ -979,6 +993,24 @@ class LiveBrokerExecutionEngine:
 
 
 # ── 유틸 ─────────────────────────────────────────────────────────────────────
+
+def _domestic_after_hours_order_division(market: str, now: datetime.datetime | None = None) -> str | None:
+    normalized_market = (market or "").strip().upper()
+    if normalized_market not in {"KOSPI", "KR", "KRX"}:
+        return None
+
+    local_dt = get_market_local_dt("KR", now)
+    window = SESSION_WINDOWS["KR"]
+    minutes = local_dt.hour * 60 + local_dt.minute
+    if window.after_hours_open_minutes is None or window.after_hours_close_minutes is None:
+        return None
+
+    after_hours_close_end_minutes = 16 * 60
+    if window.after_hours_open_minutes <= minutes < after_hours_close_end_minutes:
+        return _KIS_AFTER_HOURS_CLOSE_ORDER_DIVISION
+    if after_hours_close_end_minutes <= minutes < window.after_hours_close_minutes:
+        return _KIS_AFTER_HOURS_SINGLE_PRICE_ORDER_DIVISION
+    return None
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
