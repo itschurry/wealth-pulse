@@ -83,7 +83,7 @@ _ROTATION_PRIORITY_MIN_SCORE = 90.0
 _ROTATION_PRIORITY_MIN_RESEARCH_SCORE = 0.75
 _ROTATION_MIN_HOLDING_MINUTES = 30
 _ENTRY_BUY_RATINGS = {"strong_buy", "overweight"}
-_ENTRY_BUY_ACTIONS = {"buy"}
+_ENTRY_BUY_ACTIONS = {"buy", "buy_watch"}
 _ENTRY_MIN_CLOSE_VS_SMA = 1.0
 _ENTRY_MIN_VOLUME_RATIO = 0.8
 _ACTIVE_TRADING_INTERVAL_SECONDS = 60
@@ -1603,6 +1603,12 @@ def _candidate_entry_trend_ok(candidate: dict[str, Any]) -> bool:
     close_vs_sma20 = _to_float(features.get("close_vs_sma20"), 0.0)
     close_vs_sma60 = _to_float(features.get("close_vs_sma60"), 0.0)
     volume_ratio = _to_float(features.get("volume_ratio"), 0.0)
+    _rating, action = _candidate_research_rating_action(candidate)
+    if action == "buy_watch":
+        return (
+            (close_vs_sma20 >= _ENTRY_MIN_CLOSE_VS_SMA or close_vs_sma60 >= _ENTRY_MIN_CLOSE_VS_SMA)
+            and volume_ratio >= 0.35
+        )
     return (
         close_vs_sma20 >= _ENTRY_MIN_CLOSE_VS_SMA
         and close_vs_sma60 >= _ENTRY_MIN_CLOSE_VS_SMA

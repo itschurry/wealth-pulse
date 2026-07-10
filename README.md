@@ -118,6 +118,7 @@ TELEGRAM_CHAT_ID=
 - `WEALTHPULSE_RESEARCH_DRY_RUN=0`: `1`이면 후보만 모으고 OpenAI 호출은 안 해.
 - `DART_API_KEY`: 있으면 OpenDART 공시 evidence를 붙여.
 - `KIS_*`: 현재가 조회, 실계좌 모드, 브로커 상태 확인에 필요해.
+- 리서치 소스팩은 후보 모니터의 Naver 실시간 가격/거래대금에 FinanceDataReader 기반 `close_vs_sma20`, `close_vs_sma60`, `volume_ratio`, `rsi14`를 병합해. 이 추세 지표가 있어야 `review_for_entry`로 올라갈 수 있어.
 
 현재 운용 시장:
 
@@ -169,6 +170,8 @@ React 앱은 라우터 라이브러리 없이 `App.tsx`에서 URL path를 해석
 - `/watchlist`: 사용자 관심 종목
 - `/lab/strategies`: 전략 프리셋
 - `/lab/universe`: 유니버스
+
+`buy_watch` / `watch_only`는 기본적으로 관찰 신호야. 다만 `overweight + buy_watch`가 fresh/healthy 리서치, A/B 검증, 최소 추세/거래량, 리스크 게이트를 통과하면 소액 주문 검토인 `review_for_entry`까지 승격될 수 있어.
 
 콘솔 데이터는 `apps/web/src/hooks/useConsoleData.ts`가 페이지별 polling profile로 가져와.
 
@@ -351,7 +354,7 @@ OpenAI 출력 계약:
 - 허용 action: `buy`, `buy_watch`, `hold`, `reduce`, `sell`, `block`
 - 기본 snapshot TTL: 15분. agent payload와 research store 기본값이 같아.
 
-`buy` 또는 `buy_watch`가 ingest 되려면 조건이 빡세. 단, live 신규 매수로 승격되는 action은 `buy`뿐이야. `buy_watch`는 감시용으로만 남긴다.
+`buy` 또는 `buy_watch`가 ingest 되려면 조건이 빡세. live 신규 매수 승격은 `buy`가 기본이고, `buy_watch`는 아래 품질 조건과 최소 추세 조건을 추가로 통과할 때만 주문 검토 후보가 된다.
 
 - 최근 72시간 안의 신뢰 가능한 뉴스가 있어야 해
 - 뉴스는 URL과 `published_at`이 있어야 해
@@ -399,11 +402,12 @@ Layer E: quant + agent + risk를 합쳐 final_action 결정
 Layer E에서 `review_for_entry`가 나오려면 대체로 이 조건이 맞아야 해.
 
 - `signal_state`가 entry거나 agent buy 판단이 충분해야 해
-- Layer C action이 `buy`여야 해. `buy_watch`는 `watch_only`로 끝나야 해
+- Layer C action이 `buy`거나, `overweight + buy_watch`가 최소 추세 조건을 통과해야 해
 - Layer C research가 fresh/healthy/derived 상태여야 해
 - research validation grade가 A 또는 B여야 해
 - source quality가 충분해야 해
 - RSI/이평/거래량 같은 technical sanity가 깨지면 안 돼
+- `buy_watch` 승격은 `close_vs_sma20 >= 1.0` 또는 `close_vs_sma60 >= 1.0`이고, `volume_ratio >= 0.35`여야 해
 - Layer D risk가 막지 않아야 해
 
 ## 런타임 엔진 흐름
@@ -444,8 +448,8 @@ _auto_trader_loop()
   -> order_events, signal_snapshots, account_snapshots, engine_cycles 저장
 ```
 
-런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
-장중 자동매매 기본 주기는 `60`초야. 신규 매수는 동적 watchlist active slot만 본다. 리서치 action이 `buy`이고, Layer E가 `review_for_entry`를 내고, `size_recommendation.quantity > 0`일 때만 주문 후보가 된다. 리서치 `buy_watch`와 `hold`는 점수가 높아도 신규 매수로 승격하지 않는다.
+런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 추가로 한 번이라도 `+3%` 이상 수익을 본 포지션은 최고 수익률 대비 `3%p` 이상 밀리면 `트레일링익절`로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
+장중 자동매매 기본 주기는 `60`초야. 신규 매수는 동적 watchlist active slot만 본다. 리서치 action이 `buy`이거나 품질 좋은 `buy_watch`이고, Layer E가 `review_for_entry`를 내고, `size_recommendation.quantity > 0`일 때만 주문 후보가 된다. `hold`는 점수가 높아도 신규 매수로 승격하지 않는다.
 교체 매도는 교체 매수 수량이 현재 계좌 기준으로 이미 1주 이상 나올 때만 실행하고, 매도해서 생길 현금을 가정하지 않는다. rotation 매도는 기본 `min_holding_minutes=30`을 지나야 가능하다. 손절/익절은 이 제한보다 먼저 처리된다.
 
 `paper` 모드는 내부 가상계좌를 쓴다. 가상계좌 상태는 `storage/logs/runtime/accounts/simulated_account_state.json`에 저장돼.

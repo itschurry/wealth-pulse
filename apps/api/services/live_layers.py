@@ -9,7 +9,7 @@ from services.research_scoring import ResearchScoreRequest, get_research_scorer
 _AGENT_EXECUTION_MODES = {"quant_gated_agent", "agent_primary_quant_assisted", "agent_only"}
 DEFAULT_AGENT_EXECUTION_MODE = "agent_primary_quant_assisted"
 _BUY_RATINGS = {"strong_buy", "overweight"}
-_BUY_ACTIONS = {"buy"}
+_BUY_ACTIONS = {"buy", "buy_watch"}
 _NEGATIVE_RATINGS = {"underweight", "sell"}
 _NEGATIVE_ACTIONS = {"reduce", "sell", "block"}
 _ENTRY_MIN_CLOSE_VS_SMA = 1.0
@@ -73,13 +73,18 @@ def _technical_sanity_ok(research: dict[str, Any]) -> bool:
     return True
 
 
-def _entry_trend_ok(research: dict[str, Any]) -> bool:
+def _entry_trend_ok(research: dict[str, Any], *, action: str = "") -> bool:
     features = research.get("technical_features") if isinstance(research.get("technical_features"), dict) else {}
     close_vs_sma20 = _optional_float(features.get("close_vs_sma20"))
     close_vs_sma60 = _optional_float(features.get("close_vs_sma60"))
     volume_ratio = _optional_float(features.get("volume_ratio"))
     if close_vs_sma20 is None or close_vs_sma60 is None or volume_ratio is None:
         return False
+    if action == "buy_watch":
+        return (
+            (close_vs_sma20 >= _ENTRY_MIN_CLOSE_VS_SMA or close_vs_sma60 >= _ENTRY_MIN_CLOSE_VS_SMA)
+            and volume_ratio >= 0.35
+        )
     return (
         close_vs_sma20 >= _ENTRY_MIN_CLOSE_VS_SMA
         and close_vs_sma60 >= _ENTRY_MIN_CLOSE_VS_SMA
@@ -247,7 +252,7 @@ def build_layer_e_snapshot(*, signal_state: str, quant_score: float, research: d
     validation = research.get("validation") if isinstance(research.get("validation"), dict) else {}
     confidence_threshold = 0.75 if action == "buy" else 0.65
     technical_ok = _technical_sanity_ok(research)
-    entry_trend_ok = _entry_trend_ok(research)
+    entry_trend_ok = _entry_trend_ok(research, action=action)
     evidence_ok = _evidence_ok(research)
     quality = research.get("research_quality") if isinstance(research.get("research_quality"), dict) else {}
     validation_ok = _grade_allows_entry(validation)

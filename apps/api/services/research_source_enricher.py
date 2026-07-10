@@ -22,6 +22,7 @@ OPENDART_DISCLOSURE_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 DEFAULT_NEWS_LIMIT = 5
 DEFAULT_DART_LIMIT = 5
 DART_CORP_CODE_CACHE = CACHE_DIR / "opendart" / "corp_codes_by_stock.json"
+ENTRY_TECHNICAL_FIELDS = ("close_vs_sma20", "close_vs_sma60", "volume_ratio")
 
 
 def _text(value: Any) -> str:
@@ -289,7 +290,17 @@ def build_research_source_pack(target: dict[str, Any]) -> dict[str, Any]:
     dart_evidence = fetch_dart_disclosure_evidence(symbol=symbol, market=market)
     evidence = [*dart_evidence, *build_official_evidence(symbol=symbol, market=market, name=name)]
     target_technical = target.get("technical_snapshot") if isinstance(target.get("technical_snapshot"), dict) else {}
-    technical_features = target_technical or fetch_fdr_technical_features(symbol=symbol, market=market)
+    fdr_technical = fetch_fdr_technical_features(symbol=symbol, market=market)
+    technical_features: dict[str, Any] = {}
+    for source in (fdr_technical, target_technical):
+        for key, value in source.items():
+            if value not in (None, "", [], {}):
+                technical_features[key] = value
+    for field in ENTRY_TECHNICAL_FIELDS:
+        if technical_features.get(field) in (None, "") and fdr_technical.get(field) not in (None, ""):
+            technical_features[field] = fdr_technical.get(field)
+    if target_technical.get("source") and fdr_technical:
+        technical_features["source"] = f"{target_technical['source']}+{fdr_technical.get('source', 'finance-datareader')}"
     return {
         "news_inputs": news_inputs,
         "evidence": evidence,

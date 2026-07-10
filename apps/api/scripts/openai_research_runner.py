@@ -283,15 +283,18 @@ def _merge_analysis_with_target(analysis: dict[str, Any], target: dict[str, Any]
         merged["news_inputs"] = [*source_news, *[item for item in (merged.get("news_inputs") or []) if isinstance(item, dict)]]
     if source_evidence:
         merged["evidence"] = [*source_evidence, *[item for item in (merged.get("evidence") or []) if isinstance(item, dict)]]
-    if not isinstance(merged.get("technical_features"), dict) or not merged.get("technical_features"):
-        technical = target.get("technical_snapshot") if isinstance(target.get("technical_snapshot"), dict) else {}
-        if not technical:
-            source_pack = target.get("source_pack") if isinstance(target.get("source_pack"), dict) else {}
-            technical = source_pack.get("technical_features") if isinstance(source_pack.get("technical_features"), dict) else {}
-        merged["technical_features"] = _trim_dict(
-            technical,
-            ("current_price", "close", "change_pct", "volume_ratio", "rsi14", "atr14_pct", "close_vs_sma20", "close_vs_sma60", "source", "fetched_at"),
-        )
+    source_technical = source_pack.get("technical_features") if isinstance(source_pack.get("technical_features"), dict) else {}
+    target_technical = target.get("technical_snapshot") if isinstance(target.get("technical_snapshot"), dict) else {}
+    analysis_technical = merged.get("technical_features") if isinstance(merged.get("technical_features"), dict) else {}
+    technical: dict[str, Any] = {}
+    for source in (source_technical, target_technical, analysis_technical):
+        for key, value in source.items():
+            if value not in (None, "", [], {}):
+                technical[key] = value
+    merged["technical_features"] = _trim_dict(
+        technical,
+        ("current_price", "close", "change_pct", "volume_ratio", "rsi14", "atr14_pct", "close_vs_sma20", "close_vs_sma60", "source", "fetched_at"),
+    )
     data_quality = dict(merged.get("data_quality")) if isinstance(merged.get("data_quality"), dict) else {}
     data_quality.setdefault("analysis_mode", "agent_research")
     data_quality.setdefault("target_source", "candidate_monitor")
