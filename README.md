@@ -362,7 +362,8 @@ OpenAI 출력 계약:
 - `data_quality.has_news`, `has_recent_price`, `has_technical_features`가 true여야 해
 - `bear_case`, `catalysts`, `invalidation_trigger.condition`이 있어야 해
 - `technical_features`나 `trade_plan`에서 현재가를 읽을 수 있어야 해
-- `invalidation_trigger.stop_loss`, `trade_plan.stop_loss`, `trade_plan.take_profit`이 0이거나 비어 있으면 현재가 기준 손절 -5%, 익절 +12% 가격으로 정규화해
+- `trade_plan.entry_price`, `invalidation_trigger.stop_loss`, `trade_plan.stop_loss`, `trade_plan.take_profit`은 명시 숫자여야 해
+- 손절가는 현재가 기준 -5%로 자동 생성하지 않아. 빠지거나 0이면 ingest 실패야
 
 품질 게이트 위치:
 
@@ -438,7 +439,7 @@ _auto_trader_loop()
   -> _run_auto_trader_cycle()
   -> runtime account 조회
   -> 시장 개장 여부 확인
-  -> 보유 포지션 수익률 exit 조건 확인(-5% 손절, +12% 익절, +3% 이후 고점 대비 -3%p 트레일링익절)
+  -> 보유 포지션 가격/수익률 exit 조건 확인(thesis 손절, 익절가, 본전보호, 비상손절, 트레일링익절)
   -> 기술지표 보조 exit 조건 확인
   -> build_signal_book()
   -> allowed entry 후보 선택
@@ -448,8 +449,9 @@ _auto_trader_loop()
   -> order_events, signal_snapshots, account_snapshots, engine_cycles 저장
 ```
 
-런타임 청산 기준은 고정값이야. 보유 수익률이 `-5%` 이하이면 손절, `+12%` 이상이면 익절로 시장가 매도한다. 추가로 한 번이라도 `+3%` 이상 수익을 본 포지션은 최고 수익률 대비 `3%p` 이상 밀리면 `트레일링익절`로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
-자동매매 기본 주기는 `60`초야. 주문 가능 시간은 KRX 정규장 `09:00~15:30`과 애프터마켓 `15:40~18:00`이야. 프리마켓은 주문하지 않는다. 애프터마켓 주문은 KIS 주문구분 `06` 장후시간외(`15:40~16:00`), `07` 시간외단일가(`16:00~18:00`)로 낸다. 신규 매수는 동적 watchlist active slot만 본다. 리서치 action이 `buy`이거나 품질 좋은 `buy_watch`이고, Layer E가 `review_for_entry`를 내고, `size_recommendation.quantity > 0`일 때만 주문 후보가 된다. `hold`는 점수가 높아도 신규 매수로 승격하지 않는다.
+런타임 신규 매수는 `trade_plan.entry_price` 상한을 지켜. 현재가가 계획 진입가보다 `1.5%` 넘게 높으면 추격 매수로 보고 주문하지 않는다. `invalidation_trigger.stop_loss`/`trade_plan.stop_loss`는 thesis stop 가격이고, 현재 변동성 대비 너무 좁거나 `12%`보다 넓으면 주문하지 않는다. `trade_plan.take_profit`은 현재가 기준 최소 `1.5R` 보상비가 나와야 한다. 수량은 실제 stop 폭으로 다시 계산한다.
+런타임 청산은 stop 가격 기반 손절을 먼저 본다. 보유가 `trade_plan.take_profit` 가격 또는 `+12%` 이상에 닿으면 익절한다. 한 번이라도 `+2%` 이상 수익을 본 포지션이 `+0.2%` 이하로 밀리면 `본전보호`로 매도한다. 새 stop 가격이 없는 기존 포지션은 `-5%` 이하에서 `비상손절`한다. 추가로 한 번이라도 `+3%` 이상 수익을 본 포지션은 최고 수익률 대비 `3%p` 이상 밀리면 `트레일링익절`로 시장가 매도한다. 이 판단은 기술지표 조회 성공 여부와 분리돼.
+자동매매 기본 주기는 `60`초야. 주문 가능 시간은 KRX 정규장 `09:00~15:30`과 애프터마켓 `15:40~18:00`이야. 프리마켓은 주문하지 않는다. 애프터마켓 주문은 KIS 주문구분 `06` 장후시간외(`15:40~16:00`), `07` 시간외단일가(`16:00~18:00`)로 낸다. 신규 매수는 동적 watchlist active slot만 본다. 리서치 action이 `buy`이거나 품질 좋은 `buy_watch`이고, Layer E가 `review_for_entry`를 내고, 실행 risk plan과 `size_recommendation.quantity > 0`을 통과할 때만 주문 후보가 된다. `hold`는 점수가 높아도 신규 매수로 승격하지 않는다.
 KIS가 매수 주문가능수량 `0`을 반복 반환하면 같은 날 신규 매수를 중단한다. 이 실패는 `domestic_orderable_quantity_zero`로 기록되고, 실패 주문도 일일 주문 제한과 종목별 주문 제한 카운트에 포함된다.
 실거래 주문은 KIS 접수 성공만으로 체결 완료로 보지 않는다. `filled_at`이 없는 실거래 주문은 `submitted` 상태로 남기고, 실제 보유/현금 판단은 이후 계좌 refresh 결과를 기준으로 본다.
 교체 매도는 교체 매수 수량이 현재 계좌 기준으로 이미 1주 이상 나올 때만 실행하고, 매도해서 생길 현금을 가정하지 않는다. rotation 매도는 기본 `min_holding_minutes=30`을 지나야 가능하다. 손절/익절은 이 제한보다 먼저 처리된다.

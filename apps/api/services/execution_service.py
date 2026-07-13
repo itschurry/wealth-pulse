@@ -74,6 +74,13 @@ _RUNTIME_STOP_LOSS_PCT = 5.0
 _RUNTIME_TAKE_PROFIT_PCT = 12.0
 _RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT = 3.0
 _RUNTIME_TRAILING_PROFIT_DROP_PCT = 3.0
+_RUNTIME_BREAK_EVEN_ACTIVATION_PCT = 2.0
+_RUNTIME_BREAK_EVEN_FLOOR_PCT = 0.2
+_ENTRY_MAX_CHASE_PCT = 1.5
+_ENTRY_MIN_STOP_LOSS_PCT = 3.0
+_ENTRY_MAX_STOP_LOSS_PCT = 12.0
+_ENTRY_ATR_STOP_MULTIPLIER = 1.2
+_ENTRY_MIN_REWARD_RISK = 1.5
 _DEFAULT_TAKE_PROFIT_PCT_BY_MARKET = {
     "KOSPI": _RUNTIME_TAKE_PROFIT_PCT,
 }
@@ -456,6 +463,12 @@ def _hydrate_live_runtime_account(
                 position["stop_loss_pct"] = latest_buy.get("stop_loss_pct")
             if position.get("take_profit_pct") in (None, ""):
                 position["take_profit_pct"] = latest_buy.get("take_profit_pct")
+            if position.get("stop_loss_price") in (None, ""):
+                position["stop_loss_price"] = latest_buy.get("stop_loss_price")
+            if position.get("take_profit_price") in (None, ""):
+                position["take_profit_price"] = latest_buy.get("take_profit_price")
+            if position.get("entry_plan_price") in (None, ""):
+                position["entry_plan_price"] = latest_buy.get("entry_plan_price")
 
     if stored_entries.get(account_key) != next_registry:
         stored_entries[account_key] = next_registry
@@ -937,6 +950,9 @@ def _normalize_runtime_account(
             "last_price_krw": current_price_krw,
             "stop_loss_pct": item.get("stop_loss_pct"),
             "take_profit_pct": item.get("take_profit_pct"),
+            "stop_loss_price": item.get("stop_loss_price"),
+            "take_profit_price": item.get("take_profit_price"),
+            "entry_plan_price": item.get("entry_plan_price"),
             "fx_rate": fx_rate,
             "updated_at": str(item.get("updated_at") or _now_iso()),
             "market_value_usd": 0.0,
@@ -1827,6 +1843,163 @@ def _candidate_unit_price_local(candidate: dict[str, Any]) -> float:
     return 0.0
 
 
+def _positive_float(value: Any) -> float | None:
+    parsed = _to_float(value, None)
+    if parsed is None or parsed <= 0:
+        return None
+    return float(parsed)
+
+
+def _candidate_trade_plan(candidate: dict[str, Any]) -> dict[str, Any]:
+    layer_c = _candidate_layer_c(candidate)
+    trade_plan = layer_c.get("trade_plan") if isinstance(layer_c.get("trade_plan"), dict) else {}
+    return dict(trade_plan)
+
+
+def _candidate_invalidation(candidate: dict[str, Any]) -> dict[str, Any]:
+    layer_c = _candidate_layer_c(candidate)
+    invalidation = layer_c.get("invalidation_trigger") if isinstance(layer_c.get("invalidation_trigger"), dict) else {}
+    return dict(invalidation)
+
+
+def _candidate_entry_plan_price(candidate: dict[str, Any]) -> float | None:
+    trade_plan = _candidate_trade_plan(candidate)
+    for key in ("entry_price", "target_entry", "entry"):
+        value = _positive_float(trade_plan.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _candidate_stop_loss_price(candidate: dict[str, Any]) -> float | None:
+    trade_plan = _candidate_trade_plan(candidate)
+    invalidation = _candidate_invalidation(candidate)
+    for source in (trade_plan, invalidation):
+        for key in ("stop_loss", "stop_loss_price", "price"):
+            value = _positive_float(source.get(key))
+            if value is not None:
+                return value
+    return None
+
+
+def _candidate_take_profit_price(candidate: dict[str, Any]) -> float | None:
+    trade_plan = _candidate_trade_plan(candidate)
+    for key in ("take_profit", "take_profit_price", "target_price", "target"):
+        value = _positive_float(trade_plan.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _candidate_atr14_pct(candidate: dict[str, Any]) -> float | None:
+    features = _candidate_technical_features(candidate)
+    value = _positive_float(features.get("atr14_pct"))
+    if value is None:
+        return None
+    return value * 100.0 if value <= 1.0 else value
+
+
+def _candidate_execution_risk_plan(candidate: dict[str, Any]) -> dict[str, Any]:
+    current_price = _candidate_unit_price_local(candidate)
+    entry_price = _candidate_entry_plan_price(candidate)
+    stop_loss_price = _candidate_stop_loss_price(candidate)
+    take_profit_price = _candidate_take_profit_price(candidate)
+    if current_price <= 0:
+        return {"ok": False, "reason": "entry_current_price_required"}
+    if entry_price is None:
+        return {"ok": False, "reason": "entry_plan_price_required"}
+    if stop_loss_price is None:
+        return {"ok": False, "reason": "thesis_stop_loss_required"}
+    if take_profit_price is None:
+        return {"ok": False, "reason": "take_profit_price_required"}
+    max_entry_price = entry_price * (1.0 + _ENTRY_MAX_CHASE_PCT / 100.0)
+    if current_price > max_entry_price:
+        return {
+            "ok": False,
+            "reason": "entry_price_chased",
+            "current_price": round(current_price, 4),
+            "entry_plan_price": round(entry_price, 4),
+            "max_entry_price": round(max_entry_price, 4),
+        }
+    if stop_loss_price >= current_price:
+        return {"ok": False, "reason": "stop_loss_must_be_below_current_price"}
+    if take_profit_price <= current_price:
+        return {"ok": False, "reason": "take_profit_must_be_above_current_price"}
+
+    stop_loss_pct = ((current_price - stop_loss_price) / current_price) * 100.0
+    take_profit_pct = ((take_profit_price - current_price) / current_price) * 100.0
+    atr14_pct = _candidate_atr14_pct(candidate)
+    min_stop_pct = _ENTRY_MIN_STOP_LOSS_PCT
+    if atr14_pct is not None:
+        min_stop_pct = max(min_stop_pct, min(_ENTRY_MAX_STOP_LOSS_PCT, atr14_pct * _ENTRY_ATR_STOP_MULTIPLIER))
+    if stop_loss_pct < min_stop_pct:
+        return {
+            "ok": False,
+            "reason": "stop_loss_too_tight_for_volatility",
+            "stop_loss_pct": round(stop_loss_pct, 4),
+            "min_stop_loss_pct": round(min_stop_pct, 4),
+        }
+    if stop_loss_pct > _ENTRY_MAX_STOP_LOSS_PCT:
+        return {
+            "ok": False,
+            "reason": "stop_loss_too_wide",
+            "stop_loss_pct": round(stop_loss_pct, 4),
+            "max_stop_loss_pct": _ENTRY_MAX_STOP_LOSS_PCT,
+        }
+    reward_risk = take_profit_pct / stop_loss_pct
+    if reward_risk < _ENTRY_MIN_REWARD_RISK:
+        return {
+            "ok": False,
+            "reason": "reward_risk_too_low",
+            "reward_risk": round(reward_risk, 4),
+        }
+    return {
+        "ok": True,
+        "current_price": round(current_price, 4),
+        "entry_plan_price": round(entry_price, 4),
+        "max_entry_price": round(max_entry_price, 4),
+        "stop_loss_price": round(stop_loss_price, 4),
+        "take_profit_price": round(take_profit_price, 4),
+        "stop_loss_pct": round(stop_loss_pct, 4),
+        "take_profit_pct": round(take_profit_pct, 4),
+        "reward_risk": round(reward_risk, 4),
+        "atr14_pct": round(atr14_pct, 4) if atr14_pct is not None else None,
+    }
+
+
+def _resize_candidate_for_execution_risk(candidate: dict[str, Any], account: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    risk_plan = _candidate_execution_risk_plan(candidate)
+    updated = dict(candidate)
+    updated["execution_risk_plan"] = risk_plan
+    if not risk_plan.get("ok"):
+        return updated
+    ev_metrics = updated.get("ev_metrics") if isinstance(updated.get("ev_metrics"), dict) else {}
+    validation_snapshot = updated.get("validation_snapshot") if isinstance(updated.get("validation_snapshot"), dict) else {}
+    risk_guard_state = updated.get("risk_guard_state") if isinstance(updated.get("risk_guard_state"), dict) else {}
+    size_recommendation = recommend_position_size(
+        account=account,
+        market=str(updated.get("market") or "").upper(),
+        unit_price_local=_to_float(risk_plan.get("current_price"), 0.0),
+        stop_loss_pct=_to_float(risk_plan.get("stop_loss_pct"), 0.0),
+        expected_value=_to_float(ev_metrics.get("expected_value"), 0.0),
+        reliability=str(ev_metrics.get("reliability") or validation_snapshot.get("strategy_reliability") or "medium"),
+        risk_guard_state=risk_guard_state,
+        cfg=cfg,
+        symbol_key=f"{str(updated.get('market') or '').upper()}:{str(updated.get('code') or '').upper()}",
+        sector=str(updated.get("sector") or "미분류"),
+        allocation_mode=str(updated.get("allocation_mode") or cfg.get("allocation_mode") or "concentrated"),
+        bluechip=bool(updated.get("bluechip")),
+    )
+    risk_inputs = updated.get("risk_inputs") if isinstance(updated.get("risk_inputs"), dict) else {}
+    updated["risk_inputs"] = {
+        **risk_inputs,
+        "stop_loss_pct": risk_plan["stop_loss_pct"],
+        "take_profit_pct": risk_plan["take_profit_pct"],
+    }
+    updated["size_recommendation"] = size_recommendation
+    return updated
+
+
 def _account_after_rotation_sell(account: dict[str, Any], sell_item: dict[str, Any]) -> dict[str, Any]:
     updated = dict(account)
     sell_code = str(sell_item.get("code") or "").upper()
@@ -2113,13 +2286,28 @@ def _position_exit_reason_by_pnl(position: dict[str, Any], _cfg: dict, _market: 
     pnl_pct = _position_pnl_pct(position)
     if pnl_pct is None:
         return None
-    stop_loss_pct = _RUNTIME_STOP_LOSS_PCT
-    take_profit_pct = _RUNTIME_TAKE_PROFIT_PCT
-    if stop_loss_pct is not None and pnl_pct <= -abs(stop_loss_pct):
+    last_price = _positive_float(
+        position.get("last_price_local")
+        or position.get("current_price")
+        or position.get("last_price_krw")
+    )
+    stop_loss_price = _positive_float(position.get("stop_loss_price"))
+    take_profit_price = _positive_float(position.get("take_profit_price"))
+    if last_price is not None and stop_loss_price is not None and last_price <= stop_loss_price:
         return "손절"
-    if take_profit_pct is not None and pnl_pct >= abs(take_profit_pct):
+    if last_price is not None and take_profit_price is not None and last_price >= take_profit_price:
+        return "익절"
+    if pnl_pct >= abs(_RUNTIME_TAKE_PROFIT_PCT):
         return "익절"
     peak_pnl_pct = _to_float(position.get("peak_unrealized_pnl_pct"), pnl_pct)
+    if (
+        peak_pnl_pct is not None
+        and peak_pnl_pct >= _RUNTIME_BREAK_EVEN_ACTIVATION_PCT
+        and pnl_pct <= _RUNTIME_BREAK_EVEN_FLOOR_PCT
+    ):
+        return "본전보호"
+    if pnl_pct <= -abs(_RUNTIME_STOP_LOSS_PCT):
+        return "비상손절"
     if (
         peak_pnl_pct is not None
         and peak_pnl_pct >= _RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT
@@ -2216,6 +2404,12 @@ def _auto_invest_picks(
             skipped.append({"code": code, "reason": "already_holding"})
             continue
 
+        item = _resize_candidate_for_execution_risk(item, account, filter_cfg)
+        risk_plan = item.get("execution_risk_plan") if isinstance(item.get("execution_risk_plan"), dict) else {}
+        if not risk_plan.get("ok"):
+            skipped.append({"code": code, "reason": risk_plan.get("reason") or "execution_risk_blocked"})
+            continue
+
         size_recommendation = item.get("size_recommendation") if isinstance(
             item.get("size_recommendation"), dict) else {}
         quantity = int(size_recommendation.get("quantity") or 0)
@@ -2231,8 +2425,11 @@ def _auto_invest_picks(
             quantity=quantity,
             order_type="market",
             limit_price=None,
-            stop_loss_pct=_RUNTIME_STOP_LOSS_PCT,
-            take_profit_pct=_RUNTIME_TAKE_PROFIT_PCT,
+            stop_loss_pct=_to_float(risk_plan.get("stop_loss_pct"), 0.0),
+            take_profit_pct=_to_float(risk_plan.get("take_profit_pct"), 0.0),
+            stop_loss_price=_to_float(risk_plan.get("stop_loss_price"), 0.0),
+            take_profit_price=_to_float(risk_plan.get("take_profit_price"), 0.0),
+            entry_plan_price=_to_float(risk_plan.get("entry_plan_price"), 0.0),
         )
         if not order_result.get("ok"):
             skipped.append(
@@ -2484,7 +2681,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "message": "",
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{code}",
-                    "trigger_type": "pnl_exit" if reason in {"손절", "익절", "트레일링익절"} else "indicator_exit",
+                    "trigger_type": "pnl_exit" if reason in {"손절", "익절", "본전보호", "비상손절", "트레일링익절"} else "indicator_exit",
                     "quote_source": event.get("quote_source"),
                     "quote_fetched_at": event.get("quote_fetched_at"),
                     "quote_is_stale": event.get("quote_is_stale"),
@@ -2774,6 +2971,19 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                         strategy_position_counts[strategy_id] = max(0, strategy_position_counts.get(strategy_id, 0) - 1)
                     market_position_count = max(0, market_position_count - 1)
                     slots = max(0, max_positions - market_position_count)
+                    buy_candidate = _resize_candidate_for_execution_risk(buy_candidate, account, cfg)
+                    risk_plan = buy_candidate.get("execution_risk_plan") if isinstance(buy_candidate.get("execution_risk_plan"), dict) else {}
+                    if not risk_plan.get("ok"):
+                        failure_reason = risk_plan.get("reason") or "rotation_buy_execution_risk_blocked"
+                        skipped.append({"code": buy_code, "name": str(buy_candidate.get("name") or buy_code), "market": market, "reason": failure_reason})
+                        rotation_summary["blocked"].append({
+                            "market": market,
+                            "reason": failure_reason,
+                            "sell_code": sell_code,
+                            "buy_code": buy_code,
+                            "score_gap": rotation_plan.get("score_gap"),
+                        })
+                        continue
                     size_recommendation = buy_candidate.get("size_recommendation") if isinstance(buy_candidate.get("size_recommendation"), dict) else {}
                     quantity = int(size_recommendation.get("quantity") or 0)
                     if quantity <= 0:
@@ -2793,8 +3003,11 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                         market=market,
                         quantity=quantity,
                         order_type="market",
-                        stop_loss_pct=_RUNTIME_STOP_LOSS_PCT,
-                        take_profit_pct=_RUNTIME_TAKE_PROFIT_PCT,
+                        stop_loss_pct=_to_float(risk_plan.get("stop_loss_pct"), 0.0),
+                        take_profit_pct=_to_float(risk_plan.get("take_profit_pct"), 0.0),
+                        stop_loss_price=_to_float(risk_plan.get("stop_loss_price"), 0.0),
+                        take_profit_price=_to_float(risk_plan.get("take_profit_price"), 0.0),
+                        entry_plan_price=_to_float(risk_plan.get("entry_plan_price"), 0.0),
                     )
                     if buy_result.get("ok"):
                         buy_event = buy_result.get("event") or {}
@@ -2833,8 +3046,12 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                             "failure_reason": "",
                             "reason_code": "rotation_replace",
                             "message": "",
-                            "stop_loss_pct": _RUNTIME_STOP_LOSS_PCT,
-                            "take_profit_pct": _RUNTIME_TAKE_PROFIT_PCT,
+                            "stop_loss_pct": _to_float(risk_plan.get("stop_loss_pct"), 0.0),
+                            "take_profit_pct": _to_float(risk_plan.get("take_profit_pct"), 0.0),
+                            "stop_loss_price": _to_float(risk_plan.get("stop_loss_price"), 0.0),
+                            "take_profit_price": _to_float(risk_plan.get("take_profit_price"), 0.0),
+                            "entry_plan_price": _to_float(risk_plan.get("entry_plan_price"), 0.0),
+                            "execution_risk_plan": risk_plan,
                             "originating_cycle_id": cycle_id,
                             "originating_signal_key": f"{market}:{buy_code}",
                             "trigger_type": "rotation",
@@ -2971,6 +3188,20 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 })
                 continue
 
+            candidate = _resize_candidate_for_execution_risk(candidate, account, cfg)
+            risk_plan = candidate.get("execution_risk_plan") if isinstance(candidate.get("execution_risk_plan"), dict) else {}
+            if not risk_plan.get("ok"):
+                skipped.append({
+                    "code": code,
+                    "name": cand_name,
+                    "market": market,
+                    "strategy_id": strategy_id,
+                    "strategy_name": strategy_name,
+                    "reason": risk_plan.get("reason") or "execution_risk_blocked",
+                    "execution_risk_plan": risk_plan,
+                })
+                continue
+
             size_recommendation = candidate.get("size_recommendation") if isinstance(
                 candidate.get("size_recommendation"), dict) else {}
             quantity = int(size_recommendation.get("quantity") or 0)
@@ -2983,8 +3214,11 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 })
                 continue
 
-            stop_loss_pct = _RUNTIME_STOP_LOSS_PCT
-            take_profit_pct = _RUNTIME_TAKE_PROFIT_PCT
+            stop_loss_pct = _to_float(risk_plan.get("stop_loss_pct"), 0.0)
+            take_profit_pct = _to_float(risk_plan.get("take_profit_pct"), 0.0)
+            stop_loss_price = _to_float(risk_plan.get("stop_loss_price"), 0.0)
+            take_profit_price = _to_float(risk_plan.get("take_profit_price"), 0.0)
+            entry_plan_price = _to_float(risk_plan.get("entry_plan_price"), 0.0)
 
             result = engine.place_order(
                 side="buy",
@@ -2994,6 +3228,9 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 order_type="market",
                 stop_loss_pct=stop_loss_pct,
                 take_profit_pct=take_profit_pct,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                entry_plan_price=entry_plan_price,
             )
             if result.get("ok"):
                 buy_count += 1
@@ -3034,6 +3271,10 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "message": "",
                     "stop_loss_pct": stop_loss_pct,
                     "take_profit_pct": take_profit_pct,
+                    "stop_loss_price": stop_loss_price,
+                    "take_profit_price": take_profit_price,
+                    "entry_plan_price": entry_plan_price,
+                    "execution_risk_plan": risk_plan,
                     "originating_cycle_id": cycle_id,
                     "originating_signal_key": f"{market}:{code}",
                     "quote_source": event.get("quote_source"),

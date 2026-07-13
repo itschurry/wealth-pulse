@@ -17,6 +17,8 @@ _RUNTIME_STOP_LOSS_PCT = 5.0
 _RUNTIME_TAKE_PROFIT_PCT = 12.0
 _RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT = 3.0
 _RUNTIME_TRAILING_PROFIT_DROP_PCT = 3.0
+_RUNTIME_BREAK_EVEN_ACTIVATION_PCT = 2.0
+_RUNTIME_BREAK_EVEN_FLOOR_PCT = 0.2
 _KIS_AFTER_HOURS_CLOSE_ORDER_DIVISION = "06"
 _KIS_AFTER_HOURS_SINGLE_PRICE_ORDER_DIVISION = "07"
 
@@ -40,6 +42,9 @@ class ExecutionEngine(Protocol):
         limit_price: float | None = None,
         stop_loss_pct: float | None = None,
         take_profit_pct: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        entry_plan_price: float | None = None,
     ) -> dict[str, Any]: ...
 
     def reset(
@@ -149,6 +154,9 @@ class SimulatedExecutionEngine:
         limit_price: float | None = None,
         stop_loss_pct: float | None = None,
         take_profit_pct: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        entry_plan_price: float | None = None,
     ) -> dict[str, Any]:
         normalized_side = side.strip().lower()
         normalized_market = market.strip().upper()
@@ -280,8 +288,11 @@ class SimulatedExecutionEngine:
                     "avg_price_krw": avg_price_krw,
                     "last_price_local": executed_local,
                     "last_price_krw": executed_krw,
-                    "stop_loss_pct": _RUNTIME_STOP_LOSS_PCT,
-                    "take_profit_pct": _RUNTIME_TAKE_PROFIT_PCT,
+                    "stop_loss_pct": stop_loss_pct,
+                    "take_profit_pct": take_profit_pct,
+                    "stop_loss_price": stop_loss_price,
+                    "take_profit_price": take_profit_price,
+                    "entry_plan_price": entry_plan_price,
                     "fx_rate": fx_rate,
                     "updated_at": now,
                 }
@@ -357,6 +368,14 @@ class SimulatedExecutionEngine:
                     "liquidity_gate_status": "passed",
                 },
             }
+            if normalized_side == "buy":
+                event.update({
+                    "stop_loss_pct": stop_loss_pct,
+                    "take_profit_pct": take_profit_pct,
+                    "stop_loss_price": stop_loss_price,
+                    "take_profit_price": take_profit_price,
+                    "entry_plan_price": entry_plan_price,
+                })
 
             state["orders"].insert(0, event)
             state["orders"] = state["orders"][:300]
@@ -535,14 +554,20 @@ class SimulatedExecutionEngine:
             )
             position["updated_at"] = _now_iso()
 
-            sl = _RUNTIME_STOP_LOSS_PCT
-            tp = _RUNTIME_TAKE_PROFIT_PCT
+            stop_loss_price = _to_float(position.get("stop_loss_price"))
+            take_profit_price = _to_float(position.get("take_profit_price"))
             peak_pct = _to_float(position.get("peak_unrealized_pnl_pct")) or unrealized_pct
             liquidation_reason = None
-            if sl is not None and unrealized_pct <= -sl:
+            if stop_loss_price is not None and last_price_local <= stop_loss_price:
                 liquidation_reason = "stop_loss"
-            elif tp is not None and unrealized_pct >= tp:
+            elif take_profit_price is not None and last_price_local >= take_profit_price:
                 liquidation_reason = "take_profit"
+            elif unrealized_pct >= _RUNTIME_TAKE_PROFIT_PCT:
+                liquidation_reason = "take_profit"
+            elif peak_pct >= _RUNTIME_BREAK_EVEN_ACTIVATION_PCT and unrealized_pct <= _RUNTIME_BREAK_EVEN_FLOOR_PCT:
+                liquidation_reason = "break_even_stop"
+            elif unrealized_pct <= -_RUNTIME_STOP_LOSS_PCT:
+                liquidation_reason = "emergency_stop_loss"
             elif (
                 peak_pct >= _RUNTIME_TRAILING_PROFIT_ACTIVATION_PCT
                 and peak_pct - unrealized_pct >= _RUNTIME_TRAILING_PROFIT_DROP_PCT
@@ -692,8 +717,11 @@ class SimulatedExecutionEngine:
                 "avg_price_krw": avg_price_local * fx_rate,
                 "last_price_local": avg_price_local,
                 "last_price_krw": avg_price_local * fx_rate,
-                "stop_loss_pct": _RUNTIME_STOP_LOSS_PCT,
-                "take_profit_pct": _RUNTIME_TAKE_PROFIT_PCT,
+                "stop_loss_pct": raw.get("stop_loss_pct"),
+                "take_profit_pct": raw.get("take_profit_pct"),
+                "stop_loss_price": raw.get("stop_loss_price"),
+                "take_profit_price": raw.get("take_profit_price"),
+                "entry_plan_price": raw.get("entry_plan_price"),
                 "fx_rate": fx_rate,
                 "updated_at": now,
             }
@@ -792,6 +820,9 @@ class LiveBrokerExecutionEngine:
         limit_price: float | None = None,
         stop_loss_pct: float | None = None,
         take_profit_pct: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        entry_plan_price: float | None = None,
     ) -> dict[str, Any]:
         """실계좌에 주문을 집행한다. hashkey는 KISClient 내부에서 자동 처리된다.
 
@@ -879,6 +910,11 @@ class LiveBrokerExecutionEngine:
                 requested_quantity=requested_quantity if normalized_side == "buy" else quantity,
                 requested_order_type=requested_order_type,
                 orderable_amount=orderable_amount,
+                stop_loss_pct=stop_loss_pct,
+                take_profit_pct=take_profit_pct,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                entry_plan_price=entry_plan_price,
             )
             return {"ok": True, "mode": "live", "event": event, **result}
         except Exception as exc:
@@ -944,6 +980,11 @@ class LiveBrokerExecutionEngine:
         requested_quantity: int | None = None,
         requested_order_type: str | None = None,
         orderable_amount: dict[str, Any] | None = None,
+        stop_loss_pct: float | None = None,
+        take_profit_pct: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        entry_plan_price: float | None = None,
     ) -> dict[str, Any]:
         now = _now_iso()
         event = {
@@ -975,6 +1016,14 @@ class LiveBrokerExecutionEngine:
                 "orderable_cash": orderable_amount.get("orderable_cash"),
                 "order_price": orderable_amount.get("order_price"),
             }
+        if side == "buy":
+            event.update({
+                "stop_loss_pct": stop_loss_pct,
+                "take_profit_pct": take_profit_pct,
+                "stop_loss_price": stop_loss_price,
+                "take_profit_price": take_profit_price,
+                "entry_plan_price": entry_plan_price,
+            })
         return event
 
     def reset(

@@ -59,9 +59,10 @@ RESEARCH_SNAPSHOT_SCHEMA: dict[str, Any] = {
         "trade_plan": {
             "type": "object",
             "additionalProperties": True,
-            "required": ["size_intent_pct", "entry", "stop_loss", "take_profit"],
+            "required": ["size_intent_pct", "entry_price", "entry", "stop_loss", "take_profit"],
             "properties": {
                 "size_intent_pct": {"type": "number", "minimum": 0, "maximum": 40},
+                "entry_price": {"type": "number"},
                 "entry": {"type": "string"},
                 "stop_loss": {"type": "number"},
                 "take_profit": {"type": "number"},
@@ -142,8 +143,8 @@ def build_openai_research_prompt(feature_pack: dict[str, Any]) -> str:
         "rsi14가 88 이상이면 신규 buy는 피하고 buy_watch 이하로 낮춰라.\n"
         "catalysts는 앞으로 1~20거래일 안에 실제 가격 재평가를 만들 수 있는 이벤트만 적어라. 뉴스 반복, 막연한 업황 기대, 이미 가격에 반영된 재료는 catalyst가 아니다.\n"
         "bear_case는 bull_case의 반대편을 실제로 공격해야 한다. 수요 둔화, 마진 훼손, 밸류에이션 부담, 수급 반전, 정책/공시 불확실성 중 입력 근거로 확인되는 약점을 적어라.\n"
-        "invalidation_trigger.condition은 매수 논리가 깨지는 단일 조건을 써라. invalidation_trigger.stop_loss는 현재가보다 낮은 숫자로 적어라.\n"
-        "trade_plan은 size_intent_pct, entry, stop_loss, take_profit을 반드시 포함해라. 현재가가 있으면 stop_loss는 현재가 대비 -5%, take_profit은 +12% 기준 가격으로 둬라.\n"
+        "invalidation_trigger.condition은 매수 논리가 깨지는 단일 조건을 써라. invalidation_trigger.stop_loss는 지지선·돌파 기준선·VWAP·SMA20 같은 thesis invalidation 가격으로 적어라.\n"
+        "trade_plan은 size_intent_pct, entry_price, entry, stop_loss, take_profit을 반드시 포함해라. entry_price는 지금 추격해서 사도 되는 가격이 아니라 계획 진입 상한 가격이다. stop_loss는 고정 -5%가 아니라 매수 논리가 깨지는 가격이고, take_profit은 최소 1.5R 이상 보상비가 나오는 가격이어야 한다.\n"
         "현재가나 기술 지표가 없으면 buy/buy_watch를 내지 마라.\n"
         "주문 실행은 하지 마라. trade_plan.size_intent_pct는 의도만 적고 실제 수량은 WealthPulse risk guard가 다시 계산한다.\n"
         "출력은 짧게 써라. summary는 한 문장, bull_case/bear_case/catalysts/risks는 각각 최대 3개만 써라.\n"

@@ -20,8 +20,6 @@ from services.research_store import (
 
 MAX_AGENT_SIZE_INTENT_PCT = 40.0
 DEFAULT_AGENT_TTL_MINUTES = DEFAULT_RESEARCH_TTL_MINUTES
-DEFAULT_BUY_STOP_LOSS_PCT = 5.0
-DEFAULT_BUY_TAKE_PROFIT_PCT = 12.0
 
 
 def _now_local() -> dt.datetime:
@@ -133,22 +131,22 @@ def _reference_price(technical_features: dict[str, Any], trade_plan: dict[str, A
     raise ValueError("reference_price_required_for_buy_risk")
 
 
-def _normalize_buy_risk_prices(
+def _validate_buy_risk_prices(
     invalidation_trigger: dict[str, Any],
     trade_plan: dict[str, Any],
     *,
     technical_features: dict[str, Any],
 ) -> None:
     reference_price = _reference_price(technical_features, trade_plan)
-    stop_loss = round(reference_price * (1.0 - DEFAULT_BUY_STOP_LOSS_PCT / 100.0), 4)
-    take_profit = round(reference_price * (1.0 + DEFAULT_BUY_TAKE_PROFIT_PCT / 100.0), 4)
-
-    if _numeric(invalidation_trigger.get("stop_loss")) is None:
-        invalidation_trigger["stop_loss"] = stop_loss
-    if _numeric(trade_plan.get("stop_loss")) is None:
-        trade_plan["stop_loss"] = stop_loss
-    if _numeric(trade_plan.get("take_profit")) is None:
-        trade_plan["take_profit"] = take_profit
+    invalidation_stop = _numeric(invalidation_trigger.get("stop_loss"))
+    plan_stop = _numeric(trade_plan.get("stop_loss"))
+    take_profit = _numeric(trade_plan.get("take_profit"))
+    if invalidation_stop is not None and invalidation_stop >= reference_price:
+        raise ValueError("invalidation_trigger_stop_loss_must_be_below_reference")
+    if plan_stop is not None and plan_stop >= reference_price:
+        raise ValueError("trade_plan_stop_loss_must_be_below_reference")
+    if take_profit is not None and take_profit <= reference_price:
+        raise ValueError("trade_plan_take_profit_must_be_above_reference")
 
 
 def _clamped_trade_plan(raw_plan: Any) -> dict[str, Any]:
@@ -264,8 +262,9 @@ def _normalize_agent_item(item: dict[str, Any], *, default_generated_at: str, de
         _require_text_items(catalysts, field="catalysts")
         if not _text(invalidation_trigger.get("condition"), field="invalidation_trigger_condition"):
             raise ValueError("invalidation_trigger_condition_required")
-        _normalize_buy_risk_prices(invalidation_trigger, trade_plan, technical_features=technical_features)
+        _validate_buy_risk_prices(invalidation_trigger, trade_plan, technical_features=technical_features)
         _require_numeric_object_field(invalidation_trigger, "stop_loss", field="invalidation_trigger", positive=True)
+        _require_numeric_object_field(trade_plan, "entry_price", field="trade_plan", positive=True)
         _require_numeric_object_field(trade_plan, "stop_loss", field="trade_plan", positive=True)
         _require_numeric_object_field(trade_plan, "take_profit", field="trade_plan", positive=True)
 

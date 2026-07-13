@@ -13,6 +13,7 @@ from services.execution_service import (
     _allows_rotation_candidate,
     _candidate_leadership_rank,
     _candidate_unit_price_local,
+    _candidate_execution_risk_plan,
     _buy_capacity_block_reason_from_orders,
     _promote_operator_review_candidate_for_entry,
     _promote_priority_candidate_for_entry,
@@ -107,10 +108,26 @@ class ExecutionRotationTests(unittest.TestCase):
         self.assertEqual(_buy_capacity_block_reason_from_orders(orders, "2026-07-10"), "")
 
     def test_pnl_exit_uses_stop_loss_take_profit_and_trailing_profit(self) -> None:
-        self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -5.0}, {}, "KOSPI"), "손절")
+        self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -5.0}, {}, "KOSPI"), "비상손절")
         self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -4.99}, {}, "KOSPI"))
         self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": 12.0}, {}, "KOSPI"), "익절")
         self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": 11.99}, {}, "KOSPI"))
+        self.assertEqual(
+            _position_exit_reason_by_pnl(
+                {"last_price_local": 94000, "avg_price_local": 100000, "stop_loss_price": 94000},
+                {},
+                "KOSPI",
+            ),
+            "손절",
+        )
+        self.assertEqual(
+            _position_exit_reason_by_pnl(
+                {"unrealized_pnl_pct": 0.1, "peak_unrealized_pnl_pct": 2.1},
+                {},
+                "KOSPI",
+            ),
+            "본전보호",
+        )
 
         self.assertEqual(
             _position_exit_reason_by_pnl(
@@ -122,11 +139,55 @@ class ExecutionRotationTests(unittest.TestCase):
         )
         self.assertIsNone(
             _position_exit_reason_by_pnl(
-                {"unrealized_pnl_pct": 0.0, "peak_unrealized_pnl_pct": 2.99},
+                {"unrealized_pnl_pct": 0.0, "peak_unrealized_pnl_pct": 1.99},
                 {},
                 "KOSPI",
             )
         )
+
+    def test_execution_risk_plan_blocks_chased_entry(self) -> None:
+        candidate = {
+            "code": "000660",
+            "market": "KOSPI",
+            "technical_snapshot": {"current_price": 103000},
+            "layer_c": {
+                "trade_plan": {
+                    "entry_price": 100000,
+                    "stop_loss": 94000,
+                    "take_profit": 114000,
+                },
+                "invalidation_trigger": {"stop_loss": 94000},
+                "technical_features": {"atr14_pct": 2.5},
+            },
+        }
+
+        plan = _candidate_execution_risk_plan(candidate)
+
+        self.assertFalse(plan["ok"])
+        self.assertEqual(plan["reason"], "entry_price_chased")
+
+    def test_execution_risk_plan_uses_thesis_stop_and_reward_risk(self) -> None:
+        candidate = {
+            "code": "000660",
+            "market": "KOSPI",
+            "technical_snapshot": {"current_price": 100000},
+            "layer_c": {
+                "trade_plan": {
+                    "entry_price": 100000,
+                    "stop_loss": 94000,
+                    "take_profit": 112000,
+                },
+                "invalidation_trigger": {"stop_loss": 94000},
+                "technical_features": {"atr14_pct": 2.5},
+            },
+        }
+
+        plan = _candidate_execution_risk_plan(candidate)
+
+        self.assertTrue(plan["ok"])
+        self.assertEqual(plan["stop_loss_pct"], 6.0)
+        self.assertEqual(plan["take_profit_pct"], 12.0)
+        self.assertEqual(plan["reward_risk"], 2.0)
 
     def test_refresh_trailing_profit_peak_only_raises_peak(self) -> None:
         position = {"unrealized_pnl_pct": 4.0}
