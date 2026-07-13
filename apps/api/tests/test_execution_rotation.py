@@ -108,13 +108,14 @@ class ExecutionRotationTests(unittest.TestCase):
         self.assertEqual(_buy_capacity_block_reason_from_orders(orders, "2026-07-10"), "")
 
     def test_pnl_exit_uses_stop_loss_take_profit_and_trailing_profit(self) -> None:
-        self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -5.0}, {}, "KOSPI"), "비상손절")
-        self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -4.99}, {}, "KOSPI"))
-        self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": 12.0}, {}, "KOSPI"), "익절")
-        self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": 11.99}, {}, "KOSPI"))
+        managed = {"entry_plan_price": 100000, "stop_loss_price": 94000, "take_profit_price": 112000}
+        self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -5.0, **managed}, {}, "KOSPI"), "비상손절")
+        self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": -4.99, **managed}, {}, "KOSPI"))
+        self.assertEqual(_position_exit_reason_by_pnl({"unrealized_pnl_pct": 12.0, **managed}, {}, "KOSPI"), "익절")
+        self.assertIsNone(_position_exit_reason_by_pnl({"unrealized_pnl_pct": 11.99, **managed}, {}, "KOSPI"))
         self.assertEqual(
             _position_exit_reason_by_pnl(
-                {"last_price_local": 94000, "avg_price_local": 100000, "stop_loss_price": 94000},
+                {"last_price_local": 94000, "avg_price_local": 100000, **managed},
                 {},
                 "KOSPI",
             ),
@@ -122,7 +123,7 @@ class ExecutionRotationTests(unittest.TestCase):
         )
         self.assertEqual(
             _position_exit_reason_by_pnl(
-                {"unrealized_pnl_pct": 0.1, "peak_unrealized_pnl_pct": 2.1},
+                {"unrealized_pnl_pct": 0.1, "peak_unrealized_pnl_pct": 2.1, **managed},
                 {},
                 "KOSPI",
             ),
@@ -131,7 +132,7 @@ class ExecutionRotationTests(unittest.TestCase):
 
         self.assertEqual(
             _position_exit_reason_by_pnl(
-                {"unrealized_pnl_pct": 5.0, "peak_unrealized_pnl_pct": 8.0},
+                {"unrealized_pnl_pct": 5.0, "peak_unrealized_pnl_pct": 8.0, **managed},
                 {},
                 "KOSPI",
             ),
@@ -139,7 +140,16 @@ class ExecutionRotationTests(unittest.TestCase):
         )
         self.assertIsNone(
             _position_exit_reason_by_pnl(
-                {"unrealized_pnl_pct": 0.0, "peak_unrealized_pnl_pct": 1.99},
+                {"unrealized_pnl_pct": 0.0, "peak_unrealized_pnl_pct": 1.99, **managed},
+                {},
+                "KOSPI",
+            )
+        )
+
+    def test_legacy_position_without_exit_plan_is_not_auto_stopped(self) -> None:
+        self.assertIsNone(
+            _position_exit_reason_by_pnl(
+                {"unrealized_pnl_pct": -10.0, "last_price_local": 90000, "avg_price_local": 100000},
                 {},
                 "KOSPI",
             )
@@ -617,6 +627,9 @@ class ExecutionRotationTests(unittest.TestCase):
                     "entry_ts": (now - timedelta(hours=2)).isoformat(),
                     "market_value_krw": 1000000,
                     "last_price_local": 1000000,
+                    "entry_plan_price": 1000000,
+                    "stop_loss_price": 940000,
+                    "take_profit_price": 1120000,
                     "orderable_quantity": 1,
                 }
             ],
@@ -681,6 +694,69 @@ class ExecutionRotationTests(unittest.TestCase):
                     "entry_ts": (now - timedelta(minutes=5)).isoformat(),
                     "market_value_krw": 1000000,
                     "last_price_local": 1000000,
+                    "entry_plan_price": 1000000,
+                    "stop_loss_price": 940000,
+                    "take_profit_price": 1120000,
+                    "orderable_quantity": 1,
+                }
+            ],
+        }
+        candidate = {
+            "code": "000660",
+            "name": "SK하이닉스",
+            "market": "KOSPI",
+            "score": 98,
+            "bluechip": True,
+            "research_score": 0.86,
+            "research_status": "healthy",
+            "final_action": "review_for_entry",
+            "technical_snapshot": {"current_price": 200000},
+            "risk_inputs": {"stop_loss_pct": 5},
+            "ev_metrics": {"expected_value": 1.2, "reliability": "high"},
+            "size_recommendation": {"quantity": 1},
+            "final_action_snapshot": _primary_buy_snapshot(),
+            "layer_c": _buy_research_layer(),
+        }
+        cfg = {
+            "allocation_mode": "concentrated",
+            "risk_per_trade_pct": 0.8,
+            "bluechip_risk_per_trade_pct": 1.5,
+            "max_symbol_weight_pct": 30.0,
+            "max_sector_weight_pct": 50.0,
+            "max_market_exposure_pct": 95.0,
+            "rotation": {"enabled": True, "min_score_gap": 2.0, "daily_limit": 0, "min_holding_minutes": 30},
+        }
+
+        plan = _select_rotation_plan(
+            account=account,
+            market="KOSPI",
+            cfg=cfg,
+            rotation_candidates=[candidate],
+            signal_map={"111111": {"code": "111111", "market": "KOSPI", "score": 90}},
+            held_codes={"111111"},
+            strategy_position_counts={},
+            strategy_position_caps={},
+            max_orders_per_symbol=3,
+        )
+
+        self.assertFalse(plan["ok"])
+        self.assertEqual(plan["reason"], "rotation_no_sellable_position")
+
+    def test_rotation_plan_excludes_legacy_position_without_exit_plan(self) -> None:
+        now = datetime.now(timezone.utc)
+        account = {
+            "cash_krw": 1000000,
+            "equity_krw": 2000000,
+            "market_value_krw": 1000000,
+            "positions": [
+                {
+                    "code": "111111",
+                    "name": "기존보유",
+                    "market": "KOSPI",
+                    "quantity": 1,
+                    "entry_ts": (now - timedelta(hours=2)).isoformat(),
+                    "market_value_krw": 1000000,
+                    "last_price_local": 900000,
                     "orderable_quantity": 1,
                 }
             ],

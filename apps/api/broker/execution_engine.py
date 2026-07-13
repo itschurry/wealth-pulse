@@ -554,8 +554,12 @@ class SimulatedExecutionEngine:
             )
             position["updated_at"] = _now_iso()
 
+            entry_plan_price = _to_float(position.get("entry_plan_price"))
             stop_loss_price = _to_float(position.get("stop_loss_price"))
             take_profit_price = _to_float(position.get("take_profit_price"))
+            if entry_plan_price is None or stop_loss_price is None or take_profit_price is None:
+                position.pop("pending_liquidation_reason", None)
+                continue
             peak_pct = _to_float(position.get("peak_unrealized_pnl_pct")) or unrealized_pct
             liquidation_reason = None
             if stop_loss_price is not None and last_price_local <= stop_loss_price:

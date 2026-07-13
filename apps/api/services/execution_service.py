@@ -1899,6 +1899,14 @@ def _candidate_atr14_pct(candidate: dict[str, Any]) -> float | None:
     return value * 100.0 if value <= 1.0 else value
 
 
+def _position_has_managed_exit_plan(position: dict[str, Any]) -> bool:
+    return (
+        _positive_float(position.get("entry_plan_price")) is not None
+        and _positive_float(position.get("stop_loss_price")) is not None
+        and _positive_float(position.get("take_profit_price")) is not None
+    )
+
+
 def _candidate_execution_risk_plan(candidate: dict[str, Any]) -> dict[str, Any]:
     current_price = _candidate_unit_price_local(candidate)
     entry_price = _candidate_entry_plan_price(candidate)
@@ -2065,6 +2073,8 @@ def _held_rotation_snapshot(
     code = str(position.get("code") or "").upper()
     market = str(position.get("market") or "").upper()
     if not code or not market:
+        return None
+    if not _position_has_managed_exit_plan(position):
         return None
     holding_days = _position_holding_days(position)
     if holding_days < min_holding_days:
@@ -2283,6 +2293,8 @@ def _position_pnl_pct(position: dict[str, Any]) -> float | None:
 
 
 def _position_exit_reason_by_pnl(position: dict[str, Any], _cfg: dict, _market: str) -> str | None:
+    if not _position_has_managed_exit_plan(position):
+        return None
     pnl_pct = _position_pnl_pct(position)
     if pnl_pct is None:
         return None
@@ -2615,6 +2627,14 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
             code = str(position.get("code") or "").upper()
             pos_name = str(position.get("name") or code)
             if _symbol_order_count(market, "sell", code) >= max_orders_per_symbol:
+                continue
+            if not _position_has_managed_exit_plan(position):
+                skipped.append({
+                    "code": code,
+                    "name": pos_name,
+                    "market": market,
+                    "reason": "legacy_position_auto_exit_excluded",
+                })
                 continue
             peak_key = f"{market}:{code}"
             if isinstance(trailing_profit_peaks, dict) and peak_key in trailing_profit_peaks:
