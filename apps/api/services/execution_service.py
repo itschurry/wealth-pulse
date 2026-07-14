@@ -1019,6 +1019,10 @@ def _current_execution_mode() -> str:
     return "live" if raw == "live" else "paper"
 
 
+def _live_trading_approved() -> bool:
+    return str(os.getenv("LIVE_TRADING_APPROVED", "false") or "false").strip().lower() == "true"
+
+
 def _runtime_engine() -> SimulatedExecutionEngine | LiveBrokerExecutionEngine:
     return get_execution_engine(_current_execution_mode())
 
@@ -3587,6 +3591,13 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
 
 def _start_auto_trader(config: dict) -> dict:
     global _auto_trader_stop_event, _auto_trader_thread
+    if _current_execution_mode() == "live" and not _live_trading_approved():
+        return {
+            "ok": False,
+            "error": "live_trading_manual_approval_required",
+            "execution_mode": "live",
+            "live_trading_approved": False,
+        }
     raw_config = config if isinstance(config, dict) else {}
     if "markets" in raw_config:
         raw_markets = raw_config.get("markets")
@@ -3702,6 +3713,7 @@ def _start_auto_trader(config: dict) -> dict:
                 "active_markets": sorted(_ACTIVE_AUTO_TRADE_MARKETS),
             }
         merged = _sanitize_runtime_config(_sync_primary_strategy_fields(merged))
+        merged["rotation"] = _rotation_config(merged)
 
         _auto_trader_stop_event = threading.Event()
         _auto_trader_thread = threading.Thread(
@@ -4030,7 +4042,8 @@ def handle_runtime_auto_invest(payload: dict) -> tuple[int, dict]:
 
 def handle_runtime_engine_start(payload: dict) -> tuple[int, dict]:
     try:
-        return 200, _start_auto_trader(payload)
+        result = _start_auto_trader(payload)
+        return (200 if result.get("ok", True) else 403), result
     except Exception as exc:
         return 500, {"ok": False, "error": str(exc)}
 

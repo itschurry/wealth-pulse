@@ -20,8 +20,11 @@ def _mode_from_execution_env() -> str:
 
 def get_mode_status() -> dict:
     current = _mode_from_execution_env()
+    live_trading_approved = str(os.getenv("LIVE_TRADING_APPROVED", "false") or "false").strip().lower() == "true"
     return {
         "ok": True,
         "current_mode": current,
         "supported_modes": list(SUPPORTED_MODES),
+        "live_trading_approved": live_trading_approved,
+        "manual_live_approval_required": True,
     }
