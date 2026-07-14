@@ -61,7 +61,7 @@ class ExecutionEngine(Protocol):
 @dataclass(frozen=True)
 class EngineConfig:
     state_path: Path
-    default_initial_cash_krw: float = 10_000_000.0
+    default_initial_cash_krw: float = 5_000_000.0
     default_initial_cash_usd: float = 0.0
 
     # 증권사 수수료 (매수/매도 공통, 온라인 기준 약 0.015%)

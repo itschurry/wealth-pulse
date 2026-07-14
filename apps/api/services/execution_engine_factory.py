@@ -21,7 +21,7 @@ def _get_simulated_engine(order_notifier: Callable[[dict[str, Any], dict[str, An
         _simulated_engine = SimulatedExecutionEngine(
             config=EngineConfig(
                 state_path=state_path,
-                default_initial_cash_krw=10_000_000.0,
+                default_initial_cash_krw=float(os.getenv("PAPER_INITIAL_CASH_KRW", "5000000")),
                 default_initial_cash_usd=0.0,
                 order_notifier=order_notifier,
             ),
