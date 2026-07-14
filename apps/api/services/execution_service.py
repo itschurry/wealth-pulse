@@ -88,7 +88,8 @@ _ROTATION_POSITION_ONLY_BLOCKERS = {"max_positions_reached"}
 _ROTATION_RESIZABLE_SIZE_REASONS = {"cash_limit", "exposure_limit", "exposure_or_cash_limit", "invalid_unit_price", "signal_only"}
 _ROTATION_PRIORITY_MIN_SCORE = 90.0
 _ROTATION_PRIORITY_MIN_RESEARCH_SCORE = 0.75
-_ROTATION_MIN_HOLDING_MINUTES = 30
+_ROTATION_MIN_HOLDING_MINUTES = 1440
+_DEFAULT_MIN_REENTRY_DAYS = 3
 _ENTRY_BUY_RATINGS = {"strong_buy", "overweight"}
 _ENTRY_BUY_ACTIONS = {"buy", "buy_watch"}
 _ENTRY_MIN_CLOSE_VS_SMA = 1.0
@@ -1323,9 +1324,10 @@ def _default_auto_trader_config() -> dict:
         "theme_min_news": 1,
         "theme_priority_bonus": 2.0,
         "theme_focus": list(_DEFAULT_THEME_FOCUS),
-        "daily_buy_limit": 100,
+        "daily_buy_limit": 3,
         "daily_sell_limit": 100,
-        "max_orders_per_symbol_per_day": 3,
+        "max_orders_per_symbol_per_day": 1,
+        "min_reentry_days": _DEFAULT_MIN_REENTRY_DAYS,
         "allocation_mode": "concentrated",
         "bluechip_top_n_kospi": 20,
         "bluechip_top_n_us": 20,
@@ -1344,6 +1346,7 @@ def _default_auto_trader_config() -> dict:
         "max_holding_days": primary["max_holding_days"],
         "risk_per_trade_pct": 0.8,
         "daily_loss_limit_pct": 2.0,
+        "max_total_drawdown_pct": 10.0,
         "max_consecutive_loss": 3,
         "cooldown_minutes": 120,
         "max_symbol_weight_pct": 30.0,
@@ -1360,9 +1363,9 @@ def _default_auto_trader_config() -> dict:
         "slippage_bps_base": 8.0,
         "rotation": {
             "enabled": True,
-            "min_score_gap": 2.0,
-            "daily_limit": 6,
-            "min_holding_days": 0,
+            "min_score_gap": 8.0,
+            "daily_limit": 1,
+            "min_holding_days": 2,
             "min_holding_minutes": _ROTATION_MIN_HOLDING_MINUTES,
         },
         "candidate_monitor": {
@@ -1384,6 +1387,45 @@ def _order_day(ts: str) -> str:
         return datetime.datetime.fromisoformat(ts).astimezone(_KST).date().isoformat()
     except Exception:
         return ""
+
+
+def _symbol_reentry_blocked(
+    orders: list[dict[str, Any]],
+    *,
+    market: str,
+    code: str,
+    min_reentry_days: int,
+    today: str | None = None,
+) -> bool:
+    if min_reentry_days <= 0:
+        return False
+    normalized_market = normalize_strategy_market(market)
+    normalized_code = str(code or "").strip().upper()
+    current_day = datetime.date.fromisoformat(today or _today_kst_str())
+    latest_sell_day: datetime.date | None = None
+    for order in orders:
+        if not isinstance(order, dict) or not bool(order.get("success")):
+            continue
+        if str(order.get("market") or "").upper() != normalized_market:
+            continue
+        if str(order.get("code") or "").upper() != normalized_code:
+            continue
+        if str(order.get("side") or "").lower() != "sell":
+            continue
+        order_ts = str(
+            order.get("filled_at")
+            or order.get("submitted_at")
+            or order.get("timestamp")
+            or order.get("ts")
+            or ""
+        )
+        order_day = _order_day(order_ts)
+        if not order_day:
+            continue
+        parsed_day = datetime.date.fromisoformat(order_day)
+        if latest_sell_day is None or parsed_day > latest_sell_day:
+            latest_sell_day = parsed_day
+    return latest_sell_day is not None and (current_day - latest_sell_day).days < min_reentry_days
 
 
 def _position_holding_days(position: dict) -> int:
@@ -1540,11 +1582,11 @@ def _rotation_config(cfg: dict[str, Any]) -> dict[str, Any]:
     raw = cfg.get("rotation") if isinstance(cfg.get("rotation"), dict) else {}
     return {
         "enabled": bool(raw.get("enabled", True)),
-        "min_score_gap": _to_float(raw.get("min_score_gap"), 5.0),
-        "daily_limit": max(0, int(_to_float(raw.get("daily_limit"), 3))),
-        "min_holding_days": max(0, int(_to_float(raw.get("min_holding_days"), 0))),
+        "min_score_gap": max(8.0, _to_float(raw.get("min_score_gap"), 8.0)),
+        "daily_limit": min(1, max(0, int(_to_float(raw.get("daily_limit"), 1)))),
+        "min_holding_days": max(2, int(_to_float(raw.get("min_holding_days"), 2))),
         "min_holding_minutes": max(
-            0,
+            _ROTATION_MIN_HOLDING_MINUTES,
             int(_to_float(raw.get("min_holding_minutes"), _ROTATION_MIN_HOLDING_MINUTES)),
         ),
     }
@@ -2511,6 +2553,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     daily_buy_limit = int(cfg.get("daily_buy_limit", 20))
     daily_sell_limit = int(cfg.get("daily_sell_limit", 20))
     max_orders_per_symbol = int(cfg.get("max_orders_per_symbol_per_day", 1))
+    min_reentry_days = int(cfg.get("min_reentry_days", _DEFAULT_MIN_REENTRY_DAYS))
 
     def _count_orders(market: str, side: str) -> int:
         return sum(
@@ -2524,6 +2567,16 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         return sum(
             1 for order in orders
             if str(order.get("market") or "").upper() == market
+            and str(order.get("side") or "").lower() == side
+            and str(order.get("code") or "").upper() == code
+            and _order_day(str(order.get("filled_at") or order.get("submitted_at") or order.get("ts") or order.get("timestamp") or "")) == today
+        )
+
+    def _successful_symbol_order_count(market: str, side: str, code: str) -> int:
+        return sum(
+            1 for order in orders
+            if bool(order.get("success"))
+            and str(order.get("market") or "").upper() == market
             and str(order.get("side") or "").lower() == side
             and str(order.get("code") or "").upper() == code
             and _order_day(str(order.get("filled_at") or order.get("submitted_at") or order.get("ts") or order.get("timestamp") or "")) == today
@@ -2626,7 +2679,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 break
             code = str(position.get("code") or "").upper()
             pos_name = str(position.get("name") or code)
-            if _symbol_order_count(market, "sell", code) >= max_orders_per_symbol:
+            if _successful_symbol_order_count(market, "sell", code) >= max_orders_per_symbol:
                 continue
             if not _position_has_managed_exit_plan(position):
                 skipped.append({
@@ -3195,6 +3248,21 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 continue
             if _symbol_order_count(market, "buy", code) >= max_orders_per_symbol:
                 continue
+            if _symbol_reentry_blocked(
+                orders,
+                market=market,
+                code=code,
+                min_reentry_days=min_reentry_days,
+                today=today,
+            ):
+                skipped.append({
+                    "code": code,
+                    "name": cand_name,
+                    "market": market,
+                    "reason": "symbol_reentry_cooldown",
+                    "min_reentry_days": min_reentry_days,
+                })
+                continue
             strategy_cap = strategy_position_caps.get(strategy_id)
             strategy_position_count = strategy_position_counts.get(strategy_id, 0)
             if strategy_cap is not None and strategy_position_count >= strategy_cap:
@@ -3554,11 +3622,12 @@ def _start_auto_trader(config: dict) -> dict:
         merged["max_positions_per_market"] = max(
             1, min(20, int(merged.get("max_positions_per_market") or 5)))
         merged["daily_buy_limit"] = max(
-            1, min(200, int(merged.get("daily_buy_limit") or 20)))
+            1, min(3, int(merged.get("daily_buy_limit") or 3)))
         merged["daily_sell_limit"] = max(
             1, min(200, int(merged.get("daily_sell_limit") or 20)))
-        merged["max_orders_per_symbol_per_day"] = max(
-            1, min(10, int(merged.get("max_orders_per_symbol_per_day") or 1)))
+        merged["max_orders_per_symbol_per_day"] = 1
+        merged["min_reentry_days"] = max(
+            0, min(30, int(merged.get("min_reentry_days") or _DEFAULT_MIN_REENTRY_DAYS)))
         allocation_mode = str(merged.get("allocation_mode") or "concentrated").strip().lower()
         merged["allocation_mode"] = allocation_mode if allocation_mode in {"diversified", "concentrated"} else "concentrated"
         merged["bluechip_top_n_kospi"] = max(
@@ -3577,6 +3646,8 @@ def _start_auto_trader(config: dict) -> dict:
             0.05, min(5.0, float(merged.get("risk_per_trade_pct") or 0.35)))
         merged["daily_loss_limit_pct"] = max(
             0.1, min(20.0, float(merged.get("daily_loss_limit_pct") or 2.0)))
+        merged["max_total_drawdown_pct"] = max(
+            0.1, min(50.0, float(merged.get("max_total_drawdown_pct") or 10.0)))
         merged["max_consecutive_loss"] = max(
             1, min(20, int(merged.get("max_consecutive_loss") or 3)))
         merged["cooldown_minutes"] = max(

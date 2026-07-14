@@ -21,6 +21,7 @@ from services.execution_service import (
     _refresh_trailing_profit_peak,
     _select_rotation_plan,
     _should_attempt_rotation,
+    _symbol_reentry_blocked,
 )
 from datetime import datetime, timedelta, timezone
 
@@ -62,6 +63,47 @@ def _primary_buy_snapshot() -> dict:
 
 
 class ExecutionRotationTests(unittest.TestCase):
+    def test_symbol_reentry_is_blocked_for_three_days_after_sell(self) -> None:
+        orders = [{
+            "timestamp": "2026-07-13T01:00:00+00:00",
+            "success": True,
+            "market": "KOSPI",
+            "code": "005930",
+            "side": "sell",
+        }]
+
+        self.assertTrue(_symbol_reentry_blocked(
+            orders,
+            market="KOSPI",
+            code="005930",
+            min_reentry_days=3,
+            today="2026-07-14",
+        ))
+        self.assertFalse(_symbol_reentry_blocked(
+            orders,
+            market="KOSPI",
+            code="005930",
+            min_reentry_days=3,
+            today="2026-07-16",
+        ))
+
+    def test_symbol_reentry_ignores_failed_sell(self) -> None:
+        orders = [{
+            "timestamp": "2026-07-14T01:00:00+00:00",
+            "success": False,
+            "market": "KOSPI",
+            "code": "005930",
+            "side": "sell",
+        }]
+
+        self.assertFalse(_symbol_reentry_blocked(
+            orders,
+            market="KOSPI",
+            code="005930",
+            min_reentry_days=3,
+            today="2026-07-14",
+        ))
+
     def test_buy_capacity_block_reason_after_repeated_orderable_zero(self) -> None:
         orders = [
             {
@@ -624,7 +666,7 @@ class ExecutionRotationTests(unittest.TestCase):
                     "name": "약한보유",
                     "market": "KOSPI",
                     "quantity": 1,
-                    "entry_ts": (now - timedelta(hours=2)).isoformat(),
+                    "entry_ts": (now - timedelta(days=3)).isoformat(),
                     "market_value_krw": 1000000,
                     "last_price_local": 1000000,
                     "entry_plan_price": 1000000,

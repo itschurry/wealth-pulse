@@ -8,6 +8,7 @@ from typing import Any
 
 from helpers import _KST
 from market_utils import lookup_company_listing
+from config.settings import LIVE_PERFORMANCE_STARTING_EQUITY_KRW
 
 
 def _today_kst() -> str:
@@ -124,12 +125,26 @@ def build_risk_guard_state(
     reasons: list[str] = []
     entry_allowed = True
 
+    starting_equity = _to_float(
+        cfg.get("performance_starting_equity_krw"),
+        _to_float(LIVE_PERFORMANCE_STARTING_EQUITY_KRW),
+    )
+    total_drawdown_pct = (
+        max(0.0, ((starting_equity - equity) / starting_equity) * 100.0)
+        if starting_equity > 0
+        else 0.0
+    )
+    max_total_drawdown_pct = max(0.1, _to_float(cfg.get("max_total_drawdown_pct"), 10.0))
+
     if daily_loss_left <= 0.0:
         entry_allowed = False
         reasons.append("daily_loss_limit_reached")
     if cooldown_active:
         entry_allowed = False
         reasons.append("loss_streak_cooldown")
+    if starting_equity > 0 and total_drawdown_pct >= max_total_drawdown_pct:
+        entry_allowed = False
+        reasons.append("total_drawdown_limit_reached")
 
     if str(regime or "").lower() == "risk_off" and bool(cfg.get("block_buy_in_risk_off", True)):
         entry_allowed = False
@@ -147,6 +162,9 @@ def build_risk_guard_state(
         "loss_streak": loss_streak,
         "cooldown_until": cooldown_until,
         "cooldown_active": cooldown_active,
+        "starting_equity_krw": round(starting_equity, 2),
+        "total_drawdown_pct": round(total_drawdown_pct, 4),
+        "max_total_drawdown_pct": round(max_total_drawdown_pct, 4),
         "exposure_caps": {
             "max_symbol_weight_pct": _to_float(cfg.get("max_symbol_weight_pct"), 20.0),
             "max_sector_weight_pct": _to_float(cfg.get("max_sector_weight_pct"), 35.0),
