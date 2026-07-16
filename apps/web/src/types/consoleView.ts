@@ -6,6 +6,7 @@ import type {
   MarketContextResponse,
   OpenAIBillingResponse,
   PerformanceSummaryResponse,
+  DailyPerformanceJournalsResponse,
   PortfolioStateResponse,
   RecommendationsResponse,
   ResearchStatusResponse,
@@ -22,6 +23,7 @@ export interface ConsoleSnapshot {
   scanner: ScannerStatusResponse;
   universe: UniverseResponse;
   performance: PerformanceSummaryResponse;
+  dailyPerformance: DailyPerformanceJournalsResponse;
   portfolio: PortfolioStateResponse;
   research: ResearchStatusResponse;
   reports: ReportsExplainResponse;

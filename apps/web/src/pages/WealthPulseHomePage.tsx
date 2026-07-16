@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   getRiskGuardState,
   isRiskEntryAllowed,
@@ -10,6 +11,7 @@ import {
   reasonCodeToKorean,
 } from '../constants/uiText';
 import type { ConsoleSnapshot } from '../types/consoleView';
+import type { DailyPerformanceJournal } from '../types/domain';
 import {
   formatDateTime,
   formatDateTimeWithAge,
@@ -120,6 +122,135 @@ function toneForNumber(value: number | undefined): string {
 function formatKRWExact(value: number): string {
   if (!Number.isFinite(value)) return '-';
   return formatKRW(Math.round(value), true);
+}
+
+function formatHoldingTime(seconds: number | null | undefined): string {
+  const total = Math.max(0, Number(seconds) || 0);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) return `${hours}시간 ${minutes}분`;
+  return `${minutes}분`;
+}
+
+function exitReasonLabel(reason: string | undefined): string {
+  const normalized = String(reason || '');
+  if (normalized.includes('trailing_profit_stop')) return '트레일링 익절';
+  if (normalized.includes('break_even_stop')) return '본전 보호';
+  if (normalized.includes('take_profit')) return '목표 익절';
+  if (normalized.includes('stop_loss')) return '손절';
+  return normalized || '-';
+}
+
+const SKIP_REASON_LABELS: Record<string, string> = {
+  entry_price_chased: '추격 진입 차단',
+  stop_loss_too_wide: '손절폭 과다',
+  stop_loss_too_tight_for_volatility: '변동성 대비 손절폭 부족',
+  market_closed: '장 마감',
+  daily_buy_limit_reached: '일일 매수 한도',
+  symbol_daily_limit_reached: '종목별 일일 한도',
+};
+
+function DailyPerformanceJournalPanel({ journals }: { journals: DailyPerformanceJournal[] }) {
+  const [selectedDate, setSelectedDate] = useState('');
+  const selected = journals.find((journal) => journal.date === selectedDate) || journals[0];
+
+  useEffect(() => {
+    if (!selectedDate && journals[0]?.date) setSelectedDate(journals[0].date);
+    if (selectedDate && !journals.some((journal) => journal.date === selectedDate)) {
+      setSelectedDate(journals[0]?.date || '');
+    }
+  }, [journals, selectedDate]);
+
+  if (!selected) {
+    return (
+      <section className="wealth-surface-panel wealth-journal-section">
+        <div className="wealth-section-heading">
+          <div>
+            <div className="wealth-panel-kicker">DAILY JOURNAL</div>
+            <div className="section-title">일별 성과 기록</div>
+          </div>
+        </div>
+        <div className="wealth-empty-line">아직 장 마감 기록이 없어.</div>
+      </section>
+    );
+  }
+
+  const account = selected.account || {};
+  const market = selected.market || {};
+  const trading = selected.trading || {};
+  const diagnostics = selected.diagnostics || {};
+  const trades = Array.isArray(trading.trades) ? trading.trades : [];
+  const strategy = selected.strategy_config || {};
+  const skipReasons = Object.entries(diagnostics.skip_reason_counts || {})
+    .filter(([reason]) => reason !== 'market_closed')
+    .sort((left, right) => right[1] - left[1]);
+
+  return (
+    <section className="wealth-surface-panel wealth-journal-section">
+      <div className="wealth-section-heading">
+        <div>
+          <div className="wealth-panel-kicker">DAILY JOURNAL</div>
+          <div className="section-title">일별 성과 기록</div>
+        </div>
+        <span className="inline-badge">{formatNumber(journals.length, 0)}거래일</span>
+      </div>
+
+      <div className="wealth-journal-layout">
+        <div className="wealth-journal-date-list" role="list" aria-label="일별 성과 날짜">
+          {journals.map((journal) => {
+            const pnl = toNumber(journal.account?.net_pnl_krw);
+            return (
+              <button
+                key={journal.date}
+                type="button"
+                className={`wealth-journal-date-row ${journal.date === selected.date ? 'is-selected' : ''}`}
+                aria-pressed={journal.date === selected.date}
+                onClick={() => setSelectedDate(journal.date || '')}
+              >
+                <span>
+                  <strong>{journal.date || '-'}</strong>
+                  <em>KOSPI {safePct(journal.market?.kospi_return_pct)}</em>
+                </span>
+                <span className={toneForNumber(pnl)}>
+                  <strong>{formatSignedKRWExact(pnl)}</strong>
+                  <em>{safePct(journal.account?.daily_return_pct)}</em>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="wealth-journal-detail">
+          <div className="wealth-journal-summary-grid">
+            <div className={toneForNumber(account.net_pnl_krw)}><span>일손익</span><strong>{formatSignedKRWExact(toNumber(account.net_pnl_krw))}</strong><em>{safePct(account.daily_return_pct)}</em></div>
+            <div className={toneForNumber(market.excess_return_pct_points)}><span>시장 대비</span><strong>{safePct(market.excess_return_pct_points)}</strong><em>KOSPI {safePct(market.kospi_return_pct)}</em></div>
+            <div><span>승패</span><strong>{formatNumber(trading.win_count, 0)}승 {formatNumber(trading.loss_count, 0)}패</strong><em>승률 {trading.win_rate_pct == null ? '-' : formatPercent(trading.win_rate_pct, 0)}</em></div>
+            <div><span>손익비</span><strong>{trading.profit_factor == null ? '-' : formatNumber(trading.profit_factor, 2)}</strong><em>수수료 {formatKRWExact(toNumber(account.fees_krw))}</em></div>
+          </div>
+
+          <div className="wealth-journal-trades">
+            <div className="wealth-journal-trade-row is-head"><span>종목</span><span>진입 → 청산</span><span>보유</span><span>손익</span><span>청산</span></div>
+            {trades.map((trade, index) => (
+              <div key={`${trade.code || '-'}:${trade.entry_at || index}`} className="wealth-journal-trade-row">
+                <span className="is-symbol"><strong>{trade.name || trade.code || '-'}</strong><em>{trade.code || '-'} · {formatNumber(trade.quantity, 0)}주</em></span>
+                <span className="is-prices"><strong>{formatKRWExact(toNumber(trade.entry_price_krw))} → {formatKRWExact(toNumber(trade.exit_price_krw))}</strong><em>{trade.entry_at ? formatDateTime(trade.entry_at) : '-'} → {trade.exit_at ? formatDateTime(trade.exit_at) : '-'}</em></span>
+                <span className="is-holding">보유 {formatHoldingTime(trade.holding_seconds)}</span>
+                <span className={`is-pnl ${toneForNumber(trade.realized_pnl_krw)}`}><strong>{formatSignedKRWExact(toNumber(trade.realized_pnl_krw))}</strong><em>{safePct(trade.return_pct ?? undefined)}</em></span>
+                <span className="is-exit">청산 {exitReasonLabel(trade.exit_reason)}</span>
+              </div>
+            ))}
+            {trades.length === 0 && <div className="wealth-empty-line">완료된 거래가 없어.</div>}
+          </div>
+
+          <div className="wealth-journal-foot">
+            <div><span>진입 제한</span><strong>{skipReasons.length > 0 ? skipReasons.map(([reason, count]) => `${SKIP_REASON_LABELS[reason] || reasonCodeToKorean(reason)} ${count}`).join(' · ') : '없음'}</strong></div>
+            <div><span>전략</span><strong>{formatNumber(toNumber(strategy.interval_seconds), 0)}초 · 일매수 {formatNumber(toNumber(strategy.daily_buy_limit), 0)} · 손실한도 {formatPercent(toNumber(strategy.daily_loss_limit_pct), 1)}</strong></div>
+            <div><span>마감 자산</span><strong>{formatKRWExact(toNumber(account.ending_equity_krw))} · 누적 {safePct(account.cumulative_return_pct ?? undefined)}</strong></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function formatSignedKRWExact(value: number): string {
@@ -703,6 +834,8 @@ export function WealthPulseHomePage({
               </div>
             </div>
           </section>
+
+          <DailyPerformanceJournalPanel journals={snapshot.dailyPerformance.journals || []} />
 
           <section className="wealth-surface-panel wealth-dashboard-grid wealth-risk-section">
             <div className="wealth-chart-panel">
