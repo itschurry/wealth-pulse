@@ -570,6 +570,8 @@ curl 'http://127.0.0.1:8001/api/signals/rank?limit=100'
 curl 'http://127.0.0.1:8001/api/signals/snapshots?limit=120'
 ```
 
+`/api/monitor/promotions`는 `created_at`, `market`, `symbol`, `name`, `event_type`, `slot_type`, `reason` 형식으로 최근 슬롯 변경을 반환해. `/research-ai` 화면은 반복 변경을 종목별로 합쳐 최근 5개 종목만 표시한다.
+
 리서치:
 
 ```bash

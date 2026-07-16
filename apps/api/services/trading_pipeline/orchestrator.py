@@ -129,7 +129,9 @@ def _source_counts(rows: Iterable[Mapping[str, Any]]) -> dict[str, int]:
 
 
 def _append_watch_events(market: str, previous: Mapping[str, Any], current: Mapping[str, Any]) -> None:
-    previous_symbols = {_normalize_symbol(row.get("symbol") or row.get("code")) for row in previous.get("active_slots") or [] if isinstance(row, Mapping)}
+    previous_rows = [row for row in previous.get("active_slots") or [] if isinstance(row, Mapping)]
+    previous_by_symbol = {_normalize_symbol(row.get("symbol") or row.get("code")): row for row in previous_rows}
+    previous_symbols = set(previous_by_symbol)
     current_rows = [row for row in current.get("active_slots") or [] if isinstance(row, Mapping)]
     current_by_symbol = {_normalize_symbol(row.get("symbol") or row.get("code")): row for row in current_rows}
     current_symbols = set(current_by_symbol)
@@ -137,7 +139,7 @@ def _append_watch_events(market: str, previous: Mapping[str, Any], current: Mapp
     for symbol in sorted(current_symbols - previous_symbols):
         append_event("watchlist", market, {"symbol": symbol, "event": "entered_watch", "payload": current_by_symbol[symbol]})
     for symbol in sorted(previous_symbols - current_symbols):
-        append_event("watchlist", market, {"symbol": symbol, "event": "left_watch"})
+        append_event("watchlist", market, {"symbol": symbol, "event": "left_watch", "payload": previous_by_symbol[symbol]})
 
 
 def refresh_market_pipeline(

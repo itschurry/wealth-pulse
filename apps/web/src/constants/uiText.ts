@@ -124,6 +124,11 @@ export const REASON_CODE_KR: Record<string, string> = {
   policy_uncertainty: '정책 불확실성',
   liquidity_mismatch: '유동성 불일치',
   too_many_similar_news: '유사 뉴스 과다',
+  market_scanner: '시장 스캐너 선정',
+  realtime_mover: '장중 변동 상위',
+  change_rate_top: '등락률 상위',
+  trading_value_top: '거래대금 상위',
+  volume_top: '거래량 상위',
 };
 
 export function reasonCodeToKorean(code: string): string {

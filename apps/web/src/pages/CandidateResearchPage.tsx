@@ -37,6 +37,7 @@ const MARKET_OPTIONS = [
 type SnapshotMarketView = 'ALL' | 'KOSPI';
 
 function normalizeSnapshotMarket(_value: string | undefined): Exclude<SnapshotMarketView, 'ALL'> {
+  void _value;
   return 'KOSPI';
 }
 
@@ -61,6 +62,7 @@ function preferredMarketView(liveMarket: LiveMarketResponse | null): SnapshotMar
 }
 
 function marketSessionText(liveMarket: LiveMarketResponse | null, _market: Exclude<SnapshotMarketView, 'ALL'>): string {
+  void _market;
   const session = liveMarket?.market_sessions?.KR;
   if (!session) return '';
   return session.status_label || session.status || '';
@@ -227,13 +229,28 @@ function promotionEventBadge(item: CandidateMonitorPromotionEvent): { label: str
   return { label: eventType || '-', tone: 'inline-badge' };
 }
 
-function promotionReasonLabel(item: CandidateMonitorPromotionEvent): string {
-  const reason = String(item.reason || '').toLowerCase();
-  if (reason === 'held') return '보유 추적';
-  if (reason === 'core') return '핵심 감시';
-  if (reason === 'promotion') return '승격 슬롯';
-  if (reason === 'watch') return '감시 슬롯';
-  return reason || '-';
+type CompactPromotionEvent = CandidateMonitorPromotionEvent & { activityCount: number };
+
+function compactPromotionEvents(items: CandidateMonitorPromotionEvent[]): CompactPromotionEvent[] {
+  const recentBySymbol = new Map<string, CompactPromotionEvent>();
+  items.forEach((item) => {
+    const key = `${String(item.market || '').toUpperCase()}:${String(item.symbol || '').toUpperCase()}`;
+    const existing = recentBySymbol.get(key);
+    if (existing) {
+      existing.activityCount += 1;
+    } else if (recentBySymbol.size < 5) {
+      recentBySymbol.set(key, { ...item, activityCount: 1 });
+    }
+  });
+  return Array.from(recentBySymbol.values());
+}
+
+function promotionDetailLabel(item: CandidateMonitorPromotionEvent): string {
+  if (String(item.event_type || '').toLowerCase() === 'left_watch') return '활성 슬롯 제외';
+  const slotType = String(item.slot_type || '').toLowerCase();
+  const slotLabel = slotType === 'held' ? '보유 추적' : slotType === 'core' ? '핵심 감시' : '승격 슬롯';
+  const reason = reasonCodeToKorean(String(item.reason || ''));
+  return reason && reason !== '-' ? `${slotLabel} · ${reason}` : slotLabel;
 }
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
@@ -637,42 +654,41 @@ function MarketSummarySection({ items }: { items: CandidateMonitorStatusItem[] }
 }
 
 function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }) {
+  const displayItems = compactPromotionEvents(items);
   return (
     <section className="page-section workspace-table-section">
       <div className="workspace-card-head section-head-row">
         <div>
-          <div className="section-title">승격/탈락</div>
-          <div className="section-copy">새 구조가 실제로 종목을 감시 슬롯에 넣고 빼는지 바로 확인하는 용도야.</div>
+          <div className="section-title">최근 슬롯 변경</div>
+          <div className="section-copy">반복 이벤트는 종목별로 합치고 최근 5개 종목만 보여준다.</div>
         </div>
         <div className="section-toolbar">
-          <div className="inline-badge">{items.length}개</div>
+          <div className="inline-badge">{items.length}건 · {displayItems.length}종목</div>
         </div>
       </div>
       {items.length === 0 ? (
         <div className="workspace-empty-state">없음</div>
       ) : (
         <>
-          <div className="workspace-table-scroll is-ten-rows">
-            <table className="workspace-table" style={{ minWidth: 760 }}>
+          <div className="workspace-table-scroll responsive-table-desktop">
+            <table className="workspace-table" style={{ minWidth: 640 }}>
               <thead>
                 <tr>
                   <th>시각</th>
-                  <th>시장</th>
                   <th>종목</th>
-                  <th>이벤트</th>
-                  <th>슬롯</th>
+                  <th>최근 변경</th>
+                  <th>상세</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, idx) => {
+                {displayItems.map((item, idx) => {
                   const event = promotionEventBadge(item);
                   return (
                     <tr key={`${item.market}-${item.symbol}-${item.created_at}-${idx}`}>
                       <td>{item.created_at ? formatDateTime(item.created_at) : '-'}</td>
-                      <td>{item.market || '-'}</td>
                       <td><SymbolIdentity code={item.symbol} name={item.name} market={item.market} /></td>
-                      <td><span className={event.tone}>{event.label}</span></td>
-                      <td>{promotionReasonLabel(item)}</td>
+                      <td><span className={event.tone}>{event.label}</span>{item.activityCount > 1 ? ` · ${item.activityCount}회` : ''}</td>
+                      <td>{promotionDetailLabel(item)}</td>
                     </tr>
                   );
                 })}
@@ -680,7 +696,7 @@ function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }
             </table>
           </div>
           <div className="responsive-card-list is-scroll-ten">
-            {items.map((item, idx) => {
+            {displayItems.map((item, idx) => {
               const event = promotionEventBadge(item);
               return (
                 <article key={`${item.market}-${item.symbol}-${item.created_at}-${idx}-card`} className="responsive-card" style={{ cursor: 'default' }}>
@@ -689,12 +705,12 @@ function PromotionSection({ items }: { items: CandidateMonitorPromotionEvent[] }
                       <div className="responsive-card-title"><SymbolIdentity code={item.symbol} name={item.name} market={item.market} compact /></div>
                       <div className="signal-cell-copy">{item.market || '-'} · {item.created_at ? formatDateTime(item.created_at) : '-'}</div>
                     </div>
-                    <span className={event.tone}>{event.label}</span>
+                    <span className={event.tone}>{event.label}{item.activityCount > 1 ? ` · ${item.activityCount}회` : ''}</span>
                   </div>
                   <div className="responsive-card-grid">
                     <div>
-                      <div className="responsive-card-label">슬롯</div>
-                      <div className="responsive-card-value">{promotionReasonLabel(item)}</div>
+                      <div className="responsive-card-label">상세</div>
+                      <div className="responsive-card-value">{promotionDetailLabel(item)}</div>
                     </div>
                   </div>
                 </article>
