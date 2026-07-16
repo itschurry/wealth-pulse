@@ -13,7 +13,12 @@ from fastapi.responses import JSONResponse
 import uvicorn
 
 from api_contract import normalize_api_response
+from routes.market import handle_live_market
 from server import dispatch_get, dispatch_post
+from services.daily_performance_journal import (
+    start_daily_performance_journal_scheduler,
+    stop_daily_performance_journal_scheduler,
+)
 
 
 app = FastAPI(title="WealthPulse API", version="2.0.0")
@@ -25,6 +30,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _load_market_for_daily_journal() -> dict:
+    status, payload = handle_live_market()
+    if status != 200:
+        raise RuntimeError(str(payload.get("error") or "시장 데이터 조회 실패"))
+    return payload
+
+
+@app.on_event("startup")
+def start_daily_journal_scheduler() -> None:
+    start_daily_performance_journal_scheduler(_load_market_for_daily_journal)
+
+
+@app.on_event("shutdown")
+def stop_daily_journal_scheduler() -> None:
+    stop_daily_performance_journal_scheduler()
 
 
 def _query_params_from_request(request: Request) -> dict[str, list[str]]:

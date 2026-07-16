@@ -12,6 +12,7 @@ _WRAPPED_PREFIXES: tuple[str, ...] = (
     "/api/validation",
     "/api/runtime",
     "/api/performance/summary",
+    "/api/performance/journal",
     "/api/reports/operations",
 )
 

@@ -21,7 +21,7 @@ from routes.candidate_monitor import (
 from routes.engine import handle_engine_status, handle_engine_summary
 from routes.market import handle_live_market, handle_stock_price, handle_stock_search
 from routes.openai_billing import handle_openai_billing
-from routes.performance import handle_performance_summary
+from routes.performance import handle_daily_performance_journal, handle_performance_summary
 from routes.portfolio import handle_portfolio_state
 from routes.research import handle_research_ingest_bulk, handle_research_latest_snapshot, handle_research_run_status_save, handle_research_status
 from routes.research import handle_research_snapshots
@@ -142,6 +142,13 @@ GET_ROUTES: tuple[Route, ...] = (
     Route("/api/scanner/status", lambda _path, query: handle_scanner_status(query)),
     Route("/api/universe", lambda _path, query: handle_universe_list(query)),
     Route("/api/performance/summary", lambda _path, _query: handle_performance_summary()),
+    Route(
+        "/api/performance/journal",
+        lambda _path, query: handle_daily_performance_journal(
+            _query_value(query, "date"),
+            _query_int(query, "limit", 20),
+        ),
+    ),
     Route("/api/openai/billing", lambda _path, _query: handle_openai_billing()),
     Route("/api/live-market", lambda _path, _query: handle_live_market()),
     Route("/api/reports", lambda _path, _query: handle_reports()),
