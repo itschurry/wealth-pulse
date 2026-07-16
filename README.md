@@ -170,8 +170,8 @@ React 앱은 라우터 라이브러리 없이 `App.tsx`에서 URL path를 해석
 주요 화면:
 
 - `/agent-dashboard`: 네이비 블랙 기반 Quant Command 화면이야. 총자산·오늘 실현손익·평가손익, 원형 자산 배분, 시장 흐름, 보유 포지션, AI 핵심 후보, 주문과 리스크 상태를 첫 화면에서 같이 보여줘.
-- `/research-ai`: 후보 모니터, 리서치 상태, 스냅샷 상세. 모바일/데스크톱 레이아웃 보정은 `apps/web/src/index.css`의 research responsive 규칙을 봐.
-- `/orders-execution`: 런타임 엔진 제어, 포지션, 주문 이벤트, 워크플로우. 보유 포지션은 평가금액, 투자원금, 자산비중을 같이 보여줘.
+- `/research-ai`: 후보 모니터, 리서치 상태, 스냅샷 상세. Quant Command의 네이비 블랙·라임 상태 팔레트를 공유하고, 모바일/데스크톱 레이아웃 보정은 `apps/web/src/index.css`의 research responsive 규칙을 봐.
+- `/orders-execution`: 런타임 엔진 제어, 포지션, 주문 이벤트, 워크플로우. Quant Command 팔레트를 공유하고, 보유 포지션은 평가금액, 투자원금, 자산비중을 같이 보여줘.
 - `/watchlist`: 사용자 관심 종목
 - `/lab/strategies`: 전략 프리셋
 - `/lab/universe`: 유니버스

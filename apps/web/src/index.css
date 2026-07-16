@@ -6760,6 +6760,81 @@ textarea {
   }
 }
 
+/* Keep research and execution surfaces on the Quant Command palette. */
+:is(.page-research-ai, .page-orders-execution) :is(
+  .ghost-button,
+  .console-action-button,
+  .tab-launch-button
+) {
+  border-color: var(--border-md);
+  background: var(--surface-alt);
+  color: var(--text-2);
+}
+
+:is(.page-research-ai, .page-orders-execution) :is(
+  .ghost-button,
+  .console-action-button,
+  .tab-launch-button
+):hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+:is(.page-research-ai, .page-orders-execution) .console-action-button.is-primary,
+.page-research-ai .action-button.is-primary {
+  border-color: var(--up-border);
+  background: var(--up-bg);
+  color: var(--up);
+}
+
+:is(.page-research-ai, .page-orders-execution) .console-action-button.is-danger {
+  border-color: var(--down-border);
+  background: var(--down-bg);
+  color: var(--down);
+}
+
+:is(.page-research-ai, .page-orders-execution) :is(
+  .research-command-center,
+  .ops-command-center,
+  .console-drawer,
+  .console-confirm-card
+) {
+  border-color: var(--border-light);
+  background: linear-gradient(145deg, rgba(14, 23, 31, 0.98), rgba(8, 14, 20, 0.98));
+  color: var(--text-1);
+  box-shadow: var(--shadow-sm);
+}
+
+:is(.page-research-ai, .page-orders-execution) :is(
+  .input-field,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea
+) {
+  color-scheme: dark;
+  border-color: var(--border-md);
+  background: var(--surface-alt);
+  color: var(--text-1);
+}
+
+:is(.page-research-ai, .page-orders-execution) option {
+  background: var(--surface-alt);
+  color: var(--text-1);
+}
+
+:is(.page-research-ai, .page-orders-execution) .workspace-table tbody tr:hover {
+  background: rgba(184, 244, 93, 0.035);
+}
+
+:is(.page-research-ai, .page-orders-execution) :is(
+  .console-actionbar-danger-row,
+  .console-confirm-danger-box
+) {
+  border-color: var(--down-border);
+  background: var(--down-bg);
+}
+
 /* Final responsive polish for refreshed UI */
 @media (max-width: 720px) {
   .ghost-button,
