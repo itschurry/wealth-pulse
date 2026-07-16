@@ -28,6 +28,19 @@ def _normalize_markets(markets: list[str] | None) -> list[str]:
     return normalized or ["KOSPI"]
 
 
+def _normalize_promotion_event(item: Mapping[str, Any], market: str) -> dict[str, Any]:
+    payload = item.get("payload") if isinstance(item.get("payload"), Mapping) else {}
+    return {
+        "market": str(payload.get("market") or market).upper(),
+        "symbol": str(item.get("symbol") or payload.get("symbol") or payload.get("code") or "").upper(),
+        "name": str(payload.get("name") or ""),
+        "event_type": str(item.get("event") or ""),
+        "reason": str(payload.get("selection_reason") or payload.get("reason") or ""),
+        "slot_type": str(payload.get("slot_type") or ""),
+        "created_at": str(item.get("recorded_at") or ""),
+    }
+
+
 def build_market_watchlist(
     market: str,
     *,
@@ -179,6 +192,6 @@ def list_pending_research_targets(
 def list_recent_promotion_events(markets: list[str] | None = None, *, limit: int = DEFAULT_PROMOTION_EVENT_LIMIT) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for market in _normalize_markets(markets):
-        rows.extend(read_events("watchlist", market, limit=limit))
-    rows.sort(key=lambda item: str(item.get("recorded_at") or ""), reverse=True)
+        rows.extend(_normalize_promotion_event(item, market) for item in read_events("watchlist", market, limit=limit))
+    rows.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
     return rows[: max(1, int(limit or DEFAULT_PROMOTION_EVENT_LIMIT))]

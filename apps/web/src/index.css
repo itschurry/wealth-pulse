@@ -8196,6 +8196,173 @@ body {
   font-size: 9px;
 }
 
+.wealth-journal-section {
+  display: grid;
+  gap: 14px;
+  scroll-margin-top: 64px;
+}
+
+.wealth-journal-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.34fr) minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+}
+
+.wealth-journal-date-list {
+  display: grid;
+  align-content: start;
+  border-top: 1px solid var(--border);
+}
+
+.wealth-journal-date-row {
+  width: 100%;
+  padding: 12px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wealth-journal-date-row:hover,
+.wealth-journal-date-row.is-selected {
+  border-left-color: var(--up);
+  background: rgba(184, 244, 93, 0.045);
+}
+
+.wealth-journal-date-row > span:last-child {
+  text-align: right;
+}
+
+.wealth-journal-date-row strong,
+.wealth-journal-date-row em {
+  display: block;
+}
+
+.wealth-journal-date-row strong {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.wealth-journal-date-row em {
+  margin-top: 4px;
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-style: normal;
+}
+
+.wealth-journal-detail {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.wealth-journal-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.wealth-journal-summary-grid > div {
+  min-width: 0;
+  padding: 11px 12px;
+  border-left: 1px solid var(--border);
+  display: grid;
+  gap: 4px;
+}
+
+.wealth-journal-summary-grid > div:first-child {
+  border-left: 0;
+}
+
+.wealth-journal-summary-grid span,
+.wealth-journal-foot span {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.wealth-journal-summary-grid strong {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 17px;
+}
+
+.wealth-journal-summary-grid em,
+.wealth-journal-trade-row em {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-style: normal;
+}
+
+.wealth-journal-trades {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.wealth-journal-trade-row {
+  min-width: 760px;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(240px, 1.5fr) 72px minmax(110px, 0.75fr) minmax(100px, 0.7fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.wealth-journal-trade-row.is-head {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.wealth-journal-trade-row strong,
+.wealth-journal-trade-row em {
+  display: block;
+}
+
+.wealth-journal-trade-row strong {
+  color: var(--text-1);
+  font-size: 11px;
+}
+
+.wealth-journal-trade-row em {
+  margin-top: 3px;
+}
+
+.wealth-journal-foot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.wealth-journal-foot > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.wealth-journal-foot strong {
+  color: var(--text-2);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .wealth-risk-section {
   padding: 18px;
 }
@@ -8306,8 +8473,13 @@ body {
   }
 
   .wealth-workspace-grid,
-  .wealth-secondary-grid {
+  .wealth-secondary-grid,
+  .wealth-journal-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wealth-journal-date-list {
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   }
 }
 
@@ -8335,8 +8507,57 @@ body {
 
   .wealth-pnl-strip,
   .wealth-status-list,
-  .wealth-performance-grid {
+  .wealth-performance-grid,
+  .wealth-journal-summary-grid,
+  .wealth-journal-foot {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wealth-journal-summary-grid > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .wealth-journal-summary-grid > div:first-child {
+    border-top: 0;
+  }
+
+  .wealth-journal-summary-grid em {
+    grid-column: 1 / -1;
+  }
+
+  .wealth-journal-trades {
+    overflow: visible;
+  }
+
+  .wealth-journal-trade-row.is-head {
+    display: none;
+  }
+
+  .wealth-journal-trade-row {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 9px 12px;
+    padding: 12px 0;
+  }
+
+  .wealth-journal-trade-row .is-prices,
+  .wealth-journal-trade-row .is-pnl {
+    text-align: right;
+  }
+
+  .wealth-journal-trade-row .is-holding,
+  .wealth-journal-trade-row .is-exit {
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    color: var(--text-4);
+    font-size: 10px;
+  }
+
+  .wealth-journal-trade-row .is-exit {
+    text-align: right;
   }
 
   .wealth-pnl-strip div,

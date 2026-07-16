@@ -12,6 +12,7 @@ import type {
   MarketContextResponse,
   OpenAIBillingResponse,
   PerformanceSummaryResponse,
+  DailyPerformanceJournalsResponse,
   PortfolioStateResponse,
   RecommendationsResponse,
   CandidateMonitorPromotionsResponse,
@@ -89,6 +90,13 @@ export function fetchUniverse(refresh = false) {
 
 export function fetchPerformanceSummary() {
   return getJSON<PerformanceSummaryResponse>('/api/performance/summary', { noStore: true });
+}
+
+export function fetchDailyPerformanceJournals(limit = 20) {
+  return getJSON<DailyPerformanceJournalsResponse>(
+    `/api/performance/journal?limit=${encodeURIComponent(String(limit))}`,
+    { noStore: true },
+  );
 }
 
 export function fetchPortfolioState(refresh = true) {

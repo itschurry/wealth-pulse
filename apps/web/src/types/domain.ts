@@ -715,6 +715,84 @@ export interface PerformanceSummaryResponse {
   };
 }
 
+export interface DailyPerformanceTrade {
+  code?: string;
+  name?: string;
+  market?: string;
+  quantity?: number;
+  entry_at?: string;
+  exit_at?: string;
+  holding_seconds?: number;
+  entry_price_krw?: number;
+  exit_price_krw?: number;
+  entry_notional_krw?: number;
+  entry_fee_krw?: number;
+  exit_fee_krw?: number;
+  realized_pnl_krw?: number;
+  return_pct?: number | null;
+  exit_reason?: string;
+  strategy_type?: string;
+  expected_value?: number | null;
+  entry_plan?: {
+    entry_plan_price?: number;
+    stop_loss_price?: number;
+    take_profit_price?: number;
+    stop_loss_pct?: number;
+    take_profit_pct?: number;
+  };
+}
+
+export interface DailyPerformanceJournal {
+  schema_version?: number;
+  date?: string;
+  generated_at?: string;
+  mode?: string;
+  account?: {
+    starting_equity_krw?: number;
+    ending_equity_krw?: number;
+    ending_cash_krw?: number;
+    ending_market_value_krw?: number;
+    net_pnl_krw?: number;
+    daily_return_pct?: number;
+    cumulative_return_pct?: number | null;
+    fees_krw?: number;
+    open_position_count?: number;
+  };
+  market?: {
+    kospi_close?: number;
+    kospi_return_pct?: number;
+    excess_return_pct_points?: number;
+    source?: string;
+  };
+  trading?: {
+    buy_count?: number;
+    sell_count?: number;
+    round_trip_count?: number;
+    win_count?: number;
+    loss_count?: number;
+    win_rate_pct?: number | null;
+    gross_profit_krw?: number;
+    gross_loss_krw?: number;
+    profit_factor?: number | null;
+    average_holding_seconds?: number | null;
+    trades?: DailyPerformanceTrade[];
+  };
+  diagnostics?: {
+    engine_cycle_count?: number;
+    skip_reason_counts?: Record<string, number>;
+    blocked_reason_counts?: Record<string, number>;
+    rotation_attempted_count?: number;
+    rotation_executed_count?: number;
+  };
+  strategy_config?: Record<string, unknown>;
+}
+
+export interface DailyPerformanceJournalsResponse {
+  ok?: boolean;
+  journals?: DailyPerformanceJournal[];
+  error?: string;
+}
+
 export interface OperationsReportResponse {
   ok?: boolean;
   generated_at?: string;

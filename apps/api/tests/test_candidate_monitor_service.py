@@ -97,6 +97,40 @@ class CandidateMonitorServiceTests(unittest.TestCase):
         self.assertEqual(queue["items"][0]["research_status"], "missing")
         self.assertFalse(queue["items"][0]["snapshot_exists"])
 
+    def test_recent_promotion_events_match_web_contract(self) -> None:
+        original_read_events = service.read_events
+
+        service.read_events = lambda _kind, _market, limit: [
+            {
+                "recorded_at": "2026-07-16T06:21:15+00:00",
+                "symbol": "010950",
+                "event": "entered_watch",
+                "payload": {
+                    "market": "KOSPI",
+                    "name": "S-Oil",
+                    "slot_type": "promotion",
+                    "selection_reason": "change_rate_top",
+                },
+            },
+            {
+                "recorded_at": "2026-07-16T06:20:01+00:00",
+                "symbol": "034020",
+                "event": "left_watch",
+            },
+        ]
+        try:
+            items = service.list_recent_promotion_events(["KOSPI"], limit=20)
+        finally:
+            service.read_events = original_read_events
+
+        self.assertEqual(items[0]["created_at"], "2026-07-16T06:21:15+00:00")
+        self.assertEqual(items[0]["event_type"], "entered_watch")
+        self.assertEqual(items[0]["name"], "S-Oil")
+        self.assertEqual(items[0]["slot_type"], "promotion")
+        self.assertEqual(items[0]["reason"], "change_rate_top")
+        self.assertEqual(items[1]["market"], "KOSPI")
+        self.assertEqual(items[1]["event_type"], "left_watch")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ import {
   fetchMarketContext,
   fetchOpenAIBilling,
   fetchPerformanceSummary,
+  fetchDailyPerformanceJournals,
   fetchPortfolioState,
   fetchRecommendations,
   fetchReportsExplain,
@@ -48,6 +49,7 @@ function emptySnapshot(): ConsoleSnapshot {
     scanner: {},
     universe: {},
     performance: {},
+    dailyPerformance: {},
     portfolio: {},
     research: {},
     reports: {},
@@ -65,11 +67,11 @@ function resolveDataProfile(route: ConsoleDataRoute): ConsoleDataProfile {
   if (route.page === 'agent-dashboard') {
     return {
       signalLimit: 80,
-      initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'openaiBilling', 'marketContext', 'reports', 'universe', 'performance'],
+      initialTargets: ['engine', 'signals', 'research', 'portfolio', 'liveMarket', 'openaiBilling', 'marketContext', 'reports', 'universe', 'performance', 'dailyPerformance'],
       initialAwaitTargets: ['engine'],
       fastTargets: ['engine', 'liveMarket'],
       midTargets: ['signals', 'portfolio'],
-      slowTargets: ['research', 'openaiBilling', 'marketContext', 'reports', 'universe', 'performance'],
+      slowTargets: ['research', 'openaiBilling', 'marketContext', 'reports', 'universe', 'performance', 'dailyPerformance'],
     };
   }
 
@@ -124,6 +126,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
     scanner: 0,
     universe: 0,
     performance: 0,
+    dailyPerformance: 0,
     portfolio: 0,
     research: 0,
     reports: 0,
@@ -143,6 +146,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
       scanner: 0,
       universe: 0,
       performance: 0,
+      dailyPerformance: 0,
       portfolio: 0,
       research: 0,
       reports: 0,
@@ -198,6 +202,7 @@ export function useConsoleData(route: ConsoleDataRoute) {
       if (key === 'scanner') return fetchScannerStatus(scannerRefresh, scannerCacheOnly);
       if (key === 'universe') return fetchUniverse();
       if (key === 'performance') return fetchPerformanceSummary();
+      if (key === 'dailyPerformance') return fetchDailyPerformanceJournals(20);
       if (key === 'portfolio') return fetchPortfolioState(false);
       if (key === 'research') return fetchResearchStatus();
       if (key === 'reports') return fetchReportsExplain();
