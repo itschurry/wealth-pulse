@@ -150,7 +150,7 @@ export default function App() {
   };
 
   return (
-    <div className={`app-layout ${mobileNavOpen ? 'is-nav-open' : ''}`}>
+    <div className={`app-layout page-${route.page} ${mobileNavOpen ? 'is-nav-open' : ''}`}>
       <button
         className="app-mobile-nav-toggle"
         type="button"

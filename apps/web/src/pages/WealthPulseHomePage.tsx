@@ -333,7 +333,7 @@ export function WealthPulseHomePage({
   const allocationGradient = buildConicGradient([
     { value: cashAllocationKrw, color: 'var(--text-4)' },
     { value: kospiExposureKrw, color: 'var(--gold)' },
-    { value: otherExposureKrw, color: 'var(--silver)' },
+    { value: otherExposureKrw, color: 'var(--warning)' },
   ]);
   const universeSymbolCount = (snapshot.universe.items || []).reduce((sum, item) => sum + toNumber(item.symbol_count), 0);
   const researchCoverage = toNumber(snapshot.research.coverage_count);
@@ -380,21 +380,26 @@ export function WealthPulseHomePage({
   const researchSourceLabel = providerSourceToKorean(String(snapshot.research.source || snapshot.research.source_of_truth || ''))
     || providerStatusToKorean(String(snapshot.research.status || '-'))
     || '-';
+  const realizedPnlKrw = toNumber(engineState.today_realized_pnl) || toNumber(livePerformance.realized_pnl_krw);
+  const todayPnlKrw = realizedPnlKrw + totalUnrealizedPnlKrw;
+  const focusSignals = [...signals]
+    .sort((left, right) => toNumber(right.research_score ?? right.score) - toNumber(left.research_score ?? left.score))
+    .slice(0, 3);
 
   return (
     <div className="app-shell">
       <div className="page-frame">
         <div className="content-shell wealth-home-shell">
-          <section className="page-section wealth-terminal-hero">
+          <section className="wealth-command-hero">
             <div className="wealth-terminal-topbar">
               <div className="wealth-terminal-brand">
                 <span className={`wealth-status-dot ${engineRunning ? 'is-live' : ''}`} />
-                <span>WealthPulse</span>
+                <span>WEALTHPULSE / QUANT COMMAND</span>
                 <strong>{engineStatusLabel}</strong>
               </div>
               <div className="wealth-terminal-actions">
                 <div className={`wealth-openai-corner ${openaiBilling.ok === false ? 'is-error' : ''}`.trim()}>
-                  <span>OpenAI</span>
+                  <span>AI 리서치 비용</span>
                   <strong>{openaiBilling.ok === false ? '확인 실패' : formatUSD(openaiCost)}</strong>
                   <em>
                     {openaiBilling.ok === false
@@ -406,37 +411,113 @@ export function WealthPulseHomePage({
               </div>
             </div>
 
-            <div className="wealth-hero-grid">
-              <div>
-                <div className="wealth-kpi-label">운용 상태</div>
-                <div className="wealth-hero-number">{engineStatusLabel}</div>
-                <div className="wealth-hero-subline">
-                  <span>{formatDateTimeWithAge(snapshot.fetchedAt)}</span>
+            <div className="wealth-command-grid">
+              <div className="wealth-asset-card">
+                <div className="wealth-panel-kicker">TOTAL EQUITY</div>
+                <div className="wealth-asset-value">{formatKRWExact(totalEquityKrw)}</div>
+                <div className={`wealth-today-pnl ${toneForNumber(todayPnlKrw)}`}>
+                  {formatSignedKRWExact(todayPnlKrw)}
+                  <span>오늘 총손익</span>
+                </div>
+                <div className="wealth-pnl-strip">
+                  <div>
+                    <span>오늘 실현손익</span>
+                    <strong className={toneForNumber(realizedPnlKrw)}>{formatSignedKRWExact(realizedPnlKrw)}</strong>
+                  </div>
+                  <div>
+                    <span>평가손익</span>
+                    <strong className={toneForNumber(totalUnrealizedPnlKrw)}>{formatSignedKRWExact(totalUnrealizedPnlKrw)}</strong>
+                  </div>
+                  <div>
+                    <span>통합 수익률</span>
+                    <strong className={toneForNumber(totalReturnPct)}>{totalReturnPct == null ? '-' : formatPercent(totalReturnPct, 2)}</strong>
+                  </div>
                 </div>
               </div>
-              <div className="wealth-hero-metrics">
-                <div>
-                  <span>리스크</span>
-                  <strong className={riskGuardAllowed ? 'is-up' : 'is-down'}>{riskGuardAllowed ? '열림' : '잠김'}</strong>
+
+              <div className="wealth-allocation-card">
+                <div className="wealth-card-head">
+                  <div>
+                    <div className="wealth-panel-kicker">ASSET ALLOCATION</div>
+                    <div className="section-title">자산 배분</div>
+                  </div>
+                  <span className="inline-badge">{formatNumber(positions.length, 0)} 포지션</span>
                 </div>
-                <div>
-                  <span>리서치</span>
-                  <strong>{researchSourceLabel}</strong>
+                <div className="wealth-allocation-visual">
+                  <div
+                    className="wealth-donut"
+                    style={{ background: allocationGradient }}
+                    role="img"
+                    aria-label={`투자 ${ratioPercent(totalMarketValueKrw, totalBookValueKrw)}, 현금 ${ratioPercent(cashAllocationKrw, totalBookValueKrw)}`}
+                  >
+                    <div>
+                      <strong>{ratioPercent(totalMarketValueKrw, totalBookValueKrw)}</strong>
+                      <span>투자중</span>
+                    </div>
+                  </div>
+                  <div className="wealth-allocation-legend">
+                    {allocationRows.map((item) => (
+                      <div key={item.label}>
+                        <span className={`wealth-legend-dot ${item.tone || ''}`.trim()} />
+                        <span>{item.label}</span>
+                        <strong>{item.meta}</strong>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <span>보유</span>
-                  <strong>{formatNumber(positions.length, 0)}종목</strong>
+              </div>
+
+              <div className="wealth-system-card">
+                <div className="wealth-card-head">
+                  <div>
+                    <div className="wealth-panel-kicker">SYSTEM STATUS</div>
+                    <div className="section-title">운용 상태</div>
+                  </div>
+                  <span className={engineRunning ? 'inline-badge is-success' : 'inline-badge is-danger'}>{engineStatusLabel}</span>
                 </div>
-                <div>
-                  <span>오늘 주문</span>
-                  <strong>매수 {formatNumber(buyOrders, 0)} / 매도 {formatNumber(sellOrders, 0)}</strong>
+                <div className="wealth-status-list">
+                  <div>
+                    <span>리스크 게이트</span>
+                    <strong className={riskGuardAllowed ? 'is-up' : 'is-down'}>{riskGuardAllowed ? '정상' : '차단'}</strong>
+                  </div>
+                  <div>
+                    <span>AI 리서치</span>
+                    <strong>{freshnessToKorean(String(snapshot.research.freshness || 'missing'))}</strong>
+                  </div>
+                  <div>
+                    <span>리서치 최신</span>
+                    <strong>{formatNumber(researchFresh, 0)} / {formatNumber(researchCoverage, 0)}</strong>
+                  </div>
+                  <div>
+                    <span>오늘 주문</span>
+                    <strong>매수 {formatNumber(buyOrders, 0)} · 매도 {formatNumber(sellOrders, 0)}</strong>
+                  </div>
                 </div>
+                <div className="wealth-system-foot">마지막 동기화 {formatDateTimeWithAge(snapshot.fetchedAt)}</div>
               </div>
             </div>
             {!!errorMessage && <div className="wealth-home-error">{errorMessage}</div>}
           </section>
 
-          <section className="page-section wealth-market-strip">
+          <section className="wealth-market-strip wealth-surface-panel">
+            <div className="wealth-section-heading">
+              <div>
+                <div className="wealth-panel-kicker">MARKET RADAR</div>
+                <div className="section-title">시장 흐름</div>
+              </div>
+              {sessionCards.length > 0 && (
+                <div className="wealth-session-row">
+                  {sessionCards.map((session) => (
+                    <div
+                      key={String(session.label || session.status || session.local_time || '-')}
+                      className={`inline-badge ${sessionTone(session.status)}`}
+                    >
+                      {session.label || '-'} {session.status_label || '-'} {session.local_time || '-'}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="wealth-ticker-grid">
               {tickers.map((item) => (
                 <div key={item.label} className="wealth-ticker">
@@ -451,18 +532,6 @@ export function WealthPulseHomePage({
                 <em>{liveMarket.updated_at ? '시장 흐름' : '-'}</em>
               </div>
             </div>
-            {sessionCards.length > 0 && (
-              <div className="wealth-session-row">
-                {sessionCards.map((session) => (
-                  <div
-                    key={String(session.label || session.status || session.local_time || '-')}
-                    className={`inline-badge ${sessionTone(session.status)}`}
-                  >
-                    {session.label || '-'} {session.status_label || '-'} {session.local_time || '-'}
-                  </div>
-                ))}
-              </div>
-            )}
             <div className="wealth-index-sparkline">
               <div>
                 <span>KOSPI 10거래일</span>
@@ -494,97 +563,148 @@ export function WealthPulseHomePage({
             </div>
           </section>
 
-          <section className="page-section wealth-dashboard-grid">
-            <div className="wealth-chart-panel">
-              <div className="section-head-row">
+          <section className="wealth-workspace-grid">
+            <div className="wealth-surface-panel wealth-holdings-panel">
+              <div className="wealth-section-heading">
                 <div>
-                  <div className="section-title">포트폴리오</div>
-                  <div className="section-copy">보유 {formatNumber(positions.length, 0)}종목 · 평가 {formatKRWExact(totalMarketValueKrw)} · 현금 {formatKRWExact(cashKrw)}</div>
+                  <div className="wealth-panel-kicker">LIVE POSITIONS</div>
+                  <div className="section-title">보유 포지션</div>
                 </div>
                 <div className="wealth-portfolio-total">
-                  <span>총자산</span>
-                  <strong>{formatKRWExact(totalEquityKrw)}</strong>
+                  <span>평가금액</span>
+                  <strong>{formatKRWExact(totalMarketValueKrw)}</strong>
                 </div>
               </div>
-              <div className="wealth-chart-body">
-                <div className="wealth-donut" style={{ background: allocationGradient }}>
-                  <div>
-                    <strong>{ratioPercent(totalMarketValueKrw, totalBookValueKrw)}</strong>
-                    <span>투자중</span>
-                  </div>
+              <div className="wealth-position-table">
+                <div className="wealth-position-table-row is-head">
+                  <span>종목</span><span>평가금액</span><span>비중</span><span>수량</span><span>평가손익</span>
                 </div>
-                <div className="wealth-bars">
-                  {allocationRows.map((item) => (
-                    <div key={item.label} className="wealth-bar-row">
-                      <div className="wealth-bar-label">{item.label}</div>
-                      <div className="wealth-bar-track"><div className={`wealth-bar-fill ${item.tone || ''}`.trim()} style={{ width: item.width }} /></div>
-                      <div className="wealth-bar-value">
-                        <strong>{item.value}</strong>
-                        {item.meta && <span>{item.meta}</span>}
-                      </div>
+                {positions.slice(0, 8).map((position) => (
+                  <div key={position.key} className="wealth-position-table-row">
+                    <div>
+                      <strong>{position.symbol}</strong>
+                      <em>{position.market}</em>
                     </div>
-                  ))}
-                </div>
+                    <span>{formatKRWExact(position.marketValueKrw)}</span>
+                    <span>{ratioPercent(position.marketValueKrw, totalMarketValueKrw)}</span>
+                    <span>{formatNumber(position.quantity, 0)}주</span>
+                    <div className={toneForNumber(position.unrealizedPnlKrw)}>
+                      <strong>{formatSignedKRWExact(position.unrealizedPnlKrw)}</strong>
+                      <em>{position.unrealizedPnlPct == null ? '-' : formatPercent(position.unrealizedPnlPct, 2)}</em>
+                    </div>
+                  </div>
+                ))}
+                {positions.length === 0 && <div className="wealth-empty-line">현재 보유 포지션 없음</div>}
               </div>
             </div>
 
-            <div className="wealth-chart-panel">
-              <div className="section-head-row">
+            <div className="wealth-command-rail">
+              <div className="wealth-surface-panel wealth-signal-panel">
+                <div className="wealth-section-heading">
+                  <div>
+                    <div className="wealth-panel-kicker">AI SIGNALS</div>
+                    <div className="section-title">핵심 후보</div>
+                  </div>
+                  <span className="inline-badge">{formatNumber(signals.length, 0)} 후보</span>
+                </div>
+                <div className="wealth-signal-list">
+                  {focusSignals.map((signal, index) => {
+                    const score = toOptionalNumber(signal.research_score) ?? toOptionalNumber(signal.score);
+                    const action = signal.entry_allowed
+                      ? '진입 검토'
+                      : signal.final_action === 'blocked'
+                        ? '차단'
+                        : signal.final_action === 'watch_only'
+                          ? '관찰'
+                          : '대기';
+                    return (
+                      <div key={`${signal.market || '-'}:${signal.code || index}`} className="wealth-signal-row">
+                        <div>
+                          <strong>{formatSymbol(signal.code, signal.name)}</strong>
+                          <span>{signal.market || '-'} · {action}</span>
+                        </div>
+                        <div className={signal.entry_allowed ? 'is-up' : signal.final_action === 'blocked' ? 'is-down' : ''}>
+                          <strong>{score == null ? '-' : formatNumber(score, 0)}</strong>
+                          <span>AI SCORE</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {focusSignals.length === 0 && <div className="wealth-empty-line">현재 후보 신호 없음</div>}
+                </div>
+              </div>
+
+              <div className="wealth-surface-panel wealth-order-panel">
+                <div className="wealth-section-heading">
+                  <div>
+                    <div className="wealth-panel-kicker">TODAY ORDERS</div>
+                    <div className="section-title">주문 현황</div>
+                  </div>
+                  <span className={failedOrders > 0 ? 'inline-badge is-danger' : 'inline-badge is-success'}>실패 {formatNumber(failedOrders, 0)}</span>
+                </div>
+                <div className="wealth-order-grid">
+                  <div><span>매수</span><strong className="is-up">{formatNumber(buyOrders, 0)}</strong></div>
+                  <div><span>매도</span><strong>{formatNumber(sellOrders, 0)}</strong></div>
+                  <div><span>스킵</span><strong>{formatNumber(skippedCount, 0)}</strong></div>
+                </div>
+                <div className="wealth-order-note">
+                  <span>진입 게이트</span>
+                  <strong className={riskGuardAllowed ? 'is-up' : 'is-down'}>{riskGuardAllowed ? '정상' : '차단'}</strong>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="wealth-secondary-grid">
+            <div className="wealth-surface-panel">
+              <div className="wealth-section-heading">
                 <div>
-                  <div className="section-title">성과</div>
-                  <div className="section-copy">시작 {formatKRWExact(startingEquityKrw)} · 현재 {formatKRWExact(performanceEquityKrw)}</div>
+                  <div className="wealth-panel-kicker">PERFORMANCE</div>
+                  <div className="section-title">성과 요약</div>
+                </div>
+                <span className="inline-badge">시작 {formatKRWExact(startingEquityKrw)}</span>
+              </div>
+              <div className="wealth-performance-grid">
+                <div className={toneForNumber(totalReturnPct)}>
+                  <span>통합 수익률</span>
+                  <strong>{totalReturnPct == null ? '-' : formatPercent(totalReturnPct, 2)}</strong>
+                  <em>{formatSignedKRWExact(totalReturnKrw)}</em>
+                </div>
+                <div className={toneForNumber(positionReturnPct)}>
+                  <span>보유 수익률</span>
+                  <strong>{positionReturnPct == null ? '-' : formatPercent(positionReturnPct, 2)}</strong>
+                  <em>{formatSignedKRWExact(positionReturnKrw)}</em>
+                </div>
+                <div>
+                  <span>투자 원금</span>
+                  <strong>{formatKRWExact(positionCostKrw)}</strong>
+                  <em>평가 {formatKRWExact(positionMarketValueKrw)}</em>
                 </div>
               </div>
-              <div className="wealth-data-list">
-                <div className={`wealth-data-row ${toneForNumber(totalReturnPct)}`.trim()}>
-                  <div className="wealth-data-label">통합 수익률</div>
-                  <div className="wealth-data-main is-return">
-                    {totalReturnPct == null ? '-' : (
-                      <>
-                        {formatPercent(totalReturnPct, 2)}
-                        <span className="wealth-return-amount">({formatSignedKRWExact(totalReturnKrw)})</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="wealth-data-meta">{formatKRWExact(startingEquityKrw)} → {formatKRWExact(performanceEquityKrw)}</div>
+            </div>
+
+            <div className="wealth-surface-panel">
+              <div className="wealth-section-heading">
+                <div>
+                  <div className="wealth-panel-kicker">PIPELINE</div>
+                  <div className="section-title">운용 흐름</div>
                 </div>
-                <div className={`wealth-data-row ${toneForNumber(positionReturnPct)}`.trim()}>
-                  <div className="wealth-data-label">보유 수익률</div>
-                  <div className="wealth-data-main is-return">
-                    {positionReturnPct == null ? '-' : (
-                      <>
-                        {formatPercent(positionReturnPct, 2)}
-                        <span className="wealth-return-amount">({formatSignedKRWExact(positionReturnKrw)})</span>
-                      </>
-                    )}
+                <span className="inline-badge">{engineState.last_success_at ? formatDateTime(engineState.last_success_at) : '기록 없음'}</span>
+              </div>
+              <div className="wealth-flow-grid">
+                {flowSteps.map((step) => (
+                  <div key={step.layer} className={`wealth-flow-step is-${step.tone}`}>
+                    <span>{step.layer}</span>
+                    <div>{step.label}</div>
+                    <strong>{step.value}</strong>
+                    <em>{step.meta}</em>
                   </div>
-                  <div className="wealth-data-meta">투자 {formatKRWExact(positionCostKrw)} / 평가 {formatKRWExact(positionMarketValueKrw)}</div>
-                </div>
+                ))}
               </div>
             </div>
           </section>
 
-          <section className="page-section">
-            <div className="section-head-row">
-              <div>
-                <div className="section-title">운용 흐름</div>
-                <div className="section-copy">최근 사이클 {String(engineState.latest_cycle_id || '-')}</div>
-              </div>
-              <div className="inline-badge">{engineState.last_success_at ? formatDateTime(engineState.last_success_at) : '기록 없음'}</div>
-            </div>
-            <div className="wealth-flow-grid">
-              {flowSteps.map((step) => (
-                <div key={step.layer} className={`wealth-flow-step is-${step.tone}`}>
-                  <span>{step.layer}</span>
-                  <div>{step.label}</div>
-                  <strong>{step.value}</strong>
-                  <em>{step.meta}</em>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="page-section wealth-dashboard-grid">
+          <section className="wealth-surface-panel wealth-dashboard-grid wealth-risk-section">
             <div className="wealth-chart-panel">
               <div className="section-head-row">
                 <div>
