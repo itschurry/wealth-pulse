@@ -172,7 +172,11 @@ function DailyPerformanceJournalPanel({ journals }: { journals: DailyPerformance
   const market = selected.market || {};
   const trading = selected.trading || {};
   const diagnostics = selected.diagnostics || {};
-  const trades = Array.isArray(trading.trades) ? trading.trades : [];
+  const sameDayTrades = Array.isArray(trading.same_day_round_trips) ? trading.same_day_round_trips : (Array.isArray(trading.trades) ? trading.trades : []);
+  const carryInExits = Array.isArray(trading.carry_in_exits) ? trading.carry_in_exits : [];
+  const openAtClose = Array.isArray(trading.open_at_close) ? trading.open_at_close : [];
+  const followUpOutcomes = Array.isArray(selected.follow_up?.outcomes) ? selected.follow_up.outcomes : [];
+  const attribution = selected.pnl_attribution || {};
   const strategy = selected.strategy_config || {};
   const skipReasons = Object.entries(diagnostics.skip_reason_counts || {})
     .filter(([reason]) => reason !== 'market_closed')
@@ -218,21 +222,57 @@ function DailyPerformanceJournalPanel({ journals }: { journals: DailyPerformance
             <div className={toneForNumber(account.net_pnl_krw)}><span>일손익</span><strong>{formatSignedKRWExact(toNumber(account.net_pnl_krw))}</strong><em>{safePct(account.daily_return_pct)}</em></div>
             <div className={toneForNumber(market.excess_return_pct_points)}><span>시장 대비</span><strong>{safePct(market.excess_return_pct_points)}</strong><em>KOSPI {safePct(market.kospi_return_pct)}</em></div>
             <div><span>승패</span><strong>{formatNumber(trading.win_count, 0)}승 {formatNumber(trading.loss_count, 0)}패</strong><em>승률 {trading.win_rate_pct == null ? '-' : formatPercent(trading.win_rate_pct, 0)}</em></div>
-            <div><span>손익비</span><strong>{trading.profit_factor == null ? '-' : formatNumber(trading.profit_factor, 2)}</strong><em>수수료 {formatKRWExact(toNumber(account.fees_krw))}</em></div>
+            <div><span>확정 / 평가</span><strong>{formatSignedKRWExact(toNumber(attribution.realized_exit_pnl_krw))}</strong><em>평가 {formatSignedKRWExact(toNumber(attribution.open_unrealized_pnl_krw))}</em></div>
           </div>
 
           <div className="wealth-journal-trades">
-            <div className="wealth-journal-trade-row is-head"><span>종목</span><span>진입 → 청산</span><span>보유</span><span>손익</span><span>청산</span></div>
-            {trades.map((trade, index) => (
-              <div key={`${trade.code || '-'}:${trade.entry_at || index}`} className="wealth-journal-trade-row">
+            <div className="wealth-journal-group-title"><strong>당일 왕복</strong><span>{sameDayTrades.length}건 · 기여 {formatSignedKRWExact(toNumber(attribution.same_day_closed_contribution_krw))}</span></div>
+            {sameDayTrades.map((trade, index) => (
+              <div key={`same:${trade.code || '-'}:${trade.entry_at || index}`} className="wealth-journal-trade-row">
                 <span className="is-symbol"><strong>{trade.name || trade.code || '-'}</strong><em>{trade.code || '-'} · {formatNumber(trade.quantity, 0)}주</em></span>
                 <span className="is-prices"><strong>{formatKRWExact(toNumber(trade.entry_price_krw))} → {formatKRWExact(toNumber(trade.exit_price_krw))}</strong><em>{trade.entry_at ? formatDateTime(trade.entry_at) : '-'} → {trade.exit_at ? formatDateTime(trade.exit_at) : '-'}</em></span>
                 <span className="is-holding">보유 {formatHoldingTime(trade.holding_seconds)}</span>
                 <span className={`is-pnl ${toneForNumber(trade.realized_pnl_krw)}`}><strong>{formatSignedKRWExact(toNumber(trade.realized_pnl_krw))}</strong><em>{safePct(trade.return_pct ?? undefined)}</em></span>
-                <span className="is-exit">청산 {exitReasonLabel(trade.exit_reason)}</span>
+                <span className="is-exit">{exitReasonLabel(trade.exit_reason)}</span>
               </div>
             ))}
-            {trades.length === 0 && <div className="wealth-empty-line">완료된 거래가 없어.</div>}
+            {sameDayTrades.length === 0 && <div className="wealth-empty-line">당일 왕복 거래 없음</div>}
+
+            <div className="wealth-journal-group-title"><strong>전일 보유 청산</strong><span>{carryInExits.length}건 · 기여 {formatSignedKRWExact(toNumber(attribution.carry_in_exit_contribution_krw))}</span></div>
+            {carryInExits.map((trade, index) => (
+              <div key={`carry:${trade.code || '-'}:${trade.entry_at || index}`} className="wealth-journal-trade-row">
+                <span className="is-symbol"><strong>{trade.name || trade.code || '-'}</strong><em>{trade.code || '-'} · {formatNumber(trade.quantity, 0)}주</em></span>
+                <span className="is-prices"><strong>{formatKRWExact(toNumber(trade.entry_price_krw))} → {formatKRWExact(toNumber(trade.exit_price_krw))}</strong><em>{trade.entry_at ? formatDateTime(trade.entry_at) : '-'} → {trade.exit_at ? formatDateTime(trade.exit_at) : '-'}</em></span>
+                <span className="is-holding">보유 {formatHoldingTime(trade.holding_seconds)}</span>
+                <span className={`is-pnl ${toneForNumber(trade.realized_pnl_krw)}`}><strong>{formatSignedKRWExact(toNumber(trade.realized_pnl_krw))}</strong><em>{safePct(trade.return_pct ?? undefined)}</em></span>
+                <span className="is-exit">{exitReasonLabel(trade.exit_reason)}</span>
+              </div>
+            ))}
+            {carryInExits.length === 0 && <div className="wealth-empty-line">이월 청산 없음</div>}
+
+            <div className="wealth-journal-group-title"><strong>마감 보유</strong><span>{openAtClose.length}건 · 기여 {formatSignedKRWExact(toNumber(attribution.open_position_contribution_krw))}</span></div>
+            {openAtClose.map((position, index) => (
+              <div key={`open:${position.code || '-'}:${position.entry_at || index}`} className="wealth-journal-trade-row">
+                <span className="is-symbol"><strong>{position.name || position.code || '-'}</strong><em>{position.code || '-'} · {formatNumber(position.quantity, 0)}주</em></span>
+                <span className="is-prices"><strong>{formatKRWExact(toNumber(position.entry_price_krw))} → {formatKRWExact(toNumber(position.close_price_krw))}</strong><em>{position.entry_at ? formatDateTime(position.entry_at) : '-'}</em></span>
+                <span className="is-holding">{position.position_origin === 'opened_today' ? '당일 진입' : '이월 보유'}</span>
+                <span className={`is-pnl ${toneForNumber(position.unrealized_pnl_krw)}`}><strong>{formatSignedKRWExact(toNumber(position.unrealized_pnl_krw))}</strong><em>{safePct(position.return_pct ?? undefined)}</em></span>
+                <span className="is-exit">평가손익</span>
+              </div>
+            ))}
+            {openAtClose.length === 0 && <div className="wealth-empty-line">마감 보유 없음</div>}
+
+            <div className="wealth-journal-group-title"><strong>후속 결과</strong><span>마감 보유의 이후 청산</span></div>
+            {followUpOutcomes.map((outcome, index) => (
+              <div key={`follow:${outcome.code || '-'}:${outcome.entry_at || index}`} className="wealth-journal-trade-row">
+                <span className="is-symbol"><strong>{outcome.name || outcome.code || '-'}</strong><em>{outcome.code || '-'}</em></span>
+                <span className="is-prices"><strong>{outcome.status === 'closed' ? formatKRWExact(toNumber(outcome.exit_price_krw)) : '보유 중'}</strong><em>{outcome.exit_at ? formatDateTime(outcome.exit_at) : '후속 청산 대기'}</em></span>
+                <span className="is-holding">{outcome.status === 'closed' ? '청산 완료' : '보유 중'}</span>
+                <span className={`is-pnl ${toneForNumber(outcome.realized_pnl_krw)}`}><strong>{outcome.status === 'closed' ? formatSignedKRWExact(toNumber(outcome.realized_pnl_krw)) : '-'}</strong><em>{safePct(outcome.return_pct ?? undefined)}</em></span>
+                <span className="is-exit">{outcome.status === 'closed' ? exitReasonLabel(outcome.exit_reason) : '-'}</span>
+              </div>
+            ))}
+            {followUpOutcomes.length === 0 && <div className="wealth-empty-line">후속 평가 대상 없음</div>}
           </div>
 
           <div className="wealth-journal-foot">

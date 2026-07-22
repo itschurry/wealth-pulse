@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from config.market_calendar import is_market_trading_day
 from config.settings import RUNTIME_DIR
+from market_utils import lookup_company_listing
 from services.json_utils import json_dump_text
 from services.runtime_store import load_engine_state
 
@@ -58,6 +59,18 @@ def _read_cycles(date_key: str) -> list[dict[str, Any]]:
         item = json.loads(line)
         if isinstance(item, dict):
             rows.append(item)
+    cutoff = datetime.datetime.combine(
+        datetime.date.fromisoformat(date_key),
+        JOURNAL_TIME_KST,
+    )
+    rows = [
+        row for row in rows
+        if (row.get("started_at") or row.get("logged_at"))
+        and _kst_date(row.get("started_at") or row.get("logged_at")) == date_key
+        and datetime.datetime.fromisoformat(
+            str(row.get("started_at") or row.get("logged_at")).replace("Z", "+00:00")
+        ).astimezone(KST) <= cutoff
+    ]
     if not rows:
         raise ValueError(f"엔진 사이클이 없음: {date_key}")
     return rows
@@ -77,9 +90,17 @@ def _kst_iso(value: Any) -> str:
     return parsed.astimezone(KST).isoformat(timespec="seconds")
 
 
+def _account_orders(account: dict[str, Any]) -> list[dict[str, Any]]:
+    orders = account.get("orders") if isinstance(account.get("orders"), list) else []
+    return sorted(
+        [dict(order) for order in orders if isinstance(order, dict) and str(order.get("status") or "").lower() == "filled"],
+        key=lambda item: str(item.get("ts") or item.get("logged_at") or ""),
+    )
+
+
 def _daily_orders(cycles: list[dict[str, Any]], date_key: str) -> list[dict[str, Any]]:
     account = cycles[-1].get("account") if isinstance(cycles[-1].get("account"), dict) else {}
-    orders = account.get("orders") if isinstance(account.get("orders"), list) else []
+    orders = _account_orders(account)
     result = []
     for order in orders:
         if not isinstance(order, dict) or str(order.get("status") or "").lower() != "filled":
@@ -87,7 +108,7 @@ def _daily_orders(cycles: list[dict[str, Any]], date_key: str) -> list[dict[str,
         timestamp = order.get("ts") or order.get("logged_at")
         if timestamp and _kst_date(timestamp) == date_key:
             result.append(dict(order))
-    return sorted(result, key=lambda item: str(item.get("ts") or item.get("logged_at") or ""))
+    return result
 
 
 def _entry_metadata(cycles: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -103,23 +124,68 @@ def _entry_metadata(cycles: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _build_round_trips(orders: list[dict[str, Any]], entry_meta: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _prior_open_position_metadata(date_key: str) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for path in sorted(JOURNAL_DIR.glob("*.json")):
+        journal = _read_json(path)
+        if str(journal.get("date") or "") >= date_key:
+            continue
+        trading = journal.get("trading") if isinstance(journal.get("trading"), dict) else {}
+        positions = trading.get("open_at_close") if isinstance(trading.get("open_at_close"), list) else []
+        for position in positions:
+            if isinstance(position, dict) and position.get("code"):
+                result[str(position["code"])] = dict(position)
+    return result
+
+
+def _company_name(code: str, market: str, *values: Any) -> str:
+    for value in values:
+        name = str(value or "").strip()
+        if name and name != code:
+            return name
+    listing = lookup_company_listing(code=code, market=market, scope="live")
+    return str((listing or {}).get("name") or code)
+
+
+def _build_closed_trades(
+    orders: list[dict[str, Any]],
+    date_key: str,
+    entry_meta: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     buys_by_code: dict[str, list[dict[str, Any]]] = {}
-    trades: list[dict[str, Any]] = []
+    same_day: list[dict[str, Any]] = []
+    carry_in: list[dict[str, Any]] = []
     for order in orders:
         code = str(order.get("code") or "").strip()
         side = str(order.get("side") or "").lower()
         if side == "buy":
-            buys_by_code.setdefault(code, []).append(order)
+            buy_lot = dict(order)
+            buy_lot["_remaining_quantity"] = int(_safe_float(order.get("quantity")))
+            buys_by_code.setdefault(code, []).append(buy_lot)
             continue
         if side != "sell" or not buys_by_code.get(code):
             continue
-        buy = buys_by_code[code].pop(0)
+        remaining_to_sell = int(_safe_float(order.get("quantity")))
+        matched_lots: list[tuple[dict[str, Any], int]] = []
+        while remaining_to_sell > 0 and buys_by_code.get(code):
+            buy_lot = buys_by_code[code][0]
+            available = int(_safe_float(buy_lot.get("_remaining_quantity")))
+            matched_quantity = min(available, remaining_to_sell)
+            matched_lots.append((buy_lot, matched_quantity))
+            buy_lot["_remaining_quantity"] = available - matched_quantity
+            remaining_to_sell -= matched_quantity
+            if buy_lot["_remaining_quantity"] <= 0:
+                buys_by_code[code].pop(0)
+        buy = matched_lots[0][0]
         meta = entry_meta.get(code, {})
-        entry_price = _safe_float(buy.get("filled_price_krw"))
+        quantity = sum(matched_quantity for _, matched_quantity in matched_lots)
+        entry_notional = sum(_safe_float(lot.get("filled_price_krw")) * matched_quantity for lot, matched_quantity in matched_lots)
+        entry_price = entry_notional / quantity if quantity > 0 else 0.0
+        entry_fee = sum(
+            _safe_float(lot.get("fee_krw")) * matched_quantity / max(1, int(_safe_float(lot.get("quantity"))))
+            for lot, matched_quantity in matched_lots
+        )
         exit_price = _safe_float(order.get("filled_price_krw"))
-        quantity = min(int(_safe_float(buy.get("quantity"))), int(_safe_float(order.get("quantity"))))
-        entry_notional = entry_price * quantity
         realized_pnl = _safe_float(order.get("realized_pnl_krw"))
         entry_ts = buy.get("ts") or buy.get("logged_at")
         exit_ts = order.get("ts") or order.get("logged_at")
@@ -129,9 +195,9 @@ def _build_round_trips(orders: list[dict[str, Any]], entry_meta: dict[str, dict[
                 - datetime.datetime.fromisoformat(str(entry_ts).replace("Z", "+00:00"))
             ).total_seconds()
         )
-        trades.append({
+        trade = {
             "code": code,
-            "name": str(meta.get("name") or buy.get("name") or order.get("name") or code),
+            "name": _company_name(code, str(order.get("market") or buy.get("market") or ""), meta.get("name"), buy.get("name"), order.get("name")),
             "market": str(order.get("market") or buy.get("market") or ""),
             "quantity": quantity,
             "entry_at": _kst_iso(entry_ts),
@@ -140,7 +206,7 @@ def _build_round_trips(orders: list[dict[str, Any]], entry_meta: dict[str, dict[
             "entry_price_krw": round(entry_price, 4),
             "exit_price_krw": round(exit_price, 4),
             "entry_notional_krw": round(entry_notional, 2),
-            "entry_fee_krw": round(_safe_float(buy.get("fee_krw")), 2),
+            "entry_fee_krw": round(entry_fee, 2),
             "exit_fee_krw": round(_safe_float(order.get("fee_krw")), 2),
             "realized_pnl_krw": round(realized_pnl, 2),
             "return_pct": round(realized_pnl / entry_notional * 100, 4) if entry_notional > 0 else None,
@@ -154,8 +220,95 @@ def _build_round_trips(orders: list[dict[str, Any]], entry_meta: dict[str, dict[
                 "stop_loss_pct": buy.get("stop_loss_pct"),
                 "take_profit_pct": buy.get("take_profit_pct"),
             },
+        }
+        if _kst_date(exit_ts) != date_key:
+            continue
+        if _kst_date(entry_ts) == date_key:
+            same_day.append(trade)
+        else:
+            carry_in.append(trade)
+    return same_day, carry_in, buys_by_code
+
+
+def _build_open_at_close(
+    account: dict[str, Any],
+    unmatched_buys: dict[str, list[dict[str, Any]]],
+    date_key: str,
+    entry_meta: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    positions = account.get("positions") if isinstance(account.get("positions"), list) else []
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+        code = str(position.get("code") or "").strip()
+        buy_lots = unmatched_buys.get(code) or [{}]
+        buy = buy_lots[-1]
+        entry_ts = position.get("entry_ts") or buy.get("ts") or buy.get("logged_at")
+        if not code or not entry_ts:
+            continue
+        quantity = int(_safe_float(position.get("quantity")))
+        entry_price = _safe_float(position.get("avg_price_krw") or buy.get("filled_price_krw"))
+        close_price = _safe_float(position.get("last_price_krw"))
+        unrealized = _safe_float(position.get("unrealized_pnl_krw"))
+        meta = entry_meta.get(code, {})
+        result.append({
+            "code": code,
+            "name": _company_name(code, str(position.get("market") or ""), meta.get("name"), position.get("name"), buy.get("name")),
+            "market": str(position.get("market") or buy.get("market") or ""),
+            "quantity": quantity,
+            "entry_at": _kst_iso(entry_ts),
+            "position_origin": "opened_today" if _kst_date(entry_ts) == date_key else "carried_in",
+            "entry_price_krw": round(entry_price, 4),
+            "close_price_krw": round(close_price, 4),
+            "market_value_krw": round(_safe_float(position.get("market_value_krw")) or close_price * quantity, 2),
+            "entry_fee_krw": round(sum(
+                _safe_float(lot.get("fee_krw"))
+                * int(_safe_float(lot.get("_remaining_quantity") or lot.get("quantity")))
+                / max(1, int(_safe_float(lot.get("quantity"))))
+                for lot in buy_lots
+            ), 2),
+            "unrealized_pnl_krw": round(unrealized, 2),
+            "return_pct": round(_safe_float(position.get("unrealized_pnl_pct")), 4),
         })
-    return trades
+    return result
+
+
+def _latest_account_orders(mode: str) -> list[dict[str, Any]]:
+    filename = "simulated_account_state.json" if mode == "paper" else "live_account_state.json"
+    path = RUNTIME_DIR / "accounts" / filename
+    return _account_orders(_read_json(path)) if path.exists() else []
+
+
+def _build_follow_up(open_positions: list[dict[str, Any]], orders: list[dict[str, Any]], date_key: str) -> dict[str, Any]:
+    outcomes: list[dict[str, Any]] = []
+    for position in open_positions:
+        code = str(position.get("code") or "")
+        exit_order = next((
+            order for order in orders
+            if str(order.get("code") or "") == code
+            and str(order.get("side") or "").lower() == "sell"
+            and _kst_date(order.get("ts") or order.get("logged_at")) > date_key
+        ), None)
+        outcome = {
+            "code": code,
+            "name": position.get("name"),
+            "entry_at": position.get("entry_at"),
+            "close_date": date_key,
+            "status": "closed" if exit_order else "open",
+        }
+        if exit_order:
+            entry_notional = _safe_float(position.get("entry_price_krw")) * int(_safe_float(position.get("quantity")))
+            realized = _safe_float(exit_order.get("realized_pnl_krw"))
+            outcome.update({
+                "exit_at": _kst_iso(exit_order.get("ts") or exit_order.get("logged_at")),
+                "exit_price_krw": round(_safe_float(exit_order.get("filled_price_krw")), 4),
+                "realized_pnl_krw": round(realized, 2),
+                "return_pct": round(realized / entry_notional * 100, 4) if entry_notional > 0 else None,
+                "exit_reason": str(exit_order.get("note") or ""),
+            })
+        outcomes.append(outcome)
+    return {"as_of": datetime.datetime.now(KST).isoformat(timespec="seconds"), "outcomes": outcomes}
 
 
 def _market_snapshot(date_key: str, market_payload: dict[str, Any]) -> dict[str, Any]:
@@ -184,14 +337,19 @@ def build_daily_performance_journal(
         raise ValueError(f"계좌 스냅샷이 없는 엔진 사이클: {date_key}")
 
     orders = _daily_orders(cycles, date_key)
-    trades = _build_round_trips(orders, _entry_metadata(cycles))
+    all_orders = _account_orders(last_account)
+    entry_meta = _prior_open_position_metadata(date_key)
+    entry_meta.update(_entry_metadata(cycles))
+    same_day_trades, carry_in_exits, unmatched_buys = _build_closed_trades(all_orders, date_key, entry_meta)
+    open_at_close = _build_open_at_close(last_account, unmatched_buys, date_key, entry_meta)
+    closed_trades = same_day_trades + carry_in_exits
     starting_equity = _safe_float(first_account.get("equity_krw"))
     ending_equity = _safe_float(last_account.get("equity_krw"))
     net_pnl = ending_equity - starting_equity
     market = _market_snapshot(date_key, market_payload)
     daily_return = net_pnl / starting_equity * 100 if starting_equity > 0 else 0.0
-    wins = [trade for trade in trades if _safe_float(trade.get("realized_pnl_krw")) > 0]
-    losses = [trade for trade in trades if _safe_float(trade.get("realized_pnl_krw")) < 0]
+    wins = [trade for trade in closed_trades if _safe_float(trade.get("realized_pnl_krw")) > 0]
+    losses = [trade for trade in closed_trades if _safe_float(trade.get("realized_pnl_krw")) < 0]
     gross_profit = sum(_safe_float(trade.get("realized_pnl_krw")) for trade in wins)
     gross_loss = abs(sum(_safe_float(trade.get("realized_pnl_krw")) for trade in losses))
     skip_reasons: Counter[str] = Counter()
@@ -207,8 +365,33 @@ def build_daily_performance_journal(
 
     initial_equity = _safe_float(last_account.get("starting_equity_krw") or last_account.get("initial_cash_krw"))
     now = (generated_at or datetime.datetime.now(KST)).astimezone(KST)
+    start_positions = {
+        str(position.get("code") or ""): position
+        for position in (first_account.get("positions") or [])
+        if isinstance(position, dict)
+    }
+    same_day_contribution = sum(
+        _safe_float(trade.get("realized_pnl_krw")) - _safe_float(trade.get("entry_fee_krw"))
+        for trade in same_day_trades
+    )
+    carry_in_contribution = 0.0
+    for trade in carry_in_exits:
+        start_position = start_positions.get(str(trade.get("code") or ""), {})
+        quantity = int(_safe_float(trade.get("quantity")))
+        start_value = _safe_float(start_position.get("last_price_krw")) * quantity
+        exit_value = _safe_float(trade.get("exit_price_krw")) * quantity - _safe_float(trade.get("exit_fee_krw"))
+        carry_in_contribution += exit_value - start_value
+    open_contribution = 0.0
+    for position in open_at_close:
+        if position.get("position_origin") == "opened_today":
+            open_contribution += _safe_float(position.get("unrealized_pnl_krw")) - _safe_float(position.get("entry_fee_krw"))
+        else:
+            start_position = start_positions.get(str(position.get("code") or ""), {})
+            open_contribution += _safe_float(position.get("market_value_krw")) - _safe_float(start_position.get("market_value_krw"))
+    attributed = same_day_contribution + carry_in_contribution + open_contribution
+    latest_orders = _latest_account_orders(str(last_account.get("mode") or "unknown"))
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "date": date_key,
         "generated_at": now.isoformat(timespec="seconds"),
         "mode": str(last_account.get("mode") or "unknown"),
@@ -230,16 +413,30 @@ def build_daily_performance_journal(
         "trading": {
             "buy_count": sum(1 for order in orders if str(order.get("side") or "").lower() == "buy"),
             "sell_count": sum(1 for order in orders if str(order.get("side") or "").lower() == "sell"),
-            "round_trip_count": len(trades),
+            "round_trip_count": len(same_day_trades),
+            "closed_trade_count": len(closed_trades),
             "win_count": len(wins),
             "loss_count": len(losses),
-            "win_rate_pct": round(len(wins) / len(trades) * 100, 2) if trades else None,
+            "win_rate_pct": round(len(wins) / len(closed_trades) * 100, 2) if closed_trades else None,
             "gross_profit_krw": round(gross_profit, 2),
             "gross_loss_krw": round(gross_loss, 2),
             "profit_factor": round(gross_profit / gross_loss, 4) if gross_loss > 0 else None,
-            "average_holding_seconds": round(sum(int(trade["holding_seconds"]) for trade in trades) / len(trades), 2) if trades else None,
-            "trades": trades,
+            "average_holding_seconds": round(sum(int(trade["holding_seconds"]) for trade in closed_trades) / len(closed_trades), 2) if closed_trades else None,
+            "trades": closed_trades,
+            "same_day_round_trips": same_day_trades,
+            "carry_in_exits": carry_in_exits,
+            "open_at_close": open_at_close,
         },
+        "pnl_attribution": {
+            "same_day_closed_contribution_krw": round(same_day_contribution, 2),
+            "carry_in_exit_contribution_krw": round(carry_in_contribution, 2),
+            "open_position_contribution_krw": round(open_contribution, 2),
+            "unattributed_krw": round(net_pnl - attributed, 2),
+            "realized_exit_pnl_krw": round(sum(_safe_float(trade.get("realized_pnl_krw")) for trade in closed_trades), 2),
+            "open_unrealized_pnl_krw": round(sum(_safe_float(position.get("unrealized_pnl_krw")) for position in open_at_close), 2),
+            "net_pnl_krw": round(net_pnl, 2),
+        },
+        "follow_up": _build_follow_up(open_at_close, latest_orders, date_key),
         "diagnostics": {
             "engine_cycle_count": len(cycles),
             "skip_reason_counts": dict(skip_reasons),
@@ -265,7 +462,20 @@ def generate_daily_performance_journal(
         generated_at=generated_at,
     )
     _write_json(JOURNAL_DIR / f"{date_key}.json", payload)
+    _reconcile_stored_follow_ups(str(payload.get("mode") or "unknown"))
     return payload
+
+
+def _reconcile_stored_follow_ups(mode: str) -> None:
+    orders = _latest_account_orders(mode)
+    for path in JOURNAL_DIR.glob("*.json"):
+        journal = _read_json(path)
+        trading = journal.get("trading") if isinstance(journal.get("trading"), dict) else {}
+        open_positions = trading.get("open_at_close") if isinstance(trading.get("open_at_close"), list) else []
+        if int(journal.get("schema_version") or 0) < 2 or not open_positions:
+            continue
+        journal["follow_up"] = _build_follow_up(open_positions, orders, str(journal.get("date") or ""))
+        _write_json(path, journal)
 
 
 def read_daily_performance_journal(date_key: str) -> dict[str, Any]:

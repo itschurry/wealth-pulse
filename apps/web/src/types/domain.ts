@@ -742,6 +742,34 @@ export interface DailyPerformanceTrade {
   };
 }
 
+export interface DailyPerformanceOpenPosition {
+  code?: string;
+  name?: string;
+  market?: string;
+  quantity?: number;
+  entry_at?: string;
+  position_origin?: 'opened_today' | 'carried_in' | string;
+  entry_price_krw?: number;
+  close_price_krw?: number;
+  market_value_krw?: number;
+  entry_fee_krw?: number;
+  unrealized_pnl_krw?: number;
+  return_pct?: number | null;
+}
+
+export interface DailyPerformanceFollowUpOutcome {
+  code?: string;
+  name?: string;
+  entry_at?: string;
+  close_date?: string;
+  status?: 'open' | 'closed' | string;
+  exit_at?: string;
+  exit_price_krw?: number;
+  realized_pnl_krw?: number;
+  return_pct?: number | null;
+  exit_reason?: string;
+}
+
 export interface DailyPerformanceJournal {
   schema_version?: number;
   date?: string;
@@ -768,6 +796,7 @@ export interface DailyPerformanceJournal {
     buy_count?: number;
     sell_count?: number;
     round_trip_count?: number;
+    closed_trade_count?: number;
     win_count?: number;
     loss_count?: number;
     win_rate_pct?: number | null;
@@ -776,6 +805,22 @@ export interface DailyPerformanceJournal {
     profit_factor?: number | null;
     average_holding_seconds?: number | null;
     trades?: DailyPerformanceTrade[];
+    same_day_round_trips?: DailyPerformanceTrade[];
+    carry_in_exits?: DailyPerformanceTrade[];
+    open_at_close?: DailyPerformanceOpenPosition[];
+  };
+  pnl_attribution?: {
+    same_day_closed_contribution_krw?: number;
+    carry_in_exit_contribution_krw?: number;
+    open_position_contribution_krw?: number;
+    unattributed_krw?: number;
+    realized_exit_pnl_krw?: number;
+    open_unrealized_pnl_krw?: number;
+    net_pnl_krw?: number;
+  };
+  follow_up?: {
+    as_of?: string;
+    outcomes?: DailyPerformanceFollowUpOutcome[];
   };
   diagnostics?: {
     engine_cycle_count?: number;
