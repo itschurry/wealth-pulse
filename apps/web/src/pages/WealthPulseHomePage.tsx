@@ -150,6 +150,13 @@ const SKIP_REASON_LABELS: Record<string, string> = {
   symbol_daily_limit_reached: '종목별 일일 한도',
 };
 
+const KST_DATE_KEY_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Seoul',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 function DailyPerformanceJournalPanel({ journals }: { journals: DailyPerformanceJournal[] }) {
   const [selectedDate, setSelectedDate] = useState('');
   const selected = journals.find((journal) => journal.date === selectedDate) || journals[0];
@@ -544,8 +551,16 @@ export function WealthPulseHomePage({
   const researchSourceLabel = providerSourceToKorean(String(snapshot.research.source || snapshot.research.source_of_truth || ''))
     || providerStatusToKorean(String(snapshot.research.status || '-'))
     || '-';
-  const realizedPnlKrw = toNumber(engineState.today_realized_pnl) || toNumber(livePerformance.realized_pnl_krw);
-  const todayPnlKrw = realizedPnlKrw + totalUnrealizedPnlKrw;
+  const todayDateKey = KST_DATE_KEY_FORMATTER.format(new Date());
+  const dailyJournals = snapshot.dailyPerformance.journals || [];
+  const todayJournal = dailyJournals.find((journal) => journal.date === todayDateKey);
+  const previousJournal = dailyJournals
+    .filter((journal) => String(journal.date || '') < todayDateKey)
+    .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')))[0];
+  const realizedPnlKrw = toNumber(engineState.today_realized_pnl);
+  const todayPnlKrw = previousJournal
+    ? totalEquityKrw - toNumber(previousJournal.account?.ending_equity_krw)
+    : toNumber(todayJournal?.account?.net_pnl_krw);
   const focusSignals = [...signals]
     .sort((left, right) => toNumber(right.research_score ?? right.score) - toNumber(left.research_score ?? left.score))
     .slice(0, 3);

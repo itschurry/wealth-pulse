@@ -100,14 +100,21 @@ class DailyPerformanceJournalTests(unittest.TestCase):
             carry_sell = {"ts": "2026-07-21T00:10:00+00:00", "side": "sell", "status": "filled", "code": "465770", "market": "KOSPI", "quantity": 10, "filled_price_krw": 1200, "fee_krw": 20, "realized_pnl_krw": 1980, "note": "take_profit"}
             open_buy = {"ts": "2026-07-21T00:30:00+00:00", "side": "buy", "status": "filled", "code": "483650", "market": "KOSPI", "quantity": 2, "filled_price_krw": 2000, "fee_krw": 1}
             next_day_sell = {"ts": "2026-07-22T00:10:00+00:00", "side": "sell", "status": "filled", "code": "483650", "market": "KOSPI", "quantity": 2, "filled_price_krw": 1900, "fee_krw": 4, "realized_pnl_krw": -204, "note": "stop_loss"}
-            start = {"mode": "paper", "equity_krw": 10_500, "starting_equity_krw": 10_000, "positions": [{"code": "465770", "quantity": 10, "last_price_krw": 1050, "market_value_krw": 10_500}], "orders": [carry_buy]}
-            end = {"mode": "paper", "equity_krw": 11_579, "cash_krw": 7_479, "market_value_krw": 4_100, "starting_equity_krw": 10_000, "positions": [{"code": "483650", "market": "KOSPI", "quantity": 2, "entry_ts": open_buy["ts"], "avg_price_krw": 2000, "last_price_krw": 2050, "market_value_krw": 4100, "unrealized_pnl_krw": 100, "unrealized_pnl_pct": 2.5}], "orders": [open_buy, carry_sell, carry_buy]}
+            start = {"mode": "paper", "equity_krw": 11_980, "cash_krw": 11_980, "starting_equity_krw": 10_000, "positions": [], "orders": [carry_sell, carry_buy]}
+            end = {"mode": "paper", "equity_krw": 12_079, "cash_krw": 7_979, "market_value_krw": 4_100, "starting_equity_krw": 10_000, "positions": [{"code": "483650", "market": "KOSPI", "quantity": 2, "entry_ts": open_buy["ts"], "avg_price_krw": 2000, "last_price_krw": 2050, "market_value_krw": 4100, "unrealized_pnl_krw": 100, "unrealized_pnl_pct": 2.5}], "orders": [open_buy, carry_sell, carry_buy]}
+            previous_journal = {
+                "schema_version": 2,
+                "date": "2026-07-20",
+                "account": {"ending_equity_krw": 10_500},
+                "trading": {"open_at_close": [{"code": "465770", "name": "STX그린로지스", "quantity": 10, "close_price_krw": 1050, "market_value_krw": 10_500}]},
+            }
             rows = [
                 {"started_at": "2026-07-20T23:50:00+00:00", "account": start},
                 {"started_at": "2026-07-21T06:39:00+00:00", "account": end, "executed_buys": [{"code": "483650", "name": "달바글로벌"}]},
                 {"started_at": "2026-07-21T23:00:00+00:00", "account": {**end, "equity_krw": 999_999}},
             ]
             (cycles_dir / "2026-07-21.jsonl").write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows), encoding="utf-8")
+            (journals_dir / "2026-07-20.json").write_text(json.dumps(previous_journal, ensure_ascii=False), encoding="utf-8")
             (accounts_dir / "simulated_account_state.json").write_text(json.dumps({**end, "orders": [next_day_sell, open_buy, carry_sell, carry_buy]}), encoding="utf-8")
             with (
                 patch("services.daily_performance_journal.ENGINE_CYCLES_DIR", cycles_dir),
@@ -117,12 +124,16 @@ class DailyPerformanceJournalTests(unittest.TestCase):
             ):
                 result = build_daily_performance_journal("2026-07-21", market_payload={"kospi_history": [{"date": "2026-07-21", "close": 1, "pct": 1}]})
 
-        self.assertEqual(result["account"]["ending_equity_krw"], 11_579)
+        self.assertEqual(result["account"]["starting_equity_krw"], 10_500)
+        self.assertEqual(result["account"]["ending_equity_krw"], 12_079)
+        self.assertEqual(result["account"]["net_pnl_krw"], 1_579)
         self.assertEqual(len(result["trading"]["carry_in_exits"]), 1)
         self.assertEqual(len(result["trading"]["open_at_close"]), 1)
         self.assertEqual(result["trading"]["open_at_close"][0]["position_origin"], "opened_today")
         self.assertEqual(result["follow_up"]["outcomes"][0]["status"], "closed")
         self.assertEqual(result["follow_up"]["outcomes"][0]["realized_pnl_krw"], -204)
+        self.assertEqual(result["pnl_attribution"]["carry_in_exit_contribution_krw"], 1_480)
+        self.assertEqual(result["pnl_attribution"]["unattributed_krw"], 0)
         self.assertEqual(result["diagnostics"]["engine_cycle_count"], 2)
 
 

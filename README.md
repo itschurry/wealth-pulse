@@ -108,7 +108,7 @@ TELEGRAM_CHAT_ID=
 - `LIVE_TRADING_APPROVED=false`: `EXECUTION_MODE=live`여도 실거래 엔진 시작을 거부해. 사용자가 직접 `true`로 바꾸고 API 컨테이너를 재생성해야 실거래를 시작할 수 있어.
 - `PAPER_INITIAL_CASH_KRW=5000000`: 모의계좌 초기 현금이야. 실계좌 기준과 같은 500만원으로 검증해.
 - `LIVE_PERFORMANCE_STARTING_EQUITY_KRW=5000000`: 실계좌 통합 수익률 기준 평가금액이야. `/api/performance/summary`는 이 값을 시작 자산으로 보고 현재 총 평가금액 대비 수익률을 계산해.
-- 일별 성과 저널은 한국 거래일 `15:40 KST` 스냅샷을 기준으로 `storage/logs/runtime/daily_performance/YYYY-MM-DD.json`에 자동 생성돼. API가 장 마감 뒤 재시작되면 당일 누락분을 즉시 생성해.
+- 일별 성과 저널은 직전 거래일 `15:40 KST` 마감 자산과 당일 `15:40 KST` 마감 자산의 차이를 기준으로 `storage/logs/runtime/daily_performance/YYYY-MM-DD.json`에 자동 생성돼. API가 장 마감 뒤 재시작되면 당일 누락분을 즉시 생성해.
 - `/api/system/mode`: `EXECUTION_MODE`만 기준으로 모드를 보여줘. 별도 모드 변수로 우회하지 않아.
 - `WEALTHPULSE_AGENT_EXECUTION_MODE=agent_primary_quant_assisted`: OpenAI 리서치 buy 판단이 품질/리스크를 통과하면 퀀트 entry 없이도 주문 검토로 올라갈 수 있어.
 - `OPENAI_RESEARCH_MAX_OUTPUT_TOKENS=6000`: 리서치 JSON 잘림을 피하려고 현재 기준값으로 둬.
@@ -441,6 +441,8 @@ curl 'http://127.0.0.1:8001/api/performance/journal?date=2026-07-16'
 
 일별 성과 저널에는 시작·종료 자산, 일일·누적 수익률, KOSPI 대비 초과수익, 수수료, 차단·건너뜀 사유, 당시 전략 설정이 저장돼. 거래 결과는 `당일 왕복`, `전일 보유 청산`, `마감 보유`, `마감 보유의 후속 청산`으로 분리하고, 당일 손익도 각 분류의 자산 기여액과 확정·평가손익으로 따로 기록해. 후속 청산 결과는 다음 장 마감 저널 생성 때 과거 기록에 반영돼.
 운용 화면의 `일별 성과 기록`에서 날짜를 선택하면 같은 내용을 요약 지표와 종목별 거래 내역으로 확인할 수 있어.
+운용 화면의 `오늘 총손익`은 누적 실현손익이 아니라 현재 총자산에서 직전 거래일 마감 총자산을 뺀 값이야. `오늘 실현손익`은 당일 체결된 매도 주문의 실현손익만 합산해.
+모의계좌의 통합 수익률은 `현재 현금 + 보유종목 평가액`을 총자산으로 사용하고 500만원 시작 자산과 비교해.
 
 cycle 내부 흐름:
 

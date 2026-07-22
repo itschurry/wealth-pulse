@@ -138,6 +138,11 @@ def _prior_open_position_metadata(date_key: str) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _previous_journal(date_key: str) -> dict[str, Any]:
+    paths = [path for path in sorted(JOURNAL_DIR.glob("*.json")) if path.stem < date_key]
+    return _read_json(paths[-1]) if paths else {}
+
+
 def _company_name(code: str, market: str, *values: Any) -> str:
     for value in values:
         name = str(value or "").strip()
@@ -338,12 +343,14 @@ def build_daily_performance_journal(
 
     orders = _daily_orders(cycles, date_key)
     all_orders = _account_orders(last_account)
+    previous_journal = _previous_journal(date_key)
     entry_meta = _prior_open_position_metadata(date_key)
     entry_meta.update(_entry_metadata(cycles))
     same_day_trades, carry_in_exits, unmatched_buys = _build_closed_trades(all_orders, date_key, entry_meta)
     open_at_close = _build_open_at_close(last_account, unmatched_buys, date_key, entry_meta)
     closed_trades = same_day_trades + carry_in_exits
-    starting_equity = _safe_float(first_account.get("equity_krw"))
+    previous_account = previous_journal.get("account") if isinstance(previous_journal.get("account"), dict) else {}
+    starting_equity = _safe_float(previous_account.get("ending_equity_krw") or first_account.get("equity_krw"))
     ending_equity = _safe_float(last_account.get("equity_krw"))
     net_pnl = ending_equity - starting_equity
     market = _market_snapshot(date_key, market_payload)
@@ -370,6 +377,15 @@ def build_daily_performance_journal(
         for position in (first_account.get("positions") or [])
         if isinstance(position, dict)
     }
+    previous_trading = previous_journal.get("trading") if isinstance(previous_journal.get("trading"), dict) else {}
+    previous_open_positions = previous_trading.get("open_at_close") if isinstance(previous_trading.get("open_at_close"), list) else []
+    for position in previous_open_positions:
+        if not isinstance(position, dict) or not position.get("code"):
+            continue
+        start_positions[str(position["code"])] = {
+            **position,
+            "last_price_krw": position.get("close_price_krw"),
+        }
     same_day_contribution = sum(
         _safe_float(trade.get("realized_pnl_krw")) - _safe_float(trade.get("entry_fee_krw"))
         for trade in same_day_trades

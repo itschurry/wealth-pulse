@@ -77,6 +77,12 @@ def _return_pct(pnl: float, cost: float) -> float | None:
     return (pnl / cost) * 100 if cost > 0 else None
 
 
+def _account_equity_krw(execution_mode: str, reported_equity: float, cash_krw: float, market_value_krw: float) -> float:
+    if execution_mode == "paper":
+        return cash_krw + market_value_krw
+    return reported_equity
+
+
 def _baseline_account_key(account: dict[str, Any]) -> str:
     mode = str(account.get("mode") or "unknown").strip().lower()
     product = str(account.get("account_product_code") or "").strip()
@@ -233,7 +239,8 @@ def handle_performance_summary() -> tuple[int, dict]:
     try:
         engine_state = load_engine_state(default={})
         engine_account: dict[str, Any] = {}
-        if _current_execution_mode() == "live":
+        execution_mode = _current_execution_mode()
+        if execution_mode == "live":
             account = _read_latest_live_account_snapshot()
         else:
             account = _read_account_state()
@@ -279,6 +286,7 @@ def handle_performance_summary() -> tuple[int, dict]:
         kospi_market_value_krw = sum(_safe_float(p.get("market_value_krw")) for p in positions)
         position_cost_krw = sum(_position_cost_krw(p) for p in positions)
         position_market_value_krw = kospi_market_value_krw
+        equity_krw = _account_equity_krw(execution_mode, equity_krw, cash_krw, position_market_value_krw)
         position_unrealized_pnl_krw = unrealized_pnl
         position_return_pct = _return_pct(position_unrealized_pnl_krw, position_cost_krw)
         position_return_pct_krw = position_return_pct

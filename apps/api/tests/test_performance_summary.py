@@ -11,10 +11,15 @@ API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from routes.performance import _read_json_file, _resolve_live_performance_baseline
+from routes.performance import _account_equity_krw, _read_json_file, _resolve_live_performance_baseline
 
 
 class PerformanceSummaryTests(unittest.TestCase):
+    def test_paper_equity_uses_cash_and_market_value(self) -> None:
+        equity = _account_equity_krw("paper", 0.0, 4_700_000.0, 487_051.62)
+
+        self.assertEqual(equity, 5_187_051.62)
+
     def test_configured_live_starting_equity_overrides_stale_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             baseline_path = Path(tmpdir) / "live_performance_baseline.json"
