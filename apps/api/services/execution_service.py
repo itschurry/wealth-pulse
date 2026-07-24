@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import threading
+import time
 import uuid
 from typing import Any
 
@@ -95,6 +96,7 @@ _ENTRY_BUY_ACTIONS = {"buy", "buy_watch"}
 _ENTRY_MIN_CLOSE_VS_SMA = 1.0
 _ENTRY_MIN_VOLUME_RATIO = 0.8
 _ACTIVE_TRADING_INTERVAL_SECONDS = 60
+_DEFAULT_EXIT_MONITOR_INTERVAL_SECONDS = 60
 _STALE_RUNTIME_STATE_KEYS = {"optimized_params"}
 _STALE_RUNTIME_CONFIG_KEYS = {"validation_require_optimized_reliability"}
 _BUY_CAPACITY_FAILURE_REASONS = {"domestic_orderable_quantity_zero"}
@@ -119,6 +121,9 @@ _auto_trader_state: dict[str, Any] = {
     "last_error": "",
     "last_error_at": "",
     "last_summary": {},
+    "last_exit_check_at": "",
+    "last_exit_summary": {},
+    "last_exit_error": "",
     "current_config": {},
     "config": {},
     "latest_cycle_id": "",
@@ -1319,6 +1324,7 @@ def _default_auto_trader_config() -> dict:
     primary = profiles["KOSPI"]
     base = {
         "interval_seconds": _ACTIVE_TRADING_INTERVAL_SECONDS,
+        "exit_monitor_interval_seconds": _DEFAULT_EXIT_MONITOR_INTERVAL_SECONDS,
         "markets": ["KOSPI"],
         "max_positions_per_market": int(primary["max_positions"]),
         "min_score": 50.0,
@@ -1560,6 +1566,26 @@ def _sync_primary_strategy_fields(cfg: dict) -> dict:
     cfg["bluechip_max_symbol_position_ratio"] = max(0.0, min(1.0, _to_float(cfg.get("bluechip_max_symbol_position_ratio"), 0.40)))
     cfg["bluechip_risk_per_trade_pct"] = max(0.05, min(5.0, _to_float(cfg.get("bluechip_risk_per_trade_pct"), 1.5)))
     cfg["bluechip_allow_additional_buy"] = _coerce_bool(cfg.get("bluechip_allow_additional_buy"), True)
+    entry_interval = max(
+        30,
+        min(3600, int(_to_float(cfg.get("interval_seconds"), _ACTIVE_TRADING_INTERVAL_SECONDS))),
+    )
+    cfg["interval_seconds"] = entry_interval
+    cfg["exit_monitor_interval_seconds"] = min(
+        entry_interval,
+        max(
+            30,
+            min(
+                60,
+                int(
+                    _to_float(
+                        cfg.get("exit_monitor_interval_seconds"),
+                        _DEFAULT_EXIT_MONITOR_INTERVAL_SECONDS,
+                    )
+                ),
+            ),
+        ),
+    )
     rotation_raw = cfg.get("rotation") if isinstance(cfg.get("rotation"), dict) else {}
     cfg["rotation"] = {
         "enabled": bool(rotation_raw.get("enabled", True)),
@@ -2538,7 +2564,7 @@ def _auto_invest_picks(
     }
 
 
-def _run_auto_trader_cycle(cfg: dict) -> dict:
+def _run_auto_trader_cycle(cfg: dict, *, entry_scan: bool = True) -> dict:
     global _last_daily_loss_notified_day, _last_market_open_brief_sent
     engine = _runtime_engine()
     notifier = get_notification_service()
@@ -2646,7 +2672,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
         "markets": markets,
         "selected_count": 0,
     }
-    if account_mode == "real":
+    if account_mode == "real" and entry_scan:
         research_refresh = _auto_refresh_research_snapshots(
             markets=markets,
             limit=int(cfg.get("research_refresh_limit") or 30),
@@ -2701,6 +2727,8 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                 trailing_profit_peaks[peak_key] = position.get("peak_unrealized_pnl_pct")
             reason = _position_exit_reason_by_pnl(position, cfg, market)
             if not reason:
+                if not entry_scan:
+                    continue
                 technicals, tech_error = _load_technicals(code, market)
                 if tech_error:
                     logger.debug("exit technicals unavailable for {}:{}: {}", market, code, tech_error)
@@ -2795,6 +2823,9 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
                     "failure_reason": failure_reason,
                     "originating_cycle_id": cycle_id,
                 })
+
+        if not entry_scan:
+            continue
 
         account = _normalize_runtime_account(
             engine.get_account(refresh_quotes=True),
@@ -3449,6 +3480,7 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     finished_at = _now_iso()
     summary = {
         "ok": True,
+        "cycle_type": "full" if entry_scan else "exit_monitor",
         "cycle_id": cycle_id,
         "started_at": started_at,
         "finished_at": finished_at,
@@ -3524,6 +3556,28 @@ def _run_auto_trader_cycle(cfg: dict) -> dict:
     return summary
 
 
+def _should_run_exit_monitor(cfg: dict[str, Any]) -> bool:
+    markets = {
+        normalize_strategy_market(market)
+        for market in (cfg.get("markets") or ["KOSPI"])
+        if _is_active_auto_trade_market(normalize_strategy_market(market))
+    }
+    if not markets:
+        return False
+    if not any(
+        is_market_open(_MARKET_TO_CALENDAR.get(market, market), include_after_hours=True)
+        for market in markets
+    ):
+        return False
+    account = _runtime_engine().get_account(refresh_quotes=False)
+    return any(
+        str(position.get("market") or "").upper() in markets
+        and _position_has_managed_exit_plan(position)
+        for position in account.get("positions", [])
+        if isinstance(position, dict)
+    )
+
+
 def _auto_trader_loop(stop_event: threading.Event) -> None:
     while not stop_event.is_set():
         _hydrate_auto_trader_state()
@@ -3583,10 +3637,85 @@ def _auto_trader_loop(stop_event: threading.Event) -> None:
             _auto_trader_cycle_lock.release()
         interval = int((cfg.get("interval_seconds") or _ACTIVE_TRADING_INTERVAL_SECONDS))
         interval = max(30, min(3600, interval))
+        exit_interval = min(
+            interval,
+            max(
+                30,
+                min(
+                    60,
+                    int(
+                        cfg.get("exit_monitor_interval_seconds")
+                        or _DEFAULT_EXIT_MONITOR_INTERVAL_SECONDS
+                    ),
+                ),
+            ),
+        )
         with _auto_trader_lock:
             _auto_trader_state["next_run_at"] = _next_run_at(interval)
             _persist_auto_trader_state_locked()
-        stop_event.wait(interval)
+        next_full_cycle_at = time.monotonic() + interval
+        while not stop_event.is_set():
+            remaining = next_full_cycle_at - time.monotonic()
+            if remaining <= 0:
+                break
+            if stop_event.wait(min(exit_interval, remaining)):
+                break
+            if time.monotonic() >= next_full_cycle_at:
+                break
+
+            _hydrate_auto_trader_state()
+            with _auto_trader_lock:
+                engine_state = str(_auto_trader_state.get("engine_state") or "stopped")
+                cfg = dict(
+                    _auto_trader_state.get("current_config")
+                    or _default_auto_trader_config()
+                )
+            if engine_state == "paused":
+                break
+            if engine_state != "running":
+                stop_event.set()
+                break
+            if not _should_run_exit_monitor(cfg):
+                continue
+
+            acquired_cycle = _auto_trader_cycle_lock.acquire(blocking=False)
+            if not acquired_cycle:
+                continue
+            try:
+                exit_summary = _run_auto_trader_cycle(cfg, entry_scan=False)
+                with _auto_trader_lock:
+                    _auto_trader_state["last_exit_check_at"] = _now_iso()
+                    _auto_trader_state["last_exit_summary"] = exit_summary
+                    _auto_trader_state["last_exit_error"] = ""
+                    _persist_auto_trader_state_locked()
+            except Exception as exc:
+                logger.warning("auto trader exit monitor 실패: {}", exc)
+                notifier = get_notification_service()
+                with _auto_trader_lock:
+                    failed_at = _now_iso()
+                    _auto_trader_state["last_exit_check_at"] = failed_at
+                    _auto_trader_state["last_exit_error"] = str(exc)
+                    _auto_trader_state["last_error_at"] = failed_at
+                    _auto_trader_state["last_error"] = str(exc)
+                    _auto_trader_state["engine_state"] = "error"
+                    _auto_trader_state["running"] = False
+                    _persist_auto_trader_state_locked()
+                    notifier.notify_engine_error(
+                        error=str(exc),
+                        cycle_id=str(_auto_trader_state.get("latest_cycle_id") or ""),
+                    )
+                append_engine_cycle({
+                    "ok": False,
+                    "cycle_type": "exit_monitor",
+                    "cycle_id": str(_auto_trader_state.get("latest_cycle_id") or ""),
+                    "started_at": _now_iso(),
+                    "finished_at": _now_iso(),
+                    "error": str(exc),
+                })
+                stop_event.set()
+                break
+            finally:
+                _auto_trader_cycle_lock.release()
 
 
 def _start_auto_trader(config: dict) -> dict:

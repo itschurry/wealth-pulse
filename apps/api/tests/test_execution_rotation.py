@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 
 API_ROOT = Path(__file__).resolve().parents[1]
@@ -15,12 +16,16 @@ from services.execution_service import (
     _candidate_unit_price_local,
     _candidate_execution_risk_plan,
     _buy_capacity_block_reason_from_orders,
+    _default_auto_trader_config,
     _promote_operator_review_candidate_for_entry,
     _promote_priority_candidate_for_entry,
     _position_exit_reason_by_pnl,
     _refresh_trailing_profit_peak,
+    _run_auto_trader_cycle,
     _select_rotation_plan,
+    _should_run_exit_monitor,
     _should_attempt_rotation,
+    _sync_primary_strategy_fields,
     _symbol_reentry_blocked,
 )
 from datetime import datetime, timedelta, timezone
@@ -63,6 +68,98 @@ def _primary_buy_snapshot() -> dict:
 
 
 class ExecutionRotationTests(unittest.TestCase):
+    def test_exit_monitor_interval_is_separate_and_capped_at_sixty_seconds(self) -> None:
+        default_config = _default_auto_trader_config()
+        self.assertEqual(default_config["exit_monitor_interval_seconds"], 60)
+
+        config = _sync_primary_strategy_fields({
+            **default_config,
+            "interval_seconds": 300,
+            "exit_monitor_interval_seconds": 90,
+        })
+        self.assertEqual(config["interval_seconds"], 300)
+        self.assertEqual(config["exit_monitor_interval_seconds"], 60)
+
+        config = _sync_primary_strategy_fields({
+            **default_config,
+            "interval_seconds": 45,
+            "exit_monitor_interval_seconds": 60,
+        })
+        self.assertEqual(config["exit_monitor_interval_seconds"], 45)
+
+    @patch("services.execution_service.is_market_open", return_value=True)
+    @patch("services.execution_service._runtime_engine")
+    def test_exit_monitor_runs_only_for_managed_positions(
+        self,
+        runtime_engine: Mock,
+        _is_market_open: Mock,
+    ) -> None:
+        engine = runtime_engine.return_value
+        engine.get_account.return_value = {
+            "positions": [{
+                "market": "KOSPI",
+                "code": "005930",
+                "entry_plan_price": 100000,
+                "stop_loss_price": 94000,
+                "take_profit_price": 112000,
+            }],
+        }
+        self.assertTrue(_should_run_exit_monitor({"markets": ["KOSPI"]}))
+
+        engine.get_account.return_value = {
+            "positions": [{"market": "KOSPI", "code": "005930"}],
+        }
+        self.assertFalse(_should_run_exit_monitor({"markets": ["KOSPI"]}))
+
+    def test_exit_monitor_cycle_skips_technicals_and_entry_scan(self) -> None:
+        account = {
+            "mode": "paper",
+            "cash_krw": 4_500_000,
+            "equity_krw": 5_000_000,
+            "orders": [],
+            "positions": [{
+                "market": "KOSPI",
+                "code": "005930",
+                "quantity": 5,
+                "entry_plan_price": 100000,
+                "stop_loss_price": 94000,
+                "take_profit_price": 112000,
+                "avg_price_local": 100000,
+                "last_price_local": 100000,
+                "unrealized_pnl_pct": 0.0,
+                "unrealized_pnl_krw": 0.0,
+            }],
+        }
+        engine = Mock()
+        engine.get_account.return_value = account
+
+        with (
+            patch("services.execution_service._runtime_engine", return_value=engine),
+            patch(
+                "services.execution_service._normalize_runtime_account",
+                side_effect=lambda value, **_: value,
+            ),
+            patch("services.execution_service._runtime_order_attempts", return_value=[]),
+            patch("services.execution_service.is_market_open", return_value=True),
+            patch("services.execution_service._compute_technical_snapshot") as technicals,
+            patch("services.execution_service.build_signal_book") as signal_book,
+            patch("services.execution_service._persist_live_runtime_account"),
+            patch("services.execution_service.append_signal_snapshots"),
+            patch("services.execution_service.append_engine_cycle"),
+            patch("services.execution_service.append_account_snapshot"),
+            patch("services.execution_service._should_send_market_open_brief", return_value=(False, "")),
+            patch("services.execution_service.get_notification_service", return_value=Mock()),
+        ):
+            summary = _run_auto_trader_cycle(
+                _default_auto_trader_config(),
+                entry_scan=False,
+            )
+
+        self.assertEqual(summary["cycle_type"], "exit_monitor")
+        self.assertEqual(summary["executed_buy_count"], 0)
+        technicals.assert_not_called()
+        signal_book.assert_not_called()
+
     def test_symbol_reentry_is_blocked_for_three_days_after_sell(self) -> None:
         orders = [{
             "timestamp": "2026-07-13T01:00:00+00:00",
